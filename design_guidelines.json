@@ -1,0 +1,128 @@
+{
+  "project_context": {
+    "app_type": "mobile_web_app",
+    "niche": "gamified_employee_engagement_hub",
+    "theme": "dark",
+    "visual_style": "arcade_gaming_neobrutalism",
+    "core_vibe": "Duolingo meets Fortnite in a cyberpunk neon setting",
+    "target_device": "mobile-first",
+    "language": "uk"
+  },
+  "typography": {
+    "instructions": "Avoid generic fonts like Inter or Roboto. Use expressive, gaming-inspired typography to match the arcade aesthetic.",
+    "headings": {
+      "font_family": "'Unbounded', sans-serif",
+      "weights": ["700", "900"],
+      "usage_classes": "font-black tracking-tight",
+      "import_url": "https://fonts.googleapis.com/css2?family=Unbounded:wght@700;900&display=swap"
+    },
+    "body": {
+      "font_family": "'Nunito', sans-serif",
+      "weights": ["400", "700", "900"],
+      "usage_classes": "font-bold text-base leading-relaxed",
+      "import_url": "https://fonts.googleapis.com/css2?family=Nunito:wght@400;700;900&display=swap"
+    }
+  },
+  "colors": {
+    "strategy": "Deep Obsidian background with Electric/Neon accents. DO NOT use generic Vercel/Stripe gradients or AI-slop purple. Colors must serve as gamified feedback (XP, Level Up, Urgent).",
+    "backgrounds": {
+      "app_bg": "#0A0A0A",
+      "surface": "#1A1A1E",
+      "surface_elevated": "#27272A"
+    },
+    "accents": {
+      "primary_yellow": "#FFB800",
+      "electric_orange": "#FF5C00",
+      "neon_green": "#39FF14",
+      "danger_red": "#FF3B30",
+      "cyan_glow": "#00F0FF"
+    },
+    "text": {
+      "primary": "#F5F5F5",
+      "secondary": "#A1A1AA",
+      "inverse": "#0A0A0A"
+    },
+    "borders": {
+      "default": "#2D2D2D",
+      "highlight": "#FFB800"
+    }
+  },
+  "surface_strategies": {
+    "cards": "Solid backgrounds (#1A1A1E) with sharp 2px borders (border-white/10). Active/Quest cards should have vibrant colored borders (border-[#FFB800]). NO glassmorphism—keep it solid and tactile.",
+    "buttons": "The 'Tactile Arcade' look. Buttons must have a deep bottom border (`border-b-4`) that compresses on active state (`active:border-b-0 active:translate-y-1`) to feel like pressing a physical arcade button.",
+    "panels": "Bottom sheet modals with large drag handles and rounded top corners (`rounded-t-3xl`)."
+  },
+  "grids_and_layouts": {
+    "mobile_first_rules": "Always design for max-w-md mx-auto for desktop viewing, ensuring it looks like a mobile app frame. Use safe-area paddings.",
+    "navigation": "Sticky bottom navigation bar. Use heavy iconography and hide labels on inactive tabs to keep it clean.",
+    "bento_boxes": "Use tight grids for stats (grid-cols-2 gap-3). Elements should stretch to fill exactly. Use heavy padding (p-4 to p-6) inside containers."
+  },
+  "component_guidelines": {
+    "progress_bars": "Must be thick (h-4 or h-6), fully rounded (`rounded-full`), and feature an inner shadow. Use animated stripes (via CSS linear-gradient background) to simulate 'charging' or XP gain.",
+    "badges": "Pill-shaped (`rounded-full`), highly saturated background with dark text for contrast.",
+    "avatars": "Chunky borders around avatars (`border-2 border-[#FFB800] p-1`).",
+    "daily_quests": "List items should look like 'tickets' or 'bounties'. Display the reward (e.g., '+50 XP') prominently in electric green.",
+    "customization": "Heavily override Shadcn UI default styles. Remove 'ring-offset-background' default aesthetics. Make inputs and selects chunky with `h-14` and `rounded-xl`."
+  },
+  "motion_and_interactions": {
+    "micro_interactions": "All tap targets must have an `active:scale-95` and `transition-transform` rule.",
+    "success_states": "MANDATORY: Trigger `canvas-confetti` explosion when a daily task is completed or a prize is purchased.",
+    "loading": "No generic spinners. Use a bouncing dot or a pulse effect on an arcade icon.",
+    "page_transitions": "Slide-in from right for new pages, mimicking native iOS/Android navigation."
+  },
+  "visual_enhancers": {
+    "icons": "Use `lucide-react` but set `strokeWidth={2.5}` or `3` to make them look thick and playful.",
+    "glow_effects": "Use Tailwind's `drop-shadow` for neon elements, e.g., `drop-shadow-[0_0_8px_rgba(255,184,0,0.8)]`."
+  },
+  "media_and_images": {
+    "strategy": "Use high-quality product images for the Prize Store. Apply a subtle dark gradient overlay at the bottom of prize cards to ensure text readability.",
+    "image_urls": {
+      "prizes": [
+        {
+          "category": "Gift Box / Mystery Reward",
+          "url": "https://images.unsplash.com/photo-1767522248089-468ec2d4efd7",
+          "description": "Neon gift box glowing at night"
+        },
+        {
+          "category": "Company Merch / Apparel",
+          "url": "https://images.pexels.com/photos/28701952/pexels-photo-28701952.jpeg",
+          "description": "Minimalist black hoodie apparel"
+        },
+        {
+          "category": "Gift Box Alternate",
+          "url": "https://images.pexels.com/photos/33629664/pexels-photo-33629664.jpeg",
+          "description": "Elegant gift boxes wrapped in black ribbons"
+        },
+        {
+          "category": "Coin / Points Iconography",
+          "url": "https://images.unsplash.com/photo-1701709130488-638eb156757c?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NjZ8MHwxfHNlYXJjaHwyfHwzZCUyMHN0YXIlMjBjb2lufGVufDB8fHx8MTc4MzM4NTA4N3ww&ixlib=rb-4.1.0&q=85",
+          "description": "3D star coin reference for points"
+        }
+      ]
+    }
+  },
+  "accessibility": {
+    "contrast": "Ensure text on primary yellow/orange buttons is Obsidian (#0A0A0A) for strict WCAG contrast compliance. Do not use white text on yellow.",
+    "touch_targets": "Minimum touch target size must be 48x48px (Tailwind `w-12 h-12`).",
+    "testing": "All interactive and key informational elements MUST include a `data-testid` attribute (e.g., `data-testid=\"redeem-prize-button\"`).",
+    "reduced_motion": "Wrap confetti and heavy animations in `motion-safe` variants."
+  },
+  "instructions_to_main_agent": [
+    "Inject the font imports (Unbounded and Nunito) into the main CSS/HTML head.",
+    "Implement the 'Arcade Button' pattern: thick bottom borders that shrink on click.",
+    "Do NOT use transparent backgrounds for the sticky bottom nav; it must be solid surface color with a top border to prevent content bleed.",
+    "Use canvas-confetti library. Trigger it from a React effect or button click handler on the 'Щоденні завдання' (Daily Quests) page.",
+    "Ensure the UI text is entirely in Ukrainian as requested.",
+    "Design the MVP with 4 main views: Login, Home (Profile + Stats), Quests, and Prize Store.",
+    "Since this is mobile-first, constrain the main app container layout to max-width: 480px, centered on desktop, taking full width on mobile."
+  ],
+  "universal_guidelines_for_main_agent": [
+    "Avoid the 'AI slop' aesthetic. Do not use default centered layouts, simplistic gradients, or uniform soft shadows.",
+    "Create depth through layered design elements with z-index hierarchy, but prefer solid layers and thick strokes for this arcade theme over soft blurs.",
+    "You MUST NOT apply universal transition (e.g., transition: all). Add transitions for specific interactive elements like transform, colors.",
+    "You MUST NOT center align the app container text natively.",
+    "NEVER use AI assistant Emoji characters (🤖🧠💭💡🔮🎯) for icons. Use lucide-react.",
+    "Prioritize using pre-existing components from src/components/ui, but heavily customize their Tailwind classes to match the arcade/neobrutalist style.",
+    "Use `sonner` for toast notifications (e.g., 'Квест виконано!')."
+  ]
+}

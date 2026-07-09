@@ -1,0 +1,101 @@
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { Home, Swords, Gift, LogOut, Shield, Trophy, Newspaper } from "lucide-react";
+import { useEffect } from "react";
+import { useApp } from "@/context/AppContext";
+import InstallPrompt from "@/components/InstallPrompt";
+
+const NavItem = ({ to, icon: Icon, label, testId }) => (
+  <NavLink
+    to={to}
+    data-testid={testId}
+    end
+    className={({ isActive }) =>
+      `flex flex-col items-center justify-center gap-1 flex-1 min-w-0 h-full transition-transform active:scale-95 ${
+        isActive ? "text-[#FFB800]" : "text-zinc-500"
+      }`
+    }
+  >
+    {({ isActive }) => (
+      <>
+        <div
+          className={`w-10 h-10 rounded-2xl flex items-center justify-center transition-colors ${
+            isActive ? "bg-[#FFB800]/15" : "bg-transparent"
+          }`}
+        >
+          <Icon strokeWidth={isActive ? 3 : 2.5} size={20} />
+        </div>
+        {isActive && (
+          <span className="text-[9px] font-black uppercase tracking-wider truncate max-w-full px-0.5">
+            {label}
+          </span>
+        )}
+      </>
+    )}
+  </NavLink>
+);
+
+export default function AppLayout() {
+  const { user, logout, mode } = useApp();
+  const nav = useNavigate();
+  const loc = useLocation();
+
+  useEffect(() => {
+    if (!user) nav("/login", { replace: true });
+  }, [user, nav]);
+
+  if (!user) return null;
+  const isAdmin = user.role === "admin";
+
+  return (
+    <div className="min-h-screen w-full flex justify-center">
+      <div className="relative w-full max-w-[480px] min-h-screen flex flex-col bg-[#0A0A0A] border-x border-white/5">
+        <header className="sticky top-0 z-30 bg-[#0A0A0A]/95 backdrop-blur-sm border-b border-white/5 px-5 pt-5 pb-4 flex items-center justify-between">
+          <div>
+            <div className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500">
+              CallHub {mode === "mock" && <span className="text-[#FF5C00]">• MOCK</span>}
+            </div>
+            <div className="font-display text-xl text-white leading-none mt-1">GAME HUB</div>
+          </div>
+          <div className="flex items-center gap-2">
+            {isAdmin && (
+              <button
+                data-testid="nav-admin"
+                onClick={() => nav("/admin")}
+                className="w-11 h-11 rounded-2xl bg-[#FF5C00]/15 border-2 border-[#FF5C00]/60 flex items-center justify-center text-[#FF5C00] active:scale-95 transition-transform"
+                aria-label="Адмін-панель"
+              >
+                <Shield size={18} strokeWidth={3} />
+              </button>
+            )}
+            <button
+              data-testid="logout-btn"
+              onClick={() => { logout(); nav("/login"); }}
+              className="w-11 h-11 rounded-2xl bg-[#1A1A1E] border border-white/10 flex items-center justify-center text-zinc-400 active:scale-95 transition-transform"
+              aria-label="Вийти"
+            >
+              <LogOut size={18} strokeWidth={2.5} />
+            </button>
+          </div>
+        </header>
+
+        <main key={loc.pathname} className="flex-1 pb-28 page-enter" data-testid="main-content">
+          <Outlet />
+        </main>
+
+        <InstallPrompt />
+
+        <nav
+          data-testid="bottom-nav"
+          className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[480px] bg-[#0A0A0A] border-t border-white/10 h-20 flex items-center z-40"
+          style={{ paddingLeft: 4, paddingRight: 210 }}
+        >
+          <NavItem to="/" icon={Home} label="Головна" testId="nav-home" />
+          <NavItem to="/quests" icon={Swords} label="Квести" testId="nav-quests" />
+          <NavItem to="/feed" icon={Newspaper} label="Стрічка" testId="nav-feed" />
+          <NavItem to="/store" icon={Gift} label="Магазин" testId="nav-store" />
+          <NavItem to="/leaderboard" icon={Trophy} label="Рейтинг" testId="nav-board" />
+        </nav>
+      </div>
+    </div>
+  );
+}

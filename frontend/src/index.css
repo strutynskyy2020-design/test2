@@ -1,0 +1,106 @@
+@import url('https://fonts.googleapis.com/css2?family=Unbounded:wght@700;900&family=Nunito:wght@400;700;900&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --app-bg: #0A0A0A;
+  --surface: #1A1A1E;
+  --surface-elevated: #27272A;
+  --yellow: #FFB800;
+  --orange: #FF5C00;
+  --green: #39FF14;
+  --red: #FF3B30;
+  --cyan: #00F0FF;
+  --text-primary: #F5F5F5;
+  --text-secondary: #A1A1AA;
+  --border-default: #2D2D2D;
+}
+
+html, body, #root {
+  background: var(--app-bg);
+  color: var(--text-primary);
+  font-family: 'Nunito', system-ui, sans-serif;
+  font-weight: 700;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  background-image:
+    radial-gradient(circle at 20% 0%, rgba(255, 92, 0, 0.08), transparent 40%),
+    radial-gradient(circle at 90% 90%, rgba(0, 240, 255, 0.06), transparent 40%);
+  background-attachment: fixed;
+}
+
+.font-display {
+  font-family: 'Unbounded', sans-serif;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+}
+
+/* Arcade tactile button */
+.arcade-btn {
+  border-bottom-width: 4px;
+  border-radius: 14px;
+  transition: transform 120ms ease, border-bottom-width 120ms ease, filter 120ms ease;
+  will-change: transform;
+  user-select: none;
+}
+.arcade-btn:active {
+  border-bottom-width: 0px;
+  transform: translateY(4px);
+}
+
+/* Progress bar stripes */
+.xp-stripes {
+  background-image: linear-gradient(
+    45deg,
+    rgba(255,255,255,0.18) 25%, transparent 25%,
+    transparent 50%, rgba(255,255,255,0.18) 50%,
+    rgba(255,255,255,0.18) 75%, transparent 75%, transparent
+  );
+  background-size: 18px 18px;
+  animation: stripes-slide 1.4s linear infinite;
+}
+@keyframes stripes-slide {
+  from { background-position: 0 0; }
+  to { background-position: 36px 0; }
+}
+
+/* Neon glow utility */
+.glow-yellow { box-shadow: 0 0 24px rgba(255, 184, 0, 0.35); }
+.glow-green  { box-shadow: 0 0 24px rgba(57, 255, 20, 0.35); }
+.glow-orange { box-shadow: 0 0 24px rgba(255, 92, 0, 0.35); }
+
+/* Reward pop animation */
+@keyframes reward-pop {
+  0% { transform: scale(0.6); opacity: 0; }
+  60% { transform: scale(1.15); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+.reward-pop { animation: reward-pop 500ms cubic-bezier(.34,1.56,.64,1); }
+
+/* Coin float */
+@keyframes float-y {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-6px); }
+}
+.float-y { animation: float-y 3s ease-in-out infinite; }
+
+/* Page transition */
+@keyframes slide-in-right {
+  from { transform: translateX(24px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+.page-enter { animation: slide-in-right 240ms ease-out; }
+
+/* Scroll polish */
+* { -webkit-tap-highlight-color: transparent; }
+::-webkit-scrollbar { width: 0; height: 0; }
+
+/* Suppress default ring offsets for arcade look */
+.ring-offset-transparent { --tw-ring-offset-color: transparent; }
