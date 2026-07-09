@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Swords, Gift, TrendingUp, Dice5, PackageCheck, Loader2, Newspaper } from "lucide-react";
 import api, { extractError } from "@/lib/api";
 import { toast } from "sonner";
+import FeedSocial from "@/components/FeedSocial";
 
 const KIND_META = {
   quest: {
@@ -64,8 +65,9 @@ const FeedItem = ({ ev }) => {
   return (
     <li
       data-testid={`feed-item-${ev.id}`}
-      className={`relative bg-[#1A1A1E] border border-white/10 rounded-3xl p-4 flex items-start gap-3 transition-transform active:scale-[0.995] ${meta.ring}`}
+      className={`relative bg-[#1A1A1E] border border-white/10 rounded-3xl p-4 transition-transform ${meta.ring}`}
     >
+      <div className="flex items-start gap-3">
       {/* Avatar */}
       <div className="relative shrink-0">
         <div
@@ -116,6 +118,9 @@ const FeedItem = ({ ev }) => {
           )}
         </div>
       </div>
+      </div>
+
+      <FeedSocial ev={ev} />
     </li>
   );
 };

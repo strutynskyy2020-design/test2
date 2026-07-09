@@ -1129,6 +1129,9 @@ class FeedEvent(BaseModel):
     amount: Optional[int] = None
     level: Optional[int] = None
     created_at: str
+    reactions: dict = {}
+    my_reaction: Optional[str] = None
+    comment_count: int = 0
 
 
 class FeedResponse(BaseModel):
@@ -1262,7 +1265,144 @@ async def get_feed(limit: int = 40, user: dict = Depends(get_current_user)):
     # Merge + sort + limit
     events.extend(level_up_events)
     events.sort(key=lambda e: e.created_at, reverse=True)
-    return FeedResponse(events=events[:limit])
+    events = events[:limit]
+    await _attach_social(events, user["id"])
+    return FeedResponse(events=events)
+
+
+# ════════════════════════════════════════════════════════════════════════
+# PHASE 3 — Reactions + Comments on feed activities
+# ════════════════════════════════════════════════════════════════════════
+REACTION_TYPES = ["like", "fire", "clap", "rocket", "heart", "laugh", "star"]
+
+
+class ReactBody(BaseModel):
+    emoji: Literal["like", "fire", "clap", "rocket", "heart", "laugh", "star"]
+
+
+class CommentBody(BaseModel):
+    text: str
+
+
+class CommentModel(BaseModel):
+    id: str
+    target_id: str
+    user_id: str
+    user_name: str
+    avatar_initials: str = ""
+    avatar_color: str = "#FFB800"
+    text: str
+    created_at: str
+
+
+async def _attach_social(events: list, current_id: str):
+    """Attach reactions summary, my_reaction and comment_count to feed events."""
+    if not events:
+        return
+    ids = [e.id for e in events]
+    # Reactions
+    rx_map: dict = {}
+    my_map: dict = {}
+    async for r in db.reactions.find({"target_id": {"$in": ids}}, {"_id": 0}):
+        tid = r["target_id"]
+        rx_map.setdefault(tid, {})
+        rx_map[tid][r["emoji"]] = rx_map[tid].get(r["emoji"], 0) + 1
+        if r["user_id"] == current_id:
+            my_map[tid] = r["emoji"]
+    # Comment counts
+    cc_map: dict = {}
+    pipeline = [
+        {"$match": {"target_id": {"$in": ids}}},
+        {"$group": {"_id": "$target_id", "n": {"$sum": 1}}},
+    ]
+    async for c in db.comments.aggregate(pipeline):
+        cc_map[c["_id"]] = c["n"]
+    for e in events:
+        e.reactions = rx_map.get(e.id, {})
+        e.my_reaction = my_map.get(e.id)
+        e.comment_count = cc_map.get(e.id, 0)
+
+
+async def _feed_event_owner(event_id: str) -> Optional[str]:
+    """Resolve the owner user_id of a feed event by its derived id."""
+    if event_id.startswith("lvlup-"):
+        parts = event_id.split("-")
+        return parts[1] if len(parts) > 1 else None
+    if event_id.startswith("delivered-"):
+        oid = event_id[len("delivered-"):]
+        o = await db.orders.find_one({"id": oid}, {"_id": 0, "user_id": 1})
+        return o["user_id"] if o else None
+    tx = await db.transactions.find_one({"id": event_id}, {"_id": 0, "user_id": 1})
+    return tx["user_id"] if tx else None
+
+
+@api.post("/feed/{event_id}/react")
+async def react_to_event(event_id: str, body: ReactBody, user: dict = Depends(get_current_user)):
+    existing = await db.reactions.find_one({"target_id": event_id, "user_id": user["id"]}, {"_id": 0})
+    if existing and existing["emoji"] == body.emoji:
+        # toggle off
+        await db.reactions.delete_one({"target_id": event_id, "user_id": user["id"]})
+        action = "removed"
+    else:
+        await db.reactions.update_one(
+            {"target_id": event_id, "user_id": user["id"]},
+            {"$set": {"emoji": body.emoji, "created_at": now_iso()}},
+            upsert=True,
+        )
+        action = "set"
+        owner = await _feed_event_owner(event_id)
+        if owner and owner != user["id"]:
+            await _notify(owner, "reaction", "Нова реакція на твою активність",
+                          f"{user['name']} відреагував", "/feed", "heart")
+    # summary
+    summary: dict = {}
+    async for r in db.reactions.find({"target_id": event_id}, {"_id": 0, "emoji": 1}):
+        summary[r["emoji"]] = summary.get(r["emoji"], 0) + 1
+    return {"action": action, "reactions": summary, "my_reaction": None if action == "removed" else body.emoji}
+
+
+@api.get("/feed/{event_id}/comments", response_model=List[CommentModel])
+async def list_comments(event_id: str, user: dict = Depends(get_current_user)):
+    docs = await db.comments.find({"target_id": event_id}, {"_id": 0}).sort("created_at", 1).to_list(200)
+    return [CommentModel(**d) for d in docs]
+
+
+@api.post("/feed/{event_id}/comments", response_model=CommentModel, status_code=201)
+async def add_comment(event_id: str, body: CommentBody, user: dict = Depends(get_current_user)):
+    text = body.text.strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Коментар не може бути порожнім")
+    if len(text) > 500:
+        raise HTTPException(status_code=400, detail="Максимум 500 символів")
+    doc = {
+        "id": str(uuid.uuid4()),
+        "target_id": event_id,
+        "user_id": user["id"],
+        "user_name": user["name"],
+        "avatar_initials": user.get("avatar_initials", ""),
+        "avatar_color": user.get("avatar_color", "#FFB800"),
+        "text": text,
+        "created_at": now_iso(),
+    }
+    await db.comments.insert_one(doc)
+    owner = await _feed_event_owner(event_id)
+    if owner and owner != user["id"]:
+        await _notify(owner, "comment", "Новий коментар до твоєї активності",
+                      f"{user['name']}: {text[:60]}", "/feed", "message-circle")
+    doc.pop("_id", None)
+    return CommentModel(**doc)
+
+
+@api.delete("/comments/{comment_id}", status_code=204)
+async def delete_comment(comment_id: str, user: dict = Depends(get_current_user)):
+    c = await db.comments.find_one({"id": comment_id}, {"_id": 0})
+    if not c:
+        raise HTTPException(status_code=404, detail="Коментар не знайдено")
+    if c["user_id"] != user["id"] and user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Немає доступу")
+    await db.comments.delete_one({"id": comment_id})
+    return None
+
 
 
 # ────────────────────────────────────────────────────────────────────────
@@ -2187,6 +2327,8 @@ async def seed_phase2():
     await db.applications.create_index([("user_id", 1), ("updated_at", -1)])
     await db.applications.create_index([("status", 1), ("submitted_at", -1)])
     await db.notifications.create_index([("user_id", 1), ("created_at", -1)])
+    await db.reactions.create_index([("target_id", 1), ("user_id", 1)], unique=True)
+    await db.comments.create_index([("target_id", 1), ("created_at", 1)])
     if await db.tasks.count_documents({}) == 0:
         for t in SEED_TASKS:
             await db.tasks.insert_one({"id": str(uuid.uuid4()), **t, "active": True, "created_at": now_iso()})
