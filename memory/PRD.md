@@ -50,6 +50,35 @@
 
 ## Backlog
 
+## Phase 5 (2026-07) — Corporate Motivation Scale-up: CORE (Phase 1 of roadmap) ✅
+Built ON TOP of existing app; nothing removed.
+- [x] **Task Constructor** (admin): dynamic-field builder — text, textarea, number, date, phone, email, select(options), checkbox, file, photo, photos(multi), video. Reorder/required/category/reward/xp. `GET/POST/PATCH/DELETE /api/admin/tasks`.
+- [x] **Applications (заявки)** lifecycle: Draft → Submitted → Pending Review → Approved → Rejected. `POST/GET/PATCH/DELETE /api/applications`, admin `/api/admin/applications`, `/start`, `/review`. Approval auto-awards balance+XP+transaction (shows in feed). Rejection requires reason.
+- [x] **Camera/gallery/file upload** in task forms via `TaskFormField.jsx` (accept + capture="environment", multi-file), stored on local disk via existing `/api/uploads`.
+- [x] **Registration with admin approval**: `/api/auth/register/self` now sets `approved=False`, returns pending message (no auto-login). Login blocked (403) until approved. Signup bonus granted on approval.
+- [x] **User moderation** (admin 'Модерація' tab): `GET /api/admin/users/pending`, `POST /api/admin/users/{id}/approve`.
+- [x] **Teams page** `/teams`: ranking + stats + progress bars (uses existing `/api/leaderboard/teams`).
+- [x] **In-app notifications**: `notifications` collection, `GET /api/notifications`, `unread_count`, `read-all`, `PATCH /{id}/read`. Header bell w/ badge (`NotificationBell.jsx`). Events: new_task, application_submitted, application_approved, application_rejected, user_pending, account_approved.
+- [x] Bottom nav updated: Головна / Завдання(/tasks) / Стрічка / Магазин / Рейтинг. Daily quests remain at /quests (linked from Tasks page).
+- Verified: `/app/backend/tests/test_phase6.py` (14/14) + Playwright E2E (100%).
+
+## Remaining roadmap (next phases)
+### P0 (next)
+- [ ] Reactions on feed/activities (like, fire, clap, rocket, heart, laugh, star — one per user)
+- [ ] Comments under activities
+- [ ] Achievements expansion: 100+, categories, hidden, progress bars, %, rarity tiers
+### P1
+- [ ] Analytics: user activity, task completion, task popularity, avg completion time, charts (recharts already installed)
+- [ ] Leaderboard by XP/level/points + week/month/season windows
+- [ ] Store upgrade: categories, stock, photos, purchase history, moderation
+- [ ] Extended profile: stats, history, reactions received, achievement collection, titles, avatar frames
+- [ ] Notifications for purchases + full notification center page
+### Known non-blocking
+- [ ] backend_test.py::TestBotAPI uses stale hardcoded BOT_TOKEN (pre-existing test artifact; bot endpoints work)
+- [ ] test_phase5.py self-register tests expect old token response (update when revisited)
+
+## Old Backlog (pre-scale-up)
+
 ### P0
 - [ ] Streak auto-increment on daily login + multiplier bonus (3/7/30 days)
 - [ ] Team/department leaderboard
