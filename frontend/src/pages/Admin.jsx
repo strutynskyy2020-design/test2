@@ -2,19 +2,40 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
   Users, Swords, Gift, ShoppingBag, BarChart3, Plus, Pencil, Trash2, X, Minus, Check, Coins, Trophy, ChevronRight,
-  UserCog, ShieldCheck, Crown, UsersRound,
+  UserCog, ShieldCheck, Crown, UsersRound, Inbox, UserCheck, ClipboardList, CheckCircle2, XCircle,
+  ArrowUp, ArrowDown, FileText,
 } from "lucide-react";
-import api, { extractError } from "@/lib/api";
+import api, { extractError, API_BASE } from "@/lib/api";
 import { useApp } from "@/context/AppContext";
 
 const TABS = [
   { id: "analytics", label: "Огляд", icon: BarChart3 },
+  { id: "moderation", label: "Модерація", icon: UserCheck },
+  { id: "applications", label: "Заявки", icon: Inbox },
+  { id: "tasks", label: "Завдання", icon: ClipboardList },
   { id: "users", label: "Юзери", icon: Users },
   { id: "teams", label: "Команди", icon: UsersRound },
   { id: "quests", label: "Квести", icon: Swords },
   { id: "prizes", label: "Призи", icon: Gift },
   { id: "orders", label: "Замовлення", icon: ShoppingBag },
 ];
+
+const FIELD_TYPES = [
+  { v: "text", l: "Текст" }, { v: "textarea", l: "Довгий текст" }, { v: "number", l: "Число" },
+  { v: "date", l: "Дата" }, { v: "phone", l: "Телефон" }, { v: "email", l: "Email" },
+  { v: "select", l: "Список" }, { v: "checkbox", l: "Чекбокс" }, { v: "file", l: "Файл" },
+  { v: "photo", l: "Фото" }, { v: "photos", l: "Кілька фото" }, { v: "video", l: "Відео" },
+];
+const TASK_CATS = [
+  { v: "sales", l: "Продажі" }, { v: "support", l: "Підтримка" }, { v: "quality", l: "Якість" },
+  { v: "training", l: "Навчання" }, { v: "discipline", l: "Дисципліна" }, { v: "general", l: "Загальне" },
+];
+const APP_STATUS = {
+  submitted: { label: "Надіслано", color: "#00F0FF" },
+  pending_review: { label: "На перевірці", color: "#FFB800" },
+  approved: { label: "Підтверджено", color: "#39FF14" },
+  rejected: { label: "Відхилено", color: "#FF3B30" },
+};
 
 const DIFFICULTIES = ["easy", "medium", "hard"];
 const CATEGORIES = ["merch", "privilege", "certificate"];
@@ -883,6 +904,377 @@ const BottomSheet = ({ children, onClose, title }) => (
   </div>
 );
 
+// ─────────────── Moderation: pending user approvals ───────────────
+const ModerationView = () => {
+  const [pending, setPending] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const load = async () => {
+    setLoading(true);
+    try { const { data } = await api.get("/admin/users/pending"); setPending(data); }
+    catch (e) { toast.error(extractError(e)); }
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, []);
+
+  const approve = async (u) => {
+    try { await api.post(`/admin/users/${u.id}/approve`); toast.success(`${u.name} підтверджено`); load(); }
+    catch (e) { toast.error(extractError(e)); }
+  };
+  const reject = async (u) => {
+    if (!window.confirm(`Відхилити та видалити заявку ${u.name}?`)) return;
+    try { await api.delete(`/admin/users/${u.id}`); toast.success("Відхилено"); load(); }
+    catch (e) { toast.error(extractError(e)); }
+  };
+
+  return (
+    <div className="space-y-3" data-testid="moderation-view">
+      {loading && <div className="text-zinc-500 text-sm py-6 text-center">Завантаження...</div>}
+      {!loading && pending.length === 0 && (
+        <div className="text-center text-zinc-500 py-10 text-sm font-black">Немає заявок на підтвердження 🎉</div>
+      )}
+      {pending.map((u) => (
+        <div key={u.id} data-testid={`pending-user-${u.id}`} className="bg-[#1A1A1E] border-2 border-[#FFB800]/30 rounded-2xl p-3">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-xl flex items-center justify-center font-display text-sm text-[#0A0A0A] shrink-0" style={{ backgroundColor: u.avatar_color }}>{u.avatar_initials || "?"}</div>
+            <div className="flex-1 min-w-0">
+              <div className="text-white font-black text-sm truncate">{u.name}</div>
+              <div className="text-zinc-500 text-xs truncate">{u.email}</div>
+              <div className="text-[10px] text-zinc-600 mt-0.5 truncate">
+                {u.position}{u.team_name && <span className="text-[#00F0FF]"> • {u.team_name}</span>}{u.phone && <span> • {u.phone}</span>}
+              </div>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-2 mt-3">
+            <button data-testid={`reject-user-${u.id}`} onClick={() => reject(u)} className="arcade-btn h-10 bg-[#FF3B30] border-[#7a1c17] text-white font-black text-[11px] uppercase tracking-wider flex items-center justify-center gap-1.5">
+              <X size={14} strokeWidth={3} /> Відхилити
+            </button>
+            <button data-testid={`approve-user-${u.id}`} onClick={() => approve(u)} className="arcade-btn h-10 bg-[#39FF14] border-[#1a7a0a] text-[#0A0A0A] font-black text-[11px] uppercase tracking-wider flex items-center justify-center gap-1.5">
+              <Check size={14} strokeWidth={3} /> Підтвердити
+            </button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+};
+
+// ─────────────── Applications moderation ───────────────
+const fileUrl = (u) => (u?.startsWith("http") ? u : `${API_BASE.replace(/\/api$/, "")}${u}`);
+
+const ApplicationsView = () => {
+  const [apps, setApps] = useState([]);
+  const [filter, setFilter] = useState("submitted");
+  const [detail, setDetail] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const q = filter === "all" ? "" : `?status=${filter}`;
+      const { data } = await api.get(`/admin/applications${q}`);
+      setApps(data);
+    } catch (e) { toast.error(extractError(e)); }
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, [filter]);
+
+  const FILTERS = [
+    { v: "submitted", l: "Нові" }, { v: "pending_review", l: "На перевірці" },
+    { v: "approved", l: "Підтверджені" }, { v: "rejected", l: "Відхилені" }, { v: "all", l: "Всі" },
+  ];
+
+  return (
+    <div className="space-y-3" data-testid="applications-view">
+      <div className="flex gap-2 overflow-x-auto -mx-5 px-5 pb-1">
+        {FILTERS.map((f) => (
+          <button key={f.v} data-testid={`app-filter-${f.v}`} onClick={() => setFilter(f.v)}
+            className={`shrink-0 h-9 px-3 rounded-full font-black text-[11px] uppercase tracking-wider border-2 ${filter === f.v ? "bg-[#FFB800] border-[#FFB800] text-[#0A0A0A]" : "bg-[#1A1A1E] border-white/10 text-zinc-400"}`}>
+            {f.l}
+          </button>
+        ))}
+      </div>
+
+      {loading && <div className="text-zinc-500 text-sm py-6 text-center">Завантаження...</div>}
+      {!loading && apps.length === 0 && <div className="text-center text-zinc-500 py-10 text-sm font-black">Немає заявок</div>}
+
+      {apps.map((a) => {
+        const st = APP_STATUS[a.status] || APP_STATUS.submitted;
+        return (
+          <button key={a.id} data-testid={`admin-app-${a.id}`} onClick={() => setDetail(a)} className="w-full text-left bg-[#1A1A1E] border border-white/10 rounded-2xl p-3 active:scale-[0.98] transition-transform">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center font-display text-xs text-[#0A0A0A] shrink-0" style={{ backgroundColor: a.avatar_color }}>{a.avatar_initials || "?"}</div>
+              <div className="flex-1 min-w-0">
+                <div className="text-white font-black text-sm truncate">{a.task_title}</div>
+                <div className="text-zinc-500 text-xs truncate">{a.user_name} • {new Date(a.submitted_at || a.updated_at).toLocaleString("uk-UA")}</div>
+              </div>
+              <span className="text-[9px] font-black uppercase px-2 py-1 rounded-full shrink-0" style={{ backgroundColor: st.color + "22", color: st.color }}>{st.label}</span>
+            </div>
+          </button>
+        );
+      })}
+
+      {detail && <ApplicationDetailSheet app={detail} onClose={() => setDetail(null)} onDone={() => { setDetail(null); load(); }} />}
+    </div>
+  );
+};
+
+const ApplicationDetailSheet = ({ app, onClose, onDone }) => {
+  const [task, setTask] = useState(null);
+  const [reason, setReason] = useState(app.review_reason || "");
+  const [busy, setBusy] = useState(false);
+  const isOpen = app.status === "submitted" || app.status === "pending_review";
+
+  useEffect(() => {
+    api.get(`/tasks/${app.task_id}`).then((r) => setTask(r.data)).catch(() => setTask(null));
+    if (app.status === "submitted") api.patch(`/admin/applications/${app.id}/start`).catch(() => {});
+  }, [app.id, app.task_id, app.status]);
+
+  const review = async (action) => {
+    if (action === "reject" && !reason.trim()) { toast.error("Вкажи причину відхилення"); return; }
+    setBusy(true);
+    try {
+      await api.post(`/admin/applications/${app.id}/review`, { action, reason });
+      toast.success(action === "approve" ? "Заявку підтверджено" : "Заявку відхилено");
+      onDone();
+    } catch (e) { toast.error(extractError(e)); }
+    setBusy(false);
+  };
+
+  const renderValue = (f) => {
+    const v = app.values?.[f.key];
+    if (v === undefined || v === null || v === "") return <span className="text-zinc-600">—</span>;
+    if (["photo", "photos", "video", "file"].includes(f.type)) {
+      const arr = Array.isArray(v) ? v : [v];
+      return (
+        <div className="grid grid-cols-3 gap-2 mt-1">
+          {arr.map((u, i) => (
+            <a key={i} href={fileUrl(u)} target="_blank" rel="noreferrer" className="block aspect-square rounded-lg overflow-hidden border border-white/10 bg-[#0A0A0A]">
+              {f.type === "video" ? <video src={fileUrl(u)} className="w-full h-full object-cover" />
+                : f.type === "file" ? <div className="w-full h-full flex items-center justify-center"><FileText size={20} className="text-[#00F0FF]" /></div>
+                : <img src={fileUrl(u)} alt="" className="w-full h-full object-cover" />}
+            </a>
+          ))}
+        </div>
+      );
+    }
+    if (f.type === "checkbox") return <span className={v ? "text-[#39FF14]" : "text-zinc-500"}>{v ? "Так" : "Ні"}</span>;
+    return <span className="text-white">{String(v)}</span>;
+  };
+
+  return (
+    <BottomSheet onClose={onClose} title={app.task_title}>
+      <div className="flex items-center gap-2 mb-3">
+        <div className="w-8 h-8 rounded-lg flex items-center justify-center font-display text-[10px] text-[#0A0A0A]" style={{ backgroundColor: app.avatar_color }}>{app.avatar_initials}</div>
+        <span className="text-white font-black text-sm">{app.user_name}</span>
+        <span className="text-[#FFB800] text-xs font-black ml-auto">+{app.reward} • +{app.xp}XP</span>
+      </div>
+
+      <div className="space-y-3">
+        {(task?.fields || []).map((f) => (
+          <div key={f.key} className="bg-[#0A0A0A] border border-white/10 rounded-xl p-3">
+            <div className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">{f.label}</div>
+            <div className="text-sm">{renderValue(f)}</div>
+          </div>
+        ))}
+        {!task && <div className="text-zinc-500 text-xs">Завантаження полів...</div>}
+      </div>
+
+      {isOpen ? (
+        <>
+          <label className="block text-[11px] font-black uppercase text-zinc-500 mt-4 mb-1">Причина (для відхилення)</label>
+          <textarea data-testid="review-reason" rows={2} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Що потрібно виправити..." className="w-full px-3 py-2 rounded-xl bg-[#0A0A0A] border-2 border-white/10 text-white focus:border-[#FFB800] outline-none resize-none" />
+          <div className="grid grid-cols-2 gap-3 mt-4">
+            <button data-testid="review-reject" onClick={() => review("reject")} disabled={busy} className="arcade-btn h-12 bg-[#FF3B30] border-[#7a1c17] text-white font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 disabled:opacity-60">
+              <XCircle size={16} strokeWidth={3} /> Відхилити
+            </button>
+            <button data-testid="review-approve" onClick={() => review("approve")} disabled={busy} className="arcade-btn h-12 bg-[#39FF14] border-[#1a7a0a] text-[#0A0A0A] font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 disabled:opacity-60">
+              <CheckCircle2 size={16} strokeWidth={3} /> Підтвердити
+            </button>
+          </div>
+        </>
+      ) : (
+        <div className="mt-4 p-3 rounded-xl border-2" style={{ borderColor: (APP_STATUS[app.status]?.color || "#666") + "55" }}>
+          <div className="text-xs font-black uppercase" style={{ color: APP_STATUS[app.status]?.color }}>{APP_STATUS[app.status]?.label}</div>
+          {app.review_reason && <div className="text-white text-sm mt-1">{app.review_reason}</div>}
+        </div>
+      )}
+    </BottomSheet>
+  );
+};
+
+// ─────────────── Task constructor ───────────────
+const TasksAdminView = () => {
+  const [tasks, setTasks] = useState([]);
+  const [editing, setEditing] = useState(null);
+
+  const load = async () => {
+    try { const { data } = await api.get("/admin/tasks"); setTasks(data); }
+    catch (e) { toast.error(extractError(e)); }
+  };
+  useEffect(() => { load(); }, []);
+
+  const del = async (t) => {
+    if (!window.confirm(`Видалити завдання "${t.title}"?`)) return;
+    try { await api.delete(`/admin/tasks/${t.id}`); toast.success("Видалено"); load(); }
+    catch (e) { toast.error(extractError(e)); }
+  };
+
+  return (
+    <div className="space-y-3" data-testid="tasks-admin-view">
+      <button data-testid="btn-create-task" onClick={() => setEditing({})} className="arcade-btn w-full h-11 bg-[#FFB800] border-[#7a5900] text-[#0A0A0A] font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2">
+        <Plus size={16} strokeWidth={3} /> Новий конструктор завдання
+      </button>
+      {tasks.map((t) => (
+        <div key={t.id} data-testid={`admin-task-${t.id}`} className={`bg-[#1A1A1E] border rounded-2xl p-3 flex items-center gap-3 ${t.active ? "border-white/10" : "border-white/5 opacity-50"}`}>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-[#00F0FF] text-[#0A0A0A]">{(TASK_CATS.find((c) => c.v === t.category) || {}).l || t.category}</span>
+              <span className="text-[#FFB800] font-black text-xs">+{t.reward}</span>
+              <span className="text-[#39FF14] font-black text-xs">+{t.xp}XP</span>
+              {!t.active && <span className="text-[9px] font-black text-zinc-500">ВИМКНЕНО</span>}
+            </div>
+            <div className="text-white font-black text-sm truncate mt-1">{t.title}</div>
+            <div className="text-zinc-500 text-xs truncate">{t.fields?.length || 0} полів</div>
+          </div>
+          <div className="flex gap-1.5 shrink-0">
+            <button data-testid={`edit-task-${t.id}`} onClick={() => setEditing(t)} className="w-9 h-9 rounded-xl bg-[#0A0A0A] border border-white/10 text-white flex items-center justify-center active:scale-95"><Pencil size={14} strokeWidth={3} /></button>
+            <button data-testid={`delete-task-${t.id}`} onClick={() => del(t)} className="w-9 h-9 rounded-xl bg-[#0A0A0A] border border-[#FF3B30]/40 text-[#FF3B30] flex items-center justify-center active:scale-95"><Trash2 size={14} strokeWidth={3} /></button>
+          </div>
+        </div>
+      ))}
+      {editing !== null && <TaskEditor task={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />}
+    </div>
+  );
+};
+
+const TaskEditor = ({ task, onClose, onSaved }) => {
+  const isNew = !task.id;
+  const [f, setF] = useState({
+    title: task.title || "", description: task.description || "", category: task.category || "general",
+    icon: task.icon || "clipboard-list", reward: task.reward ?? 100, xp: task.xp ?? 50,
+    active: task.active ?? true, fields: task.fields ? [...task.fields] : [],
+  });
+  const [busy, setBusy] = useState(false);
+
+  const addField = () => setF((s) => ({ ...s, fields: [...s.fields, { key: `field_${s.fields.length + 1}`, label: "Нове поле", type: "text", required: false, placeholder: "", options: [] }] }));
+  const updateField = (i, patch) => setF((s) => ({ ...s, fields: s.fields.map((fl, idx) => (idx === i ? { ...fl, ...patch } : fl)) }));
+  const removeField = (i) => setF((s) => ({ ...s, fields: s.fields.filter((_, idx) => idx !== i) }));
+  const moveField = (i, dir) => setF((s) => {
+    const arr = [...s.fields]; const j = i + dir;
+    if (j < 0 || j >= arr.length) return s;
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+    return { ...s, fields: arr };
+  });
+
+  const save = async () => {
+    if (!f.title.trim()) { toast.error("Назва обов'язкова"); return; }
+    for (const fl of f.fields) {
+      if (!fl.key.trim() || !fl.label.trim()) { toast.error("У кожного поля має бути ключ і назва"); return; }
+    }
+    const keys = f.fields.map((x) => x.key);
+    if (new Set(keys).size !== keys.length) { toast.error("Ключі полів мають бути унікальні"); return; }
+    setBusy(true);
+    try {
+      const payload = {
+        ...f,
+        fields: f.fields.map((fl) => ({ ...fl, options: fl.type === "select" ? (fl.options || []) : [] })),
+      };
+      if (isNew) await api.post("/admin/tasks", payload);
+      else await api.patch(`/admin/tasks/${task.id}`, payload);
+      toast.success(isNew ? "Створено" : "Оновлено");
+      onSaved();
+    } catch (e) { toast.error(extractError(e)); }
+    setBusy(false);
+  };
+
+  const inp = "w-full h-11 px-3 rounded-xl bg-[#0A0A0A] border-2 border-white/10 text-white focus:border-[#FFB800] outline-none";
+
+  return (
+    <BottomSheet onClose={onClose} title={isNew ? "Конструктор завдання" : "Редагування завдання"}>
+      <div className="space-y-3">
+        <div>
+          <label className="block text-[11px] font-black uppercase text-zinc-500 mb-1">Назва</label>
+          <input data-testid="task-title" value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} className={inp} />
+        </div>
+        <div>
+          <label className="block text-[11px] font-black uppercase text-zinc-500 mb-1">Опис</label>
+          <textarea data-testid="task-description" rows={2} value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} className="w-full px-3 py-2 rounded-xl bg-[#0A0A0A] border-2 border-white/10 text-white focus:border-[#FFB800] outline-none resize-none" />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-[11px] font-black uppercase text-zinc-500 mb-1">Категорія</label>
+            <select data-testid="task-category" value={f.category} onChange={(e) => setF({ ...f, category: e.target.value })} className={inp}>
+              {TASK_CATS.map((c) => <option key={c.v} value={c.v}>{c.l}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-[11px] font-black uppercase text-zinc-500 mb-1">Іконка</label>
+            <select data-testid="task-icon" value={f.icon} onChange={(e) => setF({ ...f, icon: e.target.value })} className={inp}>
+              {["clipboard-list", "camera", "clipboard-check", "video", "target"].map((i) => <option key={i} value={i}>{i}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-[11px] font-black uppercase text-zinc-500 mb-1">Бали</label>
+            <input data-testid="task-reward" type="number" value={f.reward} onChange={(e) => setF({ ...f, reward: parseInt(e.target.value) || 0 })} className={inp} />
+          </div>
+          <div>
+            <label className="block text-[11px] font-black uppercase text-zinc-500 mb-1">XP</label>
+            <input data-testid="task-xp" type="number" value={f.xp} onChange={(e) => setF({ ...f, xp: parseInt(e.target.value) || 0 })} className={inp} />
+          </div>
+        </div>
+        <label className="flex items-center gap-2">
+          <input data-testid="task-active" type="checkbox" checked={f.active} onChange={(e) => setF({ ...f, active: e.target.checked })} className="w-5 h-5 accent-[#FFB800]" />
+          <span className="text-white text-sm font-black">Активне (одразу видно працівникам)</span>
+        </label>
+
+        <div className="pt-3 border-t border-white/10">
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-white font-black text-sm uppercase tracking-wider">Поля форми</div>
+            <button data-testid="add-field" onClick={addField} className="h-8 px-3 rounded-full bg-[#39FF14]/15 border-2 border-[#39FF14]/50 text-[#39FF14] font-black text-[11px] uppercase flex items-center gap-1 active:scale-95">
+              <Plus size={13} strokeWidth={3} /> Поле
+            </button>
+          </div>
+          <div className="space-y-3">
+            {f.fields.map((fl, i) => (
+              <div key={i} data-testid={`field-editor-${i}`} className="bg-[#0A0A0A] border-2 border-white/10 rounded-xl p-3 space-y-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-zinc-500 text-[10px] font-black">#{i + 1}</span>
+                  <div className="ml-auto flex gap-1">
+                    <button onClick={() => moveField(i, -1)} className="w-7 h-7 rounded-lg bg-[#1A1A1E] border border-white/10 text-zinc-400 flex items-center justify-center"><ArrowUp size={12} strokeWidth={3} /></button>
+                    <button onClick={() => moveField(i, 1)} className="w-7 h-7 rounded-lg bg-[#1A1A1E] border border-white/10 text-zinc-400 flex items-center justify-center"><ArrowDown size={12} strokeWidth={3} /></button>
+                    <button data-testid={`remove-field-${i}`} onClick={() => removeField(i)} className="w-7 h-7 rounded-lg bg-[#1A1A1E] border border-[#FF3B30]/40 text-[#FF3B30] flex items-center justify-center"><Trash2 size={12} strokeWidth={3} /></button>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <input data-testid={`field-label-${i}`} value={fl.label} onChange={(e) => updateField(i, { label: e.target.value })} placeholder="Назва поля" className="h-10 px-2.5 rounded-lg bg-[#1A1A1E] border border-white/10 text-white text-sm focus:border-[#FFB800] outline-none" />
+                  <input data-testid={`field-key-${i}`} value={fl.key} onChange={(e) => updateField(i, { key: e.target.value.replace(/\s/g, "_") })} placeholder="ключ (латиницею)" className="h-10 px-2.5 rounded-lg bg-[#1A1A1E] border border-white/10 text-white text-sm focus:border-[#FFB800] outline-none" />
+                </div>
+                <div className="grid grid-cols-2 gap-2 items-center">
+                  <select data-testid={`field-type-${i}`} value={fl.type} onChange={(e) => updateField(i, { type: e.target.value })} className="h-10 px-2.5 rounded-lg bg-[#1A1A1E] border border-white/10 text-white text-sm focus:border-[#FFB800] outline-none">
+                    {FIELD_TYPES.map((t) => <option key={t.v} value={t.v}>{t.l}</option>)}
+                  </select>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" checked={fl.required} onChange={(e) => updateField(i, { required: e.target.checked })} className="w-4 h-4 accent-[#FF5C00]" />
+                    <span className="text-zinc-300 text-xs font-black">Обов'язкове</span>
+                  </label>
+                </div>
+                {fl.type === "select" && (
+                  <input data-testid={`field-options-${i}`} value={(fl.options || []).join(", ")} onChange={(e) => updateField(i, { options: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })} placeholder="Варіанти через кому" className="w-full h-10 px-2.5 rounded-lg bg-[#1A1A1E] border border-white/10 text-white text-sm focus:border-[#FFB800] outline-none" />
+                )}
+              </div>
+            ))}
+            {f.fields.length === 0 && <div className="text-zinc-600 text-xs text-center py-3">Ще немає полів. Додай перше поле.</div>}
+          </div>
+        </div>
+      </div>
+      <button data-testid="task-save" onClick={save} disabled={busy} className="arcade-btn w-full h-12 mt-4 bg-[#FFB800] border-[#7a5900] text-[#0A0A0A] font-black text-sm uppercase tracking-wider disabled:opacity-60">
+        {busy ? "..." : "Зберегти"}
+      </button>
+    </BottomSheet>
+  );
+};
+
 // ─────────────── Admin page shell ───────────────
 export default function Admin() {
   const { user, mode } = useApp();
@@ -902,7 +1294,7 @@ export default function Admin() {
     );
   }
 
-  const V = { analytics: AnalyticsView, users: UsersView, teams: TeamsView, quests: QuestsView, prizes: PrizesView, orders: OrdersView }[tab];
+  const V = { analytics: AnalyticsView, moderation: ModerationView, applications: ApplicationsView, tasks: TasksAdminView, users: UsersView, teams: TeamsView, quests: QuestsView, prizes: PrizesView, orders: OrdersView }[tab];
 
   return (
     <div className="px-5 pt-2 pb-8 space-y-4" data-testid="admin-page">

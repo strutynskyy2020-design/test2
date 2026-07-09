@@ -461,9 +461,15 @@ async def auth_register(body: RegisterBody, admin: dict = Depends(get_current_ad
     return _sanitize_user(doc)
 
 
-@api.post("/auth/register/self", response_model=TokenResponse, status_code=201)
+class SelfRegisterResponse(BaseModel):
+    ok: bool = True
+    pending: bool = True
+    message: str
+
+
+@api.post("/auth/register/self", response_model=SelfRegisterResponse, status_code=201)
 async def auth_register_self(body: SelfRegisterBody):
-    """Public self-registration. Auto-approved."""
+    """Public self-registration. Requires admin approval before login."""
     email = body.email.lower().strip()
     if await db.users.find_one({"email": email}):
         raise HTTPException(status_code=409, detail="Email вже існує")
@@ -500,23 +506,18 @@ async def auth_register_self(body: SelfRegisterBody):
         "telegram_id": None,
         "team_id": body.team_id,
         "is_team_leader": False,
-        "approved": True,
+        "approved": False,
         "created_at": now_iso(),
     }
     await db.users.insert_one(doc)
-    await db.transactions.insert_one({
-        "id": str(uuid.uuid4()),
-        "user_id": doc["id"],
-        "kind": "signup_bonus",
-        "amount": 100,
-        "description": "Стартовий бонус за реєстрацію",
-        "created_at": now_iso(),
-    })
-    await db.users.update_one({"id": doc["id"]}, {"$inc": {"balance": 100, "total_earned": 100, "total_xp": 50}})
-    fresh = await db.users.find_one({"id": doc["id"]}, {"_id": 0})
-    fresh = await _hydrate_user_team(fresh)
-    token = create_token(fresh["id"], fresh["email"], fresh["role"])
-    return TokenResponse(token=token, user=_user_with_progress(fresh))
+    await _notify_admins(
+        "user_pending", "Новий користувач очікує підтвердження",
+        f"{doc['name']} • {doc['position']}", "/admin", "user-plus",
+    )
+    return SelfRegisterResponse(
+        ok=True, pending=True,
+        message="Реєстрацію надіслано! Акаунт активується після підтвердження адміністратором.",
+    )
 
 
 @api.get("/auth/me", response_model=UserWithProgress)
@@ -1707,9 +1708,496 @@ async def seed_all():
         logger.info("Seeded %d prizes", len(SEED_PRIZES))
 
 
+# ════════════════════════════════════════════════════════════════════════
+# PHASE 2 — Task Constructor + Applications (Заявки) + In-app Notifications
+# ════════════════════════════════════════════════════════════════════════
+
+FIELD_TYPES = [
+    "text", "textarea", "number", "date", "phone", "email",
+    "select", "checkbox", "file", "photo", "photos", "video",
+]
+
+TASK_CATEGORIES = ["sales", "support", "quality", "training", "discipline", "general"]
+
+APPLICATION_STATUSES = ["draft", "submitted", "pending_review", "approved", "rejected"]
+
+
+class TaskField(BaseModel):
+    key: str
+    label: str
+    type: Literal["text", "textarea", "number", "date", "phone", "email",
+                  "select", "checkbox", "file", "photo", "photos", "video"] = "text"
+    required: bool = False
+    placeholder: str = ""
+    help_text: str = ""
+    options: List[str] = []
+
+
+class TaskModel(BaseModel):
+    id: str
+    title: str
+    description: str = ""
+    category: str = "general"
+    icon: str = "clipboard-list"
+    reward: int = 100
+    xp: int = 50
+    fields: List[TaskField] = []
+    active: bool = True
+    created_at: str
+
+
+class TaskCreateBody(BaseModel):
+    title: str
+    description: str = ""
+    category: str = "general"
+    icon: str = "clipboard-list"
+    reward: int = 100
+    xp: int = 50
+    fields: List[TaskField] = []
+    active: bool = True
+
+
+class TaskUpdateBody(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    category: Optional[str] = None
+    icon: Optional[str] = None
+    reward: Optional[int] = None
+    xp: Optional[int] = None
+    fields: Optional[List[TaskField]] = None
+    active: Optional[bool] = None
+
+
+class ApplicationModel(BaseModel):
+    id: str
+    task_id: str
+    task_title: str
+    task_category: str = "general"
+    user_id: str
+    user_name: str
+    avatar_initials: str = ""
+    avatar_color: str = "#FFB800"
+    values: dict = {}
+    status: Literal["draft", "submitted", "pending_review", "approved", "rejected"]
+    reward: int = 0
+    xp: int = 0
+    reviewer_id: Optional[str] = None
+    review_reason: str = ""
+    created_at: str
+    updated_at: str
+    submitted_at: Optional[str] = None
+    reviewed_at: Optional[str] = None
+
+
+class ApplicationCreateBody(BaseModel):
+    task_id: str
+    values: dict = {}
+    submit: bool = True
+
+
+class ApplicationUpdateBody(BaseModel):
+    values: Optional[dict] = None
+    submit: Optional[bool] = None
+
+
+class ReviewBody(BaseModel):
+    action: Literal["approve", "reject"]
+    reason: str = ""
+
+
+class NotificationModel(BaseModel):
+    id: str
+    user_id: str
+    kind: str
+    title: str
+    body: str = ""
+    link: str = ""
+    icon: str = "bell"
+    read: bool = False
+    created_at: str
+
+
+# ─── Notification helpers ───
+async def _notify(user_id: str, kind: str, title: str, body: str = "", link: str = "", icon: str = "bell"):
+    await db.notifications.insert_one({
+        "id": str(uuid.uuid4()),
+        "user_id": user_id,
+        "kind": kind,
+        "title": title,
+        "body": body,
+        "link": link,
+        "icon": icon,
+        "read": False,
+        "created_at": now_iso(),
+    })
+
+
+async def _notify_all_employees(kind: str, title: str, body: str = "", link: str = "", icon: str = "bell"):
+    docs = []
+    async for u in db.users.find({"role": "employee", "approved": True}, {"_id": 0, "id": 1}):
+        docs.append({
+            "id": str(uuid.uuid4()), "user_id": u["id"], "kind": kind,
+            "title": title, "body": body, "link": link, "icon": icon,
+            "read": False, "created_at": now_iso(),
+        })
+    if docs:
+        await db.notifications.insert_many(docs)
+
+
+async def _notify_admins(kind: str, title: str, body: str = "", link: str = "", icon: str = "bell"):
+    async for u in db.users.find({"role": "admin"}, {"_id": 0, "id": 1}):
+        await _notify(u["id"], kind, title, body, link, icon)
+
+
+def _clean_task(doc: dict) -> TaskModel:
+    doc = {**doc}
+    doc.pop("_id", None)
+    return TaskModel(**doc)
+
+
+def _clean_app(doc: dict) -> ApplicationModel:
+    doc = {**doc}
+    doc.pop("_id", None)
+    doc.setdefault("task_category", "general")
+    doc.setdefault("avatar_initials", "")
+    doc.setdefault("avatar_color", "#FFB800")
+    return ApplicationModel(**doc)
+
+
+# ─── Employee: Tasks ───
+@api.get("/tasks", response_model=List[TaskModel])
+async def list_tasks(user: dict = Depends(get_current_user)):
+    docs = await db.tasks.find({"active": True}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    return [_clean_task(d) for d in docs]
+
+
+@api.get("/tasks/{task_id}", response_model=TaskModel)
+async def get_task(task_id: str, user: dict = Depends(get_current_user)):
+    doc = await db.tasks.find_one({"id": task_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Завдання не знайдено")
+    return _clean_task(doc)
+
+
+# ─── Employee: Applications (заявки) ───
+async def _build_application_doc(task: dict, user: dict, values: dict, status: str) -> dict:
+    ts = now_iso()
+    return {
+        "id": str(uuid.uuid4()),
+        "task_id": task["id"],
+        "task_title": task["title"],
+        "task_category": task.get("category", "general"),
+        "user_id": user["id"],
+        "user_name": user["name"],
+        "avatar_initials": user.get("avatar_initials", ""),
+        "avatar_color": user.get("avatar_color", "#FFB800"),
+        "values": values,
+        "status": status,
+        "reward": int(task.get("reward", 0)),
+        "xp": int(task.get("xp", 0)),
+        "reviewer_id": None,
+        "review_reason": "",
+        "created_at": ts,
+        "updated_at": ts,
+        "submitted_at": ts if status == "submitted" else None,
+        "reviewed_at": None,
+    }
+
+
+@api.get("/applications", response_model=List[ApplicationModel])
+async def my_applications(user: dict = Depends(get_current_user)):
+    docs = await db.applications.find({"user_id": user["id"]}, {"_id": 0}).sort("updated_at", -1).to_list(500)
+    return [_clean_app(d) for d in docs]
+
+
+@api.post("/applications", response_model=ApplicationModel, status_code=201)
+async def create_application(body: ApplicationCreateBody, user: dict = Depends(get_current_user)):
+    task = await db.tasks.find_one({"id": body.task_id, "active": True}, {"_id": 0})
+    if not task:
+        raise HTTPException(status_code=404, detail="Завдання не знайдено або неактивне")
+    status_val = "submitted" if body.submit else "draft"
+    doc = await _build_application_doc(task, user, body.values, status_val)
+    await db.applications.insert_one(doc)
+    if body.submit:
+        await _notify_admins(
+            "application_submitted", "Нова заявка на перевірку",
+            f"{user['name']} → {task['title']}", "/admin", "inbox",
+        )
+    return _clean_app(doc)
+
+
+@api.patch("/applications/{app_id}", response_model=ApplicationModel)
+async def update_application(app_id: str, body: ApplicationUpdateBody, user: dict = Depends(get_current_user)):
+    app_doc = await db.applications.find_one({"id": app_id, "user_id": user["id"]}, {"_id": 0})
+    if not app_doc:
+        raise HTTPException(status_code=404, detail="Заявку не знайдено")
+    if app_doc["status"] not in ("draft", "rejected"):
+        raise HTTPException(status_code=400, detail="Цю заявку вже не можна редагувати")
+    updates = {"updated_at": now_iso()}
+    if body.values is not None:
+        updates["values"] = body.values
+    if body.submit:
+        updates["status"] = "submitted"
+        updates["submitted_at"] = now_iso()
+        updates["review_reason"] = ""
+    await db.applications.update_one({"id": app_id}, {"$set": updates})
+    if body.submit:
+        await _notify_admins(
+            "application_submitted", "Заявку повторно надіслано",
+            f"{user['name']} → {app_doc['task_title']}", "/admin", "inbox",
+        )
+    fresh = await db.applications.find_one({"id": app_id}, {"_id": 0})
+    return _clean_app(fresh)
+
+
+@api.delete("/applications/{app_id}", status_code=204)
+async def delete_application(app_id: str, user: dict = Depends(get_current_user)):
+    app_doc = await db.applications.find_one({"id": app_id, "user_id": user["id"]}, {"_id": 0})
+    if not app_doc:
+        raise HTTPException(status_code=404, detail="Заявку не знайдено")
+    if app_doc["status"] not in ("draft", "rejected"):
+        raise HTTPException(status_code=400, detail="Можна видаляти лише чернетки або відхилені заявки")
+    await db.applications.delete_one({"id": app_id})
+    return None
+
+
+# ─── Notifications ───
+@api.get("/notifications", response_model=List[NotificationModel])
+async def list_notifications(limit: int = 50, user: dict = Depends(get_current_user)):
+    docs = await db.notifications.find({"user_id": user["id"]}, {"_id": 0}).sort("created_at", -1).to_list(limit)
+    return [NotificationModel(**{k: v for k, v in d.items() if k != "_id"}) for d in docs]
+
+
+@api.get("/notifications/unread_count")
+async def unread_count(user: dict = Depends(get_current_user)):
+    n = await db.notifications.count_documents({"user_id": user["id"], "read": False})
+    return {"count": n}
+
+
+@api.post("/notifications/read-all")
+async def mark_all_read(user: dict = Depends(get_current_user)):
+    await db.notifications.update_many({"user_id": user["id"], "read": False}, {"$set": {"read": True}})
+    return {"ok": True}
+
+
+@api.patch("/notifications/{notif_id}/read")
+async def mark_read(notif_id: str, user: dict = Depends(get_current_user)):
+    await db.notifications.update_one({"id": notif_id, "user_id": user["id"]}, {"$set": {"read": True}})
+    return {"ok": True}
+
+
+# ─── Admin: Tasks CRUD ───
+@api.get("/admin/tasks", response_model=List[TaskModel])
+async def admin_list_tasks(admin: dict = Depends(get_current_admin)):
+    docs = await db.tasks.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    return [_clean_task(d) for d in docs]
+
+
+@api.post("/admin/tasks", response_model=TaskModel, status_code=201)
+async def admin_create_task(body: TaskCreateBody, admin: dict = Depends(get_current_admin)):
+    if not body.title.strip():
+        raise HTTPException(status_code=400, detail="Назва обов'язкова")
+    doc = {"id": str(uuid.uuid4()), **body.model_dump(), "created_at": now_iso()}
+    await db.tasks.insert_one(doc)
+    if body.active:
+        await _notify_all_employees(
+            "new_task", "Нове завдання доступне!",
+            body.title, "/tasks", "clipboard-list",
+        )
+    doc.pop("_id", None)
+    return _clean_task(doc)
+
+
+@api.patch("/admin/tasks/{task_id}", response_model=TaskModel)
+async def admin_update_task(task_id: str, body: TaskUpdateBody, admin: dict = Depends(get_current_admin)):
+    updates = {k: v for k, v in body.model_dump().items() if v is not None}
+    if not updates:
+        raise HTTPException(status_code=400, detail="Немає полів для оновлення")
+    r = await db.tasks.update_one({"id": task_id}, {"$set": updates})
+    if r.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Завдання не знайдено")
+    doc = await db.tasks.find_one({"id": task_id}, {"_id": 0})
+    return _clean_task(doc)
+
+
+@api.delete("/admin/tasks/{task_id}", status_code=204)
+async def admin_delete_task(task_id: str, admin: dict = Depends(get_current_admin)):
+    r = await db.tasks.delete_one({"id": task_id})
+    if r.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Завдання не знайдено")
+    return None
+
+
+# ─── Admin: Applications moderation ───
+@api.get("/admin/applications", response_model=List[ApplicationModel])
+async def admin_list_applications(
+    status: Optional[str] = None, admin: dict = Depends(get_current_admin)
+):
+    query: dict = {}
+    if status and status in APPLICATION_STATUSES:
+        query["status"] = status
+    else:
+        query["status"] = {"$ne": "draft"}
+    docs = await db.applications.find(query, {"_id": 0}).sort("submitted_at", -1).to_list(500)
+    return [_clean_app(d) for d in docs]
+
+
+@api.patch("/admin/applications/{app_id}/start", response_model=ApplicationModel)
+async def admin_start_review(app_id: str, admin: dict = Depends(get_current_admin)):
+    app_doc = await db.applications.find_one({"id": app_id}, {"_id": 0})
+    if not app_doc:
+        raise HTTPException(status_code=404, detail="Заявку не знайдено")
+    if app_doc["status"] == "submitted":
+        await db.applications.update_one(
+            {"id": app_id},
+            {"$set": {"status": "pending_review", "reviewer_id": admin["id"], "updated_at": now_iso()}},
+        )
+    fresh = await db.applications.find_one({"id": app_id}, {"_id": 0})
+    return _clean_app(fresh)
+
+
+@api.post("/admin/applications/{app_id}/review", response_model=ApplicationModel)
+async def admin_review_application(app_id: str, body: ReviewBody, admin: dict = Depends(get_current_admin)):
+    app_doc = await db.applications.find_one({"id": app_id}, {"_id": 0})
+    if not app_doc:
+        raise HTTPException(status_code=404, detail="Заявку не знайдено")
+    if app_doc["status"] in ("approved", "rejected"):
+        raise HTTPException(status_code=400, detail="Заявку вже опрацьовано")
+
+    ts = now_iso()
+    if body.action == "approve":
+        reward = int(app_doc.get("reward", 0))
+        xp = int(app_doc.get("xp", 0))
+        await db.users.update_one(
+            {"id": app_doc["user_id"]},
+            {"$inc": {"balance": reward, "total_earned": reward, "total_xp": xp}},
+        )
+        await db.transactions.insert_one({
+            "id": str(uuid.uuid4()),
+            "user_id": app_doc["user_id"],
+            "kind": "quest",
+            "amount": reward,
+            "description": f"Завдання: {app_doc['task_title']}",
+            "created_at": ts,
+        })
+        await db.applications.update_one(
+            {"id": app_id},
+            {"$set": {"status": "approved", "reviewer_id": admin["id"],
+                      "review_reason": body.reason, "reviewed_at": ts, "updated_at": ts}},
+        )
+        await _notify(
+            app_doc["user_id"], "application_approved",
+            "Заявку підтверджено! 🎉",
+            f"{app_doc['task_title']} • +{reward} балів, +{xp} XP", "/tasks", "check-circle-2",
+        )
+    else:
+        if not body.reason.strip():
+            raise HTTPException(status_code=400, detail="Вкажи причину відхилення")
+        await db.applications.update_one(
+            {"id": app_id},
+            {"$set": {"status": "rejected", "reviewer_id": admin["id"],
+                      "review_reason": body.reason, "reviewed_at": ts, "updated_at": ts}},
+        )
+        await _notify(
+            app_doc["user_id"], "application_rejected",
+            "Заявку відхилено",
+            f"{app_doc['task_title']} • {body.reason}", "/tasks", "x-circle",
+        )
+    fresh = await db.applications.find_one({"id": app_id}, {"_id": 0})
+    return _clean_app(fresh)
+
+
+# ─── Admin: User moderation (approve / reject pending registrations) ───
+@api.get("/admin/users/pending", response_model=List[UserWithProgress])
+async def admin_pending_users(admin: dict = Depends(get_current_admin)):
+    docs = await db.users.find({"approved": False}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    team_ids = list({d.get("team_id") for d in docs if d.get("team_id")})
+    teams_map = {}
+    if team_ids:
+        async for t in db.teams.find({"id": {"$in": team_ids}}, {"_id": 0, "id": 1, "name": 1}):
+            teams_map[t["id"]] = t["name"]
+    for d in docs:
+        if d.get("team_id"):
+            d["team_name"] = teams_map.get(d["team_id"])
+    return [_user_with_progress(d) for d in docs]
+
+
+@api.post("/admin/users/{user_id}/approve", response_model=UserWithProgress)
+async def admin_approve_user(user_id: str, admin: dict = Depends(get_current_admin)):
+    target = await db.users.find_one({"id": user_id}, {"_id": 0})
+    if not target:
+        raise HTTPException(status_code=404, detail="Користувача не знайдено")
+    if target.get("approved"):
+        raise HTTPException(status_code=400, detail="Користувача вже підтверджено")
+    await db.users.update_one({"id": user_id}, {"$set": {"approved": True}})
+    # Signup bonus on approval
+    already = await db.transactions.find_one({"user_id": user_id, "kind": "signup_bonus"})
+    if not already:
+        await db.transactions.insert_one({
+            "id": str(uuid.uuid4()), "user_id": user_id, "kind": "signup_bonus",
+            "amount": 100, "description": "Стартовий бонус за реєстрацію", "created_at": now_iso(),
+        })
+        await db.users.update_one({"id": user_id}, {"$inc": {"balance": 100, "total_earned": 100, "total_xp": 50}})
+    await _notify(user_id, "account_approved", "Акаунт підтверджено! 🎉",
+                  "Ласкаво просимо в CallHub. +100 стартових балів", "/", "party-popper")
+    fresh = await db.users.find_one({"id": user_id}, {"_id": 0})
+    fresh = await _hydrate_user_team(fresh)
+    return _user_with_progress(fresh)
+
+
+# ─── Seed sample tasks (Phase 2) ───
+SEED_TASKS = [
+    {
+        "title": "Фото робочого місця",
+        "description": "Сфотографуй своє прибране робоче місце на початку зміни.",
+        "category": "discipline", "icon": "camera", "reward": 60, "xp": 30,
+        "fields": [
+            {"key": "photo", "label": "Фото робочого місця", "type": "photo", "required": True},
+            {"key": "note", "label": "Коментар", "type": "textarea", "required": False, "placeholder": "Необов'язково"},
+        ],
+    },
+    {
+        "title": "Звіт про закритий кейс",
+        "description": "Заповни звіт по складному кейсу, який ти закрив.",
+        "category": "support", "icon": "clipboard-check", "reward": 150, "xp": 80,
+        "fields": [
+            {"key": "client", "label": "Ім'я клієнта", "type": "text", "required": True, "placeholder": "Іван"},
+            {"key": "phone", "label": "Телефон клієнта", "type": "phone", "required": False, "placeholder": "+380..."},
+            {"key": "duration", "label": "Тривалість (хв)", "type": "number", "required": True},
+            {"key": "date", "label": "Дата кейсу", "type": "date", "required": True},
+            {"key": "result", "label": "Результат", "type": "select", "required": True,
+             "options": ["Вирішено", "Ескальовано", "Відкладено"]},
+            {"key": "summary", "label": "Опис", "type": "textarea", "required": True},
+        ],
+    },
+    {
+        "title": "Відео-привітання для клієнта",
+        "description": "Запиши коротке відео-привітання (до 30 сек).",
+        "category": "quality", "icon": "video", "reward": 200, "xp": 100,
+        "fields": [
+            {"key": "video", "label": "Відео", "type": "video", "required": True},
+            {"key": "agree", "label": "Погоджуюсь на публікацію у стрічці", "type": "checkbox", "required": True},
+        ],
+    },
+]
+
+
+async def seed_phase2():
+    await db.tasks.create_index("created_at")
+    await db.applications.create_index([("user_id", 1), ("updated_at", -1)])
+    await db.applications.create_index([("status", 1), ("submitted_at", -1)])
+    await db.notifications.create_index([("user_id", 1), ("created_at", -1)])
+    if await db.tasks.count_documents({}) == 0:
+        for t in SEED_TASKS:
+            await db.tasks.insert_one({"id": str(uuid.uuid4()), **t, "active": True, "created_at": now_iso()})
+        logger.info("Seeded %d tasks", len(SEED_TASKS))
+
+
+
 @app.on_event("startup")
 async def on_startup():
     await seed_all()
+    await seed_phase2()
 
 
 @app.on_event("shutdown")

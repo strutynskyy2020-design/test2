@@ -1,8 +1,9 @@
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { Home, Swords, Gift, LogOut, Shield, Trophy, Newspaper } from "lucide-react";
+import { Home, ClipboardList, Gift, LogOut, Shield, Trophy, Newspaper, UsersRound } from "lucide-react";
 import { useEffect } from "react";
 import { useApp } from "@/context/AppContext";
 import InstallPrompt from "@/components/InstallPrompt";
+import NotificationBell from "@/components/NotificationBell";
 
 const NavItem = ({ to, icon: Icon, label, testId }) => (
   <NavLink
@@ -57,6 +58,15 @@ export default function AppLayout() {
             <div className="font-display text-xl text-white leading-none mt-1">GAME HUB</div>
           </div>
           <div className="flex items-center gap-2">
+            <NotificationBell />
+            <button
+              data-testid="nav-teams"
+              onClick={() => nav("/teams")}
+              className="w-11 h-11 rounded-2xl bg-[#1A1A1E] border border-white/10 flex items-center justify-center text-[#00F0FF] active:scale-95 transition-transform"
+              aria-label="Команди"
+            >
+              <UsersRound size={18} strokeWidth={2.5} />
+            </button>
             {isAdmin && (
               <button
                 data-testid="nav-admin"
@@ -90,7 +100,7 @@ export default function AppLayout() {
           style={{ paddingLeft: 4, paddingRight: 210 }}
         >
           <NavItem to="/" icon={Home} label="Головна" testId="nav-home" />
-          <NavItem to="/quests" icon={Swords} label="Квести" testId="nav-quests" />
+          <NavItem to="/tasks" icon={ClipboardList} label="Завдання" testId="nav-tasks" />
           <NavItem to="/feed" icon={Newspaper} label="Стрічка" testId="nav-feed" />
           <NavItem to="/store" icon={Gift} label="Магазин" testId="nav-store" />
           <NavItem to="/leaderboard" icon={Trophy} label="Рейтинг" testId="nav-board" />

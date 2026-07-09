@@ -2,8 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Gamepad2, Zap, ChevronLeft, Camera, User, Mail, Phone, Send, Users as UsersIcon, Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import api, { extractError, setToken, API_BASE } from "@/lib/api";
-import { useApp } from "@/context/AppContext";
+import api, { extractError, API_BASE } from "@/lib/api";
 
 const AVATAR_COLORS = ["#FFB800", "#00F0FF", "#39FF14", "#FF5C00", "#B78CFF", "#FF3B8A"];
 
@@ -25,7 +24,6 @@ const Field = ({ label, icon: Icon, ...props }) => (
 );
 
 export default function Register() {
-  const { refreshMe } = useApp();
   const nav = useNavigate();
   const [teams, setTeams] = useState([]);
   const [busy, setBusy] = useState(false);
@@ -97,10 +95,8 @@ export default function Register() {
     try {
       const body = { ...f, team_id: f.team_id || null };
       const { data } = await api.post("/auth/register/self", body);
-      setToken(data.token);
-      await refreshMe?.();
-      toast.success("Вітаємо в CallHub! +100 стартових балів");
-      nav("/");
+      toast.success(data.message || "Реєстрацію надіслано!", { duration: 4000 });
+      nav("/login");
     } catch (err) {
       toast.error(extractError(err, "Не вдалось зареєструватися"));
     } finally {
@@ -129,6 +125,10 @@ export default function Register() {
           </div>
           <h1 className="font-display text-3xl text-white">Реєстрація</h1>
           <p className="text-zinc-400 text-sm mt-1 text-center">Приєднуйся до команди CallHub</p>
+        </div>
+
+        <div className="bg-[#FFB800]/10 border-2 border-[#FFB800]/30 rounded-2xl px-4 py-3 mb-4 text-[#FFB800] text-xs font-bold text-center">
+          Після реєстрації акаунт активується адміністратором. Ми повідомимо, коли можна увійти.
         </div>
 
         <form onSubmit={submit} className="bg-[#1A1A1E] border border-white/10 rounded-3xl p-6 space-y-4">
@@ -226,7 +226,7 @@ export default function Register() {
             className="arcade-btn w-full h-14 bg-[#39FF14] border-[#1a7a0a] text-[#0A0A0A] font-black text-base uppercase tracking-wider flex items-center justify-center gap-2 disabled:opacity-60"
           >
             <Zap size={18} strokeWidth={3} />
-            {busy ? "Реєструємо..." : "УВІЙТИ В ГРУ"}
+            {busy ? "Реєструємо..." : "ЗАРЕЄСТРУВАТИСЯ"}
           </button>
         </form>
 
