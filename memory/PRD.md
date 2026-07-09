@@ -62,10 +62,14 @@ Built ON TOP of existing app; nothing removed.
 - [x] Bottom nav updated: Головна / Завдання(/tasks) / Стрічка / Магазин / Рейтинг. Daily quests remain at /quests (linked from Tasks page).
 - Verified: `/app/backend/tests/test_phase6.py` (14/14) + Playwright E2E (100%).
 
+## Phase 6 (2026-07) — Social: Reactions + Comments ✅
+- [x] **Reactions** on feed activities: like, fire, clap, rocket, heart, laugh, star (lucide icons, not emoji). One reaction per user per item (toggle/replace). `POST /api/feed/{event_id}/react`. Feed enriched with reactions summary + my_reaction.
+- [x] **Comments** under activities: `GET/POST /api/feed/{event_id}/comments`, `DELETE /api/comments/{id}` (own or admin). comment_count on feed items.
+- [x] Notifications to activity owner on cross-user reaction/comment (kinds: reaction, comment). `FeedSocial.jsx` component.
+- Verified: 10/10 backend tests + Playwright E2E (100%).
+
 ## Remaining roadmap (next phases)
 ### P0 (next)
-- [ ] Reactions on feed/activities (like, fire, clap, rocket, heart, laugh, star — one per user)
-- [ ] Comments under activities
 - [ ] Achievements expansion: 100+, categories, hidden, progress bars, %, rarity tiers
 ### P1
 - [ ] Analytics: user activity, task completion, task popularity, avg completion time, charts (recharts already installed)
