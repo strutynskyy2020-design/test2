@@ -96,8 +96,8 @@ export default function AppLayout() {
 
         <nav
           data-testid="bottom-nav"
-          className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[480px] bg-[#0A0A0A] border-t border-white/10 h-20 flex items-center z-40"
-          style={{ paddingLeft: 4, paddingRight: 210 }}
+          lassName="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[480px] bg-[#0A0A0A] border-t border-white/10 flex items-stretch z-40 px-1"
+          style={{ height: "5rem", paddingBottom: "env(safe-area-inset-bottom)" }}
         >
           <NavItem to="/" icon={Home} label="Головна" testId="nav-home" />
           <NavItem to="/tasks" icon={ClipboardList} label="Завдання" testId="nav-tasks" />
