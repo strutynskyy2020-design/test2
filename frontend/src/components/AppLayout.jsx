@@ -96,7 +96,7 @@ export default function AppLayout() {
 
         <nav
           data-testid="bottom-nav"
-          lassName="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[480px] bg-[#0A0A0A] border-t border-white/10 flex items-stretch z-40 px-1"
+          сlassName="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[480px] bg-[#0A0A0A] border-t border-white/10 flex items-stretch z-40 px-1"
           style={{ height: "5rem", paddingBottom: "env(safe-area-inset-bottom)" }}
         >
           <NavItem to="/" icon={Home} label="Головна" testId="nav-home" />
