@@ -1303,7 +1303,7 @@ export default function Admin() {
         <h1 className="font-display text-3xl text-white mt-1">Адмін</h1>
       </div>
 
-      <div className="flex gap-2 overflow-x-auto -mx-5 px-5 pb-1" data-testid="admin-tabs">
+      <div className="flex gap-2 pb-1" data-testid="admin-tabs">
         {TABS.map((t) => {
           const Icon = t.icon;
           return (
