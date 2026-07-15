@@ -36,7 +36,7 @@ const NavItem = ({ to, icon: Icon, label, testId }) => (
 );
 
 export default function AppLayout() {
-  const { user, logout, mode } = useApp();
+  const { user, logout } = useApp();
   const nav = useNavigate();
   const loc = useLocation();
 
@@ -62,7 +62,6 @@ export default function AppLayout() {
             <div className="font-display text-[22px] text-white leading-none tracking-tight whitespace-nowrap">
               TM6 <span className="text-[#FFB800]">BONUS</span>
             </div>
-            {mode === "mock" && <div className="text-[9px] font-black uppercase tracking-[0.18em] text-[#FF5C00] mt-1">ОФЛАЙН • MOCK</div>}
           </div>
           <div className="flex items-center gap-1.5 shrink-0">
             <NotificationBell />
