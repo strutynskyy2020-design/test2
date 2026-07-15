@@ -48,9 +48,9 @@ export default function Login() {
             <Gamepad2 size={40} strokeWidth={3} color="#0A0A0A" />
           </div>
           <div className="text-[10px] font-black uppercase tracking-[0.3em] text-zinc-500">
-            CallHub {mode === "mock" && <span className="text-[#FF5C00]">• OFFLINE</span>}
+            TM6 Bonus {mode === "mock" && <span className="text-[#FF5C00]">• OFFLINE</span>}
           </div>
-          <h1 className="font-display text-4xl text-white mt-1">GAME HUB</h1>
+          <h1 className="font-display text-4xl text-white mt-1">TM6 BONUS</h1>
           <p className="text-zinc-400 text-sm mt-2">Заходь. Заробляй. Прокачуйся.</p>
         </div>
 

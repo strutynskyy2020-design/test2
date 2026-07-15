@@ -124,7 +124,7 @@ export default function Register() {
             <Gamepad2 size={32} strokeWidth={3} color="#0A0A0A" />
           </div>
           <h1 className="font-display text-3xl text-white">Реєстрація</h1>
-          <p className="text-zinc-400 text-sm mt-1 text-center">Приєднуйся до команди CallHub</p>
+          <p className="text-zinc-400 text-sm mt-1 text-center">Приєднуйся до команди TM6 Bonus</p>
         </div>
 
         <div className="bg-[#FFB800]/10 border-2 border-[#FFB800]/30 rounded-2xl px-4 py-3 mb-4 text-[#FFB800] text-xs font-bold text-center">

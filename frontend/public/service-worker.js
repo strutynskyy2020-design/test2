@@ -1,4 +1,4 @@
-/* CallHub Game Hub — Service Worker
+/* TM6 Bonus — Service Worker
  * Strategy: network-first for API and HTML, cache-first for static assets.
  * Keeps offline install working, doesn't stale-cache dynamic data.
  */

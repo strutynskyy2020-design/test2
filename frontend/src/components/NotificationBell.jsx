@@ -74,7 +74,7 @@ export default function NotificationBell() {
       <button
         data-testid="notif-bell"
         onClick={openPanel}
-        className="relative w-11 h-11 rounded-2xl bg-[#1A1A1E] border border-white/10 flex items-center justify-center text-zinc-300 active:scale-95 transition-transform"
+        className="relative w-12 h-12 touch-manipulation rounded-2xl bg-[#1A1A1E] border border-white/10 flex items-center justify-center text-zinc-300 active:scale-95 transition-transform"
         aria-label="Сповіщення"
       >
         <Bell size={18} strokeWidth={2.5} />
@@ -91,7 +91,7 @@ export default function NotificationBell() {
       {open && (
         <div className="fixed inset-0 z-50 flex items-start justify-center" data-testid="notif-panel">
           <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setOpen(false)} />
-          <div className="relative w-full max-w-[480px] mt-16 mx-3 bg-[#1A1A1E] border border-white/10 rounded-3xl overflow-hidden max-h-[75vh] flex flex-col" style={{ animation: "slide-in-right 250ms ease-out" }}>
+          <div className="relative w-full max-w-[480px] mx-3 bg-[#1A1A1E] border border-white/10 rounded-3xl overflow-hidden max-h-[75vh] flex flex-col" style={{ animation: "slide-in-right 250ms ease-out", marginTop: "calc(env(safe-area-inset-top, 0px) + 72px)" }}>
             <div className="flex items-center justify-between px-5 py-4 border-b border-white/10">
               <div className="font-display text-lg text-white">Сповіщення</div>
               <div className="flex items-center gap-2">

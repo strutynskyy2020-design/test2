@@ -136,6 +136,22 @@ class UserWithProgress(UserPublic):
     xp_to_next: int
 
 
+
+
+class AITrainingResultBody(BaseModel):
+    scenario_id: str
+    scenario_title: str
+    category: str = "general"
+    difficulty: str = "easy"
+    average_score: float = 0
+    consultation_quality: float = 0
+    sale_probability: int = 0
+    won: bool = False
+    points: int = 0
+    xp_earned: int = 0
+    best_streak: int = 0
+    techniques: dict = Field(default_factory=dict)
+
 class LoginBody(BaseModel):
     email: EmailStr
     password: str

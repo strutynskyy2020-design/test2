@@ -3,13 +3,14 @@ import { toast } from "sonner";
 import {
   Users, Swords, Gift, ShoppingBag, BarChart3, Plus, Pencil, Trash2, X, Minus, Check, Coins, Trophy, ChevronRight,
   UserCog, ShieldCheck, Crown, UsersRound, Inbox, UserCheck, ClipboardList, CheckCircle2, XCircle,
-  ArrowUp, ArrowDown, FileText,
+  ArrowUp, ArrowDown, FileText, BrainCircuit, Clock3, TrendingUp,
 } from "lucide-react";
 import api, { extractError, API_BASE } from "@/lib/api";
 import { useApp } from "@/context/AppContext";
 
 const TABS = [
   { id: "analytics", label: "Огляд", icon: BarChart3 },
+  { id: "ai-team", label: "AI команда", icon: BrainCircuit },
   { id: "moderation", label: "Модерація", icon: UserCheck },
   { id: "applications", label: "Заявки", icon: Inbox },
   { id: "tasks", label: "Завдання", icon: ClipboardList },
@@ -105,6 +106,55 @@ const AnalyticsView = () => {
       </div>
     </div>
   );
+};
+
+
+
+// ─────────────── AI team manager dashboard ───────────────
+const AITeamDashboard = () => {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    api.get("/admin/ai-training-dashboard")
+      .then((r) => setData(r.data))
+      .catch((e) => toast.error(extractError(e)))
+      .finally(() => setLoading(false));
+  }, []);
+  if (loading) return <div className="text-zinc-500 text-sm py-8 text-center">Завантаження статистики...</div>;
+  if (!data) return <div className="text-zinc-500 text-sm py-8 text-center">Немає даних тренувань</div>;
+  return <div className="space-y-4" data-testid="ai-team-dashboard">
+    <div className="grid grid-cols-2 gap-3">
+      <StatBox label="Середній бал команди" value={`${data.team_average}/10`} accent="#00F0FF" />
+      <StatBox label="Тренувань" value={data.total_trainings} accent="#FFB800" />
+      <StatBox label="Тренувалися" value={`${data.trained_count}/${data.total_operators}`} accent="#39FF14" />
+      <StatBox label="Неактивні 7+ днів" value={data.inactive.length} accent="#FF5C00" />
+    </div>
+
+    <div className="bg-[#1A1A1E] border border-white/10 rounded-2xl p-4">
+      <div className="flex items-center gap-2 mb-3"><Trophy size={16} className="text-[#FFB800]"/><div className="font-black text-white text-sm uppercase tracking-wider">Рейтинг операторів</div></div>
+      <div className="space-y-2">{data.ranking.map((u,i)=><div key={u.id} className="flex items-center gap-3 rounded-xl bg-black/25 p-3">
+        <div className="font-display text-[#FFB800] w-6">#{i+1}</div>
+        <div className="w-9 h-9 rounded-xl flex items-center justify-center text-black font-black" style={{backgroundColor:u.avatar_color||"#FFB800"}}>{u.avatar_initials||"?"}</div>
+        <div className="flex-1 min-w-0"><div className="font-black text-white text-sm truncate">{u.name}</div><div className="text-[10px] text-zinc-500">{u.attempts} кейсів • {u.win_rate}% успіху</div></div>
+        <div className="font-display text-[#00F0FF]">{u.average_score}</div>
+      </div>)}</div>
+    </div>
+
+    <div className="bg-[#1A1A1E] border border-white/10 rounded-2xl p-4">
+      <div className="flex items-center gap-2 mb-3"><BrainCircuit size={16} className="text-[#B56CFF]"/><div className="font-black text-white text-sm uppercase tracking-wider">Слабкі навички команди</div></div>
+      <div className="space-y-3">{data.weak_skills.length ? data.weak_skills.map((skill)=><div key={skill.name}><div className="flex justify-between text-xs mb-1"><span className="text-zinc-300">{skill.name}</span><span className="font-black text-white">{skill.score}%</span></div><div className="h-2 rounded-full bg-black/50 overflow-hidden"><div className="h-full bg-[#B56CFF]" style={{width:`${skill.score}%`}}/></div></div>) : <div className="text-zinc-500 text-xs">Потрібно більше завершених тренувань.</div>}</div>
+    </div>
+
+    <div className="bg-[#1A1A1E] border border-white/10 rounded-2xl p-4">
+      <div className="flex items-center gap-2 mb-3"><Clock3 size={16} className="text-[#FF5C00]"/><div className="font-black text-white text-sm uppercase tracking-wider">Хто давно не тренувався</div></div>
+      <div className="space-y-2">{data.inactive.length ? data.inactive.map((u)=><div key={u.id} className="flex items-center justify-between rounded-xl bg-black/25 px-3 py-2.5"><div><div className="text-white font-black text-sm">{u.name}</div><div className="text-[10px] text-zinc-500">{u.attempts ? `Останнє тренування: ${u.days_inactive} дн. тому` : "Ще не тренувався"}</div></div><span className="text-[#FF5C00] font-black text-xs">{u.attempts} кейсів</span></div>) : <div className="text-[#39FF14] text-xs font-black">Усі тренувалися протягом останніх 7 днів.</div>}</div>
+    </div>
+
+    <div className="bg-[#1A1A1E] border border-white/10 rounded-2xl p-4">
+      <div className="flex items-center gap-2 mb-3"><TrendingUp size={16} className="text-[#39FF14]"/><div className="font-black text-white text-sm uppercase tracking-wider">Прогрес співробітників</div></div>
+      <div className="space-y-3">{data.operators.map((u)=><div key={u.id} className="rounded-xl bg-black/25 p-3"><div className="flex items-center justify-between"><div className="font-black text-white text-sm">{u.name}</div><div className="text-[#00F0FF] font-display">{u.average_score}/10</div></div><div className="flex gap-1 items-end h-10 mt-2">{(u.progress||[]).length ? u.progress.map((p,i)=><div key={i} className="flex-1 rounded-t bg-[#39FF14]/80 min-w-[5px]" style={{height:`${Math.max(8, Number(p.score||0)*10)}%`}} title={`${p.score}/10`}/>) : <div className="text-[10px] text-zinc-600">Немає тренувань</div>}</div>{u.weakest_skills?.length>0&&<div className="text-[9px] text-zinc-500 mt-2">Покращити: {u.weakest_skills.map(x=>x[0]).join(", ")}</div>}</div>)}</div>
+    </div>
+  </div>;
 };
 
 // ─────────────── Users ───────────────
@@ -1294,7 +1344,7 @@ export default function Admin() {
     );
   }
 
-  const V = { analytics: AnalyticsView, moderation: ModerationView, applications: ApplicationsView, tasks: TasksAdminView, users: UsersView, teams: TeamsView, quests: QuestsView, prizes: PrizesView, orders: OrdersView }[tab];
+  const V = { analytics: AnalyticsView, "ai-team": AITeamDashboard, moderation: ModerationView, applications: ApplicationsView, tasks: TasksAdminView, users: UsersView, teams: TeamsView, quests: QuestsView, prizes: PrizesView, orders: OrdersView }[tab];
 
   return (
     <div className="px-5 pt-2 pb-8 space-y-4" data-testid="admin-page">

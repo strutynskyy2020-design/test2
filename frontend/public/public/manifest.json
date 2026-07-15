@@ -1,7 +1,7 @@
 {
-  "name": "CallHub Game Hub",
-  "short_name": "CallHub",
-  "description": "Гейміфікована система мотивації для операторів call-центру — квести, призи, лідерборд.",
+  "name": "TM6 Bonus",
+  "short_name": "TM6 Bonus",
+  "description": "TM6 Bonus — мотивація, розвиток і AI-тренування операторів.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
@@ -10,7 +10,11 @@
   "theme_color": "#0A0A0A",
   "lang": "uk",
   "dir": "ltr",
-  "categories": ["business", "productivity", "games"],
+  "categories": [
+    "business",
+    "productivity",
+    "games"
+  ],
   "icons": [
     {
       "src": "/icon-192.png",
@@ -42,19 +46,34 @@
       "name": "Квести",
       "short_name": "Квести",
       "url": "/quests",
-      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+      "icons": [
+        {
+          "src": "/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
     },
     {
       "name": "Магазин",
       "short_name": "Магазин",
       "url": "/store",
-      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+      "icons": [
+        {
+          "src": "/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
     },
     {
       "name": "Лідерборд",
       "short_name": "Рейтинг",
       "url": "/leaderboard",
-      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+      "icons": [
+        {
+          "src": "/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
     }
   ]
 }

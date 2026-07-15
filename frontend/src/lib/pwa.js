@@ -1,4 +1,4 @@
-// Register the CallHub service worker for PWA install / offline shell.
+// Register the TM6 Bonus service worker for PWA install / offline shell.
 // Safe no-op in dev if SW fails.
 export function registerServiceWorker() {
   if (typeof window === "undefined") return;

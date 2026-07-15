@@ -114,7 +114,7 @@ export const DAILY_QUESTS = [
 export const PRIZES = [
   {
     id: "p1",
-    title: "Худі CallHub",
+    title: "Худі TM6 Bonus",
     description: "Фірмовий чорний худі з логотипом",
     price: 2500,
     category: "merch",
@@ -182,7 +182,7 @@ export const PRIZES = [
   },
   {
     id: "p8",
-    title: "Кружка CallHub",
+    title: "Кружка TM6 Bonus",
     description: "Керамічна з неоновим принтом",
     price: 800,
     category: "merch",

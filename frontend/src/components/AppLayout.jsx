@@ -50,19 +50,22 @@ export default function AppLayout() {
   return (
     <div className="min-h-screen w-full flex justify-center">
       <div className="relative w-full max-w-[480px] min-h-screen flex flex-col bg-[#0A0A0A] border-x border-white/5">
-        <header className="sticky top-0 z-30 bg-[#0A0A0A]/95 backdrop-blur-sm border-b border-white/5 px-5 pt-5 pb-4 flex items-center justify-between">
-          <div>
-            <div className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500">
-              CallHub {mode === "mock" && <span className="text-[#FF5C00]">• MOCK</span>}
+        <header
+          className="sticky top-0 z-30 bg-[#0A0A0A]/95 backdrop-blur-sm border-b border-white/5 px-5 pb-4 flex items-center justify-between"
+          style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 14px)", minHeight: "calc(74px + env(safe-area-inset-top, 0px))" }}
+        >
+          <div className="min-w-0">
+            <div className="font-display text-[22px] text-white leading-none tracking-tight whitespace-nowrap">
+              TM6 <span className="text-[#FFB800]">BONUS</span>
             </div>
-            <div className="font-display text-xl text-white leading-none mt-1">GAME HUB</div>
+            {mode === "mock" && <div className="text-[9px] font-black uppercase tracking-[0.18em] text-[#FF5C00] mt-1">ОФЛАЙН • MOCK</div>}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 shrink-0">
             <NotificationBell />
             <button
               data-testid="nav-teams"
               onClick={() => nav("/teams")}
-              className="w-11 h-11 rounded-2xl bg-[#1A1A1E] border border-white/10 flex items-center justify-center text-[#00F0FF] active:scale-95 transition-transform"
+              className="w-12 h-12 touch-manipulation rounded-2xl bg-[#1A1A1E] border border-white/10 flex items-center justify-center text-[#00F0FF] active:scale-95 transition-transform"
               aria-label="Команди"
             >
               <UsersRound size={18} strokeWidth={2.5} />
@@ -71,7 +74,7 @@ export default function AppLayout() {
               <button
                 data-testid="nav-admin"
                 onClick={() => nav("/admin")}
-                className="w-11 h-11 rounded-2xl bg-[#FF5C00]/15 border-2 border-[#FF5C00]/60 flex items-center justify-center text-[#FF5C00] active:scale-95 transition-transform"
+                className="w-12 h-12 touch-manipulation rounded-2xl bg-[#FF5C00]/15 border-2 border-[#FF5C00]/60 flex items-center justify-center text-[#FF5C00] active:scale-95 transition-transform"
                 aria-label="Адмін-панель"
               >
                 <Shield size={18} strokeWidth={3} />
@@ -80,7 +83,7 @@ export default function AppLayout() {
             <button
               data-testid="logout-btn"
               onClick={() => { logout(); nav("/login"); }}
-              className="w-11 h-11 rounded-2xl bg-[#1A1A1E] border border-white/10 flex items-center justify-center text-zinc-400 active:scale-95 transition-transform"
+              className="w-12 h-12 touch-manipulation rounded-2xl bg-[#1A1A1E] border border-white/10 flex items-center justify-center text-zinc-400 active:scale-95 transition-transform"
               aria-label="Вийти"
             >
               <LogOut size={18} strokeWidth={2.5} />
