@@ -3,7 +3,7 @@ import { toast } from "sonner";
 import {
   Users, Swords, Gift, ShoppingBag, BarChart3, Plus, Pencil, Trash2, X, Minus, Check, Coins, Trophy, ChevronRight,
   UserCog, ShieldCheck, Crown, UsersRound, Inbox, UserCheck, ClipboardList, CheckCircle2, XCircle,
-  ArrowUp, ArrowDown, FileText, BrainCircuit, Clock3, TrendingUp,
+  ArrowUp, ArrowDown, FileText, BrainCircuit, Clock3, TrendingUp, Search, CalendarDays,
 } from "lucide-react";
 import api, { extractError, API_BASE } from "@/lib/api";
 import { useApp } from "@/context/AppContext";
@@ -11,6 +11,7 @@ import { useApp } from "@/context/AppContext";
 const TABS = [
   { id: "analytics", label: "Огляд", icon: BarChart3 },
   { id: "ai-team", label: "AI команда", icon: BrainCircuit },
+  { id: "daily-tasks", label: "Завдання дня", icon: CalendarDays },
   { id: "moderation", label: "Модерація", icon: UserCheck },
   { id: "applications", label: "Заявки", icon: Inbox },
   { id: "users", label: "Юзери", icon: Users },
@@ -154,6 +155,166 @@ const AITeamDashboard = () => {
     </div>
   </div>;
 };
+
+
+
+// ─────────────── Daily tasks manager ───────────────
+const DAILY_DIFFICULTY = {
+  easy: { label: "Легке", color: "#39FF14" },
+  medium: { label: "Середнє", color: "#FFB800" },
+  hard: { label: "Важке", color: "#FF5C00" },
+};
+
+const DailyTasksManager = () => {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [busyKey, setBusyKey] = useState(null);
+
+  const load = async () => {
+    try {
+      const response = await api.get("/admin/daily-tasks-dashboard");
+      setData(response.data);
+    } catch (e) {
+      toast.error(extractError(e, "Не вдалося завантажити завдання"));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const decide = async (operator, task, decision) => {
+    const key = `${operator.id}:${task.id}`;
+    setBusyKey(key);
+    try {
+      const response = await api.post(`/admin/daily-tasks/${operator.id}/${task.id}/${decision}`);
+      const result = response.data;
+      setData((prev) => ({
+        ...prev,
+        awarded_points: prev.awarded_points + (result.reward || 0),
+        decided_count: prev.decided_count + 1,
+        operators: prev.operators.map((item) => item.id !== operator.id ? item : {
+          ...item,
+          approved_count: item.approved_count + (result.status === "approved" ? 1 : 0),
+          decided_count: item.decided_count + 1,
+          tasks: item.tasks.map((current) => current.id !== task.id ? current : {
+            ...current,
+            status: result.status,
+            reviewed_at: result.reviewed_at,
+            reviewed_by_name: result.reviewed_by_name,
+          }),
+        }),
+      }));
+      if (result.status === "approved") {
+        toast.success(`+${result.reward} Point нараховано`, { description: operator.name });
+      } else {
+        toast.success("Завдання відхилено", { description: operator.name });
+      }
+    } catch (e) {
+      toast.error(extractError(e, "Не вдалося зберегти рішення"));
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
+  if (loading) return <div className="py-10 text-center text-sm font-black text-zinc-500">Завантаження…</div>;
+  if (!data) return <div className="py-10 text-center text-sm font-black text-zinc-500">Немає даних</div>;
+
+  const query = search.trim().toLowerCase();
+  const operators = data.operators.filter((operator) => !query || operator.name.toLowerCase().includes(query));
+
+  return (
+    <div className="space-y-4" data-testid="daily-tasks-manager">
+      <div className="grid grid-cols-2 gap-3">
+        <StatBox label="Операторів" value={data.operator_count} accent="#00F0FF" />
+        <StatBox label="Нараховано сьогодні" value={data.awarded_points} accent="#39FF14" />
+        <StatBox label="Рішень" value={`${data.decided_count}/${data.total_tasks}`} accent="#FFB800" />
+        <StatBox label="Дата" value={data.date.split("-").reverse().join(".")} />
+      </div>
+
+      <div className="relative">
+        <Search size={17} className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500" />
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Пошук оператора…"
+          className="h-12 w-full rounded-2xl border-2 border-white/10 bg-[#1A1A1E] pl-11 pr-4 text-sm font-bold text-white outline-none focus:border-[#FFB800]"
+        />
+      </div>
+
+      <div className="space-y-4">
+        {operators.map((operator) => (
+          <section key={operator.id} className="overflow-hidden rounded-3xl border border-white/10 bg-[#1A1A1E]">
+            <div className="flex items-center gap-3 border-b border-white/10 p-4">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl font-display text-sm text-[#0A0A0A]" style={{ backgroundColor: operator.avatar_color || "#FFB800" }}>
+                {operator.avatar_initials || "?"}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-base font-black text-white">{operator.name}</div>
+                <div className="mt-0.5 text-[10px] font-black uppercase tracking-wider text-zinc-500">{operator.position || "Оператор"}</div>
+              </div>
+              <div className="rounded-2xl border border-[#FFB800]/30 bg-[#FFB800]/10 px-3 py-2 text-center">
+                <div className="font-display text-lg text-[#FFB800]">{operator.decided_count}/3</div>
+                <div className="text-[8px] font-black uppercase tracking-wider text-zinc-500">Перевірено</div>
+              </div>
+            </div>
+
+            <div className="divide-y divide-white/5">
+              {operator.tasks.map((task) => {
+                const difficulty = DAILY_DIFFICULTY[task.difficulty] || DAILY_DIFFICULTY.easy;
+                const key = `${operator.id}:${task.id}`;
+                const decided = task.status !== "pending";
+                return (
+                  <div key={task.id} className="p-4" data-testid={`admin-daily-task-${operator.id}-${task.id}`}>
+                    <div className="flex items-start gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-[#0A0A0A]" style={{ backgroundColor: difficulty.color }}>{difficulty.label}</span>
+                          <span className="text-xs font-black text-[#FFB800]">{task.reward} Point</span>
+                        </div>
+                        <div className="mt-2 text-sm font-black leading-snug text-white">{task.title}</div>
+                        <div className="mt-1 line-clamp-2 text-xs font-semibold leading-relaxed text-zinc-400">{task.text}</div>
+                      </div>
+                    </div>
+
+                    {!decided ? (
+                      <div className="mt-3 grid grid-cols-2 gap-2">
+                        <button
+                          onClick={() => decide(operator, task, "approve")}
+                          disabled={busyKey === key}
+                          className="min-h-11 touch-manipulation rounded-2xl border-2 border-[#39FF14]/50 bg-[#39FF14]/15 text-xs font-black uppercase tracking-wider text-[#39FF14] active:scale-95 disabled:opacity-50"
+                        >
+                          <span className="inline-flex items-center gap-1.5"><CheckCircle2 size={15} strokeWidth={3} /> Нарахувати</span>
+                        </button>
+                        <button
+                          onClick={() => decide(operator, task, "reject")}
+                          disabled={busyKey === key}
+                          className="min-h-11 touch-manipulation rounded-2xl border-2 border-[#FF3B30]/50 bg-[#FF3B30]/10 text-xs font-black uppercase tracking-wider text-[#FF3B30] active:scale-95 disabled:opacity-50"
+                        >
+                          <span className="inline-flex items-center gap-1.5"><XCircle size={15} strokeWidth={3} /> Відхилити</span>
+                        </button>
+                      </div>
+                    ) : (
+                      <div className={`mt-3 flex items-center justify-between rounded-2xl border px-3 py-2.5 ${task.status === "approved" ? "border-[#39FF14]/30 bg-[#39FF14]/10" : "border-[#FF3B30]/30 bg-[#FF3B30]/10"}`}>
+                        <div className={`flex items-center gap-2 text-xs font-black uppercase tracking-wider ${task.status === "approved" ? "text-[#39FF14]" : "text-[#FF3B30]"}`}>
+                          {task.status === "approved" ? <CheckCircle2 size={16} strokeWidth={3} /> : <XCircle size={16} strokeWidth={3} />}
+                          {task.status === "approved" ? `Нараховано +${task.reward}` : "Відхилено"}
+                        </div>
+                        <div className="text-[9px] font-bold text-zinc-500">{task.reviewed_by_name || "Адмін"}</div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        ))}
+      </div>
+    </div>
+  );
+};
+
 
 // ─────────────── Users ───────────────
 const UsersView = () => {
@@ -1342,7 +1503,7 @@ export default function Admin() {
     );
   }
 
-  const V = { analytics: AnalyticsView, "ai-team": AITeamDashboard, moderation: ModerationView, applications: ApplicationsView, users: UsersView, teams: TeamsView, prizes: PrizesView, orders: OrdersView }[tab];
+  const V = { analytics: AnalyticsView, "ai-team": AITeamDashboard, "daily-tasks": DailyTasksManager, moderation: ModerationView, applications: ApplicationsView, users: UsersView, teams: TeamsView, prizes: PrizesView, orders: OrdersView }[tab];
 
   return (
     <div className="px-5 pt-2 pb-8 space-y-4" data-testid="admin-page">

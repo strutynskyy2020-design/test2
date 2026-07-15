@@ -911,14 +911,152 @@ async def _get_or_create_daily_task_set(user_id: str) -> dict:
 @api.get("/daily-tasks")
 async def get_daily_tasks(user: dict = Depends(get_current_user)):
     task_set = await _get_or_create_daily_task_set(user["id"])
-    tasks = [_daily_task_by_id(task_id) for task_id in task_set["task_ids"]]
+    reviews = await db.daily_task_reviews.find(
+        {"user_id": user["id"], "date": task_set["date"]}, {"_id": 0}
+    ).to_list(20)
+    review_map = {int(r["task_id"]): r for r in reviews}
+    tasks = []
+    for task_id in task_set["task_ids"]:
+        task = _daily_task_by_id(task_id)
+        if not task:
+            continue
+        review = review_map.get(int(task_id))
+        tasks.append({
+            **task,
+            "status": review.get("status") if review else "pending",
+            "reviewed_at": review.get("reviewed_at") if review else None,
+            "reviewed_by_name": review.get("reviewed_by_name") if review else None,
+        })
     return {
         "date": task_set["date"],
-        "tasks": [task for task in tasks if task],
+        "tasks": tasks,
         "replacement_used": bool(task_set.get("replacement_used")),
         "refresh_at": kyiv_tomorrow_iso(),
         "timezone": "Europe/Kyiv",
     }
+
+
+
+@api.get("/admin/daily-tasks-dashboard")
+async def admin_daily_tasks_dashboard(admin: dict = Depends(get_current_admin)):
+    date_key = kyiv_today_key()
+    users = await db.users.find(
+        {"role": "employee", "approved": {"$ne": False}},
+        {"_id": 0, "id": 1, "name": 1, "avatar_initials": 1, "avatar_color": 1, "position": 1, "department": 1, "total_xp": 1},
+    ).sort("name", 1).to_list(1000)
+
+    for employee in users:
+        await _get_or_create_daily_task_set(employee["id"])
+
+    task_sets = await db.daily_task_sets.find({"date": date_key}, {"_id": 0}).to_list(2000)
+    task_set_map = {row["user_id"]: row for row in task_sets}
+    reviews = await db.daily_task_reviews.find({"date": date_key}, {"_id": 0}).to_list(5000)
+    review_map = {(row["user_id"], int(row["task_id"])): row for row in reviews}
+
+    operators = []
+    awarded_points = 0
+    decided_count = 0
+    for employee in users:
+        task_set = task_set_map.get(employee["id"]) or await _get_or_create_daily_task_set(employee["id"])
+        task_items = []
+        for task_id in task_set.get("task_ids", []):
+            task = _daily_task_by_id(int(task_id))
+            if not task:
+                continue
+            review = review_map.get((employee["id"], int(task_id)))
+            status = review.get("status") if review else "pending"
+            if status == "approved":
+                awarded_points += int(task["reward"])
+            if status in ("approved", "rejected"):
+                decided_count += 1
+            task_items.append({
+                **task,
+                "status": status,
+                "reviewed_at": review.get("reviewed_at") if review else None,
+                "reviewed_by_name": review.get("reviewed_by_name") if review else None,
+            })
+        operators.append({
+            **employee,
+            "tasks": task_items,
+            "approved_count": sum(1 for item in task_items if item["status"] == "approved"),
+            "decided_count": sum(1 for item in task_items if item["status"] in ("approved", "rejected")),
+        })
+
+    return {
+        "date": date_key,
+        "operators": operators,
+        "operator_count": len(operators),
+        "awarded_points": awarded_points,
+        "decided_count": decided_count,
+        "total_tasks": len(operators) * 3,
+        "refresh_at": kyiv_tomorrow_iso(),
+        "timezone": "Europe/Kyiv",
+    }
+
+
+@api.post("/admin/daily-tasks/{user_id}/{task_id}/{decision}")
+async def admin_review_daily_task(
+    user_id: str,
+    task_id: int,
+    decision: str,
+    admin: dict = Depends(get_current_admin),
+):
+    if decision not in ("approve", "reject"):
+        raise HTTPException(status_code=400, detail="Невідоме рішення")
+    target = await db.users.find_one({"id": user_id, "role": "employee"}, {"_id": 0})
+    if not target:
+        raise HTTPException(status_code=404, detail="Оператора не знайдено")
+    task_set = await _get_or_create_daily_task_set(user_id)
+    if task_id not in task_set.get("task_ids", []):
+        raise HTTPException(status_code=404, detail="Це завдання не призначене оператору сьогодні")
+    task = _daily_task_by_id(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Завдання не знайдено")
+    existing = await db.daily_task_reviews.find_one(
+        {"user_id": user_id, "date": task_set["date"], "task_id": task_id}, {"_id": 0}
+    )
+    if existing:
+        raise HTTPException(status_code=409, detail="Рішення щодо цього завдання вже зафіксовано")
+
+    status = "approved" if decision == "approve" else "rejected"
+    reviewed_at = now_iso()
+    review = {
+        "id": str(uuid.uuid4()),
+        "user_id": user_id,
+        "date": task_set["date"],
+        "task_id": task_id,
+        "status": status,
+        "reward": int(task["reward"]) if status == "approved" else 0,
+        "reviewed_by": admin["id"],
+        "reviewed_by_name": admin.get("name", "Адміністратор"),
+        "reviewed_at": reviewed_at,
+    }
+    await db.daily_task_reviews.insert_one(review)
+
+    if status == "approved":
+        reward = int(task["reward"])
+        await db.users.update_one(
+            {"id": user_id}, {"$inc": {"balance": reward, "total_earned": reward}}
+        )
+        await db.transactions.insert_one({
+            "id": str(uuid.uuid4()),
+            "user_id": user_id,
+            "kind": "daily_task_award",
+            "amount": reward,
+            "description": f"Завдання дня: {task['title']}",
+            "created_at": reviewed_at,
+            "meta": {"task_id": task_id, "date": task_set["date"], "reviewed_by": admin["id"]},
+        })
+
+    return {
+        "user_id": user_id,
+        "task_id": task_id,
+        "status": status,
+        "reward": int(task["reward"]) if status == "approved" else 0,
+        "reviewed_at": reviewed_at,
+        "reviewed_by_name": admin.get("name", "Адміністратор"),
+    }
+
 
 @api.post("/daily-tasks/{task_id}/replace")
 async def replace_daily_task(task_id: int, user: dict = Depends(get_current_user)):
@@ -929,6 +1067,9 @@ async def replace_daily_task(task_id: int, user: dict = Depends(get_current_user
         raise HTTPException(status_code=400, detail="Сьогодні одне завдання вже було замінено")
     if task_id not in task_set["task_ids"]:
         raise HTTPException(status_code=404, detail="Завдання не входить до сьогоднішнього набору")
+    decided = await db.daily_task_reviews.find_one({"user_id": user["id"], "date": task_set["date"], "task_id": task_id})
+    if decided:
+        raise HTTPException(status_code=400, detail="Перевірене завдання вже не можна замінити")
     current = _daily_task_by_id(task_id)
     if not current:
         raise HTTPException(status_code=404, detail="Завдання не знайдено")
@@ -1917,6 +2058,7 @@ async def seed_all():
     await db.daily_progress.create_index([("user_id", 1), ("date", 1)], unique=True)
     await db.daily_games.create_index([("user_id", 1), ("date", 1)], unique=True)
     await db.daily_task_sets.create_index([("user_id", 1), ("date", 1)], unique=True)
+    await db.daily_task_reviews.create_index([("user_id", 1), ("date", 1), ("task_id", 1)], unique=True)
     await db.teams.create_index("name", unique=True)
 
     # Teams — seed first so we can attach users

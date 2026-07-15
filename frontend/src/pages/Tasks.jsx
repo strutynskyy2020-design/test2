@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CalendarClock, Coins, RefreshCw, ShieldAlert, Sparkles } from "lucide-react";
+import { CalendarClock, CheckCircle2, Coins, RefreshCw, ShieldAlert, Sparkles, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import api, { extractError } from "@/lib/api";
 
@@ -64,7 +64,18 @@ const TaskCard = ({ task, canReplace, replacing, onReplace }) => {
 
         <p className="mt-3 text-sm font-semibold leading-relaxed text-zinc-300">{task.text}</p>
 
-        {canReplace && (
+        {task.status === "approved" && (
+          <div className="mt-4 flex items-center justify-between rounded-2xl border border-[#39FF14]/30 bg-[#39FF14]/10 px-4 py-3">
+            <span className="inline-flex items-center gap-2 text-xs font-black uppercase tracking-wider text-[#39FF14]"><CheckCircle2 size={16} strokeWidth={3} /> Нараховано</span>
+            <span className="font-display text-[#39FF14]">+{task.reward}</span>
+          </div>
+        )}
+        {task.status === "rejected" && (
+          <div className="mt-4 flex items-center gap-2 rounded-2xl border border-[#FF3B30]/30 bg-[#FF3B30]/10 px-4 py-3 text-xs font-black uppercase tracking-wider text-[#FF3B30]">
+            <XCircle size={16} strokeWidth={3} /> Відхилено
+          </div>
+        )}
+        {canReplace && task.status === "pending" && (
           <button
             type="button"
             onClick={() => onReplace(task.id)}
