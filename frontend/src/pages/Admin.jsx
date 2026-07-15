@@ -3,7 +3,7 @@ import { toast } from "sonner";
 import {
   Users, Swords, Gift, ShoppingBag, BarChart3, Plus, Pencil, Trash2, X, Minus, Check, Coins, Trophy, ChevronRight,
   UserCog, ShieldCheck, Crown, UsersRound, Inbox, UserCheck, ClipboardList, CheckCircle2, XCircle,
-  ArrowUp, ArrowDown, FileText, BrainCircuit, Clock3, TrendingUp, Search, CalendarDays,
+  ArrowUp, ArrowDown, FileText, BrainCircuit, Clock3, TrendingUp, Search, CalendarDays, Target, Save,
 } from "lucide-react";
 import api, { extractError, API_BASE } from "@/lib/api";
 import { useApp } from "@/context/AppContext";
@@ -12,6 +12,7 @@ const TABS = [
   { id: "analytics", label: "Огляд", icon: BarChart3 },
   { id: "ai-team", label: "AI команда", icon: BrainCircuit },
   { id: "daily-tasks", label: "Завдання дня", icon: CalendarDays },
+  { id: "goals", label: "Цілі", icon: Target },
   { id: "moderation", label: "Модерація", icon: UserCheck },
   { id: "applications", label: "Заявки", icon: Inbox },
   { id: "users", label: "Юзери", icon: Users },
@@ -1547,6 +1548,105 @@ const TaskEditor = ({ task, onClose, onSaved }) => {
   );
 };
 
+
+// ─────────────── Personal goals manager ───────────────
+const EMPTY_METRIC = { current: 0, target: 100, mode: "reach" };
+const normalizeGoalForm = (g = {}) => ({
+  credit: { ...EMPTY_METRIC, ...(g.credit || {}) },
+  debit: { ...EMPTY_METRIC, ...(g.debit || {}) },
+  deposit: { ...EMPTY_METRIC, ...(g.deposit || {}) },
+  monthly_bonus_current: Number(g.monthly_bonus_current || 0),
+  monthly_bonus_target: Number(g.monthly_bonus_target || 0),
+  note: g.note || "",
+});
+
+const GoalMetricEditor = ({ label, value, onChange, color }) => (
+  <div className="rounded-2xl border border-white/10 bg-black/25 p-3">
+    <div className="mb-2 text-[10px] font-black uppercase tracking-widest" style={{ color }}>{label}</div>
+    <div className="grid grid-cols-2 gap-2">
+      <label className="text-[9px] font-black uppercase text-zinc-600">Поточний %
+        <input type="number" min="0" step="0.1" value={value.current} onChange={(e) => onChange({ ...value, current: Number(e.target.value) })} className="mt-1 h-10 w-full rounded-xl border border-white/10 bg-[#121318] px-2 text-white outline-none focus:border-[#FFB800]" />
+      </label>
+      <label className="text-[9px] font-black uppercase text-zinc-600">Ціль %
+        <input type="number" min="0" step="0.1" value={value.target} onChange={(e) => onChange({ ...value, target: Number(e.target.value) })} className="mt-1 h-10 w-full rounded-xl border border-white/10 bg-[#121318] px-2 text-white outline-none focus:border-[#FFB800]" />
+      </label>
+    </div>
+    <select value={value.mode} onChange={(e) => onChange({ ...value, mode: e.target.value })} className="mt-2 h-10 w-full rounded-xl border border-white/10 bg-[#121318] px-2 text-xs font-black text-zinc-300 outline-none focus:border-[#FFB800]">
+      <option value="reach">Підняти до цілі</option>
+      <option value="maintain">Утримати не нижче</option>
+    </select>
+  </div>
+);
+
+const GoalsManager = () => {
+  const [items, setItems] = useState([]);
+  const [forms, setForms] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState({});
+  const [search, setSearch] = useState("");
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const { data } = await api.get("/admin/goals-dashboard");
+      setItems(data || []);
+      setForms(Object.fromEntries((data || []).map((u) => [u.id, normalizeGoalForm(u.goals)])));
+    } catch (e) { toast.error(extractError(e, "Не вдалося завантажити цілі")); }
+    setLoading(false);
+  };
+  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
+
+  const save = async (u) => {
+    setSaving((v) => ({ ...v, [u.id]: true }));
+    try {
+      const { data } = await api.put(`/admin/goals/${u.id}`, forms[u.id]);
+      setItems((rows) => rows.map((row) => row.id === u.id ? { ...row, goals: data } : row));
+      setForms((all) => ({ ...all, [u.id]: normalizeGoalForm(data) }));
+      if (data.weekly_reward_just_awarded) toast.success(`${u.name}: +200 Point за тижневі цілі`);
+      else if (data.monthly_reward_just_awarded) toast.success(`${u.name}: +1000 Point за місячну ціль`);
+      else toast.success(`Цілі ${u.name} збережено`);
+    } catch (e) { toast.error(extractError(e, "Не вдалося зберегти цілі")); }
+    setSaving((v) => ({ ...v, [u.id]: false }));
+  };
+
+  const visible = items.filter((u) => u.name.toLowerCase().includes(search.toLowerCase()));
+  if (loading) return <div className="py-10 text-center text-sm text-zinc-500">Завантаження цілей...</div>;
+  return <div className="space-y-4" data-testid="admin-goals-view">
+    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <StatBox label="Операторів" value={items.length} />
+      <StatBox label="Тиждень виконано" value={items.filter(x => x.goals?.weekly_complete).length} accent="#39FF14" />
+      <StatBox label="Місяць виконано" value={items.filter(x => x.goals?.monthly_complete).length} accent="#FFB800" />
+      <StatBox label="Потребують уваги" value={items.filter(x => !x.goals?.weekly_complete).length} accent="#FF5C00" />
+    </div>
+    <div className="relative"><Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-600"/><input value={search} onChange={(e)=>setSearch(e.target.value)} placeholder="Пошук оператора" className="h-12 w-full rounded-2xl border border-white/10 bg-[#1A1A1E] pl-10 pr-3 text-white outline-none focus:border-[#FFB800]"/></div>
+    <div className="space-y-4">
+      {visible.map((u) => {
+        const f = forms[u.id] || normalizeGoalForm();
+        const avatar = u.avatar_url ? (u.avatar_url.startsWith("http") ? u.avatar_url : `${API_BASE.replace(/\/api$/, "")}${u.avatar_url}`) : null;
+        return <section key={u.id} className="rounded-3xl border border-white/10 bg-[#1A1A1E] p-4 lg:p-5">
+          <div className="mb-4 flex items-center gap-3">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-2xl font-display text-sm text-black" style={{ backgroundColor: u.avatar_color || "#FFB800" }}>{avatar ? <img src={avatar} alt={u.name} className="h-full w-full object-cover"/> : u.avatar_initials || "?"}</div>
+            <div className="min-w-0 flex-1"><div className="truncate font-black text-white">{u.name}</div><div className="truncate text-xs text-zinc-500">{u.position || u.department || "Оператор"}</div></div>
+            <div className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase ${u.goals?.weekly_complete ? "bg-[#39FF14]/15 text-[#39FF14]" : "bg-[#FFB800]/10 text-[#FFB800]"}`}>{u.goals?.weekly_complete ? "3/3" : `${[u.goals?.credit,u.goals?.debit,u.goals?.deposit].filter(x=>x?.complete).length}/3`}</div>
+          </div>
+          <div className="grid gap-3 lg:grid-cols-3">
+            <GoalMetricEditor label="Кредитний" value={f.credit} color="#FFB800" onChange={(v)=>setForms(all=>({...all,[u.id]:{...f,credit:v}}))}/>
+            <GoalMetricEditor label="Дебетний" value={f.debit} color="#00F0FF" onChange={(v)=>setForms(all=>({...all,[u.id]:{...f,debit:v}}))}/>
+            <GoalMetricEditor label="Депозитний" value={f.deposit} color="#39FF14" onChange={(v)=>setForms(all=>({...all,[u.id]:{...f,deposit:v}}))}/>
+          </div>
+          <div className="mt-3 grid gap-3 lg:grid-cols-[1fr_1fr_2fr_auto]">
+            <label className="text-[9px] font-black uppercase text-zinc-600">Поточний бонус, грн<input type="number" min="0" value={f.monthly_bonus_current} onChange={(e)=>setForms(all=>({...all,[u.id]:{...f,monthly_bonus_current:Number(e.target.value)}}))} className="mt-1 h-11 w-full rounded-xl border border-white/10 bg-[#121318] px-3 text-white outline-none focus:border-[#FFB800]"/></label>
+            <label className="text-[9px] font-black uppercase text-zinc-600">Ціль бонусу, грн<input type="number" min="0" value={f.monthly_bonus_target} onChange={(e)=>setForms(all=>({...all,[u.id]:{...f,monthly_bonus_target:Number(e.target.value)}}))} className="mt-1 h-11 w-full rounded-xl border border-white/10 bg-[#121318] px-3 text-white outline-none focus:border-[#FFB800]"/></label>
+            <label className="text-[9px] font-black uppercase text-zinc-600">Коментар<input value={f.note} onChange={(e)=>setForms(all=>({...all,[u.id]:{...f,note:e.target.value}}))} placeholder="Наприклад: фокус на депозитах" className="mt-1 h-11 w-full rounded-xl border border-white/10 bg-[#121318] px-3 text-white outline-none focus:border-[#FFB800]"/></label>
+            <button onClick={()=>save(u)} disabled={saving[u.id]} className="arcade-btn mt-auto flex h-11 items-center justify-center gap-2 border-[#7a5900] bg-[#FFB800] px-5 text-xs font-black uppercase text-[#0A0A0A] disabled:opacity-50"><Save size={15}/>{saving[u.id] ? "..." : "Зберегти"}</button>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2 text-[10px] font-black uppercase"><span className="rounded-full bg-[#B78CFF]/10 px-2 py-1 text-[#B78CFF]">3 тижневі цілі = +200 Point</span><span className="rounded-full bg-[#FFB800]/10 px-2 py-1 text-[#FFB800]">Місячний бонус = +1000 Point</span></div>
+        </section>;
+      })}
+    </div>
+  </div>;
+};
+
 // ─────────────── Admin page shell ───────────────
 export default function Admin() {
   const { user, mode } = useApp();
@@ -1566,7 +1666,7 @@ export default function Admin() {
     );
   }
 
-  const V = { analytics: AnalyticsView, "ai-team": AITeamDashboard, "daily-tasks": DailyTasksManager, moderation: ModerationView, applications: ApplicationsView, users: UsersView, teams: TeamsView, prizes: PrizesView, orders: OrdersView }[tab];
+  const V = { analytics: AnalyticsView, "ai-team": AITeamDashboard, "daily-tasks": DailyTasksManager, goals: GoalsManager, moderation: ModerationView, applications: ApplicationsView, users: UsersView, teams: TeamsView, prizes: PrizesView, orders: OrdersView }[tab];
 
   return (
     <div className="px-5 pt-2 pb-8 lg:px-7 lg:pt-6" data-testid="admin-page">

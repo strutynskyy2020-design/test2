@@ -2,7 +2,7 @@
  * Strategy: network-first for API and HTML, cache-first for static assets.
  * Keeps offline install working, doesn't stale-cache dynamic data.
  */
-const VERSION = "tm6-v12";
+const VERSION = "tm6-v20";
 const STATIC_CACHE = `${VERSION}-static`;
 const RUNTIME_CACHE = `${VERSION}-runtime`;
 

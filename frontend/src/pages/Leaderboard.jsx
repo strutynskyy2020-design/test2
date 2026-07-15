@@ -3,6 +3,7 @@ import { Trophy, Coins, Crown, Medal, Award, TrendingUp, UsersRound } from "luci
 import { toast } from "sonner";
 import api, { extractError } from "@/lib/api";
 import { useApp } from "@/context/AppContext";
+import { resolveAvatarUrl } from "@/lib/avatar";
 
 const PERIODS = [
   { id: "week", label: "Тиждень" },
@@ -33,10 +34,14 @@ const Row = ({ entry, dim }) => (
       <RankBadge rank={entry.rank} />
     </div>
     <div
-      className="w-11 h-11 rounded-xl flex items-center justify-center font-display text-sm text-[#0A0A0A] shrink-0"
+      className="w-11 h-11 rounded-xl overflow-hidden flex items-center justify-center font-display text-sm text-[#0A0A0A] shrink-0"
       style={{ backgroundColor: entry.avatar_color }}
     >
-      {entry.avatar_initials || "?"}
+      {entry.avatar_url ? (
+        <img src={resolveAvatarUrl(entry.avatar_url)} alt={entry.name} className="w-full h-full object-cover" />
+      ) : (
+        entry.avatar_initials || "?"
+      )}
     </div>
     <div className="flex-1 min-w-0">
       <div className={`font-black text-sm truncate ${entry.is_me ? "text-[#FFB800]" : "text-white"}`}>

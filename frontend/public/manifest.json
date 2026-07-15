@@ -56,7 +56,7 @@
     {
       "name": "Квести",
       "short_name": "Квести",
-      "url": "/quests",
+      "url": "/tasks",
       "icons": [
         {
           "src": "/icon-192.png",

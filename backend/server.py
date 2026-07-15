@@ -247,6 +247,21 @@ class AvatarUpdateBody(BaseModel):
     avatar_url: str
 
 
+class GoalMetricBody(BaseModel):
+    current: float = 0
+    target: float = 100
+    mode: Literal["reach", "maintain"] = "reach"
+
+
+class UserGoalsUpdateBody(BaseModel):
+    credit: GoalMetricBody = Field(default_factory=GoalMetricBody)
+    debit: GoalMetricBody = Field(default_factory=GoalMetricBody)
+    deposit: GoalMetricBody = Field(default_factory=GoalMetricBody)
+    monthly_bonus_current: float = 0
+    monthly_bonus_target: float = 0
+    note: str = ""
+
+
 class TokenResponse(BaseModel):
     token: str
     user: UserWithProgress
@@ -897,6 +912,131 @@ DAILY_TASK_CATALOG = [
     {"id": 39, "title": "Акула продажів", "text": "Зробіть найбільшу кількість видач у команді за день. Приз: 50 Point.", "difficulty": "hard", "reward": 50},
 ]
 
+
+# ────────────────────────────────────────────────────────────────────────
+# Personal weekly and monthly goals
+# ────────────────────────────────────────────────────────────────────────
+def _iso_week_key() -> str:
+    local = datetime.now(ZoneInfo("Europe/Kyiv"))
+    year, week, _ = local.isocalendar()
+    return f"{year}-W{week:02d}"
+
+
+def _month_key() -> str:
+    return datetime.now(ZoneInfo("Europe/Kyiv")).strftime("%Y-%m")
+
+
+def _metric_complete(metric: dict) -> bool:
+    try:
+        current = float(metric.get("current", 0))
+        target = float(metric.get("target", 0))
+    except (TypeError, ValueError):
+        return False
+    return target > 0 and current >= target
+
+
+def _goals_public(doc: Optional[dict]) -> dict:
+    empty_metric = {"current": 0, "target": 0, "mode": "reach", "complete": False}
+    if not doc:
+        return {
+            "week_key": _iso_week_key(), "month_key": _month_key(),
+            "credit": dict(empty_metric), "debit": dict(empty_metric), "deposit": dict(empty_metric),
+            "monthly_bonus_current": 0, "monthly_bonus_target": 0,
+            "weekly_complete": False, "monthly_complete": False,
+            "weekly_reward_awarded": False, "monthly_reward_awarded": False,
+            "note": "", "updated_at": None,
+        }
+    result = {k: v for k, v in doc.items() if k != "_id"}
+    for key in ("credit", "debit", "deposit"):
+        metric = dict(result.get(key) or empty_metric)
+        metric["complete"] = _metric_complete(metric)
+        result[key] = metric
+    result["weekly_complete"] = all(result[k]["complete"] for k in ("credit", "debit", "deposit"))
+    target = float(result.get("monthly_bonus_target") or 0)
+    current = float(result.get("monthly_bonus_current") or 0)
+    result["monthly_complete"] = target > 0 and current >= target
+    return result
+
+
+async def _award_goal_reward(user_id: str, kind: str, amount: int, period_key: str):
+    tx_key = f"goal:{kind}:{user_id}:{period_key}"
+    existing = await db.transactions.find_one({"meta.goal_reward_key": tx_key})
+    if existing:
+        return False
+    description = "Виконано всі тижневі цілі" if kind == "weekly" else "Виконано місячну ціль по бонусу"
+    now = now_iso()
+    await db.users.update_one({"id": user_id}, {"$inc": {"balance": amount, "total_earned": amount}})
+    await db.transactions.insert_one({
+        "id": str(uuid.uuid4()), "user_id": user_id, "kind": "goal_reward", "amount": amount,
+        "description": description, "created_at": now,
+        "meta": {"goal_reward_key": tx_key, "goal_kind": kind, "period_key": period_key},
+    })
+    return True
+
+
+@api.get("/goals/me")
+async def get_my_goals(user: dict = Depends(get_current_user)):
+    doc = await db.user_goals.find_one({"user_id": user["id"]}, {"_id": 0})
+    result = _goals_public(doc)
+    result["history"] = await db.goal_history.find(
+        {"user_id": user["id"]}, {"_id": 0}
+    ).sort("archived_at", -1).limit(8).to_list(8)
+    return result
+
+
+@api.get("/admin/goals-dashboard")
+async def admin_goals_dashboard(admin: dict = Depends(get_current_admin)):
+    users = await db.users.find(
+        {"role": "employee", "approved": {"$ne": False}},
+        {"_id": 0, "id": 1, "name": 1, "avatar_initials": 1, "avatar_color": 1, "avatar_url": 1,
+         "position": 1, "department": 1},
+    ).sort("name", 1).to_list(1000)
+    docs = await db.user_goals.find({"user_id": {"$in": [u["id"] for u in users]}}, {"_id": 0}).to_list(1000)
+    by_user = {d["user_id"]: d for d in docs}
+    return [{**u, "goals": _goals_public(by_user.get(u["id"]))} for u in users]
+
+
+@api.put("/admin/goals/{user_id}")
+async def update_user_goals(user_id: str, body: UserGoalsUpdateBody, admin: dict = Depends(get_current_admin)):
+    target = await db.users.find_one({"id": user_id, "role": "employee"}, {"_id": 0})
+    if not target:
+        raise HTTPException(status_code=404, detail="Оператора не знайдено")
+    old = await db.user_goals.find_one({"user_id": user_id}, {"_id": 0}) or {}
+    week_key, month_key = _iso_week_key(), _month_key()
+    if old and (old.get("week_key") != week_key or old.get("month_key") != month_key):
+        archived = {**old, "id": str(uuid.uuid4()), "archived_at": now_iso()}
+        archived.pop("_id", None)
+        await db.goal_history.insert_one(archived)
+    # New period resets only the related reward lock.
+    weekly_awarded = bool(old.get("weekly_reward_awarded")) if old.get("week_key") == week_key else False
+    monthly_awarded = bool(old.get("monthly_reward_awarded")) if old.get("month_key") == month_key else False
+    payload = {
+        "user_id": user_id, "week_key": week_key, "month_key": month_key,
+        "credit": body.credit.model_dump(), "debit": body.debit.model_dump(), "deposit": body.deposit.model_dump(),
+        "monthly_bonus_current": max(0, body.monthly_bonus_current),
+        "monthly_bonus_target": max(0, body.monthly_bonus_target),
+        "note": body.note.strip()[:500],
+        "weekly_reward_awarded": weekly_awarded,
+        "monthly_reward_awarded": monthly_awarded,
+        "updated_by": admin["id"], "updated_by_name": admin.get("name", "Адміністратор"),
+        "updated_at": now_iso(),
+    }
+    public = _goals_public(payload)
+    weekly_new = False
+    monthly_new = False
+    if public["weekly_complete"] and not weekly_awarded:
+        weekly_new = await _award_goal_reward(user_id, "weekly", 200, week_key)
+        if weekly_new: payload["weekly_reward_awarded"] = True
+    if public["monthly_complete"] and not monthly_awarded:
+        monthly_new = await _award_goal_reward(user_id, "monthly", 1000, month_key)
+        if monthly_new: payload["monthly_reward_awarded"] = True
+    await db.user_goals.update_one({"user_id": user_id}, {"$set": payload}, upsert=True)
+    fresh = _goals_public(payload)
+    fresh["weekly_reward_just_awarded"] = weekly_new
+    fresh["monthly_reward_just_awarded"] = monthly_new
+    return fresh
+
+
 def _daily_task_by_id(task_id: int) -> Optional[dict]:
     return next((task for task in DAILY_TASK_CATALOG if task["id"] == task_id), None)
 
@@ -909,9 +1049,16 @@ async def _get_or_create_daily_task_set(user_id: str) -> dict:
         return doc
     seed = int(hashlib.sha256(f"{user_id}:{date_key}:tm6".encode()).hexdigest(), 16)
     rng = random.Random(seed)
+    # Smart random: avoid missions the operator has seen during the last 14 days.
+    recent_sets = await db.daily_task_sets.find(
+        {"user_id": user_id, "date": {"$lt": date_key}}, {"_id": 0, "task_ids": 1, "date": 1}
+    ).sort("date", -1).limit(14).to_list(14)
+    recent_ids = {int(task_id) for item in recent_sets for task_id in item.get("task_ids", [])}
     chosen = []
     for difficulty in ("easy", "medium", "hard"):
-        pool = [task for task in DAILY_TASK_CATALOG if task["difficulty"] == difficulty]
+        full_pool = [task for task in DAILY_TASK_CATALOG if task["difficulty"] == difficulty]
+        fresh_pool = [task for task in full_pool if task["id"] not in recent_ids]
+        pool = fresh_pool or full_pool
         chosen.append(rng.choice(pool)["id"])
     doc = {
         "user_id": user_id,
@@ -1089,10 +1236,15 @@ async def replace_daily_task(task_id: int, user: dict = Depends(get_current_user
     current = _daily_task_by_id(task_id)
     if not current:
         raise HTTPException(status_code=404, detail="Завдання не знайдено")
-    pool = [
+    recent_sets = await db.daily_task_sets.find(
+        {"user_id": user["id"], "date": {"$lt": task_set["date"]}}, {"_id": 0, "task_ids": 1}
+    ).sort("date", -1).limit(14).to_list(14)
+    recent_ids = {int(value) for item in recent_sets for value in item.get("task_ids", [])}
+    full_pool = [
         task for task in DAILY_TASK_CATALOG
         if task["difficulty"] == current["difficulty"] and task["id"] not in task_set["task_ids"]
     ]
+    pool = [task for task in full_pool if task["id"] not in recent_ids] or full_pool
     if not pool:
         raise HTTPException(status_code=400, detail="Немає доступного завдання для заміни")
     seed = int(hashlib.sha256(f"{user['id']}:{task_set['date']}:{task_id}:replace".encode()).hexdigest(), 16)
@@ -1180,6 +1332,7 @@ class LeaderboardEntry(BaseModel):
     name: str
     avatar_initials: str
     avatar_color: str
+    avatar_url: Optional[str] = None
     department: str
     score: int
     is_me: bool = False
@@ -1194,7 +1347,7 @@ class LeaderboardResponse(BaseModel):
 async def _leaderboard_all(current_id: str, limit: int = 10) -> LeaderboardResponse:
     users = await db.users.find(
         {"role": "employee"},
-        {"_id": 0, "id": 1, "name": 1, "avatar_initials": 1, "avatar_color": 1, "department": 1, "total_earned": 1},
+        {"_id": 0, "id": 1, "name": 1, "avatar_initials": 1, "avatar_color": 1, "avatar_url": 1, "department": 1, "total_earned": 1},
     ).sort("total_earned", -1).to_list(1000)
     top: List[LeaderboardEntry] = []
     my_entry = None
@@ -1205,6 +1358,7 @@ async def _leaderboard_all(current_id: str, limit: int = 10) -> LeaderboardRespo
             name=u["name"],
             avatar_initials=u.get("avatar_initials", "?"),
             avatar_color=u.get("avatar_color", "#FFB800"),
+            avatar_url=u.get("avatar_url"),
             department=u.get("department", ""),
             score=int(u.get("total_earned", 0)),
             is_me=(u["id"] == current_id),
@@ -1230,7 +1384,7 @@ async def _leaderboard_period(days: int, period_name: str, current_id: str, limi
     users_map = {}
     async for u in db.users.find(
         {"id": {"$in": ids}, "role": "employee"},
-        {"_id": 0, "id": 1, "name": 1, "avatar_initials": 1, "avatar_color": 1, "department": 1},
+        {"_id": 0, "id": 1, "name": 1, "avatar_initials": 1, "avatar_color": 1, "avatar_url": 1, "department": 1},
     ):
         users_map[u["id"]] = u
 
@@ -1248,6 +1402,7 @@ async def _leaderboard_period(days: int, period_name: str, current_id: str, limi
             name=u["name"],
             avatar_initials=u.get("avatar_initials", "?"),
             avatar_color=u.get("avatar_color", "#FFB800"),
+            avatar_url=u.get("avatar_url"),
             department=u.get("department", ""),
             score=int(g["score"]),
             is_me=(u["id"] == current_id),
@@ -1455,11 +1610,12 @@ async def prediction_reveal(user: dict = Depends(get_current_user)):
 # ────────────────────────────────────────────────────────────────────────
 class FeedEvent(BaseModel):
     id: str
-    kind: Literal["quest", "purchase", "level_up", "cube", "prize_delivered"]
+    kind: Literal["quest", "purchase", "level_up", "cube", "prize_delivered", "goal"]
     user_id: str
     user_name: str
     avatar_initials: str
     avatar_color: str
+    avatar_url: Optional[str] = None
     department: str = ""
     title: str
     subtitle: str = ""
@@ -1492,6 +1648,8 @@ def _classify_transaction(tx: dict, level_at_time: Optional[int] = None):
         return "purchase", "витратив бали", desc
     if kind == "signup_bonus":
         return "quest", "приєднався до команди", "стартовий бонус"
+    if kind == "goal_reward":
+        return "goal", "виконав ціль", desc
     return "quest", desc or "активність", ""
 
 
@@ -1508,7 +1666,7 @@ async def get_feed(limit: int = 40, user: dict = Depends(get_current_user)):
     users_map = {}
     async for u in db.users.find(
         {"id": {"$in": user_ids}, "role": "employee"},
-        {"_id": 0, "id": 1, "name": 1, "avatar_initials": 1, "avatar_color": 1, "department": 1},
+        {"_id": 0, "id": 1, "name": 1, "avatar_initials": 1, "avatar_color": 1, "avatar_url": 1, "department": 1},
     ):
         users_map[u["id"]] = u
 
@@ -1547,6 +1705,7 @@ async def get_feed(limit: int = 40, user: dict = Depends(get_current_user)):
                     user_name=u["name"],
                     avatar_initials=u.get("avatar_initials", "?"),
                     avatar_color=u.get("avatar_color", "#FFB800"),
+                    avatar_url=u.get("avatar_url"),
                     department=u.get("department", ""),
                     title="досягнув нового рівня",
                     subtitle=f"Рівень {lvl}",
@@ -1569,6 +1728,7 @@ async def get_feed(limit: int = 40, user: dict = Depends(get_current_user)):
             user_name=u["name"],
             avatar_initials=u.get("avatar_initials", "?"),
             avatar_color=u.get("avatar_color", "#FFB800"),
+            avatar_url=u.get("avatar_url"),
             department=u.get("department", ""),
             title=title,
             subtitle=subtitle,
@@ -1593,6 +1753,7 @@ async def get_feed(limit: int = 40, user: dict = Depends(get_current_user)):
             user_name=u.get("name", o.get("user_name", "?")),
             avatar_initials=u.get("avatar_initials", "?"),
             avatar_color=u.get("avatar_color", "#FFB800"),
+            avatar_url=u.get("avatar_url"),
             department=u.get("department", ""),
             title="отримав приз",
             subtitle=o["prize_title"],

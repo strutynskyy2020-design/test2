@@ -3,6 +3,7 @@ import { Swords, Gift, TrendingUp, Dice5, PackageCheck, Loader2, Newspaper } fro
 import api, { extractError } from "@/lib/api";
 import { toast } from "sonner";
 import FeedSocial from "@/components/FeedSocial";
+import { resolveAvatarUrl } from "@/lib/avatar";
 
 const KIND_META = {
   quest: {
@@ -37,6 +38,14 @@ const KIND_META = {
     ring: "border-[#FF5C00]/40",
     bg: "bg-[#FF5C00]/10",
   },
+  goal: {
+    label: "ціль",
+    color: "#B78CFF",
+    Icon: TrendingUp,
+    tone: "text-[#B78CFF]",
+    ring: "border-[#B78CFF]/40",
+    bg: "bg-[#B78CFF]/10",
+  },
   prize_delivered: {
     label: "видано",
     color: "#B78CFF",
@@ -58,7 +67,7 @@ const relativeTime = (iso) => {
   return d.toLocaleDateString("uk-UA", { day: "numeric", month: "short" });
 };
 
-const FeedItem = ({ ev }) => {
+export const FeedItem = ({ ev }) => {
   const meta = KIND_META[ev.kind] || KIND_META.quest;
   const { Icon } = meta;
   const sign = ev.amount ? (ev.amount > 0 ? "+" : "") : "";
@@ -71,10 +80,14 @@ const FeedItem = ({ ev }) => {
       {/* Avatar */}
       <div className="relative shrink-0">
         <div
-          className="w-11 h-11 rounded-2xl flex items-center justify-center font-display text-sm text-[#0A0A0A]"
+          className="w-11 h-11 rounded-2xl overflow-hidden flex items-center justify-center font-display text-sm text-[#0A0A0A]"
           style={{ backgroundColor: ev.avatar_color }}
         >
-          {ev.avatar_initials}
+          {ev.avatar_url ? (
+            <img src={resolveAvatarUrl(ev.avatar_url)} alt={ev.user_name} className="w-full h-full object-cover" />
+          ) : (
+            ev.avatar_initials
+          )}
         </div>
         <div
           className={`absolute -bottom-1 -right-1 w-6 h-6 rounded-xl ${meta.bg} border-2 border-[#0A0A0A] flex items-center justify-center`}

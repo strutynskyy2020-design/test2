@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { Home, ClipboardList, Gift, LogOut, Shield, Trophy, Newspaper, UsersRound, Bot } from "lucide-react";
+import { Home, ClipboardList, Gift, LogOut, Shield, Trophy, UsersRound, Bot, Target } from "lucide-react";
 import { useEffect } from "react";
 import { useApp } from "@/context/AppContext";
 import InstallPrompt from "@/components/InstallPrompt";
@@ -107,8 +107,8 @@ export default function AppLayout() {
           style={{ height: "5rem", paddingBottom: "env(safe-area-inset-bottom)" }}
         >
           <NavItem to="/" icon={Home} label="Головна" testId="nav-home" />
-          <NavItem to="/tasks" icon={ClipboardList} label="Завдання" testId="nav-tasks" />
-          <NavItem to="/feed" icon={Newspaper} label="Стрічка" testId="nav-feed" />
+          <NavItem to="/tasks" icon={ClipboardList} label="Квести" testId="nav-tasks" />
+          <NavItem to="/goals" icon={Target} label="Цілі" testId="nav-goals" />
           <NavItem to="/ai-trainer" icon={Bot} label="AI" testId="nav-ai-trainer" />
           <NavItem to="/store" icon={Gift} label="Магазин" testId="nav-store" />
           <NavItem to="/leaderboard" icon={Trophy} label="Рейтинг" testId="nav-board" />
