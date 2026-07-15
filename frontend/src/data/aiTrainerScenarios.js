@@ -7,9 +7,9 @@ export const PRODUCT_CATEGORIES = {
 };
 
 const difficulty = {
-  easy: { label: "ЛЕГКИЙ", points: 200, patience: 78, color: "#39FF14" },
-  medium: { label: "СЕРЕДНІЙ", points: 350, patience: 58, color: "#FFB800" },
-  hard: { label: "ВАЖКИЙ", points: 500, patience: 38, color: "#FF5C00" },
+  easy: { label: "ЛЕГКИЙ", points: 200, patience: 90, target: 70, color: "#39FF14" },
+  medium: { label: "СЕРЕДНІЙ", points: 350, patience: 72, target: 80, color: "#FFB800" },
+  hard: { label: "ВАЖКИЙ", points: 500, patience: 52, target: 90, color: "#FF5C00" },
 };
 
 const make = (id, category, difficultyKey, name, age, emoji, title, objection, persona, goal) => ({
