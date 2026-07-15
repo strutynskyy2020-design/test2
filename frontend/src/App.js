@@ -15,6 +15,7 @@ import Feed from "@/pages/Feed";
 import Register from "@/pages/Register";
 import Tasks from "@/pages/Tasks";
 import Teams from "@/pages/Teams";
+import AITrainer from "@/pages/AITrainer";
 
 const Splash = () => (
   <div className="min-h-screen w-full flex items-center justify-center">
@@ -54,6 +55,7 @@ function App() {
             <Route path="/quests" element={<Quests />} />
             <Route path="/tasks" element={<Tasks />} />
             <Route path="/teams" element={<Teams />} />
+            <Route path="/ai-trainer" element={<AITrainer />} />
             <Route path="/store" element={<Store />} />
             <Route path="/leaderboard" element={<Leaderboard />} />
             <Route path="/fun" element={<Fun />} />
