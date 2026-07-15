@@ -2,7 +2,7 @@
  * Strategy: network-first for API and HTML, cache-first for static assets.
  * Keeps offline install working, doesn't stale-cache dynamic data.
  */
-const VERSION = "tm6-v20";
+const VERSION = "tm6-v21";
 const STATIC_CACHE = `${VERSION}-static`;
 const RUNTIME_CACHE = `${VERSION}-runtime`;
 
@@ -45,18 +45,35 @@ self.addEventListener("fetch", (event) => {
   }
 
   // Navigation → network-first, fall back to cached index
-  if (req.mode === "navigate") {
-    event.respondWith(
-      fetch(req)
-        .then((resp) => {
+if (req.mode === "navigate") {
+  event.respondWith(
+    fetch(req)
+      .then((resp) => {
+        if (resp.ok) {
           const copy = resp.clone();
-          caches.open(RUNTIME_CACHE).then((c) => c.put(req, copy));
-          return resp;
-        })
-        .catch(() => caches.match("/") || caches.match(req))
-    );
-    return;
-  }
+          caches.open(RUNTIME_CACHE).then((cache) => {
+            cache.put("/", copy);
+          });
+        }
+
+        return resp;
+      })
+      .catch(async () => {
+        const cached = await caches.match("/");
+        return (
+          cached ||
+          new Response("Застосунок тимчасово недоступний", {
+            status: 503,
+            headers: {
+              "Content-Type": "text/plain; charset=utf-8",
+            },
+          })
+        );
+      })
+  );
+
+  return;
+}
 
   // App scripts/styles → network-first so new deploys are never stuck behind an old PWA cache.
   if (url.origin === self.location.origin && (url.pathname.endsWith(".js") || url.pathname.endsWith(".css"))) {
