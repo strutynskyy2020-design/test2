@@ -13,10 +13,8 @@ const TABS = [
   { id: "ai-team", label: "AI команда", icon: BrainCircuit },
   { id: "moderation", label: "Модерація", icon: UserCheck },
   { id: "applications", label: "Заявки", icon: Inbox },
-  { id: "tasks", label: "Завдання", icon: ClipboardList },
   { id: "users", label: "Юзери", icon: Users },
   { id: "teams", label: "Команди", icon: UsersRound },
-  { id: "quests", label: "Квести", icon: Swords },
   { id: "prizes", label: "Призи", icon: Gift },
   { id: "orders", label: "Замовлення", icon: ShoppingBag },
 ];
@@ -1344,7 +1342,7 @@ export default function Admin() {
     );
   }
 
-  const V = { analytics: AnalyticsView, "ai-team": AITeamDashboard, moderation: ModerationView, applications: ApplicationsView, tasks: TasksAdminView, users: UsersView, teams: TeamsView, quests: QuestsView, prizes: PrizesView, orders: OrdersView }[tab];
+  const V = { analytics: AnalyticsView, "ai-team": AITeamDashboard, moderation: ModerationView, applications: ApplicationsView, users: UsersView, teams: TeamsView, prizes: PrizesView, orders: OrdersView }[tab];
 
   return (
     <div className="px-5 pt-2 pb-8 space-y-4" data-testid="admin-page">

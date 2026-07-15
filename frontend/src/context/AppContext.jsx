@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import api, { clearToken, extractError, getToken, setToken } from "@/lib/api";
-import { DEMO_USERS as MOCK_USERS, DAILY_QUESTS as MOCK_QUESTS, PRIZES as MOCK_PRIZES } from "@/lib/mockData";
+import { DEMO_USERS as MOCK_USERS, PRIZES as MOCK_PRIZES } from "@/lib/mockData";
 
 const AppContext = createContext(null);
 
@@ -119,7 +119,7 @@ export const AppProvider = ({ children }) => {
     const next = {
       mode: "mock",
       user,
-      quests: MOCK_QUESTS.map((q) => ({ ...q, claimed: false })),
+      quests: [],
       prizes: MOCK_PRIZES,
       orders: [],
     };
@@ -139,12 +139,6 @@ export const AppProvider = ({ children }) => {
     setState((s) => ({ ...s, user: data }));
   };
 
-  const loadQuests = async () => {
-    if (state.mode !== "live") return;
-    const { data } = await api.get("/quests");
-    setState((s) => ({ ...s, quests: data }));
-  };
-
   const loadPrizes = async () => {
     if (state.mode !== "live") return;
     const { data } = await api.get("/prizes");
@@ -158,39 +152,7 @@ export const AppProvider = ({ children }) => {
   };
 
   // ─────────────── Actions (unified interface) ───────────────
-  const claimQuest = async (questId) => {
-    if (state.mode === "live") {
-      try {
-        const { data: user } = await api.post(`/quests/${questId}/claim`);
-        setState((s) => ({
-          ...s,
-          user,
-          quests: s.quests.map((q) => (q.id === questId ? { ...q, claimed: true } : q)),
-        }));
-        return { ok: true };
-      } catch (err) {
-        return { ok: false, error: extractError(err, "Не вдалось забрати нагороду") };
-      }
-    }
-    // Mock
-    setState((s) => {
-      const q = s.quests.find((x) => x.id === questId);
-      if (!q || q.claimed || q.progress < q.goal || !s.user) return s;
-      const next = {
-        ...s,
-        quests: s.quests.map((x) => (x.id === questId ? { ...x, claimed: true } : x)),
-        user: {
-          ...s.user,
-          balance: s.user.balance + q.reward,
-          total_earned: s.user.total_earned + q.reward,
-          xp: Math.min(s.user.xp + Math.floor(q.reward / 2), s.user.xp_to_next),
-        },
-      };
-      saveCache(next);
-      return next;
-    });
-    return { ok: true };
-  };
+  const claimQuest = async () => ({ ok: false, error: "Стара система квестів вимкнена" });
 
   const buyPrize = async (prizeId) => {
     if (state.mode === "live") {
@@ -238,23 +200,17 @@ export const AppProvider = ({ children }) => {
   // Load data when user is available (live mode)
   useEffect(() => {
     if (state.mode === "live" && state.user) {
-      loadQuests();
       loadPrizes();
       loadOrders();
     }
-    // Bootstrap mock data if in mock mode and no quests loaded
-    if (state.mode === "mock" && state.user && state.quests.length === 0) {
-      setState((s) => ({
-        ...s,
-        quests: MOCK_QUESTS.map((q) => ({ ...q, claimed: false })),
-        prizes: MOCK_PRIZES,
-      }));
+    if (state.mode === "mock" && state.user && state.prizes.length === 0) {
+      setState((s) => ({ ...s, prizes: MOCK_PRIZES }));
     }
     // eslint-disable-next-line
   }, [state.mode, state.user?.id]);
 
   const value = useMemo(
-    () => ({ ...state, login, logout, claimQuest, buyPrize, refreshMe, loadQuests, loadPrizes, loadOrders }),
+    () => ({ ...state, login, logout, claimQuest, buyPrize, refreshMe, loadPrizes, loadOrders }),
     // eslint-disable-next-line
     [state]
   );

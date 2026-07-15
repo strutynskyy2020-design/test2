@@ -41,7 +41,7 @@ const Badge = ({ ach }) => {
 };
 
 export default function Home() {
-  const { user, quests, mode } = useApp();
+  const { user, mode } = useApp();
   const nav = useNavigate();
 
   if (!user) return null;
@@ -50,8 +50,6 @@ export default function Home() {
   const xp = user.xp ?? 0;
   const xpNext = user.xp_to_next ?? 1000;
   const xpPct = Math.min(100, Math.round((xp / xpNext) * 100));
-  const openQuests = quests.filter((q) => !q.claimed && q.progress < q.goal).length;
-  const readyToClaim = quests.filter((q) => !q.claimed && q.progress >= q.goal).length;
   const achievements = getAchievements(user);
 
   return (
@@ -153,13 +151,13 @@ export default function Home() {
       <section className="grid grid-cols-2 gap-3">
         <button
           data-testid="cta-quests"
-          onClick={() => nav("/quests")}
+          onClick={() => nav("/tasks")}
           className="arcade-btn bg-[#39FF14] border-[#1a7a0a] text-[#0A0A0A] p-4 text-left"
         >
           <Swords size={22} strokeWidth={3} />
           <div className="font-display text-lg mt-2 leading-none">КВЕСТИ</div>
           <div className="text-xs font-black opacity-80 mt-1">
-            {readyToClaim > 0 ? `${readyToClaim} до отримання!` : `${openQuests} активних`}
+            3 нові щодня
           </div>
         </button>
         <button

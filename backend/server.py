@@ -13,6 +13,7 @@ import uuid
 import logging
 import shutil
 from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
 from typing import List, Optional, Literal
 
 import bcrypt
@@ -60,6 +61,47 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 # ────────────────────────────────────────────────────────────────────────
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+KYIV_TZ = ZoneInfo("Europe/Kyiv")
+
+def kyiv_today_key() -> str:
+    return datetime.now(KYIV_TZ).strftime("%Y-%m-%d")
+
+def kyiv_tomorrow_iso() -> str:
+    now = datetime.now(KYIV_TZ)
+    tomorrow = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    return tomorrow.isoformat()
+
+async def _touch_daily_streak(user: dict) -> dict:
+    """Update a user's consecutive-day streak once per Kyiv calendar day."""
+    today = kyiv_today_key()
+    last = user.get("last_active_date")
+    if last == today:
+        return user
+
+    current = int(user.get("streak", 0) or 0)
+    if not last:
+        new_streak = current if current > 0 else 1
+    else:
+        try:
+            last_date = datetime.strptime(last, "%Y-%m-%d").date()
+            today_date = datetime.strptime(today, "%Y-%m-%d").date()
+            delta = (today_date - last_date).days
+            if delta == 1:
+                new_streak = current + 1
+            elif delta <= 0:
+                new_streak = current
+            else:
+                new_streak = 1
+        except ValueError:
+            new_streak = 1
+
+    await db.users.update_one(
+        {"id": user["id"]},
+        {"$set": {"streak": new_streak, "last_active_date": today}},
+    )
+    return {**user, "streak": new_streak, "last_active_date": today}
 
 
 def hash_password(pw: str) -> str:
@@ -437,6 +479,7 @@ async def auth_login(body: LoginBody):
     if user.get("approved") is False:
         raise HTTPException(status_code=403, detail="Обліковий запис ще не підтверджено адміністратором")
     token = create_token(user["id"], user["email"], user["role"])
+    user = await _touch_daily_streak(user)
     user = await _hydrate_user_team(user)
     return TokenResponse(token=token, user=_user_with_progress(user))
 
@@ -464,6 +507,7 @@ async def auth_register(body: RegisterBody, admin: dict = Depends(get_current_ad
         "total_earned": 0,
         "total_xp": 0,
         "streak": 0,
+        "last_active_date": None,
         "phone": body.phone,
         "telegram": body.telegram,
         "telegram_id": None,
@@ -517,6 +561,7 @@ async def auth_register_self(body: SelfRegisterBody):
         "total_earned": 0,
         "total_xp": 0,
         "streak": 0,
+        "last_active_date": None,
         "phone": body.phone or None,
         "telegram": body.telegram or None,
         "telegram_id": None,
@@ -538,6 +583,7 @@ async def auth_register_self(body: SelfRegisterBody):
 
 @api.get("/auth/me", response_model=UserWithProgress)
 async def auth_me(user: dict = Depends(get_current_user)):
+    user = await _touch_daily_streak(user)
     user = await _hydrate_user_team(user)
     return _user_with_progress(user)
 
@@ -788,6 +834,124 @@ async def claim_quest(quest_id: str, user: dict = Depends(get_current_user)):
     )
     fresh = await db.users.find_one({"id": user["id"]}, {"_id": 0})
     return _user_with_progress(fresh)
+
+
+# ────────────────────────────────────────────────────────────────────────
+# Daily tasks — 3 per Kyiv day, one replacement allowed
+# ────────────────────────────────────────────────────────────────────────
+DAILY_TASK_CATALOG = [
+    {"id": 1, "title": "А наша Галя дуже балована", "text": "Скиньте в Teams фото карти дзвінка з клієнткою на ім'я Галина. Приз: 10 Point.", "difficulty": "easy", "reward": 10},
+    {"id": 2, "title": "Чий ти будеш, козаче?", "text": "Скиньте в Teams фото карти дзвінка з іноземним ім'ям. Приз: 20 Point.", "difficulty": "medium", "reward": 20},
+    {"id": 3, "title": "Оптом дешевше", "text": "Зробіть дві видачі кредитних продуктів одному й тому самому клієнту. Приз: 50 Point.", "difficulty": "hard", "reward": 50},
+    {"id": 4, "title": "Олег, ти що плачеш?", "text": "Знайдіть клієнта на ім'я Олег і скиньте скриншот карти дзвінка в Teams. Приз: 10 Point.", "difficulty": "easy", "reward": 10},
+    {"id": 5, "title": "Відкрийте кредитку — і буде вам щастя", "text": "Зробіть видачу клієнту та скиньте карту дзвінка в Teams. Приз: 20 Point.", "difficulty": "medium", "reward": 20},
+    {"id": 6, "title": "Вам ця карта треба, мене не…", "text": "Зробіть три видачі кредитних продуктів трьом клієнтам і надішліть підтвердження в Teams. Приз: 30 Point.", "difficulty": "hard", "reward": 30},
+    {"id": 7, "title": "Агент 777", "text": "Знайдіть у номері телефону клієнта або ІПН три однакові цифри поспіль, наприклад 777. Скиньте скриншот картки в Teams. Приз: 10 Point.", "difficulty": "easy", "reward": 10},
+    {"id": 8, "title": "Я не з такої сім'ї, я з багатої", "text": "Зробіть видачу депозиту в компанії Веб_Апс. Підтвердження — карта дзвінка. Приз: 20 Point.", "difficulty": "medium", "reward": 20},
+    {"id": 9, "title": "Я тебе передумаю", "text": "Зробіть видачу клієнту, в коментарях якого було зазначено «подумаю». Приз: 30 Point.", "difficulty": "hard", "reward": 30},
+    {"id": 10, "title": "Молода кров", "text": "Скиньте карту дзвінка з наймолодшим клієнтом за день, дата народження — 2008 рік або пізніше. Приз: 10 Point.", "difficulty": "easy", "reward": 10},
+    {"id": 11, "title": "Не чує баба", "text": "Скиньте фото карти дзвінка з клієнтом, який народився у 1955 році або раніше. Приз: 20 Point.", "difficulty": "medium", "reward": 20},
+    {"id": 12, "title": "Подвійний удар", "text": "Зробіть дві видачі будь-яких продуктів одному клієнту та скиньте скриншоти карт. Приз: 30 Point.", "difficulty": "hard", "reward": 30},
+    {"id": 13, "title": "Ну ти і фартовий…", "text": "Напишіть у Teams: «Я фартовий/фартова». Приз: 10 Point.", "difficulty": "easy", "reward": 10},
+    {"id": 14, "title": "Перший хлопець на селі", "text": "Знайдіть клієнта, в якого ім'я збігається з основою по батькові, наприклад Іван Іванович. Скиньте скриншот карти. Приз: 20 Point.", "difficulty": "medium", "reward": 20},
+    {"id": 15, "title": "Герой вчорашнього дня", "text": "Якщо станом на вчора у вас найбільше видач у команді, отримайте приз. Приз: 50 Point.", "difficulty": "hard", "reward": 50},
+    {"id": 16, "title": "Сьогодні ж п'ятниця?", "text": "Якщо сьогодні 02 число, знайдіть клієнта з днем народження 02.xx.xxxx. Скиньте скриншот. Приз: 10 Point.", "difficulty": "easy", "reward": 10},
+    {"id": 17, "title": "І дебетку беріть", "text": "Зробіть додаткову видачу дебетової картки в компанії Веб_Апс. Приз: 20 Point.", "difficulty": "medium", "reward": 20},
+    {"id": 18, "title": "Майстер дзену", "text": "Отримайте складне заперечення, опрацюйте його і закрийте угоду. Коротко опишіть у Teams, як це було. Приз: 30 Point.", "difficulty": "hard", "reward": 30},
+    {"id": 19, "title": "Післяробочий вайб", "text": "Зробіть хоча б одну видачу за дві години до завершення робочого дня. Приз: 10 Point.", "difficulty": "easy", "reward": 10},
+    {"id": 20, "title": "Джекпот 7777", "text": "Знайдіть у номері телефону або ІПН чотири однакові цифри поспіль. Скиньте скриншот карти в Teams. Приз: 20 Point.", "difficulty": "medium", "reward": 20},
+    {"id": 21, "title": "Швидкі гроші", "text": "Оформіть видачу кредитного продукту за п'ять хвилин розмови. Скиньте скриншот карти в Teams. Приз: 30 Point.", "difficulty": "hard", "reward": 30},
+    {"id": 22, "title": "Назад у майбутнє", "text": "Скиньте карту дзвінка з клієнтом, який народився у круглому році, наприклад 1970, 1980, 1990 або 2000. Приз: 10 Point.", "difficulty": "easy", "reward": 10},
+    {"id": 23, "title": "Ну ви ж лояльний клієнт", "text": "Зробіть додаткову видачу валютної або дебетової картки в компанії Крос. Приз: 20 Point.", "difficulty": "medium", "reward": 20},
+    {"id": 24, "title": "Хет-трик", "text": "Зробіть три видачі продуктів одному клієнту та скиньте карти в Teams. Приз: 50 Point.", "difficulty": "hard", "reward": 50},
+    {"id": 25, "title": "Ровесник", "text": "Знайдіть клієнта, який народився в один рік із вами. Скиньте карту дзвінка. Приз: 10 Point.", "difficulty": "easy", "reward": 10},
+    {"id": 26, "title": "День народження", "text": "Знайдіть клієнта, в якого день народження цього місяця. Приз: 20 Point.", "difficulty": "medium", "reward": 20},
+    {"id": 27, "title": "Багатий тато", "text": "Знайдіть клієнта з по батькові «Олександрович» або «Миколайович» і зробіть успішну видачу. Приз: 20 Point.", "difficulty": "hard", "reward": 20},
+    {"id": 28, "title": "Два в ряд", "text": "Оформіть дві видачі кредитних продуктів за один робочий день. Надішліть підтвердження одним повідомленням у Teams. Приз: 10 Point.", "difficulty": "easy", "reward": 10},
+    {"id": 29, "title": "Золотий вік", "text": "Оформіть продукт клієнту, який народився у 1960-х роках або раніше. Скиньте карту дзвінка. Приз: 20 Point.", "difficulty": "medium", "reward": 20},
+    {"id": 30, "title": "Подвійний еспресо", "text": "Зробіть дві видачі між 13:00 та 14:00. Надішліть підтвердження в Teams. Приз: 30 Point.", "difficulty": "hard", "reward": 30},
+    {"id": 31, "title": "Красивий фініш", "text": "Знайдіть карту, де ІПН або номер телефону клієнта закінчується на два нулі. Приз: 10 Point.", "difficulty": "easy", "reward": 10},
+    {"id": 32, "title": "Вип'ємо еспресо", "text": "Зробіть видачу між 13:00 та 14:00. Приз: 20 Point.", "difficulty": "medium", "reward": 20},
+    {"id": 33, "title": "Конвеєр", "text": "Зробіть чотири видачі за один день і надішліть підтвердження одним повідомленням у Teams. Приз: 50 Point.", "difficulty": "hard", "reward": 50},
+    {"id": 34, "title": "Двадцять п'ять", "text": "Знайдіть у номері або ІПН клієнта дві п'ятірки поспіль — 55. Приз: 10 Point.", "difficulty": "easy", "reward": 10},
+    {"id": 35, "title": "Турбо-старт", "text": "Оформіть першу видачу кредитного продукту протягом першої години після виходу на лінію. Приз: 20 Point.", "difficulty": "medium", "reward": 20},
+    {"id": 36, "title": "Ювелірна робота", "text": "Проведіть розмову, що завершилася видачею без заперечень завдяки якісному виявленню потреб із перших хвилин. Приз: 30 Point.", "difficulty": "hard", "reward": 30},
+    {"id": 37, "title": "Сієста", "text": "Оформіть видачу в проміжку з 13:00 до 15:00. Приз: 10 Point.", "difficulty": "easy", "reward": 10},
+    {"id": 38, "title": "Ефектний фінал", "text": "Оформіть видачу за годину до завершення робочої зміни. Приз: 20 Point.", "difficulty": "medium", "reward": 20},
+    {"id": 39, "title": "Акула продажів", "text": "Зробіть найбільшу кількість видач у команді за день. Приз: 50 Point.", "difficulty": "hard", "reward": 50},
+]
+
+def _daily_task_by_id(task_id: int) -> Optional[dict]:
+    return next((task for task in DAILY_TASK_CATALOG if task["id"] == task_id), None)
+
+async def _get_or_create_daily_task_set(user_id: str) -> dict:
+    import hashlib
+    import random
+    date_key = kyiv_today_key()
+    doc = await db.daily_task_sets.find_one({"user_id": user_id, "date": date_key}, {"_id": 0})
+    if doc:
+        return doc
+    seed = int(hashlib.sha256(f"{user_id}:{date_key}:tm6".encode()).hexdigest(), 16)
+    rng = random.Random(seed)
+    chosen = []
+    for difficulty in ("easy", "medium", "hard"):
+        pool = [task for task in DAILY_TASK_CATALOG if task["difficulty"] == difficulty]
+        chosen.append(rng.choice(pool)["id"])
+    doc = {
+        "user_id": user_id,
+        "date": date_key,
+        "task_ids": chosen,
+        "replacement_used": False,
+        "created_at": now_iso(),
+    }
+    await db.daily_task_sets.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+@api.get("/daily-tasks")
+async def get_daily_tasks(user: dict = Depends(get_current_user)):
+    task_set = await _get_or_create_daily_task_set(user["id"])
+    tasks = [_daily_task_by_id(task_id) for task_id in task_set["task_ids"]]
+    return {
+        "date": task_set["date"],
+        "tasks": [task for task in tasks if task],
+        "replacement_used": bool(task_set.get("replacement_used")),
+        "refresh_at": kyiv_tomorrow_iso(),
+        "timezone": "Europe/Kyiv",
+    }
+
+@api.post("/daily-tasks/{task_id}/replace")
+async def replace_daily_task(task_id: int, user: dict = Depends(get_current_user)):
+    import hashlib
+    import random
+    task_set = await _get_or_create_daily_task_set(user["id"])
+    if task_set.get("replacement_used"):
+        raise HTTPException(status_code=400, detail="Сьогодні одне завдання вже було замінено")
+    if task_id not in task_set["task_ids"]:
+        raise HTTPException(status_code=404, detail="Завдання не входить до сьогоднішнього набору")
+    current = _daily_task_by_id(task_id)
+    if not current:
+        raise HTTPException(status_code=404, detail="Завдання не знайдено")
+    pool = [
+        task for task in DAILY_TASK_CATALOG
+        if task["difficulty"] == current["difficulty"] and task["id"] not in task_set["task_ids"]
+    ]
+    if not pool:
+        raise HTTPException(status_code=400, detail="Немає доступного завдання для заміни")
+    seed = int(hashlib.sha256(f"{user['id']}:{task_set['date']}:{task_id}:replace".encode()).hexdigest(), 16)
+    replacement = random.Random(seed).choice(pool)
+    new_ids = [replacement["id"] if value == task_id else value for value in task_set["task_ids"]]
+    await db.daily_task_sets.update_one(
+        {"user_id": user["id"], "date": task_set["date"]},
+        {"$set": {"task_ids": new_ids, "replacement_used": True, "replaced_at": now_iso()}},
+    )
+    return {
+        "date": task_set["date"],
+        "tasks": [_daily_task_by_id(value) for value in new_ids],
+        "replacement_used": True,
+        "refresh_at": kyiv_tomorrow_iso(),
+        "timezone": "Europe/Kyiv",
+    }
 
 
 # ────────────────────────────────────────────────────────────────────────
@@ -1752,6 +1916,7 @@ async def seed_all():
     await db.transactions.create_index("created_at")
     await db.daily_progress.create_index([("user_id", 1), ("date", 1)], unique=True)
     await db.daily_games.create_index([("user_id", 1), ("date", 1)], unique=True)
+    await db.daily_task_sets.create_index([("user_id", 1), ("date", 1)], unique=True)
     await db.teams.create_index("name", unique=True)
 
     # Teams — seed first so we can attach users
@@ -1790,7 +1955,7 @@ async def seed_all():
             "avatar_initials": "АД",
             "avatar_color": "#FF5C00",
             "avatar_url": None,
-            "balance": 0, "total_earned": 0, "total_xp": 0, "streak": 0,
+            "balance": 0, "total_earned": 0, "total_xp": 0, "streak": 0, "last_active_date": None,
             "phone": None, "telegram": None, "telegram_id": None,
             "team_id": None, "is_team_leader": False, "approved": True,
             "created_at": now_iso(),
@@ -1834,6 +1999,7 @@ async def seed_all():
             "total_earned": u["total_earned"],
             "total_xp": u["total_xp"],
             "streak": u["streak"],
+            "last_active_date": None,
             "phone": None, "telegram": None, "telegram_id": None,
             "team_id": team_id,
             "is_team_leader": u.get("is_team_leader", False),
