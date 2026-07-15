@@ -1,74 +1,83 @@
-const PERSONAS = {
-  easy: "Олена, 34 роки. Ввічлива, невпевнена, заперечує: треба подумати, не зараз, пораджуся. Добре реагує на теплий тон, уточнення й персональну вигоду. Не любить тиску.",
-  medium: "Максим, 41 рік, керівник закупівель. Прагматичний, порівнює конкурентів, ціну та умови. Реагує на цифри, факти й аргументацію цінністю.",
-  hard: "Ігор, 52 роки. Роздратований і недовірливий після поганого досвіду. Підозрює нав'язування, різко реагує на шаблони та тиск. Пом'якшується лише через щире розуміння й чесність.",
+const CLIENTS = {
+  easy: `Олена, 34 роки. Ввічлива й трохи невпевнена. Початкові заперечення: "треба подумати", "не зараз", "порадитися". Добре реагує на теплий тон, уточнювальні питання та персональну вигоду. Не любить тиску.`,
+  medium: `Максим, 41 рік, керівник закупівель. Прагматичний, порівнює конкурентів, торгується щодо ціни й умов. Реагує на конкретику, цифри, ризики та аргументацію цінністю. Не приймає порожніх обіцянок.`,
+  hard: `Ігор, 52 роки. Роздратований і недовірливий через негативний досвід. Підозрює нав'язливий продаж, різко реагує на шаблонні фрази й тиск. Пом'якшується лише від щирого розуміння, чесності та контролю з його боку.`,
 };
 
-const schema = {
-  type: "object",
-  additionalProperties: false,
-  properties: {
-    score: { type: "number", minimum: 0, maximum: 10 },
-    technique: { type: "string" },
-    feedback: { type: "string" },
-    patience_delta: { type: "integer", minimum: -25, maximum: 12 },
-    trust_delta: { type: "integer", minimum: 0, maximum: 20 },
-    client_mood: { type: "string", enum: ["skeptical", "frustrated", "softening", "convinced", "annoyed"] },
-    client_reply: { type: "string" },
-  },
-  required: ["score", "technique", "feedback", "patience_delta", "trust_delta", "client_mood", "client_reply"],
-};
+const json = (statusCode, body) => ({
+  statusCode,
+  headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
+  body: JSON.stringify(body),
+});
 
-function textFromResponse(data) {
-  if (data.output_text) return data.output_text;
-  for (const item of data.output || []) for (const part of item.content || []) if (part.type === "output_text" && part.text) return part.text;
+const clamp = (n, min, max) => Math.max(min, Math.min(max, Number(n) || 0));
+
+function extractText(data) {
+  if (typeof data.output_text === "string") return data.output_text;
+  for (const item of data.output || []) {
+    for (const content of item.content || []) {
+      if (typeof content.text === "string") return content.text;
+    }
+  }
   return "";
 }
 
+function parseModelJson(text) {
+  const clean = text.trim().replace(/^```json\s*/i, "").replace(/```$/i, "").trim();
+  return JSON.parse(clean);
+}
+
 exports.handler = async (event) => {
-  if (event.httpMethod !== "POST") return { statusCode: 405, body: JSON.stringify({ error: "Method not allowed" }) };
+  if (event.httpMethod !== "POST") return json(405, { error: "Method not allowed" });
+  if (!process.env.OPENAI_API_KEY) return json(500, { error: "У Netlify не налаштовано OPENAI_API_KEY" });
+
+  let body;
+  try { body = JSON.parse(event.body || "{}"); }
+  catch { return json(400, { error: "Некоректний запит" }); }
+
+  const { action, clientKey, history = [], operatorText = "", patience = 0, conversion = 0 } = body;
+  const persona = CLIENTS[clientKey];
+  if (!persona || !["start", "turn"].includes(action)) return json(400, { error: "Невідомий режим тренування" });
+
+  const dialogue = Array.isArray(history)
+    ? history.slice(-12).map((m) => `${m.role === "operator" ? "Оператор" : "Клієнт"}: ${String(m.text || "").slice(0, 900)}`).join("\n")
+    : "";
+
+  const instructions = `Ти працюєш як рушій симулятора для навчання операторів контакт-центру. Відповідай українською. Завжди залишайся в характері клієнта. Оцінюй саме якість комунікації та продажу, а не граматику. Не погоджуйся занадто швидко. Не повторюй одне й те саме заперечення. Відповідай ВИКЛЮЧНО валідним JSON без markdown.`;
+
+  const prompt = action === "start"
+    ? `Персонаж: ${persona}\n\nЦе початок розмови. Дай коротку реалістичну першу репліку клієнта з природним запереченням. Формат: {"client_reply":"...","client_mood":"нейтральний або скептичний"}`
+    : `Персонаж: ${persona}\nПоточне терпіння: ${clamp(patience,0,100)}/100. Готовність до угоди: ${clamp(conversion,0,100)}/100.\nОстання відповідь оператора: ${String(operatorText).slice(0,1200)}\nДіалог:\n${dialogue}\n\nОціни відповідь оператора від 0 до 10. Назви головну застосовану техніку (наприклад: активне слухання, приєднання, уточнення потреби, SPIN, аргументація цінністю, робота з ціною, закриття угоди, або без чіткої техніки). Дай одне коротке речення практичного фідбеку. patience_delta від -25 до +12. trust_delta від 0 до +20. Наступна репліка клієнта має логічно продовжити розмову. Формат: {"score":0,"technique":"...","feedback":"...","patience_delta":0,"trust_delta":0,"client_mood":"скептичний|роздратований|пом'якшується|зацікавлений|переконаний","client_reply":"..."}`;
+
   try {
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) return { statusCode: 500, body: JSON.stringify({ error: "На Netlify не додано OPENAI_API_KEY" }) };
-    const body = JSON.parse(event.body || "{}");
-    const persona = PERSONAS[body.level];
-    if (!persona) return { statusCode: 400, body: JSON.stringify({ error: "Невідомий рівень" }) };
-
-    if (body.action === "opening") {
-      const response = await fetch("https://api.openai.com/v1/responses", {
-        method: "POST",
-        headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: process.env.OPENAI_MODEL || "gpt-4.1-mini",
-          input: `Ти граєш клієнта у тренажері продажів. Персонаж: ${persona}\nПочни розмову українською короткою природною реплікою з першим запереченням. Відповідай лише реплікою клієнта, без пояснень.`,
-          max_output_tokens: 180,
-        }),
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error?.message || "OpenAI API error");
-      return { statusCode: 200, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ client_reply: textFromResponse(data).trim() }) };
-    }
-
-    const history = Array.isArray(body.history) ? body.history.slice(-10).map(x => `${x.role === "operator" ? "Оператор" : "Клієнт"}: ${String(x.text || "").slice(0, 800)}`).join("\n") : "";
-    const state = body.state || {};
-    const prompt = `Ти одночасно граєш клієнта та працюєш тренером з продажів.\nПерсонаж: ${persona}\nСтан: терпіння ${state.patience}/100, готовність ${state.conversion}/100, хід ${state.turn}.\nІсторія:\n${history}\n\nОціни останню відповідь оператора за 0-10 за емпатією, уточненнями, аргументацією цінністю, персоналізацією та відсутністю тиску. Назви техніку, дай одне коротке речення фідбеку на «ти», визнач зміни показників і продовж діалог природною реплікою клієнта. Не повторюй заперечення дослівно.`;
-
     const response = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
-      headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      headers: { "content-type": "application/json", authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
       body: JSON.stringify({
         model: process.env.OPENAI_MODEL || "gpt-4.1-mini",
+        instructions,
         input: prompt,
-        max_output_tokens: 450,
-        text: { format: { type: "json_schema", name: "trainer_turn", strict: true, schema } },
+        max_output_tokens: 500,
+        temperature: 0.75,
       }),
     });
+
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error?.message || "OpenAI API error");
-    const parsed = JSON.parse(textFromResponse(data));
-    return { statusCode: 200, headers: { "Content-Type": "application/json" }, body: JSON.stringify(parsed) };
+    if (!response.ok) {
+      console.error("OpenAI error", response.status, data);
+      const message = response.status === 429 ? "Закінчився баланс API або перевищено ліміт" : "OpenAI не зміг відповісти";
+      return json(response.status, { error: message });
+    }
+
+    const result = parseModelJson(extractText(data));
+    if (action === "turn") {
+      result.score = clamp(result.score, 0, 10);
+      result.patience_delta = clamp(result.patience_delta, -25, 12);
+      result.trust_delta = clamp(result.trust_delta, 0, 20);
+    }
+    return json(200, result);
   } catch (error) {
-    console.error(error);
-    return { statusCode: 500, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ error: error.message || "Помилка сервера" }) };
+    console.error("AI trainer function failed", error);
+    return json(500, { error: "Не вдалося обробити відповідь AI. Спробуйте ще раз." });
   }
 };

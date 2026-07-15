@@ -1,7 +1,11 @@
 [build]
-  command = "cd frontend && npm install && npm run build"
-  publish = "frontend/build"
-  functions = "netlify/functions"
+  base = "frontend"
+  command = "npm run build"
+  publish = "build"
+  functions = "../netlify/functions"
+
+[build.environment]
+  NODE_VERSION = "20"
 
 [[redirects]]
   from = "/*"
