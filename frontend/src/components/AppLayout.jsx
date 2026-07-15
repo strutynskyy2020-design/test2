@@ -46,10 +46,14 @@ export default function AppLayout() {
 
   if (!user) return null;
   const isAdmin = user.role === "admin";
+  const isAdminRoute = loc.pathname.startsWith("/admin");
 
   return (
     <div className="min-h-screen w-full flex justify-center">
-      <div className="relative w-full max-w-[480px] min-h-screen flex flex-col bg-[#0A0A0A] border-x border-white/5">
+      <div
+        className={`relative w-full min-h-screen flex flex-col bg-[#0A0A0A] border-x border-white/5 ${isAdminRoute ? "app-shell app-shell-admin" : "app-shell"}`}
+        style={{ maxWidth: isAdminRoute ? "1500px" : "480px" }}
+      >
         <header
           className="sticky top-0 z-30 bg-[#0A0A0A]/95 backdrop-blur-sm border-b border-white/5 px-5 pb-4 flex items-center justify-between"
           style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 14px)", minHeight: "calc(74px + env(safe-area-inset-top, 0px))" }}
@@ -99,7 +103,7 @@ export default function AppLayout() {
 
         <nav
           data-testid="bottom-nav"
-          className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[480px] bg-[#0A0A0A] border-t border-white/10 flex items-stretch z-40 px-1"
+          className={`fixed bottom-0 left-1/2 -translate-x-1/2 w-full bg-[#0A0A0A] border-t border-white/10 items-stretch z-40 px-1 max-w-[480px] flex ${isAdminRoute ? "admin-bottom-nav" : ""}`}
           style={{ height: "5rem", paddingBottom: "env(safe-area-inset-bottom)" }}
         >
           <NavItem to="/" icon={Home} label="Головна" testId="nav-home" />

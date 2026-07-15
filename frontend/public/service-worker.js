@@ -2,7 +2,7 @@
  * Strategy: network-first for API and HTML, cache-first for static assets.
  * Keeps offline install working, doesn't stale-cache dynamic data.
  */
-const VERSION = "callhub-v1";
+const VERSION = "tm6-v12";
 const STATIC_CACHE = `${VERSION}-static`;
 const RUNTIME_CACHE = `${VERSION}-runtime`;
 
@@ -58,17 +58,25 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Static assets → cache-first
-  event.respondWith(
-    caches.match(req).then((cached) => {
-      if (cached) return cached;
-      return fetch(req).then((resp) => {
-        if (resp.ok && (url.origin === self.location.origin)) {
-          const copy = resp.clone();
-          caches.open(RUNTIME_CACHE).then((c) => c.put(req, copy));
-        }
+  // App scripts/styles → network-first so new deploys are never stuck behind an old PWA cache.
+  if (url.origin === self.location.origin && (url.pathname.endsWith(".js") || url.pathname.endsWith(".css"))) {
+    event.respondWith(
+      fetch(req).then((resp) => {
+        const copy = resp.clone();
+        caches.open(RUNTIME_CACHE).then((c) => c.put(req, copy));
         return resp;
-      }).catch(() => cached);
-    })
+      }).catch(() => caches.match(req))
+    );
+    return;
+  }
+
+  event.respondWith(
+    caches.match(req).then((cached) => cached || fetch(req).then((resp) => {
+      if (resp.ok && url.origin === self.location.origin) {
+        const copy = resp.clone();
+        caches.open(RUNTIME_CACHE).then((c) => c.put(req, copy));
+      }
+      return resp;
+    }))
   );
 });

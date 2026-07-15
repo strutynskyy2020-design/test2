@@ -243,6 +243,10 @@ class UserAdminUpdateBody(BaseModel):
     approved: Optional[bool] = None
 
 
+class AvatarUpdateBody(BaseModel):
+    avatar_url: str
+
+
 class TokenResponse(BaseModel):
     token: str
     user: UserWithProgress
@@ -586,6 +590,18 @@ async def auth_me(user: dict = Depends(get_current_user)):
     user = await _touch_daily_streak(user)
     user = await _hydrate_user_team(user)
     return _user_with_progress(user)
+
+
+@api.patch("/auth/me/avatar", response_model=UserWithProgress)
+async def update_my_avatar(body: AvatarUpdateBody, user: dict = Depends(get_current_user)):
+    """Update the current user avatar after a successful /uploads request."""
+    avatar_url = (body.avatar_url or "").strip()
+    if not avatar_url.startswith("/api/uploads/avatars/"):
+        raise HTTPException(status_code=400, detail="Некоректне посилання на фото")
+    await db.users.update_one({"id": user["id"]}, {"$set": {"avatar_url": avatar_url}})
+    fresh = await db.users.find_one({"id": user["id"]}, {"_id": 0})
+    fresh = await _hydrate_user_team(fresh)
+    return _user_with_progress(fresh)
 
 
 # ────────────────────────────────────────────────────────────────────────
@@ -942,7 +958,7 @@ async def admin_daily_tasks_dashboard(admin: dict = Depends(get_current_admin)):
     date_key = kyiv_today_key()
     users = await db.users.find(
         {"role": "employee", "approved": {"$ne": False}},
-        {"_id": 0, "id": 1, "name": 1, "avatar_initials": 1, "avatar_color": 1, "position": 1, "department": 1, "total_xp": 1},
+        {"_id": 0, "id": 1, "name": 1, "avatar_initials": 1, "avatar_color": 1, "avatar_url": 1, "position": 1, "department": 1, "total_xp": 1},
     ).sort("name", 1).to_list(1000)
 
     for employee in users:

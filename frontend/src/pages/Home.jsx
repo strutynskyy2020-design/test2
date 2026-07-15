@@ -1,6 +1,8 @@
+import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Flame, Trophy, GraduationCap, Sparkles, Crown, Zap, ChevronRight, Coins, TrendingUp, Swords, Gift, Lock, Dice5, ScrollText } from "lucide-react";
+import { Flame, Trophy, GraduationCap, Sparkles, Crown, Zap, ChevronRight, Coins, TrendingUp, Swords, Gift, Lock, Dice5, ScrollText, Camera, Loader2 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
+import { API_BASE } from "@/lib/api";
 import { getAchievements } from "@/lib/achievements";
 
 const ICONS = {
@@ -41,8 +43,11 @@ const Badge = ({ ach }) => {
 };
 
 export default function Home() {
-  const { user, mode } = useApp();
+  const { user, mode, updateAvatar } = useApp();
   const nav = useNavigate();
+  const [avatarBusy, setAvatarBusy] = useState(false);
+  const [avatarError, setAvatarError] = useState("");
+  const avatarInputRef = useRef(null);
 
   if (!user) return null;
 
@@ -51,6 +56,23 @@ export default function Home() {
   const xpNext = user.xp_to_next ?? 1000;
   const xpPct = Math.min(100, Math.round((xp / xpNext) * 100));
   const achievements = getAchievements(user);
+  const backendOrigin = API_BASE.replace(/\/api$/, "");
+  const avatarSrc = user.avatar_url
+    ? (user.avatar_url.startsWith("http") || user.avatar_url.startsWith("data:")
+      ? user.avatar_url
+      : `${backendOrigin}${user.avatar_url}`)
+    : null;
+
+  const onAvatarSelected = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    setAvatarBusy(true);
+    setAvatarError("");
+    const result = await updateAvatar(file);
+    if (!result.ok) setAvatarError(result.error || "Не вдалося змінити фото");
+    setAvatarBusy(false);
+  };
 
   return (
     <div className="px-5 pt-2 pb-8 space-y-6">
@@ -64,14 +86,36 @@ export default function Home() {
       {/* Profile card */}
       <section data-testid="profile-card" className="bg-[#1A1A1E] border border-white/10 rounded-3xl p-5">
         <div className="flex items-center gap-4">
-          <div className="relative">
-            <div
-              className="w-16 h-16 rounded-2xl flex items-center justify-center font-display text-xl text-[#0A0A0A]"
+          <div className="relative shrink-0">
+            <button
+              type="button"
+              onClick={() => avatarInputRef.current?.click()}
+              className={`relative block w-16 h-16 rounded-2xl overflow-hidden font-display text-xl text-[#0A0A0A] border border-white/10 active:scale-95 transition-transform cursor-pointer ${avatarBusy ? "opacity-60 pointer-events-none" : ""}`}
               style={{ backgroundColor: user.avatar_color }}
+              aria-label="Обрати фото профілю з галереї"
+              data-testid="profile-avatar-button"
             >
-              {user.avatar_initials}
-            </div>
-            <div className="absolute -bottom-1 -right-1 bg-[#FFB800] text-[#0A0A0A] text-[11px] font-black rounded-full px-2 py-0.5 border-2 border-[#0A0A0A]">
+              <span className="absolute inset-0 flex items-center justify-center">
+                {avatarSrc ? (
+                  <img src={avatarSrc} alt={user.name} className="w-full h-full object-cover" />
+                ) : (
+                  user.avatar_initials
+                )}
+              </span>
+              <span className="absolute inset-x-0 bottom-0 z-10 h-6 bg-black/75 flex items-center justify-center text-white pointer-events-none">
+                {avatarBusy ? <Loader2 size={14} className="animate-spin" /> : <Camera size={14} strokeWidth={2.8} />}
+              </span>
+            </button>
+            <input
+              ref={avatarInputRef}
+              type="file"
+              accept="image/*,.heic,.heif"
+              className="sr-only"
+              onChange={onAvatarSelected}
+              disabled={avatarBusy}
+              data-testid="profile-avatar-file-input"
+            />
+            <div className="absolute -bottom-1 -right-1 z-30 bg-[#FFB800] text-[#0A0A0A] text-[11px] font-black rounded-full px-2 py-0.5 border-2 border-[#0A0A0A] pointer-events-none">
               LVL {level}
             </div>
           </div>
@@ -88,6 +132,20 @@ export default function Home() {
             </div>
           </div>
         </div>
+        <button
+          type="button"
+          onClick={() => avatarInputRef.current?.click()}
+          disabled={avatarBusy}
+          className="mt-3 inline-flex min-h-10 items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-3 text-[10px] font-black uppercase tracking-wider text-zinc-400 active:scale-[0.98] disabled:opacity-50"
+          data-testid="change-avatar-button"
+        >
+          <Camera size={14} /> {avatarBusy ? "Завантаження..." : "Змінити фото"}
+        </button>
+        {avatarError && (
+          <div className="mt-3 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-[11px] font-bold text-red-300">
+            {avatarError}
+          </div>
+        )}
 
         <div className="mt-5">
           <div className="flex items-center justify-between mb-2">

@@ -9,7 +9,8 @@ export function registerServiceWorker() {
 
   window.addEventListener("load", () => {
     navigator.serviceWorker
-      .register("/service-worker.js", { scope: "/" })
+      .register("/service-worker.js?v=12", { scope: "/", updateViaCache: "none" })
+      .then((registration) => registration.update())
       .catch((err) => {
         // eslint-disable-next-line no-console
         console.warn("[PWA] Service worker registration failed", err);

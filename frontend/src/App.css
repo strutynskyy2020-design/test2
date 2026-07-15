@@ -2,3 +2,15 @@
   min-height: 100vh;
   background: transparent;
 }
+
+
+/* V12: deterministic responsive admin shell */
+.app-shell { width: 100%; max-width: 480px; }
+.admin-desktop-task-table { display: none; }
+.admin-mobile-task-list { display: block; }
+@media (min-width: 1024px) {
+  .app-shell-admin { width: min(1500px, 100vw) !important; max-width: 1500px !important; }
+  .admin-desktop-task-table { display: block; }
+  .admin-mobile-task-list { display: none; }
+  .admin-bottom-nav { display: none !important; }
+}

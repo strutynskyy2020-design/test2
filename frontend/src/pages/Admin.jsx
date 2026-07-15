@@ -159,6 +159,13 @@ const AITeamDashboard = () => {
 
 
 // ─────────────── Daily tasks manager ───────────────
+const resolveAvatarUrl = (url) => {
+  if (!url) return null;
+  if (url.startsWith("http") || url.startsWith("data:")) return url;
+  const base = (process.env.REACT_APP_BACKEND_URL || "").replace(/\/api\/?$/, "");
+  return `${base}${url}`;
+};
+
 const DAILY_DIFFICULTY = {
   easy: { label: "Легке", color: "#39FF14" },
   medium: { label: "Середнє", color: "#FFB800" },
@@ -224,16 +231,50 @@ const DailyTasksManager = () => {
   const query = search.trim().toLowerCase();
   const operators = data.operators.filter((operator) => !query || operator.name.toLowerCase().includes(query));
 
+  const taskActions = (operator, task, compact = false) => {
+    const key = `${operator.id}:${task.id}`;
+    const decided = task.status !== "pending";
+    if (decided) {
+      return (
+        <div className={`flex items-center justify-between rounded-xl border px-3 py-2 ${task.status === "approved" ? "border-[#39FF14]/30 bg-[#39FF14]/10" : "border-[#FF3B30]/30 bg-[#FF3B30]/10"}`}>
+          <div className={`flex items-center gap-2 text-[10px] font-black uppercase tracking-wider ${task.status === "approved" ? "text-[#39FF14]" : "text-[#FF3B30]"}`}>
+            {task.status === "approved" ? <CheckCircle2 size={14} strokeWidth={3} /> : <XCircle size={14} strokeWidth={3} />}
+            {task.status === "approved" ? `Нараховано +${task.reward}` : "Відхилено"}
+          </div>
+          {!compact && <div className="text-[9px] font-bold text-zinc-500">{task.reviewed_by_name || "Адмін"}</div>}
+        </div>
+      );
+    }
+    return (
+      <div className={`grid grid-cols-2 gap-2 ${compact ? "mt-2" : "mt-3"}`}>
+        <button
+          onClick={() => decide(operator, task, "approve")}
+          disabled={busyKey === key}
+          className="min-h-10 touch-manipulation rounded-xl border border-[#39FF14]/50 bg-[#39FF14]/15 px-2 text-[10px] font-black uppercase tracking-wide text-[#39FF14] active:scale-95 disabled:opacity-50"
+        >
+          <span className="inline-flex items-center gap-1"><CheckCircle2 size={14} strokeWidth={3} /> Нарахувати</span>
+        </button>
+        <button
+          onClick={() => decide(operator, task, "reject")}
+          disabled={busyKey === key}
+          className="min-h-10 touch-manipulation rounded-xl border border-[#FF3B30]/50 bg-[#FF3B30]/10 px-2 text-[10px] font-black uppercase tracking-wide text-[#FF3B30] active:scale-95 disabled:opacity-50"
+        >
+          <span className="inline-flex items-center gap-1"><XCircle size={14} strokeWidth={3} /> Відхилити</span>
+        </button>
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-4" data-testid="daily-tasks-manager">
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatBox label="Операторів" value={data.operator_count} accent="#00F0FF" />
         <StatBox label="Нараховано сьогодні" value={data.awarded_points} accent="#39FF14" />
         <StatBox label="Рішень" value={`${data.decided_count}/${data.total_tasks}`} accent="#FFB800" />
         <StatBox label="Дата" value={data.date.split("-").reverse().join(".")} />
       </div>
 
-      <div className="relative">
+      <div className="relative lg:max-w-md">
         <Search size={17} className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500" />
         <input
           value={search}
@@ -243,12 +284,13 @@ const DailyTasksManager = () => {
         />
       </div>
 
-      <div className="space-y-4">
+      {/* Mobile and tablet: native TM6 Bonus cards */}
+      <div className="admin-mobile-task-list space-y-4">
         {operators.map((operator) => (
           <section key={operator.id} className="overflow-hidden rounded-3xl border border-white/10 bg-[#1A1A1E]">
             <div className="flex items-center gap-3 border-b border-white/10 p-4">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl font-display text-sm text-[#0A0A0A]" style={{ backgroundColor: operator.avatar_color || "#FFB800" }}>
-                {operator.avatar_initials || "?"}
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-2xl font-display text-sm text-[#0A0A0A]" style={{ backgroundColor: operator.avatar_color || "#FFB800" }}>
+                {operator.avatar_url ? <img src={resolveAvatarUrl(operator.avatar_url)} alt={operator.name} className="h-full w-full object-cover" /> : (operator.avatar_initials || "?")}
               </div>
               <div className="min-w-0 flex-1">
                 <div className="truncate text-base font-black text-white">{operator.name}</div>
@@ -263,47 +305,17 @@ const DailyTasksManager = () => {
             <div className="divide-y divide-white/5">
               {operator.tasks.map((task) => {
                 const difficulty = DAILY_DIFFICULTY[task.difficulty] || DAILY_DIFFICULTY.easy;
-                const key = `${operator.id}:${task.id}`;
-                const decided = task.status !== "pending";
                 return (
                   <div key={task.id} className="p-4" data-testid={`admin-daily-task-${operator.id}-${task.id}`}>
-                    <div className="flex items-start gap-3">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-[#0A0A0A]" style={{ backgroundColor: difficulty.color }}>{difficulty.label}</span>
-                          <span className="text-xs font-black text-[#FFB800]">{task.reward} Point</span>
-                        </div>
-                        <div className="mt-2 text-sm font-black leading-snug text-white">{task.title}</div>
-                        <div className="mt-1 line-clamp-2 text-xs font-semibold leading-relaxed text-zinc-400">{task.text}</div>
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-[#0A0A0A]" style={{ backgroundColor: difficulty.color }}>{difficulty.label}</span>
+                        <span className="text-xs font-black text-[#FFB800]">{task.reward} Point</span>
                       </div>
+                      <div className="mt-2 text-sm font-black leading-snug text-white">{task.title}</div>
+                      <div className="mt-1 line-clamp-2 text-xs font-semibold leading-relaxed text-zinc-400">{task.text}</div>
                     </div>
-
-                    {!decided ? (
-                      <div className="mt-3 grid grid-cols-2 gap-2">
-                        <button
-                          onClick={() => decide(operator, task, "approve")}
-                          disabled={busyKey === key}
-                          className="min-h-11 touch-manipulation rounded-2xl border-2 border-[#39FF14]/50 bg-[#39FF14]/15 text-xs font-black uppercase tracking-wider text-[#39FF14] active:scale-95 disabled:opacity-50"
-                        >
-                          <span className="inline-flex items-center gap-1.5"><CheckCircle2 size={15} strokeWidth={3} /> Нарахувати</span>
-                        </button>
-                        <button
-                          onClick={() => decide(operator, task, "reject")}
-                          disabled={busyKey === key}
-                          className="min-h-11 touch-manipulation rounded-2xl border-2 border-[#FF3B30]/50 bg-[#FF3B30]/10 text-xs font-black uppercase tracking-wider text-[#FF3B30] active:scale-95 disabled:opacity-50"
-                        >
-                          <span className="inline-flex items-center gap-1.5"><XCircle size={15} strokeWidth={3} /> Відхилити</span>
-                        </button>
-                      </div>
-                    ) : (
-                      <div className={`mt-3 flex items-center justify-between rounded-2xl border px-3 py-2.5 ${task.status === "approved" ? "border-[#39FF14]/30 bg-[#39FF14]/10" : "border-[#FF3B30]/30 bg-[#FF3B30]/10"}`}>
-                        <div className={`flex items-center gap-2 text-xs font-black uppercase tracking-wider ${task.status === "approved" ? "text-[#39FF14]" : "text-[#FF3B30]"}`}>
-                          {task.status === "approved" ? <CheckCircle2 size={16} strokeWidth={3} /> : <XCircle size={16} strokeWidth={3} />}
-                          {task.status === "approved" ? `Нараховано +${task.reward}` : "Відхилено"}
-                        </div>
-                        <div className="text-[9px] font-bold text-zinc-500">{task.reviewed_by_name || "Адмін"}</div>
-                      </div>
-                    )}
+                    {taskActions(operator, task)}
                   </div>
                 );
               })}
@@ -311,6 +323,57 @@ const DailyTasksManager = () => {
           </section>
         ))}
       </div>
+
+      {/* Laptop and desktop: wide operator table */}
+      <div className="admin-desktop-task-table overflow-hidden rounded-3xl border border-white/10 bg-[#121318] shadow-2xl shadow-black/30">
+        <div className="grid grid-cols-[230px_repeat(3,minmax(210px,1fr))_190px] items-center border-b border-white/10 bg-white/[0.025] px-5 py-4 text-[10px] font-black uppercase tracking-[0.14em] text-zinc-500">
+          <div>Оператор</div>
+          <div>Легке завдання</div>
+          <div>Середнє завдання</div>
+          <div>Важке завдання</div>
+          <div className="text-center">Статус</div>
+        </div>
+        <div className="divide-y divide-white/5">
+          {operators.map((operator) => (
+            <div key={operator.id} className="grid grid-cols-[230px_repeat(3,minmax(210px,1fr))_190px] items-stretch px-5 transition-colors hover:bg-white/[0.02]">
+              <div className="flex items-center gap-3 border-r border-white/5 py-5 pr-4">
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-2xl font-display text-sm text-[#0A0A0A]" style={{ backgroundColor: operator.avatar_color || "#FFB800" }}>
+                  {operator.avatar_url ? <img src={resolveAvatarUrl(operator.avatar_url)} alt={operator.name} className="h-full w-full object-cover" /> : (operator.avatar_initials || "?")}
+                </div>
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-black text-white">{operator.name}</div>
+                  <div className="mt-1 text-[10px] font-bold uppercase tracking-wider text-zinc-500">{operator.position || "Оператор"}</div>
+                  <div className="mt-1 text-[10px] font-black text-[#FFB800]">{operator.decided_count}/3 перевірено</div>
+                </div>
+              </div>
+
+              {operator.tasks.map((task) => {
+                const difficulty = DAILY_DIFFICULTY[task.difficulty] || DAILY_DIFFICULTY.easy;
+                return (
+                  <div key={task.id} className="border-r border-white/5 p-4" data-testid={`admin-desktop-task-${operator.id}-${task.id}`}>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="rounded-full px-2 py-0.5 text-[8px] font-black uppercase tracking-wider text-[#0A0A0A]" style={{ backgroundColor: difficulty.color }}>{difficulty.label}</span>
+                      <span className="text-[10px] font-black text-[#FFB800]">{task.reward} Point</span>
+                    </div>
+                    <div className="mt-2 line-clamp-1 text-xs font-black text-white" title={task.title}>{task.title}</div>
+                    <div className="mt-1 line-clamp-2 min-h-9 text-[10px] font-semibold leading-relaxed text-zinc-500" title={task.text}>{task.text}</div>
+                    {taskActions(operator, task, true)}
+                  </div>
+                );
+              })}
+
+              <div className="flex flex-col items-center justify-center gap-2 py-5 pl-4 text-center">
+                <div className={`rounded-full px-3 py-1.5 text-[10px] font-black uppercase tracking-wider ${operator.decided_count === 3 ? "bg-[#39FF14]/10 text-[#39FF14]" : operator.decided_count > 0 ? "bg-[#FFB800]/10 text-[#FFB800]" : "bg-white/5 text-zinc-500"}`}>
+                  {operator.decided_count === 3 ? "Готово" : operator.decided_count > 0 ? "В роботі" : "Не перевірено"}
+                </div>
+                <div className="font-display text-2xl text-white">{operator.decided_count}/3</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {!operators.length && <div className="rounded-3xl border border-white/10 bg-[#1A1A1E] py-12 text-center text-sm font-black text-zinc-500">Операторів не знайдено</div>}
     </div>
   );
 };
@@ -1506,32 +1569,61 @@ export default function Admin() {
   const V = { analytics: AnalyticsView, "ai-team": AITeamDashboard, "daily-tasks": DailyTasksManager, moderation: ModerationView, applications: ApplicationsView, users: UsersView, teams: TeamsView, prizes: PrizesView, orders: OrdersView }[tab];
 
   return (
-    <div className="px-5 pt-2 pb-8 space-y-4" data-testid="admin-page">
-      <div>
-        <div className="text-[10px] font-black uppercase tracking-[0.25em] text-zinc-500">Панель управління</div>
-        <h1 className="font-display text-3xl text-white mt-1">Адмін</h1>
-      </div>
+    <div className="px-5 pt-2 pb-8 lg:px-7 lg:pt-6" data-testid="admin-page">
+      <div className="lg:grid lg:grid-cols-[230px_minmax(0,1fr)] lg:gap-7">
+        <aside className="hidden lg:block">
+          <div className="sticky top-28 overflow-hidden rounded-3xl border border-white/10 bg-[#121318] p-3">
+            <div className="px-3 pb-4 pt-2">
+              <div className="text-[9px] font-black uppercase tracking-[0.25em] text-zinc-600">Панель управління</div>
+              <div className="mt-1 font-display text-2xl text-white">Адміністратор</div>
+            </div>
+            <div className="space-y-1" data-testid="admin-desktop-tabs">
+              {TABS.map((t) => {
+                const Icon = t.icon;
+                return (
+                  <button
+                    key={t.id}
+                    data-testid={`admin-desktop-tab-${t.id}`}
+                    onClick={() => setTab(t.id)}
+                    className={`flex min-h-12 w-full items-center gap-3 rounded-2xl px-3 text-left text-xs font-black uppercase tracking-wider transition-all ${tab === t.id ? "bg-[#FFB800] text-[#0A0A0A] shadow-lg shadow-[#FFB800]/10" : "text-zinc-400 hover:bg-white/5 hover:text-white"}`}
+                  >
+                    <Icon size={17} strokeWidth={3} />
+                    {t.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </aside>
 
-      <div className="flex flex-wrap gap-2 pb-1" data-testid="admin-tabs">
-        {TABS.map((t) => {
-          const Icon = t.icon;
-          return (
-            <button
-              key={t.id}
-              data-testid={`admin-tab-${t.id}`}
-              onClick={() => setTab(t.id)}
-              className={`shrink-0 h-10 px-3 rounded-full font-black text-[11px] uppercase tracking-wider transition-colors border-2 flex items-center gap-1.5 ${
-                tab === t.id ? "bg-[#FFB800] border-[#FFB800] text-[#0A0A0A]" : "bg-[#1A1A1E] border-white/10 text-zinc-400"
-              }`}
-            >
-              <Icon size={14} strokeWidth={3} />
-              {t.label}
-            </button>
-          );
-        })}
-      </div>
+        <div className="min-w-0 space-y-4">
+          <div>
+            <div className="text-[10px] font-black uppercase tracking-[0.25em] text-zinc-500">Панель управління</div>
+            <h1 className="mt-1 font-display text-3xl text-white lg:text-4xl">{TABS.find((item) => item.id === tab)?.label || "Адмін"}</h1>
+          </div>
 
-      <V />
+          <div className="flex flex-wrap gap-2 pb-1 lg:hidden" data-testid="admin-tabs">
+            {TABS.map((t) => {
+              const Icon = t.icon;
+              return (
+                <button
+                  key={t.id}
+                  data-testid={`admin-tab-${t.id}`}
+                  onClick={() => setTab(t.id)}
+                  className={`flex h-10 shrink-0 items-center gap-1.5 rounded-full border-2 px-3 text-[11px] font-black uppercase tracking-wider transition-colors ${
+                    tab === t.id ? "border-[#FFB800] bg-[#FFB800] text-[#0A0A0A]" : "border-white/10 bg-[#1A1A1E] text-zinc-400"
+                  }`}
+                >
+                  <Icon size={14} strokeWidth={3} />
+                  {t.label}
+                </button>
+              );
+            })}
+          </div>
+
+          <V />
+        </div>
+      </div>
     </div>
   );
 }

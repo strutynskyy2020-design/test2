@@ -139,6 +139,48 @@ export const AppProvider = ({ children }) => {
     setState((s) => ({ ...s, user: data }));
   };
 
+  const updateAvatar = async (file) => {
+    if (!file || !state.user) return { ok: false, error: "Фото не вибрано" };
+    const imageByMime = file.type?.startsWith("image/");
+    const imageByName = /\.(jpe?g|png|webp|gif|heic|heif)$/i.test(file.name || "");
+    if (!imageByMime && !imageByName) return { ok: false, error: "Оберіть файл зображення" };
+    if (file.size > 8 * 1024 * 1024) return { ok: false, error: "Фото має бути менше 8 МБ" };
+
+    if (state.mode === "mock") {
+      try {
+        const reader = new FileReader();
+        const avatarUrl = await new Promise((resolve, reject) => {
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+        setState((s) => {
+          const next = { ...s, user: { ...s.user, avatar_url: avatarUrl } };
+          saveCache(next);
+          return next;
+        });
+        return { ok: true };
+      } catch {
+        return { ok: false, error: "Не вдалося прочитати фото" };
+      }
+    }
+
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      form.append("category", "avatars");
+      const { data: uploaded } = await api.post("/uploads", form, {
+        headers: { "Content-Type": "multipart/form-data" },
+        timeout: 30000,
+      });
+      const { data: user } = await api.patch("/auth/me/avatar", { avatar_url: uploaded.url });
+      setState((s) => ({ ...s, user }));
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: extractError(err, "Не вдалося змінити фото") };
+    }
+  };
+
   const loadPrizes = async () => {
     if (state.mode !== "live") return;
     const { data } = await api.get("/prizes");
@@ -210,7 +252,7 @@ export const AppProvider = ({ children }) => {
   }, [state.mode, state.user?.id]);
 
   const value = useMemo(
-    () => ({ ...state, login, logout, claimQuest, buyPrize, refreshMe, loadPrizes, loadOrders }),
+    () => ({ ...state, login, logout, claimQuest, buyPrize, refreshMe, updateAvatar, loadPrizes, loadOrders }),
     // eslint-disable-next-line
     [state]
   );
