@@ -10,18 +10,42 @@ const STORAGE_KEY = "pumb-ai-trainer-profile-v2";
 const VOICE_LIMIT_SECONDS = 60;
 const clamp = (value) => Math.max(0, Math.min(100, Number(value) || 0));
 const cleanTranscript = (value = "") => value.replace(/\s+/g, " ").trim();
+const normalizeVoiceText = (value = "") =>
+  cleanTranscript(value)
+    .toLocaleLowerCase("uk-UA")
+    .replace(/[.,!?;:«»"'’`—–-]/g, "");
+
 const mergeTranscript = (base = "", addition = "") => {
-  const left = cleanTranscript(base); const right = cleanTranscript(addition);
-  if (!left) return right; if (!right) return left;
-  const leftWords = left.split(" "); const rightWords = right.split(" ");
-  const maxOverlap = Math.min(leftWords.length, rightWords.length, 30);
+  const left = cleanTranscript(base);
+  const right = cleanTranscript(addition);
+
+  if (!left) return right;
+  if (!right) return left;
+
+  const normalizedLeft = normalizeVoiceText(left);
+  const normalizedRight = normalizeVoiceText(right);
+
+  // Android may resend the whole phrase, or a longer version of the same phrase.
+  if (normalizedLeft === normalizedRight || normalizedLeft.endsWith(normalizedRight)) return left;
+  if (normalizedRight.startsWith(normalizedLeft)) return right;
+
+  const leftWords = left.split(" ");
+  const rightWords = right.split(" ");
+  const maxOverlap = Math.min(leftWords.length, rightWords.length, 60);
+
   for (let size = maxOverlap; size > 0; size -= 1) {
-    const tail = leftWords.slice(-size).join(" ").toLocaleLowerCase("uk-UA");
-    const head = rightWords.slice(0, size).join(" ").toLocaleLowerCase("uk-UA");
-    if (tail === head) return [...leftWords, ...rightWords.slice(size)].join(" ");
+    const tail = normalizeVoiceText(leftWords.slice(-size).join(" "));
+    const head = normalizeVoiceText(rightWords.slice(0, size).join(" "));
+    if (tail && tail === head) {
+      return cleanTranscript([...leftWords, ...rightWords.slice(size)].join(" "));
+    }
   }
+
   return `${left} ${right}`;
 };
+
+const mergeRecognitionChunks = (chunks = []) =>
+  chunks.reduce((result, chunk) => mergeTranscript(result, chunk), "");
 const blankTechniques = () => Object.fromEntries(TECHNIQUE_KEYS.map((key) => [key, { uses: 0, total: 0 }]));
 const defaultProfile = () => ({ xp: 0, points: 0, wins: 0, attempts: 0, bestStreak: 0, completed: {}, achievements: [], techniques: blankTechniques(), results: [] });
 
@@ -116,7 +140,7 @@ export default function AITrainer() {
   const [patience,setPatience]=useState(0); const [conversion,setConversion]=useState(0); const [scores,setScores]=useState([]); const [streak,setStreak]=useState(0); const [bestStreak,setBestStreak]=useState(0); const [mood,setMood]=useState("нейтральний"); const [finished,setFinished]=useState(null);
   const [sessionTechniques,setSessionTechniques]=useState(blankTechniques);
   const [isListening,setIsListening]=useState(false); const [speechSupported,setSpeechSupported]=useState(true); const [voiceHint,setVoiceHint]=useState(""); const [voiceSeconds,setVoiceSeconds]=useState(0);
-  const endRef=useRef(null); const chatRef=useRef(null); const recognitionRef=useRef(null); const voiceBaseRef=useRef(""); const voiceSessionRef=useRef(""); const listeningWantedRef=useRef(false); const voiceStartedAtRef=useRef(0); const voiceTimerRef=useRef(null);
+  const endRef=useRef(null); const chatRef=useRef(null); const recognitionRef=useRef(null); const voiceBaseRef=useRef(""); const voiceFinalRef=useRef(""); const voiceInterimRef=useRef(""); const listeningWantedRef=useRef(false); const voiceStartedAtRef=useRef(0); const voiceTimerRef=useRef(null);
   const scenario=useMemo(()=>SCENARIOS.find(s=>s.id===scenarioId),[scenarioId]);
   const average=scores.length?(scores.reduce((a,b)=>a+b,0)/scores.length).toFixed(1):"—";
   const stage = scores.length === 0 ? "Встановлення контакту" : scores.length <= 2 ? "Виявлення потреб" : conversion < 55 ? "Робота із запереченням" : "Підведення до рішення";
@@ -135,29 +159,51 @@ export default function AITrainer() {
     const r=new SR(); r.lang="uk-UA"; r.continuous=true; r.interimResults=true;
     r.onstart=()=>{setIsListening(true);setVoiceHint("Слухаю… говоріть до 1 хвилини")};
     r.onresult=(e)=>{
-      // Android Chrome can resend earlier final results in the same event.
-      // Rebuild the current recognition session instead of appending every callback.
-      let finalText=""; let interimText="";
+      // Chrome on Android can return cumulative alternatives as separate results:
+      // "Доброго" → "Доброго дня" → "Доброго дня, підкажіть...".
+      // Merge every chunk by overlap instead of concatenating the result list.
+      const finalChunks=[];
+      const interimChunks=[];
+
       for(let i=0;i<e.results.length;i++){
-        const chunk=e.results[i][0]?.transcript||"";
-        if(e.results[i].isFinal) finalText += `${chunk} `; else interimText += `${chunk} `;
+        const chunk=cleanTranscript(e.results[i][0]?.transcript||"");
+        if(!chunk) continue;
+        if(e.results[i].isFinal) finalChunks.push(chunk);
+        else interimChunks.push(chunk);
       }
-      voiceSessionRef.current=cleanTranscript(`${finalText} ${interimText}`);
-      setInput(mergeTranscript(voiceBaseRef.current,voiceSessionRef.current));
+
+      voiceFinalRef.current=mergeRecognitionChunks(finalChunks);
+      voiceInterimRef.current=mergeRecognitionChunks(interimChunks);
+
+      const visibleSession=mergeTranscript(
+        voiceFinalRef.current,
+        voiceInterimRef.current
+      );
+
+      setInput(mergeTranscript(voiceBaseRef.current,visibleSession));
     };
     r.onerror=(e)=>{
       if(["not-allowed","service-not-allowed"].includes(e.error)){listeningWantedRef.current=false;toast.error("Дозвольте доступ до мікрофона")}
       if(!["no-speech","aborted"].includes(e.error)){listeningWantedRef.current=false;toast.error("Голосове введення перервано")}
     };
     r.onend=()=>{
-      // Chrome for Android often ends recognition by itself and starts a fresh result list.
-      // Commit only the de-duplicated session before restarting.
-      voiceBaseRef.current=mergeTranscript(voiceBaseRef.current,voiceSessionRef.current);
-      voiceSessionRef.current="";
+      // Commit final speech. Some Android builds never mark the last phrase final,
+      // so use interim text only when there is no final text at all.
+      const committedSession=voiceFinalRef.current||voiceInterimRef.current;
+      voiceBaseRef.current=mergeTranscript(voiceBaseRef.current,committedSession);
+      voiceFinalRef.current="";
+      voiceInterimRef.current="";
       setInput(voiceBaseRef.current);
+
       const elapsed=(Date.now()-voiceStartedAtRef.current)/1000;
-      if(listeningWantedRef.current && elapsed < VOICE_LIMIT_SECONDS){try{r.start();return}catch{}}
-      listeningWantedRef.current=false; clearVoiceTimer(); setIsListening(false); setVoiceHint("");
+      if(listeningWantedRef.current && elapsed < VOICE_LIMIT_SECONDS){
+        try{r.start();return}catch{}
+      }
+
+      listeningWantedRef.current=false;
+      clearVoiceTimer();
+      setIsListening(false);
+      setVoiceHint("");
     };
     recognitionRef.current=r;
     return()=>{listeningWantedRef.current=false;clearVoiceTimer();try{r.abort()}catch{} recognitionRef.current=null};
@@ -166,7 +212,7 @@ export default function AITrainer() {
   const toggleListening=()=>{
     if(isListening){stopListening();return}
     if(!speechSupported||!recognitionRef.current){toast.info("У Safari скористайтеся мікрофоном екранної клавіатури");return}
-    setInput(""); voiceBaseRef.current=""; voiceSessionRef.current=""; voiceStartedAtRef.current=Date.now(); listeningWantedRef.current=true; setVoiceSeconds(0);
+    setInput(""); voiceBaseRef.current=""; voiceFinalRef.current=""; voiceInterimRef.current=""; voiceStartedAtRef.current=Date.now(); listeningWantedRef.current=true; setVoiceSeconds(0);
     clearVoiceTimer(); voiceTimerRef.current=setInterval(()=>{
       const seconds=Math.floor((Date.now()-voiceStartedAtRef.current)/1000); setVoiceSeconds(Math.min(seconds,VOICE_LIMIT_SECONDS));
       if(seconds>=VOICE_LIMIT_SECONDS){stopListening();toast.success("Голосове введення завершено: 1 хвилина")}
