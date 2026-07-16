@@ -134,13 +134,13 @@ function FeedbackCard({ message }) {
 }
 
 export default function AITrainer() {
-  const { mode } = useApp();
+  const { mode, refreshMe } = useApp();
   const [profile, setProfile] = useState(loadProfile); const [scenarioId, setScenarioId] = useState(null);
   const [loading, setLoading] = useState(false); const [messages,setMessages]=useState([]); const [input,setInput]=useState("");
   const [patience,setPatience]=useState(0); const [conversion,setConversion]=useState(0); const [scores,setScores]=useState([]); const [streak,setStreak]=useState(0); const [bestStreak,setBestStreak]=useState(0); const [mood,setMood]=useState("нейтральний"); const [finished,setFinished]=useState(null);
   const [sessionTechniques,setSessionTechniques]=useState(blankTechniques);
   const [isListening,setIsListening]=useState(false); const [speechSupported,setSpeechSupported]=useState(true); const [voiceHint,setVoiceHint]=useState(""); const [voiceSeconds,setVoiceSeconds]=useState(0);
-  const endRef=useRef(null); const chatRef=useRef(null); const recognitionRef=useRef(null); const voiceBaseRef=useRef(""); const voiceFinalRef=useRef(""); const voiceInterimRef=useRef(""); const listeningWantedRef=useRef(false); const voiceStartedAtRef=useRef(0); const voiceTimerRef=useRef(null);
+  const endRef=useRef(null); const chatRef=useRef(null); const recognitionRef=useRef(null); const voiceBaseRef=useRef(""); const voiceFinalRef=useRef(""); const voiceInterimRef=useRef(""); const voiceInterimTailRef=useRef(""); const listeningWantedRef=useRef(false); const voiceStartedAtRef=useRef(0); const voiceTimerRef=useRef(null); const recognitionRestartRef=useRef(null); const userEditedAfterStopRef=useRef(false);
   const scenario=useMemo(()=>SCENARIOS.find(s=>s.id===scenarioId),[scenarioId]);
   const average=scores.length?(scores.reduce((a,b)=>a+b,0)/scores.length).toFixed(1):"—";
   const stage = scores.length === 0 ? "Встановлення контакту" : scores.length <= 2 ? "Виявлення потреб" : conversion < 55 ? "Робота із запереченням" : "Підведення до рішення";
@@ -148,7 +148,7 @@ export default function AITrainer() {
   useEffect(()=>{localStorage.setItem(STORAGE_KEY,JSON.stringify(profile))},[profile]);
   useEffect(()=>{endRef.current?.scrollIntoView({behavior:"smooth",block:"end"})},[messages,loading,finished]);
 
-  const clearVoiceTimer = useCallback(() => { if (voiceTimerRef.current) { clearInterval(voiceTimerRef.current); voiceTimerRef.current = null; } }, []);
+  const clearVoiceTimer = useCallback(() => { if (voiceTimerRef.current) { clearInterval(voiceTimerRef.current); voiceTimerRef.current = null; } if (recognitionRestartRef.current) { clearTimeout(recognitionRestartRef.current); recognitionRestartRef.current = null; } }, []);
   const stopListening = useCallback(() => {
     listeningWantedRef.current = false; clearVoiceTimer(); setIsListening(false); setVoiceHint("");
     try { recognitionRef.current?.stop(); } catch {}
@@ -156,7 +156,7 @@ export default function AITrainer() {
 
   useEffect(()=>{
     const SR=window.SpeechRecognition||window.webkitSpeechRecognition; setSpeechSupported(Boolean(SR)); if(!SR)return undefined;
-    const r=new SR(); r.lang="uk-UA"; r.continuous=true; r.interimResults=true;
+    const r=new SR(); r.lang="uk-UA"; r.continuous=true; r.interimResults=true; r.maxAlternatives=5;
     r.onstart=()=>{setIsListening(true);setVoiceHint("Слухаю… говоріть до 1 хвилини")};
     r.onresult=(e)=>{
       // Chrome on Android can return cumulative alternatives as separate results:
@@ -166,7 +166,12 @@ export default function AITrainer() {
       const interimChunks=[];
 
       for(let i=0;i<e.results.length;i++){
-        const chunk=cleanTranscript(e.results[i][0]?.transcript||"");
+        const alternatives=Array.from(e.results[i]||[]);
+        const best=alternatives.reduce((chosen,item)=>{
+          if(!chosen) return item;
+          return Number(item?.confidence||0)>Number(chosen?.confidence||0)?item:chosen;
+        },null);
+        const chunk=cleanTranscript(best?.transcript||"");
         if(!chunk) continue;
         if(e.results[i].isFinal) finalChunks.push(chunk);
         else interimChunks.push(chunk);
@@ -174,13 +179,16 @@ export default function AITrainer() {
 
       voiceFinalRef.current=mergeRecognitionChunks(finalChunks);
       voiceInterimRef.current=mergeRecognitionChunks(interimChunks);
+      if(voiceInterimRef.current) voiceInterimTailRef.current=voiceInterimRef.current.split(" ").slice(-8).join(" ");
 
       const visibleSession=mergeTranscript(
         voiceFinalRef.current,
-        voiceInterimRef.current
+        mergeTranscript(voiceInterimTailRef.current,voiceInterimRef.current)
       );
 
-      setInput(mergeTranscript(voiceBaseRef.current,visibleSession));
+      if(!userEditedAfterStopRef.current){
+        setInput(mergeTranscript(voiceBaseRef.current,visibleSession));
+      }
     };
     r.onerror=(e)=>{
       if(["not-allowed","service-not-allowed"].includes(e.error)){listeningWantedRef.current=false;toast.error("Дозвольте доступ до мікрофона")}
@@ -189,15 +197,20 @@ export default function AITrainer() {
     r.onend=()=>{
       // Commit final speech. Some Android builds never mark the last phrase final,
       // so use interim text only when there is no final text at all.
-      const committedSession=voiceFinalRef.current||voiceInterimRef.current;
+      const committedSession=mergeTranscript(voiceFinalRef.current,voiceInterimRef.current||voiceInterimTailRef.current);
       voiceBaseRef.current=mergeTranscript(voiceBaseRef.current,committedSession);
       voiceFinalRef.current="";
       voiceInterimRef.current="";
-      setInput(voiceBaseRef.current);
+      if(!userEditedAfterStopRef.current) setInput(voiceBaseRef.current);
 
       const elapsed=(Date.now()-voiceStartedAtRef.current)/1000;
       if(listeningWantedRef.current && elapsed < VOICE_LIMIT_SECONDS){
-        try{r.start();return}catch{}
+        recognitionRestartRef.current=setTimeout(()=>{
+          recognitionRestartRef.current=null;
+          if(!listeningWantedRef.current) return;
+          try{r.start()}catch{}
+        },150);
+        return;
       }
 
       listeningWantedRef.current=false;
@@ -212,7 +225,7 @@ export default function AITrainer() {
   const toggleListening=()=>{
     if(isListening){stopListening();return}
     if(!speechSupported||!recognitionRef.current){toast.info("У Safari скористайтеся мікрофоном екранної клавіатури");return}
-    setInput(""); voiceBaseRef.current=""; voiceFinalRef.current=""; voiceInterimRef.current=""; voiceStartedAtRef.current=Date.now(); listeningWantedRef.current=true; setVoiceSeconds(0);
+    setInput(""); voiceBaseRef.current=""; voiceFinalRef.current=""; voiceInterimRef.current=""; voiceInterimTailRef.current=""; userEditedAfterStopRef.current=false; voiceStartedAtRef.current=Date.now(); listeningWantedRef.current=true; setVoiceSeconds(0);
     clearVoiceTimer(); voiceTimerRef.current=setInterval(()=>{
       const seconds=Math.floor((Date.now()-voiceStartedAtRef.current)/1000); setVoiceSeconds(Math.min(seconds,VOICE_LIMIT_SECONDS));
       if(seconds>=VOICE_LIMIT_SECONDS){stopListening();toast.success("Голосове введення завершено: 1 хвилина")}
@@ -223,8 +236,8 @@ export default function AITrainer() {
   const callTrainer=async(payload)=>{const response=await fetch("/.netlify/functions/ai-trainer",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(payload)});const data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(data.error||"AI-сервіс недоступний");return data};
   const start=async(id)=>{const chosen=SCENARIOS.find(s=>s.id===id);setScenarioId(id);setPatience(chosen.patience);setConversion(0);setScores([]);setStreak(0);setBestStreak(0);setMessages([]);setFinished(null);setMood("нейтральний");setSessionTechniques(blankTechniques());setLoading(true);try{const result=await callTrainer({action:"start",scenarioId:id});setMessages([{role:"client",text:result.client_reply}]);setMood(result.client_mood||"нейтральний")}catch(e){toast.error(e.message);setScenarioId(null)}finally{setLoading(false)}};
   const reset=()=>{stopListening();setScenarioId(null);setMessages([]);setInput("");setFinished(null);setLoading(false)};
-  const finishGame=(win,text,nextBest,nextScores,techniqueData,conversation=[])=>{const avg=nextScores.length?Number((nextScores.reduce((a,b)=>a+b,0)/nextScores.length).toFixed(1)):0;const points=win?scenario.points:0;const xpEarned=Math.round(nextScores.reduce((sum,s)=>sum+(s>=9?25:s>=7?18:s>=5?10:s>=3?5:0),0)+(win?50:10));const unlocked=[];if(mode==="live"){api.post("/ai-training/results",{scenario_id:scenario.id,scenario_title:scenario.title,category:scenario.category,difficulty:scenario.difficulty,average_score:avg,consultation_quality:avg,sale_probability:conversion,won:win,points,xp_earned:xpEarned,best_streak:nextBest,techniques:techniqueData,conversation,outcome_text:text,client_mood:mood}).catch(()=>{});}setProfile(prev=>{const techniques={...prev.techniques};Object.entries(techniqueData).forEach(([key,val])=>{const old=techniques[key]||{uses:0,total:0};techniques[key]={uses:old.uses+val.uses,total:old.total+val.total}});const achievements=new Set(prev.achievements||[]);if(win)achievements.add("Перша угода");if(nextBest>=5)achievements.add("Стрік 5");if(avg>=9)achievements.add("Влучність 9+");if(scenario.category==="credit"&&win)achievements.add("Кредитний консультант");if(Object.keys(prev.completed||{}).length+(!prev.completed?.[scenario.id]&&win?1:0)>=10)achievements.add("10 кейсів");[...achievements].filter(a=>!(prev.achievements||[]).includes(a)).forEach(a=>unlocked.push(a));return {...prev,xp:prev.xp+xpEarned,points:prev.points+points,wins:prev.wins+(win?1:0),attempts:prev.attempts+1,bestStreak:Math.max(prev.bestStreak,nextBest),completed:{...prev.completed,...(win?{[scenario.id]:true}:{})},achievements:[...achievements],techniques,results:[...prev.results,{date:Date.now(),title:scenario.title,difficulty:scenario.label,average:avg,points,win}].slice(-50)}});setFinished({win,text,points,xpEarned,unlocked,avg,saleProbability:conversion})};
-  const send=async()=>{const text=input.trim();if(!text||loading||finished)return;stopListening();const operator={role:"operator",text};const nextMessages=[...messages,operator];setMessages(nextMessages);setInput("");setLoading(true);try{const result=await callTrainer({action:"turn",scenarioId,patience,conversion,history:nextMessages.slice(-14),operatorText:text});const score=clamp(result.score);const nextPatience=clamp(patience+Number(result.patience_delta||0));const nextConversion=clamp(conversion+Number(result.trust_delta||0));const nextStreak=score>=7?streak+1:0;const nextBest=Math.max(bestStreak,nextStreak);const nextScores=[...scores,score];const techniqueNames=Array.isArray(result.techniques)?result.techniques:[result.technique||""];const updated={...sessionTechniques};techniqueNames.forEach((name)=>{const key=normalizeTechnique(name);const old=updated[key]||{uses:0,total:0};updated[key]={uses:old.uses+1,total:old.total+Math.round(score*10)}});setSessionTechniques(updated);setScores(nextScores);setPatience(nextPatience);setConversion(nextConversion);setStreak(nextStreak);setBestStreak(nextBest);setMood(result.client_mood||"нейтральний");const responseMessages=[{role:"feedback",score,technique:techniqueNames.join(" • "),text:result.feedback,strongResponse:result.strong_response,whyBetter:Array.isArray(result.why_better)?result.why_better:[],exampleContext:result.example_context||""},{role:"client",text:result.client_reply}];const fullConversation=[...nextMessages,...responseMessages];setMessages(prev=>[...prev,...responseMessages]);const target=scenario.target||80;if(result.terminal||result.outcome==="complaint")finishGame(false,result.outcome==="complaint"?"Розмову завершено зі скаргою через порушення стандартів спілкування.":"Клієнт завершив розмову.",nextBest,nextScores,updated,fullConversation);else if(nextPatience<=0)finishGame(false,"Клієнт завершив розмову через тон або зміст відповідей.",nextBest,nextScores,updated,fullConversation);else if(nextConversion>=target&&(result.deal_ready||score>=8))finishGame(true,"Клієнт погодився на доречний наступний крок.",nextBest,nextScores,updated,fullConversation)}catch(e){toast.error(e.message)}finally{setLoading(false)}};
+  const finishGame=(win,text,nextBest,nextScores,techniqueData,conversation=[])=>{const avg=nextScores.length?Number((nextScores.reduce((a,b)=>a+b,0)/nextScores.length).toFixed(1)):0;const points=win?scenario.points:0;const xpEarned=Math.round(nextScores.reduce((sum,s)=>sum+(s>=9?25:s>=7?18:s>=5?10:s>=3?5:0),0)+(win?50:10));const unlocked=[];if(mode==="live"){api.post("/ai-training/results",{scenario_id:scenario.id,scenario_title:scenario.title,category:scenario.category,difficulty:scenario.difficulty,average_score:avg,consultation_quality:avg,sale_probability:conversion,won:win,points,xp_earned:xpEarned,best_streak:nextBest,techniques:techniqueData,conversation,outcome_text:text,client_mood:mood}).then(()=>refreshMe?.()).catch(()=>{toast.error("Результат збережено локально, але нагороду не вдалося зарахувати на баланс")});}setProfile(prev=>{const techniques={...prev.techniques};Object.entries(techniqueData).forEach(([key,val])=>{const old=techniques[key]||{uses:0,total:0};techniques[key]={uses:old.uses+val.uses,total:old.total+val.total}});const achievements=new Set(prev.achievements||[]);if(win)achievements.add("Перша угода");if(nextBest>=5)achievements.add("Стрік 5");if(avg>=9)achievements.add("Влучність 9+");if(scenario.category==="credit"&&win)achievements.add("Кредитний консультант");if(Object.keys(prev.completed||{}).length+(!prev.completed?.[scenario.id]&&win?1:0)>=10)achievements.add("10 кейсів");[...achievements].filter(a=>!(prev.achievements||[]).includes(a)).forEach(a=>unlocked.push(a));return {...prev,xp:prev.xp+xpEarned,points:prev.points+points,wins:prev.wins+(win?1:0),attempts:prev.attempts+1,bestStreak:Math.max(prev.bestStreak,nextBest),completed:{...prev.completed,...(win?{[scenario.id]:true}:{})},achievements:[...achievements],techniques,results:[...prev.results,{date:Date.now(),title:scenario.title,difficulty:scenario.label,average:avg,points,win}].slice(-50)}});setFinished({win,text,points,xpEarned,unlocked,avg,saleProbability:conversion})};
+  const send=async()=>{const text=input.trim();if(!text||loading||finished)return;stopListening();const operator={role:"operator",text};const nextMessages=[...messages,operator];setMessages(nextMessages);setInput("");setLoading(true);try{const result=await callTrainer({action:"turn",scenarioId,patience,conversion,history:nextMessages.slice(-18),operatorText:text,turnNumber:scores.length+1,previous_feedback:messages.filter((item)=>item.role==="feedback").slice(-3).map((item)=>item.text)});const score=clamp(result.score);const nextPatience=clamp(patience+Number(result.patience_delta||0));const nextConversion=clamp(conversion+Number(result.trust_delta||0));const nextStreak=score>=7?streak+1:0;const nextBest=Math.max(bestStreak,nextStreak);const nextScores=[...scores,score];const techniqueNames=Array.isArray(result.techniques)?result.techniques:[result.technique||""];const updated={...sessionTechniques};techniqueNames.forEach((name)=>{const key=normalizeTechnique(name);const old=updated[key]||{uses:0,total:0};updated[key]={uses:old.uses+1,total:old.total+Math.round(score*10)}});setSessionTechniques(updated);setScores(nextScores);setPatience(nextPatience);setConversion(nextConversion);setStreak(nextStreak);setBestStreak(nextBest);setMood(result.client_mood||"нейтральний");const responseMessages=[{role:"feedback",score,technique:techniqueNames.join(" • "),text:result.feedback,strongResponse:result.strong_response,whyBetter:Array.isArray(result.why_better)?result.why_better:[],exampleContext:result.example_context||""},{role:"client",text:result.client_reply}];const fullConversation=[...nextMessages,...responseMessages];setMessages(prev=>[...prev,...responseMessages]);const target=scenario.target||80;if(result.outcome==="deal")finishGame(true,"Клієнт погодився на доречний наступний крок.",nextBest,nextScores,updated,fullConversation);else if(result.terminal||result.outcome==="complaint"||result.outcome==="declined")finishGame(false,result.outcome==="complaint"?"Розмову завершено зі скаргою через порушення стандартів спілкування.":"Клієнт логічно завершив розмову без оформлення.",nextBest,nextScores,updated,fullConversation);else if(nextPatience<=0)finishGame(false,"Клієнт завершив розмову через тон або зміст відповідей.",nextBest,nextScores,updated,fullConversation);else if(nextConversion>=target&&(result.deal_ready||score>=8))finishGame(true,"Клієнт погодився на доречний наступний крок.",nextBest,nextScores,updated,fullConversation)}catch(e){toast.error(e.message)}finally{setLoading(false)}};
 
   if(!scenario)return <ClientPicker onPick={start} profile={profile} setProfile={setProfile}/>;
   const level=currentLevel(profile.xp);
@@ -251,7 +264,7 @@ export default function AITrainer() {
 
     {!finished&&<div className="shrink-0 z-20 px-3 sm:px-5 pt-2.5 pb-[calc(.6rem+env(safe-area-inset-bottom))] bg-[#0A0A0A]/98 border-t border-white/5 shadow-[0_-12px_32px_rgba(0,0,0,.45)]">
       {isListening&&<div className="mb-2 rounded-2xl border border-[#FF3B30]/30 bg-[#FF3B30]/10 px-3 py-2 flex items-center gap-3"><div className="flex gap-1 items-end h-5"><span className="w-1 h-2 bg-[#FF3B30] rounded-full animate-pulse"/><span className="w-1 h-4 bg-[#FF3B30] rounded-full animate-pulse [animation-delay:100ms]"/><span className="w-1 h-3 bg-[#FF3B30] rounded-full animate-pulse [animation-delay:200ms]"/><span className="w-1 h-5 bg-[#FF3B30] rounded-full animate-pulse [animation-delay:300ms]"/></div><div className="flex-1"><div className="text-[10px] font-black text-white">СЛУХАЮ…</div><div className="text-[9px] text-zinc-400">До 1 хвилини, натисніть мікрофон для зупинки</div></div><div className="font-display text-sm text-[#FF3B30]">0:{String(voiceSeconds).padStart(2,"0")}</div></div>}
-      <div className="flex gap-2 items-end"><textarea value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();send()}}} placeholder="Ваша відповідь клієнту…" rows={1} disabled={loading} className="flex-1 min-w-0 min-h-12 max-h-32 resize-none rounded-2xl bg-[#1A1A1E] border border-white/10 px-4 py-3 text-[15px] leading-5 text-white focus:outline-none focus:border-[#FFB800]/60 disabled:opacity-60"/><button onClick={toggleListening} disabled={loading} aria-label={isListening?"Зупинити голосове введення":"Почати голосове введення"} className={`w-12 h-12 shrink-0 rounded-2xl border flex items-center justify-center transition-transform active:scale-95 ${isListening?"bg-[#FF3B30] text-white border-[#FF3B30] animate-pulse":"bg-[#1A1A1E] text-[#00F0FF] border-[#00F0FF]/30"}`}>{isListening?<MicOff size={19}/>:<Mic size={19}/>}</button><button onClick={send} disabled={loading||!input.trim()} aria-label="Надіслати відповідь" className="w-12 h-12 shrink-0 rounded-2xl bg-[#FFB800] text-black flex items-center justify-center disabled:opacity-30 active:scale-95 transition-transform">{loading?<Loader2 size={19} className="animate-spin"/>:<Send size={19}/>}</button></div>
+      <div className="flex gap-2 items-end"><textarea value={input} onChange={e=>{setInput(e.target.value);if(!isListening)userEditedAfterStopRef.current=true}} onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();send()}}} placeholder="Ваша відповідь клієнту…" rows={1} disabled={loading} className="flex-1 min-w-0 min-h-12 max-h-32 resize-none rounded-2xl bg-[#1A1A1E] border border-white/10 px-4 py-3 text-[15px] leading-5 text-white focus:outline-none focus:border-[#FFB800]/60 disabled:opacity-60"/><button onClick={toggleListening} disabled={loading} aria-label={isListening?"Зупинити голосове введення":"Почати голосове введення"} className={`w-12 h-12 shrink-0 rounded-2xl border flex items-center justify-center transition-transform active:scale-95 ${isListening?"bg-[#FF3B30] text-white border-[#FF3B30] animate-pulse":"bg-[#1A1A1E] text-[#00F0FF] border-[#00F0FF]/30"}`}>{isListening?<MicOff size={19}/>:<Mic size={19}/>}</button><button onClick={send} disabled={loading||!input.trim()} aria-label="Надіслати відповідь" className="w-12 h-12 shrink-0 rounded-2xl bg-[#FFB800] text-black flex items-center justify-center disabled:opacity-30 active:scale-95 transition-transform">{loading?<Loader2 size={19} className="animate-spin"/>:<Send size={19}/>}</button></div>
       {(voiceHint||!speechSupported)&&<div className="mt-1.5 text-[10px] text-zinc-600">{voiceHint||"Safari: використайте мікрофон екранної клавіатури, якщо кнопка недоступна."}</div>}
     </div>}
   </div>;

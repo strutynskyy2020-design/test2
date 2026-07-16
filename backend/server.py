@@ -614,8 +614,12 @@ async def auth_me(user: dict = Depends(get_current_user)):
 async def update_my_avatar(body: AvatarUpdateBody, user: dict = Depends(get_current_user)):
     """Update the current user avatar after a successful /uploads request."""
     avatar_url = (body.avatar_url or "").strip()
-    if not avatar_url.startswith("/api/uploads/avatars/"):
+    is_uploaded_avatar = avatar_url.startswith("/api/uploads/avatars/")
+    is_embedded_avatar = avatar_url.startswith(("data:image/jpeg;base64,", "data:image/png;base64,", "data:image/webp;base64,"))
+    if not (is_uploaded_avatar or is_embedded_avatar):
         raise HTTPException(status_code=400, detail="Некоректне посилання на фото")
+    if is_embedded_avatar and len(avatar_url) > 1_500_000:
+        raise HTTPException(status_code=413, detail="Фото завелике після обробки")
     await db.users.update_one({"id": user["id"]}, {"$set": {"avatar_url": avatar_url}})
     fresh = await db.users.find_one({"id": user["id"]}, {"_id": 0})
     fresh = await _hydrate_user_team(fresh)
@@ -689,8 +693,34 @@ async def save_ai_training_result(
         **body.model_dump(),
         "created_at": ts,
     }
+    # AI rewards are real account rewards, not only local trainer statistics.
+    # Credit them in the same transaction ledger used by quests and admin awards.
+    points_reward = max(0, int(body.points or 0)) if body.won else 0
+    xp_reward = max(0, int(body.xp_earned or 0))
+
     await db.ai_training_results.insert_one(doc)
+
+    increments = {}
+    if points_reward:
+        increments["balance"] = points_reward
+        increments["total_earned"] = points_reward
+    if xp_reward:
+        increments["total_xp"] = xp_reward
+    if increments:
+        await db.users.update_one({"id": user["id"]}, {"$inc": increments})
+
+    if points_reward:
+        await db.transactions.insert_one({
+            "id": str(uuid.uuid4()),
+            "user_id": user["id"],
+            "kind": "ai_training",
+            "amount": points_reward,
+            "description": f"AI-тренажер: {body.scenario_title}",
+            "created_at": ts,
+        })
+
     doc.pop("_id", None)
+    doc["reward_applied"] = points_reward
     return doc
 
 
@@ -1080,12 +1110,21 @@ async def _award_goal_reward(user_id: str, kind: str, amount: int, period_key: s
     if existing:
         return False
     description = "Виконано всі тижневі цілі" if kind == "weekly" else "Виконано місячну ціль по бонусу"
+    xp_reward = 100 if kind == "weekly" else 300
     now = now_iso()
-    await db.users.update_one({"id": user_id}, {"$inc": {"balance": amount, "total_earned": amount}})
+    await db.users.update_one(
+        {"id": user_id},
+        {"$inc": {"balance": amount, "total_earned": amount, "total_xp": xp_reward}},
+    )
     await db.transactions.insert_one({
         "id": str(uuid.uuid4()), "user_id": user_id, "kind": "goal_reward", "amount": amount,
-        "description": description, "created_at": now,
-        "meta": {"goal_reward_key": tx_key, "goal_kind": kind, "period_key": period_key},
+        "description": f"{description} • +{xp_reward} XP", "created_at": now,
+        "meta": {
+            "goal_reward_key": tx_key,
+            "goal_kind": kind,
+            "period_key": period_key,
+            "xp_reward": xp_reward,
+        },
     })
     return True
 
@@ -1153,8 +1192,14 @@ async def update_user_goals(user_id: str, body: UserGoalsUpdateBody, admin: dict
     return fresh
 
 
+DAILY_TASK_XP = {"easy": 10, "medium": 20, "hard": 30}
+
+
 def _daily_task_by_id(task_id: int) -> Optional[dict]:
-    return next((task for task in DAILY_TASK_CATALOG if task["id"] == task_id), None)
+    task = next((task for task in DAILY_TASK_CATALOG if task["id"] == task_id), None)
+    if not task:
+        return None
+    return {**task, "xp": DAILY_TASK_XP.get(task.get("difficulty"), 10)}
 
 async def _get_or_create_daily_task_set(user_id: str) -> dict:
     import hashlib
@@ -1234,6 +1279,7 @@ async def admin_daily_tasks_dashboard(admin: dict = Depends(get_current_admin)):
 
     operators = []
     awarded_points = 0
+    awarded_xp = 0
     decided_count = 0
     for employee in users:
         task_set = task_set_map.get(employee["id"]) or await _get_or_create_daily_task_set(employee["id"])
@@ -1246,6 +1292,7 @@ async def admin_daily_tasks_dashboard(admin: dict = Depends(get_current_admin)):
             status = review.get("status") if review else "pending"
             if status == "approved":
                 awarded_points += int(task["reward"])
+                awarded_xp += int(task.get("xp", 0))
             if status in ("approved", "rejected"):
                 decided_count += 1
             task_items.append({
@@ -1266,6 +1313,7 @@ async def admin_daily_tasks_dashboard(admin: dict = Depends(get_current_admin)):
         "operators": operators,
         "operator_count": len(operators),
         "awarded_points": awarded_points,
+        "awarded_xp": awarded_xp,
         "decided_count": decided_count,
         "total_tasks": len(operators) * 3,
         "refresh_at": kyiv_tomorrow_iso(),
@@ -1299,6 +1347,7 @@ async def admin_review_daily_task(
 
     status = "approved" if decision == "approve" else "rejected"
     reviewed_at = now_iso()
+    xp_reward = int(task.get("xp", 0)) if status == "approved" else 0
     review = {
         "id": str(uuid.uuid4()),
         "user_id": user_id,
@@ -1306,6 +1355,7 @@ async def admin_review_daily_task(
         "task_id": task_id,
         "status": status,
         "reward": int(task["reward"]) if status == "approved" else 0,
+        "xp": xp_reward,
         "reviewed_by": admin["id"],
         "reviewed_by_name": admin.get("name", "Адміністратор"),
         "reviewed_at": reviewed_at,
@@ -1315,16 +1365,22 @@ async def admin_review_daily_task(
     if status == "approved":
         reward = int(task["reward"])
         await db.users.update_one(
-            {"id": user_id}, {"$inc": {"balance": reward, "total_earned": reward}}
+            {"id": user_id},
+            {"$inc": {"balance": reward, "total_earned": reward, "total_xp": xp_reward}},
         )
         await db.transactions.insert_one({
             "id": str(uuid.uuid4()),
             "user_id": user_id,
             "kind": "daily_task_award",
             "amount": reward,
-            "description": f"Завдання дня: {task['title']}",
+            "description": f"Завдання дня: {task['title']} • +{xp_reward} XP",
             "created_at": reviewed_at,
-            "meta": {"task_id": task_id, "date": task_set["date"], "reviewed_by": admin["id"]},
+            "meta": {
+                "task_id": task_id,
+                "date": task_set["date"],
+                "reviewed_by": admin["id"],
+                "xp_reward": xp_reward,
+            },
         })
 
     return {
@@ -1332,6 +1388,7 @@ async def admin_review_daily_task(
         "task_id": task_id,
         "status": status,
         "reward": int(task["reward"]) if status == "approved" else 0,
+        "xp": xp_reward,
         "reviewed_at": reviewed_at,
         "reviewed_by_name": admin.get("name", "Адміністратор"),
     }

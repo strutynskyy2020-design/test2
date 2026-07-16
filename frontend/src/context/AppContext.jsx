@@ -67,6 +67,30 @@ export const AppProvider = ({ children }) => {
     setState((current) => ({ ...current, user: data }));
   };
 
+  const imageToAvatarDataUrl = (file) => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Не вдалося прочитати фото"));
+    reader.onload = () => {
+      const image = new Image();
+      image.onerror = () => reject(new Error("Формат фото не підтримується браузером. Оберіть JPG, PNG або WEBP"));
+      image.onload = () => {
+        const maxSide = 512;
+        const scale = Math.min(1, maxSide / Math.max(image.naturalWidth || 1, image.naturalHeight || 1));
+        const width = Math.max(1, Math.round(image.naturalWidth * scale));
+        const height = Math.max(1, Math.round(image.naturalHeight * scale));
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const context = canvas.getContext("2d");
+        if (!context) return reject(new Error("Не вдалося підготувати фото"));
+        context.drawImage(image, 0, 0, width, height);
+        resolve(canvas.toDataURL("image/jpeg", 0.84));
+      };
+      image.src = String(reader.result || "");
+    };
+    reader.readAsDataURL(file);
+  });
+
   const updateAvatar = async (file) => {
     if (!file || !state.user) return { ok: false, error: "Фото не вибрано" };
 
@@ -76,19 +100,14 @@ export const AppProvider = ({ children }) => {
     if (file.size > 8 * 1024 * 1024) return { ok: false, error: "Фото має бути менше 8 МБ" };
 
     try {
-      const form = new FormData();
-      form.append("file", file);
-      form.append("category", "avatars");
-
-      const { data: uploaded } = await api.post("/uploads", form, {
-        headers: { "Content-Type": "multipart/form-data" },
-        timeout: 30000,
-      });
-      const { data: user } = await api.patch("/auth/me/avatar", { avatar_url: uploaded.url });
+      // Store a compact avatar directly in the user profile. Unlike local /uploads,
+      // it survives backend redeploys and also avoids HEIC/static-file URL issues.
+      const avatarUrl = await imageToAvatarDataUrl(file);
+      const { data: user } = await api.patch("/auth/me/avatar", { avatar_url: avatarUrl });
       setState((current) => ({ ...current, user }));
       return { ok: true };
     } catch (error) {
-      return { ok: false, error: extractError(error, "Не вдалося змінити фото") };
+      return { ok: false, error: extractError(error, error?.message || "Не вдалося змінити фото") };
     }
   };
 

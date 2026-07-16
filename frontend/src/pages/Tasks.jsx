@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CalendarClock, CheckCircle2, Coins, RefreshCw, ShieldAlert, Sparkles, XCircle } from "lucide-react";
+import { CalendarClock, CheckCircle2, Coins, RefreshCw, ShieldAlert, Sparkles, XCircle, Zap } from "lucide-react";
 import { toast } from "sonner";
 import api, { extractError } from "@/lib/api";
 
@@ -56,9 +56,14 @@ const TaskCard = ({ task, canReplace, replacing, onReplace }) => {
             </span>
             <h2 className="mt-3 text-lg font-black leading-tight text-white">«{task.title}»</h2>
           </div>
-          <div className="flex shrink-0 items-center gap-1 rounded-2xl border border-[#FFB800]/30 bg-[#FFB800]/10 px-3 py-2 text-[#FFB800]">
-            <Coins size={15} strokeWidth={3} />
-            <span className="font-black">{task.reward}</span>
+          <div className="flex shrink-0 flex-col gap-1.5">
+            <div className="flex items-center gap-1 rounded-2xl border border-[#FFB800]/30 bg-[#FFB800]/10 px-3 py-2 text-[#FFB800]">
+              <Coins size={15} strokeWidth={3} />
+              <span className="font-black">{task.reward}</span>
+            </div>
+            <div className="flex items-center justify-center gap-1 rounded-xl border border-[#B78CFF]/30 bg-[#B78CFF]/10 px-2 py-1 text-[10px] font-black text-[#B78CFF]">
+              <Zap size={12} strokeWidth={3} /> +{task.xp} XP
+            </div>
           </div>
         </div>
 
@@ -67,7 +72,7 @@ const TaskCard = ({ task, canReplace, replacing, onReplace }) => {
         {task.status === "approved" && (
           <div className="mt-4 flex items-center justify-between rounded-2xl border border-[#39FF14]/30 bg-[#39FF14]/10 px-4 py-3">
             <span className="inline-flex items-center gap-2 text-xs font-black uppercase tracking-wider text-[#39FF14]"><CheckCircle2 size={16} strokeWidth={3} /> Нараховано</span>
-            <span className="font-display text-[#39FF14]">+{task.reward}</span>
+            <span className="text-right"><span className="block font-display text-[#39FF14]">+{task.reward}</span><span className="block text-[10px] font-black text-[#B78CFF]">+{task.xp} XP</span></span>
           </div>
         )}
         {task.status === "rejected" && (

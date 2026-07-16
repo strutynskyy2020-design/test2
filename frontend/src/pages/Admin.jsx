@@ -240,7 +240,7 @@ const DailyTasksManager = () => {
         }),
       }));
       if (result.status === "approved") {
-        toast.success(`+${result.reward} Point нараховано`, { description: operator.name });
+        toast.success(`+${result.reward} Point та +${result.xp || 0} XP нараховано`, { description: operator.name });
       } else {
         toast.success("Завдання відхилено", { description: operator.name });
       }
@@ -293,9 +293,10 @@ const DailyTasksManager = () => {
 
   return (
     <div className="space-y-4" data-testid="daily-tasks-manager">
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
         <StatBox label="Операторів" value={data.operator_count} accent="#00F0FF" />
-        <StatBox label="Нараховано сьогодні" value={data.awarded_points} accent="#39FF14" />
+        <StatBox label="Point сьогодні" value={data.awarded_points} accent="#39FF14" />
+        <StatBox label="XP сьогодні" value={data.awarded_xp || 0} accent="#B78CFF" />
         <StatBox label="Рішень" value={`${data.decided_count}/${data.total_tasks}`} accent="#FFB800" />
         <StatBox label="Дата" value={data.date.split("-").reverse().join(".")} />
       </div>
@@ -336,7 +337,7 @@ const DailyTasksManager = () => {
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-[#0A0A0A]" style={{ backgroundColor: difficulty.color }}>{difficulty.label}</span>
-                        <span className="text-xs font-black text-[#FFB800]">{task.reward} Point</span>
+                        <span className="text-xs font-black text-[#FFB800]">{task.reward} Point</span><span className="text-xs font-black text-[#B78CFF]">+{task.xp} XP</span>
                       </div>
                       <div className="mt-2 text-sm font-black leading-snug text-white">{task.title}</div>
                       <div className="mt-1 line-clamp-2 text-xs font-semibold leading-relaxed text-zinc-400">{task.text}</div>
@@ -379,7 +380,7 @@ const DailyTasksManager = () => {
                   <div key={task.id} className="border-r border-white/5 p-4" data-testid={`admin-desktop-task-${operator.id}-${task.id}`}>
                     <div className="flex items-center justify-between gap-2">
                       <span className="rounded-full px-2 py-0.5 text-[8px] font-black uppercase tracking-wider text-[#0A0A0A]" style={{ backgroundColor: difficulty.color }}>{difficulty.label}</span>
-                      <span className="text-[10px] font-black text-[#FFB800]">{task.reward} Point</span>
+                      <span className="text-[10px] font-black text-[#FFB800]">{task.reward} Point</span><span className="text-[10px] font-black text-[#B78CFF]">+{task.xp} XP</span>
                     </div>
                     <div className="mt-2 line-clamp-1 text-xs font-black text-white" title={task.title}>{task.title}</div>
                     <div className="mt-1 line-clamp-2 min-h-9 text-[10px] font-semibold leading-relaxed text-zinc-500" title={task.text}>{task.text}</div>
@@ -1627,8 +1628,8 @@ const GoalsManager = () => {
       const { data } = await api.put(`/admin/goals/${u.id}`, forms[u.id]);
       setItems((rows) => rows.map((row) => row.id === u.id ? { ...row, goals: data } : row));
       setForms((all) => ({ ...all, [u.id]: normalizeGoalForm(data) }));
-      if (data.weekly_reward_just_awarded) toast.success(`${u.name}: +200 Point за тижневі цілі`);
-      else if (data.monthly_reward_just_awarded) toast.success(`${u.name}: +1000 Point за місячну ціль`);
+      if (data.weekly_reward_just_awarded) toast.success(`${u.name}: +200 Point та +100 XP за тижневі цілі`);
+      else if (data.monthly_reward_just_awarded) toast.success(`${u.name}: +1000 Point та +300 XP за місячну ціль`);
       else toast.success(`Цілі ${u.name} збережено`);
     } catch (e) { toast.error(extractError(e, "Не вдалося зберегти цілі")); }
     setSaving((v) => ({ ...v, [u.id]: false }));
@@ -1665,7 +1666,7 @@ const GoalsManager = () => {
             <label className="text-[9px] font-black uppercase text-zinc-600">Коментар<input value={f.note} onChange={(e)=>setForms(all=>({...all,[u.id]:{...f,note:e.target.value}}))} placeholder="Наприклад: фокус на депозитах" className="mt-1 h-11 w-full rounded-xl border border-white/10 bg-[#121318] px-3 text-white outline-none focus:border-[#FFB800]"/></label>
             <button onClick={()=>save(u)} disabled={saving[u.id]} className="arcade-btn mt-auto flex h-11 items-center justify-center gap-2 border-[#7a5900] bg-[#FFB800] px-5 text-xs font-black uppercase text-[#0A0A0A] disabled:opacity-50"><Save size={15}/>{saving[u.id] ? "..." : "Зберегти"}</button>
           </div>
-          <div className="mt-3 flex flex-wrap gap-2 text-[10px] font-black uppercase"><span className="rounded-full bg-[#B78CFF]/10 px-2 py-1 text-[#B78CFF]">3 тижневі цілі = +200 Point</span><span className="rounded-full bg-[#FFB800]/10 px-2 py-1 text-[#FFB800]">Місячний бонус = +1000 Point</span></div>
+          <div className="mt-3 flex flex-wrap gap-2 text-[10px] font-black uppercase"><span className="rounded-full bg-[#B78CFF]/10 px-2 py-1 text-[#B78CFF]">3 тижневі цілі = +200 Point • +100 XP</span><span className="rounded-full bg-[#FFB800]/10 px-2 py-1 text-[#FFB800]">Місячний бонус = +1000 Point • +300 XP</span></div>
         </section>;
       })}
     </div>

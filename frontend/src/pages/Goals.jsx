@@ -86,13 +86,13 @@ export default function Goals() {
           <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#FFB800]/15 border border-[#FFB800]/40"><Trophy size={26} strokeWidth={3} color="#FFB800" /></div>
         </div>
         <div className="mt-4 h-3 overflow-hidden rounded-full bg-black/40"><div className="h-full rounded-full bg-[#B78CFF]" style={{ width: `${weeklyDone / 3 * 100}%` }} /></div>
-        <div className="mt-3 text-xs font-black text-zinc-300">Нагорода за всі три цілі: <span className="text-[#FFB800]">+200 Point</span></div>
+        <div className="mt-3 text-xs font-black text-zinc-300">Нагорода за всі три цілі: <span className="text-[#FFB800]">+200 Point</span> <span className="text-[#B78CFF]">• +100 XP</span></div>
       </section>
 
       {Object.keys(metricMeta).map(name => <MetricCard key={name} name={name} metric={data[name]} />)}
 
       <section className="rounded-3xl border border-[#FFB800]/35 bg-[#1A1A1E] p-5">
-        <div className="flex items-center gap-3"><div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#FFB800]/15"><Coins size={22} strokeWidth={3} color="#FFB800" /></div><div><div className="font-black text-white">Місячна ціль по бонусу</div><div className="text-xs text-zinc-500">Нагорода за виконання: +1000 Point</div></div></div>
+        <div className="flex items-center gap-3"><div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#FFB800]/15"><Coins size={22} strokeWidth={3} color="#FFB800" /></div><div><div className="font-black text-white">Місячна ціль по бонусу</div><div className="text-xs text-zinc-500">Нагорода за виконання: +1000 Point • +300 XP</div></div></div>
         <div className="mt-5 flex items-end justify-between"><div className="font-display text-3xl text-[#FFB800]">{bonusCurrent.toLocaleString("uk-UA")}</div><div className="text-xs font-black text-zinc-500">із {bonusTarget.toLocaleString("uk-UA")} грн</div></div>
         <div className="mt-2 h-3 overflow-hidden rounded-full bg-black/45"><div className="h-full rounded-full bg-gradient-to-r from-[#FF5C00] to-[#FFB800]" style={{ width: `${pct(bonusCurrent, bonusTarget)}%` }} /></div>
         <div className="mt-3 flex items-center gap-2 text-xs text-zinc-400"><CalendarDays size={14} />Оновлюється керівником протягом місяця</div>

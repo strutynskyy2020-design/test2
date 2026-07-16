@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Flame, Trophy, GraduationCap, Sparkles, Crown, Zap, ChevronRight, Coins, TrendingUp, Swords, Gift, Lock, Dice5, ScrollText, Camera, Loader2, Target, Newspaper } from "lucide-react";
 import { useApp } from "@/context/AppContext";
-import api, { API_BASE } from "@/lib/api";
+import api from "@/lib/api";
+import { resolveAvatarUrl } from "@/lib/avatar";
 import { getAchievements } from "@/lib/achievements";
 import { FeedItem } from "@/pages/Feed";
 
@@ -28,6 +29,7 @@ export default function Home() {
   const nav = useNavigate();
   const [avatarBusy, setAvatarBusy] = useState(false);
   const [avatarError, setAvatarError] = useState("");
+  const [avatarImageFailed, setAvatarImageFailed] = useState(false);
   const [goals, setGoals] = useState(defaultGoals);
   const [feed, setFeed] = useState([]);
   const avatarInputRef = useRef(null);
@@ -48,8 +50,7 @@ export default function Home() {
   const xpNext = user.xp_to_next ?? 1000;
   const xpPct = Math.min(100, Math.round((xp / xpNext) * 100));
   const achievements = getAchievements(user);
-  const backendOrigin = API_BASE.replace(/\/api$/, "");
-  const avatarSrc = user.avatar_url ? (user.avatar_url.startsWith("http") || user.avatar_url.startsWith("data:") ? user.avatar_url : `${backendOrigin}${user.avatar_url}`) : null;
+  const avatarSrc = resolveAvatarUrl(user.avatar_url);
   const weeklyDone = [goals.credit, goals.debit, goals.deposit].filter(g => g?.complete).length;
   const bonusCurrent = Number(goals.monthly_bonus_current || 0);
   const bonusTarget = Number(goals.monthly_bonus_target || 0);
@@ -57,7 +58,7 @@ export default function Home() {
 
   const onAvatarSelected = async (event) => {
     const file = event.target.files?.[0]; event.target.value = ""; if (!file) return;
-    setAvatarBusy(true); setAvatarError("");
+    setAvatarBusy(true); setAvatarError(""); setAvatarImageFailed(false);
     const result = await updateAvatar(file);
     if (!result.ok) setAvatarError(result.error || "Не вдалося змінити фото");
     setAvatarBusy(false);
@@ -71,10 +72,10 @@ export default function Home() {
       <div className="flex items-center gap-4">
         <div className="relative shrink-0">
           <button type="button" onClick={() => avatarInputRef.current?.click()} className={`relative block h-16 w-16 cursor-pointer overflow-hidden rounded-2xl border border-white/10 font-display text-xl text-[#0A0A0A] active:scale-95 ${avatarBusy ? "pointer-events-none opacity-60" : ""}`} style={{ backgroundColor: user.avatar_color }}>
-            {avatarSrc ? <img src={avatarSrc} alt={user.name} className="h-full w-full object-cover" /> : <span className="absolute inset-0 flex items-center justify-center">{user.avatar_initials}</span>}
+            {avatarSrc && !avatarImageFailed ? <img src={avatarSrc} alt="" onLoad={() => setAvatarImageFailed(false)} onError={() => setAvatarImageFailed(true)} className="h-full w-full object-cover" /> : <span className="absolute inset-0 flex items-center justify-center">{user.avatar_initials}</span>}
             <span className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full border-2 border-[#1A1A1E] bg-[#00F0FF] text-[#0A0A0A] shadow-lg">{avatarBusy ? <Loader2 size={12} className="animate-spin" /> : <Camera size={12} strokeWidth={3} />}</span>
           </button>
-          <input ref={avatarInputRef} type="file" accept="image/*,.heic,.heif" className="sr-only" onChange={onAvatarSelected} disabled={avatarBusy} />
+          <input ref={avatarInputRef} type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" onChange={onAvatarSelected} disabled={avatarBusy} />
           <div className="absolute -bottom-1 -right-1 rounded-full border-2 border-[#0A0A0A] bg-[#FFB800] px-2 py-0.5 text-[11px] font-black text-[#0A0A0A]">LVL {level}</div>
         </div>
         <div className="min-w-0 flex-1"><div className="truncate font-display text-lg text-white">{user.name}</div><div className="truncate text-xs text-zinc-500">{user.position}</div><div className="truncate text-xs text-zinc-600">{user.team_name || user.department || "—"}</div></div>
