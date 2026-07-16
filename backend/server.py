@@ -193,6 +193,9 @@ class AITrainingResultBody(BaseModel):
     xp_earned: int = 0
     best_streak: int = 0
     techniques: dict = Field(default_factory=dict)
+    conversation: List[dict] = Field(default_factory=list)
+    outcome_text: str = ""
+    client_mood: str = ""
 
 class LoginBody(BaseModel):
     email: EmailStr
@@ -666,6 +669,119 @@ async def upload_file(
         size=size,
         mime=file.content_type,
     )
+
+
+# ────────────────────────────────────────────────────────────────────────
+# AI trainer results and admin dashboard
+# ────────────────────────────────────────────────────────────────────────
+@api.post("/ai-training/results", status_code=201)
+async def save_ai_training_result(
+    body: AITrainingResultBody,
+    user: dict = Depends(get_current_user),
+):
+    ts = now_iso()
+    doc = {
+        "id": str(uuid.uuid4()),
+        "user_id": user["id"],
+        "user_name": user.get("name") or user.get("email", "Користувач"),
+        "avatar_initials": user.get("avatar_initials", ""),
+        "avatar_color": user.get("avatar_color", "#FFB800"),
+        **body.model_dump(),
+        "created_at": ts,
+    }
+    await db.ai_training_results.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+
+@api.get("/admin/ai-training-dashboard")
+async def admin_ai_training_dashboard(admin: dict = Depends(get_current_admin)):
+    users = await db.users.find(
+        {"role": "employee", "approved": {"$ne": False}},
+        {"_id": 0, "id": 1, "name": 1, "avatar_initials": 1, "avatar_color": 1},
+    ).to_list(1000)
+    results = await db.ai_training_results.find({}, {"_id": 0}).sort("created_at", -1).to_list(2000)
+
+    by_user = {}
+    for result in results:
+        by_user.setdefault(result.get("user_id"), []).append(result)
+
+    operators = []
+    all_skill_values = {}
+    now = datetime.now(timezone.utc)
+    for user in users:
+        rows = by_user.get(user["id"], [])
+        scores = [float(r.get("average_score", 0) or 0) for r in rows]
+        wins = sum(1 for r in rows if r.get("won"))
+        skill_values = {}
+        for row in rows:
+            for name, value in (row.get("techniques") or {}).items():
+                uses = int((value or {}).get("uses", 0) or 0)
+                total = float((value or {}).get("total", 0) or 0)
+                if uses:
+                    skill_values.setdefault(name, []).append(total / uses)
+                    all_skill_values.setdefault(name, []).append(total / uses)
+        weakest = sorted(
+            ((name, round(sum(vals) / len(vals))) for name, vals in skill_values.items()),
+            key=lambda item: item[1],
+        )[:3]
+        last_at = rows[0].get("created_at") if rows else None
+        days_inactive = 999
+        if last_at:
+            try:
+                parsed = datetime.fromisoformat(last_at.replace("Z", "+00:00"))
+                days_inactive = max(0, (now - parsed).days)
+            except Exception:
+                pass
+        operators.append({
+            **user,
+            "attempts": len(rows),
+            "average_score": round(sum(scores) / len(scores), 1) if scores else 0,
+            "win_rate": round((wins / len(rows)) * 100) if rows else 0,
+            "last_training_at": last_at,
+            "days_inactive": days_inactive,
+            "weakest_skills": weakest,
+            "progress": [
+                {"score": r.get("average_score", 0), "date": r.get("created_at")}
+                for r in reversed(rows[:10])
+            ],
+        })
+
+    trained = [u for u in operators if u["attempts"]]
+    ranking = sorted(trained, key=lambda u: (u["average_score"], u["attempts"]), reverse=True)
+    inactive = [u for u in operators if not u["attempts"] or u["days_inactive"] >= 7]
+    weak_skills = sorted(
+        ({"name": name, "score": round(sum(vals) / len(vals))} for name, vals in all_skill_values.items()),
+        key=lambda item: item["score"],
+    )[:6]
+    all_scores = [float(r.get("average_score", 0) or 0) for r in results]
+
+    sessions = [{
+        "id": row.get("id"),
+        "user_id": row.get("user_id"),
+        "user_name": row.get("user_name", "Користувач"),
+        "avatar_initials": row.get("avatar_initials", ""),
+        "avatar_color": row.get("avatar_color", "#FFB800"),
+        "scenario_title": row.get("scenario_title", "AI тренування"),
+        "difficulty": row.get("difficulty", ""),
+        "average_score": row.get("average_score", 0),
+        "won": bool(row.get("won")),
+        "outcome_text": row.get("outcome_text", ""),
+        "created_at": row.get("created_at"),
+        "conversation": row.get("conversation") or [],
+    } for row in results[:100]]
+
+    return {
+        "team_average": round(sum(all_scores) / len(all_scores), 1) if all_scores else 0,
+        "total_trainings": len(results),
+        "trained_count": len(trained),
+        "total_operators": len(operators),
+        "ranking": ranking,
+        "inactive": inactive,
+        "weak_skills": weak_skills,
+        "operators": operators,
+        "sessions": sessions,
+    }
 
 
 # ────────────────────────────────────────────────────────────────────────

@@ -3,7 +3,7 @@ import { toast } from "sonner";
 import {
   Users, Swords, Gift, ShoppingBag, BarChart3, Plus, Pencil, Trash2, X, Minus, Check, Coins, Trophy, ChevronRight,
   UserCog, ShieldCheck, Crown, UsersRound, Inbox, UserCheck, ClipboardList, CheckCircle2, XCircle,
-  ArrowUp, ArrowDown, FileText, BrainCircuit, Clock3, TrendingUp, Search, CalendarDays, Target, Save,
+  ArrowUp, ArrowDown, FileText, BrainCircuit, Clock3, TrendingUp, Search, CalendarDays, Target, Save, ChevronDown,
 } from "lucide-react";
 import api, { extractError, API_BASE } from "@/lib/api";
 import { useApp } from "@/context/AppContext";
@@ -114,6 +114,7 @@ const AnalyticsView = () => {
 const AITeamDashboard = () => {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [openSession, setOpenSession] = useState(null);
   useEffect(() => {
     api.get("/admin/ai-training-dashboard")
       .then((r) => setData(r.data))
@@ -153,6 +154,30 @@ const AITeamDashboard = () => {
     <div className="bg-[#1A1A1E] border border-white/10 rounded-2xl p-4">
       <div className="flex items-center gap-2 mb-3"><TrendingUp size={16} className="text-[#39FF14]"/><div className="font-black text-white text-sm uppercase tracking-wider">Прогрес співробітників</div></div>
       <div className="space-y-3">{data.operators.map((u)=><div key={u.id} className="rounded-xl bg-black/25 p-3"><div className="flex items-center justify-between"><div className="font-black text-white text-sm">{u.name}</div><div className="text-[#00F0FF] font-display">{u.average_score}/10</div></div><div className="flex gap-1 items-end h-10 mt-2">{(u.progress||[]).length ? u.progress.map((p,i)=><div key={i} className="flex-1 rounded-t bg-[#39FF14]/80 min-w-[5px]" style={{height:`${Math.max(8, Number(p.score||0)*10)}%`}} title={`${p.score}/10`}/>) : <div className="text-[10px] text-zinc-600">Немає тренувань</div>}</div>{u.weakest_skills?.length>0&&<div className="text-[9px] text-zinc-500 mt-2">Покращити: {u.weakest_skills.map(x=>x[0]).join(", ")}</div>}</div>)}</div>
+    </div>
+
+    <div className="bg-[#1A1A1E] border border-white/10 rounded-2xl p-4">
+      <div className="flex items-center gap-2 mb-3"><FileText size={16} className="text-[#00F0FF]"/><div className="font-black text-white text-sm uppercase tracking-wider">Діалоги операторів</div></div>
+      <div className="space-y-2">
+        {(data.sessions || []).length ? (data.sessions || []).map((session) => {
+          const isOpen = openSession === session.id;
+          return <div key={session.id} className="rounded-2xl border border-white/10 bg-black/25 overflow-hidden">
+            <button type="button" onClick={() => setOpenSession(isOpen ? null : session.id)} className="w-full p-3 flex items-center gap-3 text-left">
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center text-black font-black shrink-0" style={{backgroundColor:session.avatar_color||"#FFB800"}}>{session.avatar_initials||"?"}</div>
+              <div className="flex-1 min-w-0"><div className="font-black text-white text-sm truncate">{session.user_name}</div><div className="text-[10px] text-zinc-500 truncate">{session.scenario_title} • {session.average_score}/10</div></div>
+              <div className={`text-[10px] font-black ${session.won ? "text-[#39FF14]" : "text-[#FF5C00]"}`}>{session.won ? "УСПІХ" : "НЕ ЗАВЕРШЕНО"}</div>
+              <ChevronDown size={16} className={`text-zinc-500 transition-transform ${isOpen ? "rotate-180" : ""}`}/>
+            </button>
+            {isOpen && <div className="border-t border-white/10 p-3 space-y-2">
+              {(session.conversation || []).length ? session.conversation.map((message, index) => <div key={index} className={`rounded-xl px-3 py-2 ${message.role === "operator" ? "bg-[#FFB800]/10 border border-[#FFB800]/20" : message.role === "client" ? "bg-[#00F0FF]/10 border border-[#00F0FF]/20" : "bg-[#B56CFF]/10 border border-[#B56CFF]/20"}`}>
+                <div className="text-[9px] font-black uppercase tracking-wider text-zinc-500 mb-1">{message.role === "operator" ? "Оператор" : message.role === "client" ? "AI клієнт" : "AI коуч"}</div>
+                <div className="text-xs text-zinc-200 whitespace-pre-wrap">{message.text || message.feedback || "—"}</div>
+              </div>) : <div className="text-xs text-zinc-500">Для цього тренування діалог не збережено.</div>}
+              {session.outcome_text && <div className="text-[10px] text-zinc-500 pt-1">Результат: {session.outcome_text}</div>}
+            </div>}
+          </div>;
+        }) : <div className="text-zinc-500 text-xs">Завершені AI-тренування ще не збережені.</div>}
+      </div>
     </div>
   </div>;
 };
