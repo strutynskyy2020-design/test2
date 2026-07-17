@@ -1666,8 +1666,28 @@ const GoalsManager = () => {
   const load = async () => {
     setLoading(true);
     try {
-      const { data } = await api.get("/admin/goals-dashboard");
-      const users = data || [];
+      const [{ data: dashboardData }, { data: adminUsersData }] = await Promise.all([
+        api.get("/admin/goals-dashboard"),
+        api.get("/admin/users"),
+      ]);
+      const dashboardUsers = dashboardData || [];
+      const adminUsers = adminUsersData || [];
+      const adminUsersById = Object.fromEntries(
+        adminUsers.map((user) => [user.id, user])
+      );
+      const users = dashboardUsers.map((user) => {
+        const fullUser = adminUsersById[user.id] || {};
+        return {
+          ...fullUser,
+          ...user,
+          goals_login:
+            user.goals_login ||
+            fullUser.goals_login ||
+            fullUser.goalsLogin ||
+            fullUser.login2 ||
+            null,
+        };
+      });
       const token = getToken();
 
       const googleResponse = await fetch("/.netlify/functions/google-goals-admin", {
