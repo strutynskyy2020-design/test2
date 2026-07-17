@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Flame, Trophy, GraduationCap, Sparkles, Crown, Zap, ChevronRight, Coins, TrendingUp, Swords, Gift, Lock, Dice5, ScrollText, Camera, Loader2, Target, Newspaper } from "lucide-react";
 import { useApp } from "@/context/AppContext";
-import api from "@/lib/api";
+import api, { getToken } from "@/lib/api";
 import { resolveAvatarUrl } from "@/lib/avatar";
 import { getAchievements } from "@/lib/achievements";
 import { FeedItem } from "@/pages/Feed";
@@ -17,6 +17,48 @@ const Badge = ({ ach }) => {
     </div>
     <div className="line-clamp-2 text-center text-[10px] font-black uppercase leading-tight tracking-tight text-white/90">{ach.title}</div>
   </div>;
+};
+
+
+const parseSheetNumber = (value) => {
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  const normalized = String(value ?? "")
+    .replace(/ /g, "")
+    .replace(/\s+/g, "")
+    .replace(/%$/, "")
+    .replace(",", ".")
+    .replace(/[^0-9.+-]/g, "");
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const firstDefined = (object, keys) => {
+  for (const key of keys) {
+    if (object?.[key] !== undefined && object?.[key] !== null && object?.[key] !== "") {
+      return object[key];
+    }
+  }
+  return 0;
+};
+
+const mapGoogleGoals = (sheetGoals) => {
+  const metric = (name) => {
+    const current = parseSheetNumber(firstDefined(sheetGoals, [`${name}_actual`, `${name}_current`]));
+    const target = parseSheetNumber(firstDefined(sheetGoals, [`${name}_target`]));
+    return {
+      current,
+      target,
+      complete: target > 0 && current >= target,
+    };
+  };
+
+  return {
+    credit: metric("credit"),
+    debit: metric("debit"),
+    deposit: metric("deposit"),
+    monthly_bonus_current: parseSheetNumber(firstDefined(sheetGoals, ["monthly_bonus_actual", "monthly_bonus_current"])),
+    monthly_bonus_target: parseSheetNumber(firstDefined(sheetGoals, ["monthly_bonus_target"])),
+  };
 };
 
 const defaultGoals = {
@@ -36,12 +78,49 @@ export default function Home() {
 
   useEffect(() => {
     if (!user) return;
+
     if (mode === "mock") {
       setGoals({ credit: { current: 92, target: 100, complete: false }, debit: { current: 111, target: 110, complete: true }, deposit: { current: 86, target: 95, complete: false }, monthly_bonus_current: 14250, monthly_bonus_target: 18000 });
       return;
     }
-    api.get("/goals/me").then(r => setGoals(r.data)).catch(() => {});
-    api.get("/feed", { params: { limit: 5 } }).then(r => setFeed(r.data.events || [])).catch(() => {});
+
+    let cancelled = false;
+
+    const loadGoogleGoals = async () => {
+      try {
+        const token = getToken();
+        if (!token) return;
+
+        const response = await fetch("/.netlify/functions/google-goals", {
+          method: "GET",
+          headers: {
+            accept: "application/json",
+            authorization: `Bearer ${token}`,
+          },
+          cache: "no-store",
+        });
+
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(result.error || "Не вдалося завантажити цілі");
+        if (cancelled) return;
+
+        if (result.found && result.goals) {
+          setGoals(mapGoogleGoals(result.goals));
+        } else {
+          setGoals(defaultGoals);
+        }
+      } catch (error) {
+        console.error("Home Google goals error:", error);
+        if (!cancelled) setGoals(defaultGoals);
+      }
+    };
+
+    loadGoogleGoals();
+    api.get("/feed", { params: { limit: 5 } }).then(r => {
+      if (!cancelled) setFeed(r.data.events || []);
+    }).catch(() => {});
+
+    return () => { cancelled = true; };
   }, [user?.id, mode]);
 
   if (!user) return null;
