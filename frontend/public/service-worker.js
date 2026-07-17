@@ -1,13 +1,12 @@
 /* TM6 Bonus — Service Worker
- * Strategy: network-first for API and HTML, cache-first for static assets.
- * Keeps offline install working, doesn't stale-cache dynamic data.
+ * Dynamic data is always network-only.
+ * App shell uses network-first so new deployments replace old PWA files promptly.
  */
-const VERSION = "tm6-v20";
+const VERSION = "tm6-v30";
 const STATIC_CACHE = `${VERSION}-static`;
 const RUNTIME_CACHE = `${VERSION}-runtime`;
 
 const PRECACHE_URLS = [
-  "/",
   "/manifest.json",
   "/icon-192.png",
   "/icon-512.png",
@@ -16,67 +15,99 @@ const PRECACHE_URLS = [
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(STATIC_CACHE).then((cache) => cache.addAll(PRECACHE_URLS)).then(() => self.skipWaiting())
+    caches
+      .open(STATIC_CACHE)
+      .then((cache) => cache.addAll(PRECACHE_URLS))
+      .then(() => self.skipWaiting())
   );
 });
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(
-        keys
-          .filter((k) => k !== STATIC_CACHE && k !== RUNTIME_CACHE)
-          .map((k) => caches.delete(k))
+    caches
+      .keys()
+      .then((keys) =>
+        Promise.all(
+          keys
+            .filter((key) => key !== STATIC_CACHE && key !== RUNTIME_CACHE)
+            .map((key) => caches.delete(key))
+        )
       )
-    ).then(() => self.clients.claim())
+      .then(() => self.clients.claim())
   );
 });
 
+const offlineJson = () =>
+  new Response(JSON.stringify({ success: false, error: "offline" }), {
+    status: 503,
+    headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+  });
+
 self.addEventListener("fetch", (event) => {
-  const req = event.request;
-  if (req.method !== "GET") return;
+  const request = event.request;
+  if (request.method !== "GET") return;
 
-  const url = new URL(req.url);
+  const url = new URL(request.url);
+  const isSameOrigin = url.origin === self.location.origin;
+  const isDynamicRequest =
+    url.pathname.startsWith("/api/") ||
+    url.pathname.startsWith("/.netlify/functions/");
 
-  // Never cache API calls or auth-sensitive endpoints
-  if (url.pathname.startsWith("/api/")) {
-    event.respondWith(fetch(req).catch(() => new Response(JSON.stringify({ error: "offline" }), { status: 503, headers: { "Content-Type": "application/json" } })));
+  // Never cache goals, authentication, API, or Netlify Function responses.
+  if (isDynamicRequest) {
+    event.respondWith(
+      fetch(request, { cache: "no-store" }).catch(() => offlineJson())
+    );
     return;
   }
 
-  // Navigation → network-first, fall back to cached index
-  if (req.mode === "navigate") {
+  // Navigation: always ask the network first so fresh deployments appear without hard refresh.
+  if (request.mode === "navigate") {
     event.respondWith(
-      fetch(req)
-        .then((resp) => {
-          const copy = resp.clone();
-          caches.open(RUNTIME_CACHE).then((c) => c.put(req, copy));
-          return resp;
+      fetch(request, { cache: "no-store" })
+        .then((response) => {
+          if (response.ok) {
+            const copy = response.clone();
+            caches.open(RUNTIME_CACHE).then((cache) => cache.put("/", copy));
+          }
+          return response;
         })
-        .catch(() => caches.match("/") || caches.match(req))
+        .catch(() => caches.match("/"))
     );
     return;
   }
 
-  // App scripts/styles → network-first so new deploys are never stuck behind an old PWA cache.
-  if (url.origin === self.location.origin && (url.pathname.endsWith(".js") || url.pathname.endsWith(".css"))) {
+  // Hashed JS/CSS: network first, cached copy only as an offline fallback.
+  if (
+    isSameOrigin &&
+    (url.pathname.endsWith(".js") || url.pathname.endsWith(".css"))
+  ) {
     event.respondWith(
-      fetch(req).then((resp) => {
-        const copy = resp.clone();
-        caches.open(RUNTIME_CACHE).then((c) => c.put(req, copy));
-        return resp;
-      }).catch(() => caches.match(req))
+      fetch(request, { cache: "no-cache" })
+        .then((response) => {
+          if (response.ok) {
+            const copy = response.clone();
+            caches.open(RUNTIME_CACHE).then((cache) => cache.put(request, copy));
+          }
+          return response;
+        })
+        .catch(() => caches.match(request))
     );
     return;
   }
 
+  // Images/icons may be cached for offline use.
   event.respondWith(
-    caches.match(req).then((cached) => cached || fetch(req).then((resp) => {
-      if (resp.ok && url.origin === self.location.origin) {
-        const copy = resp.clone();
-        caches.open(RUNTIME_CACHE).then((c) => c.put(req, copy));
-      }
-      return resp;
-    }))
+    caches.match(request).then(
+      (cached) =>
+        cached ||
+        fetch(request).then((response) => {
+          if (response.ok && isSameOrigin) {
+            const copy = response.clone();
+            caches.open(RUNTIME_CACHE).then((cache) => cache.put(request, copy));
+          }
+          return response;
+        })
+    )
   );
 });

@@ -11,3 +11,21 @@
   from = "/*"
   to = "/index.html"
   status = 200
+
+# Never let browsers or PWA installations keep an old service worker.
+[[headers]]
+  for = "/service-worker.js"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
+
+# The HTML shell must be revalidated so each deployment points to the latest hashed assets.
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
+
+# Dynamic Netlify Function responses must never be stored by browsers or intermediaries.
+[[headers]]
+  for = "/.netlify/functions/*"
+  [headers.values]
+    Cache-Control = "no-store, no-cache, must-revalidate"

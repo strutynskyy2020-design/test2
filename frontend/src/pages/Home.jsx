@@ -91,14 +91,18 @@ export default function Home() {
         const token = getToken();
         if (!token) return;
 
-        const response = await fetch("/.netlify/functions/google-goals", {
-          method: "GET",
-          headers: {
-            accept: "application/json",
-            authorization: `Bearer ${token}`,
-          },
-          cache: "no-store",
-        });
+        const response = await fetch(
+          `/.netlify/functions/google-goals?_ts=${Date.now()}`,
+          {
+            method: "GET",
+            headers: {
+              accept: "application/json",
+              authorization: `Bearer ${token}`,
+              "cache-control": "no-cache",
+            },
+            cache: "no-store",
+          }
+        );
 
         const result = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(result.error || "Не вдалося завантажити цілі");
@@ -120,7 +124,24 @@ export default function Home() {
       if (!cancelled) setFeed(r.data.events || []);
     }).catch(() => {});
 
-    return () => { cancelled = true; };
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") loadGoogleGoals();
+    };
+    const refreshOnFocus = () => loadGoogleGoals();
+    const refreshOnPageShow = () => loadGoogleGoals();
+    const refreshTimer = window.setInterval(loadGoogleGoals, 60_000);
+
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    window.addEventListener("focus", refreshOnFocus);
+    window.addEventListener("pageshow", refreshOnPageShow);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(refreshTimer);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+      window.removeEventListener("focus", refreshOnFocus);
+      window.removeEventListener("pageshow", refreshOnPageShow);
+    };
   }, [user?.id, mode]);
 
   if (!user) return null;

@@ -1,4 +1,4 @@
-const SPREADSHEET_ID = "1TV7NHvEmLf6i19yPt7SENl2TOn1Y04ToW1CjSGhtrf0";
+const SPREADSHEET_ID = "ВСТАВТЕ_ID_ВАШОЇ_GOOGLE_ТАБЛИЦІ";
 const SHEET_NAME = "Goals";
 
 function normalizeKey(value) {
