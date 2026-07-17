@@ -467,6 +467,7 @@ const UsersView = () => {
             <div className="text-[10px] text-zinc-600 mt-0.5 flex items-center gap-2">
               <span>LVL {u.level} • {u.balance.toLocaleString("uk-UA")} б.</span>
               {u.team_name && <span className="text-[#00F0FF] truncate">{u.team_name}</span>}
+              {u.goals_login && <span className="text-[#B78CFF] truncate">Цілі: {u.goals_login}</span>}
             </div>
           </div>
           <div className="flex gap-1.5 shrink-0">
@@ -513,6 +514,7 @@ const UserEditSheet = ({ user, teams, onClose, onDone }) => {
     last_name: user.last_name || "",
     phone: user.phone || "",
     telegram: user.telegram || "",
+    goals_login: user.goals_login || "",
     department: user.department || "",
     position: user.position || "Оператор",
     team_id: user.team_id || "",
@@ -524,7 +526,10 @@ const UserEditSheet = ({ user, teams, onClose, onDone }) => {
   const save = async () => {
     setBusy(true);
     try {
-      const payload = { ...f };
+      const payload = {
+        ...f,
+        goals_login: String(f.goals_login || "").trim().toLowerCase() || null,
+      };
       if (!payload.team_id) payload.team_id = null;
       await api.patch(`/admin/users/${user.id}`, payload);
       toast.success("Оновлено");
@@ -556,6 +561,19 @@ const UserEditSheet = ({ user, teams, onClose, onDone }) => {
             <label className="block text-[11px] font-black uppercase text-zinc-500 mb-1">Telegram</label>
             <input data-testid="user-edit-tg" value={f.telegram} onChange={(e) => setF({ ...f, telegram: e.target.value })} className="w-full h-11 px-3 rounded-xl bg-[#0A0A0A] border-2 border-white/10 text-white focus:border-[#FFB800] outline-none" />
           </div>
+        </div>
+        <div>
+          <label className="block text-[11px] font-black uppercase text-zinc-500 mb-1">Ключ Google цілей</label>
+          <input
+            data-testid="user-edit-goals-login"
+            value={f.goals_login}
+            onChange={(e) => setF({ ...f, goals_login: e.target.value })}
+            placeholder="Наприклад: operator_001"
+            autoCapitalize="none"
+            autoCorrect="off"
+            className="w-full h-11 px-3 rounded-xl bg-[#0A0A0A] border-2 border-white/10 text-white focus:border-[#B78CFF] outline-none"
+          />
+          <div className="mt-1 text-[10px] leading-4 text-zinc-600">Має точно збігатися зі значенням goals_login у Google Таблиці.</div>
         </div>
         <div>
           <label className="block text-[11px] font-black uppercase text-zinc-500 mb-1">Посада</label>

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Target, CreditCard, Landmark, WalletCards, Coins, Trophy, CalendarDays } from "lucide-react";
 import { toast } from "sonner";
-import api, { extractError } from "@/lib/api";
+import { getToken } from "@/lib/api";
 import { useApp } from "@/context/AppContext";
 
 const metricMeta = {
@@ -47,6 +47,7 @@ export default function Goals() {
   const { mode } = useApp();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [emptyMessage, setEmptyMessage] = useState("");
 
   useEffect(() => {
     if (mode === "mock") {
@@ -61,12 +62,88 @@ export default function Goals() {
       setLoading(false);
       return;
     }
-    api.get("/goals/me").then(r => setData(r.data)).catch(e => toast.error(extractError(e))).finally(() => setLoading(false));
+    let cancelled = false;
+
+    const loadGoogleGoals = async () => {
+      try {
+        setLoading(true);
+        setEmptyMessage("");
+        const token = getToken();
+        if (!token) throw new Error("Потрібна авторизація");
+
+        const response = await fetch("/.netlify/functions/google-goals", {
+          method: "GET",
+          headers: {
+            accept: "application/json",
+            authorization: `Bearer ${token}`,
+          },
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(result.error || "Не вдалося завантажити цілі");
+        if (cancelled) return;
+
+        if (!result.found || !result.goals) {
+          setData(null);
+          setEmptyMessage(
+            result.reason === "goals_login_missing"
+              ? "Керівник ще не прив’язав ваш профіль до Google Таблиці."
+              : "Для вашого ключа ще не додано рядок із цілями в Google Таблиці."
+          );
+          return;
+        }
+
+        const goals = result.goals;
+        const metric = (name) => {
+          const current = Number(goals[`${name}_current`] || 0);
+          const target = Number(goals[`${name}_target`] || 0);
+          const modeValue = goals[`${name}_mode`] === "maintain" ? "maintain" : "reach";
+          return {
+            current,
+            target,
+            mode: modeValue,
+            complete: target > 0 && (modeValue === "maintain" ? current >= target : current >= target),
+          };
+        };
+
+        setData({
+          credit: metric("credit"),
+          debit: metric("debit"),
+          deposit: metric("deposit"),
+          monthly_bonus_current: Number(goals.monthly_bonus_current || 0),
+          monthly_bonus_target: Number(goals.monthly_bonus_target || 0),
+          weekly_complete: String(goals.weekly_complete || "").toLowerCase() === "true",
+          monthly_complete: String(goals.monthly_complete || "").toLowerCase() === "true",
+          weekly_reward_awarded: String(goals.weekly_reward_awarded || "").toLowerCase() === "true",
+          monthly_reward_awarded: String(goals.monthly_reward_awarded || "").toLowerCase() === "true",
+          note: goals.note || "",
+          updated_at: goals.updated_at || "",
+        });
+      } catch (error) {
+        if (!cancelled) {
+          setData(null);
+          setEmptyMessage("Не вдалося завантажити цілі з Google Таблиці.");
+          toast.error(error.message || "Не вдалося завантажити цілі");
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    loadGoogleGoals();
+    return () => { cancelled = true; };
   }, [mode]);
 
   const weeklyDone = useMemo(() => data ? [data.credit, data.debit, data.deposit].filter(x => x?.complete).length : 0, [data]);
   if (loading) return <div className="p-8 text-center text-sm text-zinc-500">Завантаження цілей...</div>;
-  if (!data) return null;
+  if (!data) return (
+    <div className="px-5 pt-6">
+      <div className="rounded-3xl border border-white/10 bg-[#1A1A1E] p-6 text-center">
+        <Target size={34} color="#B78CFF" className="mx-auto" />
+        <div className="mt-3 font-display text-xl text-white">ЦІЛІ ЩЕ НЕ ДОДАНО</div>
+        <p className="mt-2 text-sm text-zinc-500">{emptyMessage || "Керівник ще не додав ваші цілі."}</p>
+      </div>
+    </div>
+  );
   const bonusCurrent = Number(data.monthly_bonus_current || 0);
   const bonusTarget = Number(data.monthly_bonus_target || 0);
 

@@ -165,6 +165,7 @@ class UserPublic(BaseModel):
     phone: Optional[str] = None
     telegram: Optional[str] = None
     telegram_id: Optional[str] = None
+    goals_login: Optional[str] = None
     team_id: Optional[str] = None
     team_name: Optional[str] = None
     is_team_leader: bool = False
@@ -215,6 +216,7 @@ class RegisterBody(BaseModel):
     avatar_color: str = "#FFB800"
     phone: Optional[str] = None
     telegram: Optional[str] = None
+    goals_login: Optional[str] = None
     team_id: Optional[str] = None
 
 
@@ -237,6 +239,7 @@ class UserAdminUpdateBody(BaseModel):
     last_name: Optional[str] = None
     phone: Optional[str] = None
     telegram: Optional[str] = None
+    goals_login: Optional[str] = None
     department: Optional[str] = None
     position: Optional[str] = None
     avatar_color: Optional[str] = None
@@ -420,6 +423,7 @@ def _sanitize_user(doc: dict) -> UserPublic:
     doc.pop("_id", None)
     doc.setdefault("telegram_id", None)
     doc.setdefault("telegram", None)
+    doc.setdefault("goals_login", None)
     doc.setdefault("phone", None)
     doc.setdefault("first_name", "")
     doc.setdefault("last_name", "")
@@ -533,6 +537,7 @@ async def auth_register(body: RegisterBody, admin: dict = Depends(get_current_ad
         "phone": body.phone,
         "telegram": body.telegram,
         "telegram_id": None,
+        "goals_login": (body.goals_login or "").strip().lower() or None,
         "team_id": body.team_id,
         "is_team_leader": False,
         "approved": True,
@@ -587,6 +592,7 @@ async def auth_register_self(body: SelfRegisterBody):
         "phone": body.phone or None,
         "telegram": body.telegram or None,
         "telegram_id": None,
+        "goals_login": None,
         "team_id": body.team_id,
         "is_team_leader": False,
         "approved": False,
@@ -899,6 +905,16 @@ async def admin_update_user(user_id: str, body: UserAdminUpdateBody, admin: dict
     if not target:
         raise HTTPException(status_code=404, detail="Користувача не знайдено")
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
+    if "goals_login" in updates:
+        normalized_goals_login = str(updates["goals_login"] or "").strip().lower()
+        updates["goals_login"] = normalized_goals_login or None
+        if normalized_goals_login:
+            duplicate = await db.users.find_one(
+                {"goals_login": normalized_goals_login, "id": {"$ne": user_id}},
+                {"_id": 0, "id": 1},
+            )
+            if duplicate:
+                raise HTTPException(status_code=409, detail="Цей ключ Google цілей уже використовується іншим користувачем")
     if not updates:
         raise HTTPException(status_code=400, detail="Немає полів для оновлення")
     if "team_id" in updates:
