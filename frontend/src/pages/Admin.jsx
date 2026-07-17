@@ -5,7 +5,7 @@ import {
   UserCog, ShieldCheck, Crown, UsersRound, Inbox, UserCheck, ClipboardList, CheckCircle2, XCircle,
   ArrowUp, ArrowDown, FileText, BrainCircuit, Clock3, TrendingUp, Search, CalendarDays, Target, Save, ChevronDown,
 } from "lucide-react";
-import api, { extractError, API_BASE } from "@/lib/api";
+import api, { extractError, API_BASE, getToken } from "@/lib/api";
 import { useApp } from "@/context/AppContext";
 
 const TABS = [
@@ -1604,6 +1604,40 @@ const normalizeGoalForm = (g = {}) => ({
   note: g.note || "",
 });
 
+const parseGoogleGoalNumber = (value) => {
+  if (value === null || value === undefined || value === "") return 0;
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  const normalized = String(value)
+    .replace(/\s/g, "")
+    .replace(/%/g, "")
+    .replace(/,/g, ".")
+    .replace(/[^\d.-]/g, "");
+  const parsed = Number.parseFloat(normalized);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const googleRowToGoalForm = (row = {}, fallback = {}) => normalizeGoalForm({
+  ...fallback,
+  credit: {
+    current: parseGoogleGoalNumber(row.credit_actual ?? row.credit_current),
+    target: parseGoogleGoalNumber(row.credit_target),
+    mode: row.credit_mode || fallback?.credit?.mode || "reach",
+  },
+  debit: {
+    current: parseGoogleGoalNumber(row.debit_actual ?? row.debit_current),
+    target: parseGoogleGoalNumber(row.debit_target),
+    mode: row.debit_mode || fallback?.debit?.mode || "reach",
+  },
+  deposit: {
+    current: parseGoogleGoalNumber(row.deposit_actual ?? row.deposit_current),
+    target: parseGoogleGoalNumber(row.deposit_target),
+    mode: row.deposit_mode || fallback?.deposit?.mode || "reach",
+  },
+  monthly_bonus_current: parseGoogleGoalNumber(row.monthly_bonus_actual ?? row.monthly_bonus_current),
+  monthly_bonus_target: parseGoogleGoalNumber(row.monthly_bonus_target),
+  note: row.note ?? fallback?.note ?? "",
+});
+
 const GoalMetricEditor = ({ label, value, onChange, color }) => (
   <div className="rounded-2xl border border-white/10 bg-black/25 p-3">
     <div className="mb-2 text-[10px] font-black uppercase tracking-widest" style={{ color }}>{label}</div>
@@ -1633,9 +1667,36 @@ const GoalsManager = () => {
     setLoading(true);
     try {
       const { data } = await api.get("/admin/goals-dashboard");
-      setItems(data || []);
-      setForms(Object.fromEntries((data || []).map((u) => [u.id, normalizeGoalForm(u.goals)])));
-    } catch (e) { toast.error(extractError(e, "Не вдалося завантажити цілі")); }
+      const users = data || [];
+      const token = getToken();
+
+      const googleResponse = await fetch("/.netlify/functions/google-goals-admin", {
+        method: "GET",
+        headers: {
+          accept: "application/json",
+          authorization: `Bearer ${token}`,
+        },
+        cache: "no-store",
+      });
+      const googleData = await googleResponse.json().catch(() => null);
+
+      if (!googleResponse.ok) {
+        throw new Error(googleData?.error || "Не вдалося завантажити Google-цілі");
+      }
+
+      const byLogin = googleData?.goals_by_login || {};
+      const merged = users.map((u) => {
+        const key = String(u.goals_login || "").trim().toLowerCase();
+        const googleRow = key ? byLogin[key] : null;
+        const goals = googleRow ? googleRowToGoalForm(googleRow, u.goals) : normalizeGoalForm(u.goals);
+        return { ...u, goals, google_synced: Boolean(googleRow) };
+      });
+
+      setItems(merged);
+      setForms(Object.fromEntries(merged.map((u) => [u.id, normalizeGoalForm(u.goals)])));
+    } catch (e) {
+      toast.error(extractError(e, e?.message || "Не вдалося завантажити цілі"));
+    }
     setLoading(false);
   };
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
@@ -1643,13 +1704,35 @@ const GoalsManager = () => {
   const save = async (u) => {
     setSaving((v) => ({ ...v, [u.id]: true }));
     try {
+      const goalsLogin = String(u.goals_login || "").trim().toLowerCase();
+      if (!goalsLogin) throw new Error(`Для ${u.name} не задано ключ Google Goals`);
+
+      const token = getToken();
+      const googleResponse = await fetch("/.netlify/functions/google-goals-admin", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json",
+          authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ goals_login: goalsLogin, goals: forms[u.id] }),
+        cache: "no-store",
+      });
+      const googleData = await googleResponse.json().catch(() => null);
+      if (!googleResponse.ok) {
+        throw new Error(googleData?.error || "Не вдалося оновити Google Таблицю");
+      }
+
       const { data } = await api.put(`/admin/goals/${u.id}`, forms[u.id]);
-      setItems((rows) => rows.map((row) => row.id === u.id ? { ...row, goals: data } : row));
-      setForms((all) => ({ ...all, [u.id]: normalizeGoalForm(data) }));
-      if (data.weekly_reward_just_awarded) toast.success(`${u.name}: +200 Point та +100 XP за тижневі цілі`);
-      else if (data.monthly_reward_just_awarded) toast.success(`${u.name}: +1000 Point та +300 XP за місячну ціль`);
-      else toast.success(`Цілі ${u.name} збережено`);
-    } catch (e) { toast.error(extractError(e, "Не вдалося зберегти цілі")); }
+      const refreshed = googleData?.goals ? googleRowToGoalForm(googleData.goals, data) : normalizeGoalForm(data);
+      setItems((rows) => rows.map((row) => row.id === u.id ? { ...row, goals: refreshed, google_synced: true } : row));
+      setForms((all) => ({ ...all, [u.id]: refreshed }));
+      if (data.weekly_reward_just_awarded) toast.success(`${u.name}: Google оновлено, +200 Point та +100 XP`);
+      else if (data.monthly_reward_just_awarded) toast.success(`${u.name}: Google оновлено, +1000 Point та +300 XP`);
+      else toast.success(`Цілі ${u.name} синхронізовано з Google`);
+    } catch (e) {
+      toast.error(extractError(e, e?.message || "Не вдалося зберегти цілі"));
+    }
     setSaving((v) => ({ ...v, [u.id]: false }));
   };
 
@@ -1670,7 +1753,7 @@ const GoalsManager = () => {
         return <section key={u.id} className="rounded-3xl border border-white/10 bg-[#1A1A1E] p-4 lg:p-5">
           <div className="mb-4 flex items-center gap-3">
             <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-2xl font-display text-sm text-black" style={{ backgroundColor: u.avatar_color || "#FFB800" }}>{avatar ? <img src={avatar} alt={u.name} className="h-full w-full object-cover"/> : u.avatar_initials || "?"}</div>
-            <div className="min-w-0 flex-1"><div className="truncate font-black text-white">{u.name}</div><div className="truncate text-xs text-zinc-500">{u.position || u.department || "Оператор"}</div></div>
+            <div className="min-w-0 flex-1"><div className="truncate font-black text-white">{u.name}</div><div className="truncate text-xs text-zinc-500">{u.position || u.department || "Оператор"}</div><div className={`mt-1 text-[9px] font-black uppercase ${u.google_synced ? "text-[#39FF14]" : "text-zinc-600"}`}>{u.goals_login ? (u.google_synced ? `Google: ${u.goals_login}` : `Ключ: ${u.goals_login} • рядок не знайдено`) : "Google-ключ не задано"}</div></div>
             <div className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase ${u.goals?.weekly_complete ? "bg-[#39FF14]/15 text-[#39FF14]" : "bg-[#FFB800]/10 text-[#FFB800]"}`}>{u.goals?.weekly_complete ? "3/3" : `${[u.goals?.credit,u.goals?.debit,u.goals?.deposit].filter(x=>x?.complete).length}/3`}</div>
           </div>
           <div className="grid gap-3 lg:grid-cols-3">

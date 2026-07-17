@@ -1160,7 +1160,7 @@ async def admin_goals_dashboard(admin: dict = Depends(get_current_admin)):
     users = await db.users.find(
         {"role": "employee", "approved": {"$ne": False}},
         {"_id": 0, "id": 1, "name": 1, "avatar_initials": 1, "avatar_color": 1, "avatar_url": 1,
-         "position": 1, "department": 1},
+         "position": 1, "department": 1, "goals_login": 1},
     ).sort("name", 1).to_list(1000)
     docs = await db.user_goals.find({"user_id": {"$in": [u["id"] for u in users]}}, {"_id": 0}).to_list(1000)
     by_user = {d["user_id"]: d for d in docs}
