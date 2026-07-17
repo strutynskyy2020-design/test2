@@ -12,6 +12,27 @@ const metricMeta = {
 
 const pct = (current, target) => target > 0 ? Math.min(100, Math.max(0, (current / target) * 100)) : 0;
 
+const parseSheetNumber = (value) => {
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  const normalized = String(value ?? "")
+    .replace(/ /g, "")
+    .replace(/\s+/g, "")
+    .replace(/%$/, "")
+    .replace(",", ".")
+    .replace(/[^0-9.+-]/g, "");
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const firstDefined = (object, keys) => {
+  for (const key of keys) {
+    if (object?.[key] !== undefined && object?.[key] !== null && object?.[key] !== "") {
+      return object[key];
+    }
+  }
+  return 0;
+};
+
 function MetricCard({ name, metric }) {
   const meta = metricMeta[name];
   const Icon = meta.icon;
@@ -94,8 +115,8 @@ export default function Goals() {
 
         const goals = result.goals;
         const metric = (name) => {
-          const current = Number(goals[`${name}_current`] || 0);
-          const target = Number(goals[`${name}_target`] || 0);
+          const current = parseSheetNumber(firstDefined(goals, [`${name}_actual`, `${name}_current`]));
+          const target = parseSheetNumber(firstDefined(goals, [`${name}_target`]));
           const modeValue = goals[`${name}_mode`] === "maintain" ? "maintain" : "reach";
           return {
             current,
@@ -109,8 +130,8 @@ export default function Goals() {
           credit: metric("credit"),
           debit: metric("debit"),
           deposit: metric("deposit"),
-          monthly_bonus_current: Number(goals.monthly_bonus_current || 0),
-          monthly_bonus_target: Number(goals.monthly_bonus_target || 0),
+          monthly_bonus_current: parseSheetNumber(firstDefined(goals, ["monthly_bonus_actual", "monthly_bonus_current"])),
+          monthly_bonus_target: parseSheetNumber(firstDefined(goals, ["monthly_bonus_target"])) ,
           weekly_complete: String(goals.weekly_complete || "").toLowerCase() === "true",
           monthly_complete: String(goals.monthly_complete || "").toLowerCase() === "true",
           weekly_reward_awarded: String(goals.weekly_reward_awarded || "").toLowerCase() === "true",
