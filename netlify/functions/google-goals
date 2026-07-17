@@ -1,0 +1,84 @@
+const response = (statusCode, body) => ({
+  statusCode,
+  headers: {
+    "content-type": "application/json; charset=utf-8",
+    "cache-control": "no-store",
+  },
+  body: JSON.stringify(body),
+});
+
+const normalizeLogin = (value = "") =>
+  String(value).trim().toLowerCase();
+
+exports.handler = async (event) => {
+  if (event.httpMethod !== "GET") {
+    return response(405, {
+      success: false,
+      error: "Method not allowed",
+    });
+  }
+
+  try {
+    /*
+     * Тимчасовий варіант:
+     * login передається з React.
+     *
+     * Для production краще отримувати його із JWT або серверної сесії.
+     */
+    const login = normalizeLogin(
+      event.queryStringParameters?.login
+    );
+
+    if (!login) {
+      return response(400, {
+        success: false,
+        error: "login is required",
+      });
+    }
+
+    const scriptUrl = process.env.GOOGLE_GOALS_SCRIPT_URL;
+
+    if (!scriptUrl) {
+      console.error("GOOGLE_GOALS_SCRIPT_URL is missing");
+
+      return response(500, {
+        success: false,
+        error: "Інтеграцію Google Таблиці не налаштовано",
+      });
+    }
+
+    const url = new URL(scriptUrl);
+    url.searchParams.set("login", login);
+
+    const googleResponse = await fetch(url, {
+      headers: {
+        accept: "application/json",
+      },
+    });
+
+    const data = await googleResponse
+      .json()
+      .catch(() => null);
+
+    if (!googleResponse.ok || !data) {
+      console.error("Invalid Google Apps Script response", {
+        status: googleResponse.status,
+        data,
+      });
+
+      return response(502, {
+        success: false,
+        error: "Не вдалося отримати цілі з Google Таблиці",
+      });
+    }
+
+    return response(200, data);
+  } catch (error) {
+    console.error("google-goals error", error);
+
+    return response(500, {
+      success: false,
+      error: "Не вдалося завантажити цілі",
+    });
+  }
+};
