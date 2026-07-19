@@ -154,6 +154,8 @@ body {
   width: 116%;
   height: 116%;
   overflow: visible;
+  object-fit: contain;
+  user-select: none;
   pointer-events: none;
   filter: drop-shadow(0 3px 4px rgba(0,0,0,.72));
 }
