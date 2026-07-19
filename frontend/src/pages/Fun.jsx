@@ -24,6 +24,8 @@ const FACE_DOTS = {
   6: [1, 3, 4, 6, 7, 9],
 };
 
+const CUBE_VISUAL_VERSION = "v43-real-3d";
+
 const FACE_ROTATIONS = {
   // A small permanent tilt keeps the die visibly three-dimensional after it lands.
   1: { x: -16, y: 24 },
@@ -104,7 +106,7 @@ const CubeFace = ({ face, rolling, rollId }) => {
   }, [numericFace, rolling, rollId, rotation.x, rotation.y]);
 
   return (
-    <div className={`generous-cube-stage ${rolling ? "is-rolling" : ""}`} aria-label={`Грань куба ${numericFace}`}>
+    <div className={`generous-cube-stage ${rolling ? "is-rolling" : ""}`} aria-label={`Грань куба ${numericFace}`} data-cube-version={CUBE_VISUAL_VERSION}>
       <div className="generous-cube-energy generous-cube-energy--outer" />
       <div className="generous-cube-energy generous-cube-energy--inner" />
       <div className="generous-cube-aura" />
