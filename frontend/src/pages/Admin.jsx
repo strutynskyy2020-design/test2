@@ -39,7 +39,7 @@ const APP_STATUS = {
 };
 
 const DIFFICULTIES = ["easy", "medium", "hard"];
-const CATEGORIES = ["merch", "privilege", "certificate"];
+const CATEGORIES = ["avatar", "merch", "privilege", "certificate"];
 
 // ─────────────── Analytics ───────────────
 const StatBox = ({ label, value, accent }) => (
@@ -1072,6 +1072,9 @@ const PrizeEditor = ({ prize, onClose, onSaved }) => {
     icon: prize.icon || "gift",
     stock: prize.stock ?? 10,
     active: prize.active ?? true,
+    avatar_rarity: prize.avatar_rarity || "basic",
+    daily_bonus: prize.daily_bonus ?? 0,
+    task_replacements: prize.task_replacements ?? 0,
   });
   const [busy, setBusy] = useState(false);
 

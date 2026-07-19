@@ -131,7 +131,7 @@ export const AppProvider = ({ children }) => {
         user: data.user,
         orders: [data.order, ...current.orders],
         prizes: current.prizes.map((prize) =>
-          prize.id === prizeId
+          prize.id === prizeId && prize.category !== "avatar"
             ? { ...prize, stock: Math.max(0, prize.stock - 1) }
             : prize
         ),

@@ -127,7 +127,7 @@ export default function Tasks() {
     try {
       const response = await api.post(`/daily-tasks/${taskId}/replace`);
       setData(response.data);
-      toast.success("Завдання замінено", { description: "Наступна заміна буде доступна завтра" });
+      toast.success("Завдання замінено", { description: response.data.replacements_remaining > 0 ? `Ще доступно замін: ${response.data.replacements_remaining}` : "Ліміт замін на сьогодні вичерпано" });
     } catch (error) {
       toast.error(extractError(error, "Не вдалося замінити завдання"));
     } finally {
@@ -156,7 +156,7 @@ export default function Tasks() {
         <div className="text-right">
           <div className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Заміна</div>
           <div className={`mt-1 text-xs font-black ${data?.replacement_used ? "text-zinc-500" : "text-[#39FF14]"}`}>
-            {data?.replacement_used ? "Використана" : "1 доступна"}
+            {`${data?.replacements_remaining ?? (data?.replacement_used ? 0 : 1)} з ${data?.replacement_limit ?? 1} доступно`}
           </div>
         </div>
       </section>
@@ -176,7 +176,7 @@ export default function Tasks() {
             <TaskCard
               key={task.id}
               task={task}
-              canReplace={!data?.replacement_used}
+              canReplace={(data?.replacements_remaining ?? (data?.replacement_used ? 0 : 1)) > 0}
               replacing={replacingId === task.id}
               onReplace={replaceTask}
             />

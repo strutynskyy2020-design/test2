@@ -170,6 +170,12 @@ class UserPublic(BaseModel):
     team_name: Optional[str] = None
     is_team_leader: bool = False
     approved: bool = True
+    owned_avatar_ids: List[str] = Field(default_factory=list)
+    active_avatar_prize_id: Optional[str] = None
+    avatar_rarity: str = "basic"
+    avatar_daily_bonus: int = 0
+    avatar_task_replacements: int = 0
+    avatar_bonus_last_date: Optional[str] = None
     created_at: str
 
 
@@ -350,11 +356,15 @@ class PrizeModel(BaseModel):
     title: str
     description: str = ""
     price: int
-    category: Literal["merch", "privilege", "certificate"] = "merch"
+    category: Literal["merch", "privilege", "certificate", "avatar"] = "merch"
     image: Optional[str] = None
     icon: str = "gift"
     stock: int = 0
     active: bool = True
+    avatar_code: Optional[str] = None
+    avatar_rarity: Optional[str] = None
+    daily_bonus: int = 0
+    task_replacements: int = 0
     created_at: str
 
 
@@ -362,22 +372,30 @@ class PrizeCreateBody(BaseModel):
     title: str
     description: str = ""
     price: int
-    category: Literal["merch", "privilege", "certificate"] = "merch"
+    category: Literal["merch", "privilege", "certificate", "avatar"] = "merch"
     image: Optional[str] = None
     icon: str = "gift"
     stock: int = 0
     active: bool = True
+    avatar_code: Optional[str] = None
+    avatar_rarity: Optional[str] = None
+    daily_bonus: int = 0
+    task_replacements: int = 0
 
 
 class PrizeUpdateBody(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
     price: Optional[int] = None
-    category: Optional[Literal["merch", "privilege", "certificate"]] = None
+    category: Optional[Literal["merch", "privilege", "certificate", "avatar"]] = None
     image: Optional[str] = None
     icon: Optional[str] = None
     stock: Optional[int] = None
     active: Optional[bool] = None
+    avatar_code: Optional[str] = None
+    avatar_rarity: Optional[str] = None
+    daily_bonus: Optional[int] = None
+    task_replacements: Optional[int] = None
 
 
 class OrderModel(BaseModel):
@@ -398,7 +416,7 @@ class OrderStatusBody(BaseModel):
 class TransactionModel(BaseModel):
     id: str
     user_id: str
-    kind: Literal["quest", "purchase", "admin_adjust", "signup_bonus"]
+    kind: str
     amount: int  # positive = credit, negative = debit
     description: str = ""
     created_at: str
@@ -432,6 +450,12 @@ def _sanitize_user(doc: dict) -> UserPublic:
     doc.setdefault("team_name", None)
     doc.setdefault("is_team_leader", False)
     doc.setdefault("approved", True)
+    doc.setdefault("owned_avatar_ids", [])
+    doc.setdefault("active_avatar_prize_id", None)
+    doc.setdefault("avatar_rarity", "basic")
+    doc.setdefault("avatar_daily_bonus", 0)
+    doc.setdefault("avatar_task_replacements", 0)
+    doc.setdefault("avatar_bonus_last_date", None)
     return UserPublic(**doc)
 
 
@@ -473,6 +497,25 @@ async def get_bot_caller(x_bot_token: str = Header(default="", alias="X-Bot-Toke
     return True
 
 
+async def _apply_avatar_daily_bonus(user: dict) -> dict:
+    """Credit the equipped avatar's daily Point bonus once per Kyiv calendar day."""
+    bonus = max(0, int(user.get("avatar_daily_bonus") or 0))
+    if bonus <= 0:
+        return user
+    date_key = kyiv_today_key()
+    result = await db.users.update_one(
+        {"id": user["id"], "avatar_bonus_last_date": {"$ne": date_key}},
+        {"$inc": {"balance": bonus, "total_earned": bonus}, "$set": {"avatar_bonus_last_date": date_key}},
+    )
+    if result.modified_count:
+        await db.transactions.insert_one({
+            "id": str(uuid.uuid4()), "user_id": user["id"], "kind": "avatar_daily_bonus",
+            "amount": bonus, "description": f"Щоденний бонус аватара: +{bonus} Point",
+            "created_at": now_iso(), "meta": {"date": date_key, "avatar_prize_id": user.get("active_avatar_prize_id")},
+        })
+        return await db.users.find_one({"id": user["id"]}, {"_id": 0})
+    return user
+
 # ────────────────────────────────────────────────────────────────────────
 # Auth endpoints
 # ────────────────────────────────────────────────────────────────────────
@@ -506,6 +549,7 @@ async def auth_login(body: LoginBody):
         raise HTTPException(status_code=403, detail="Обліковий запис ще не підтверджено адміністратором")
     token = create_token(user["id"], user["email"], user["role"])
     user = await _touch_daily_streak(user)
+    user = await _apply_avatar_daily_bonus(user)
     user = await _hydrate_user_team(user)
     return TokenResponse(token=token, user=_user_with_progress(user))
 
@@ -612,24 +656,14 @@ async def auth_register_self(body: SelfRegisterBody):
 @api.get("/auth/me", response_model=UserWithProgress)
 async def auth_me(user: dict = Depends(get_current_user)):
     user = await _touch_daily_streak(user)
+    user = await _apply_avatar_daily_bonus(user)
     user = await _hydrate_user_team(user)
     return _user_with_progress(user)
 
 
 @api.patch("/auth/me/avatar", response_model=UserWithProgress)
 async def update_my_avatar(body: AvatarUpdateBody, user: dict = Depends(get_current_user)):
-    """Update the current user avatar after a successful /uploads request."""
-    avatar_url = (body.avatar_url or "").strip()
-    is_uploaded_avatar = avatar_url.startswith("/api/uploads/avatars/")
-    is_embedded_avatar = avatar_url.startswith(("data:image/jpeg;base64,", "data:image/png;base64,", "data:image/webp;base64,"))
-    if not (is_uploaded_avatar or is_embedded_avatar):
-        raise HTTPException(status_code=400, detail="Некоректне посилання на фото")
-    if is_embedded_avatar and len(avatar_url) > 1_500_000:
-        raise HTTPException(status_code=413, detail="Фото завелике після обробки")
-    await db.users.update_one({"id": user["id"]}, {"$set": {"avatar_url": avatar_url}})
-    fresh = await db.users.find_one({"id": user["id"]}, {"_id": 0})
-    fresh = await _hydrate_user_team(fresh)
-    return _user_with_progress(fresh)
+    raise HTTPException(status_code=403, detail="Власні аватари вимкнено. Оберіть аватар у магазині")
 
 
 # ────────────────────────────────────────────────────────────────────────
@@ -1242,6 +1276,7 @@ async def _get_or_create_daily_task_set(user_id: str) -> dict:
         "date": date_key,
         "task_ids": chosen,
         "replacement_used": False,
+        "replacements_used": 0,
         "created_at": now_iso(),
     }
     await db.daily_task_sets.insert_one(doc)
@@ -1271,6 +1306,9 @@ async def get_daily_tasks(user: dict = Depends(get_current_user)):
         "date": task_set["date"],
         "tasks": tasks,
         "replacement_used": bool(task_set.get("replacement_used")),
+        "replacements_used": int(task_set.get("replacements_used", 1 if task_set.get("replacement_used") else 0)),
+        "replacement_limit": 1 + max(0, int(user.get("avatar_task_replacements") or 0)),
+        "replacements_remaining": max(0, 1 + max(0, int(user.get("avatar_task_replacements") or 0)) - int(task_set.get("replacements_used", 1 if task_set.get("replacement_used") else 0))),
         "refresh_at": kyiv_tomorrow_iso(),
         "timezone": "Europe/Kyiv",
     }
@@ -1415,8 +1453,10 @@ async def replace_daily_task(task_id: int, user: dict = Depends(get_current_user
     import hashlib
     import random
     task_set = await _get_or_create_daily_task_set(user["id"])
-    if task_set.get("replacement_used"):
-        raise HTTPException(status_code=400, detail="Сьогодні одне завдання вже було замінено")
+    replacement_limit = 1 + max(0, int(user.get("avatar_task_replacements") or 0))
+    replacements_used = int(task_set.get("replacements_used", 1 if task_set.get("replacement_used") else 0))
+    if replacements_used >= replacement_limit:
+        raise HTTPException(status_code=400, detail="Ліміт замін завдань на сьогодні вичерпано")
     if task_id not in task_set["task_ids"]:
         raise HTTPException(status_code=404, detail="Завдання не входить до сьогоднішнього набору")
     decided = await db.daily_task_reviews.find_one({"user_id": user["id"], "date": task_set["date"], "task_id": task_id})
@@ -1441,12 +1481,15 @@ async def replace_daily_task(task_id: int, user: dict = Depends(get_current_user
     new_ids = [replacement["id"] if value == task_id else value for value in task_set["task_ids"]]
     await db.daily_task_sets.update_one(
         {"user_id": user["id"], "date": task_set["date"]},
-        {"$set": {"task_ids": new_ids, "replacement_used": True, "replaced_at": now_iso()}},
+        {"$set": {"task_ids": new_ids, "replacement_used": True, "replaced_at": now_iso()}, "$inc": {"replacements_used": 1}},
     )
     return {
         "date": task_set["date"],
         "tasks": [_daily_task_by_id(value) for value in new_ids],
         "replacement_used": True,
+        "replacements_used": replacements_used + 1,
+        "replacement_limit": replacement_limit,
+        "replacements_remaining": max(0, replacement_limit - replacements_used - 1),
         "refresh_at": kyiv_tomorrow_iso(),
         "timezone": "Europe/Kyiv",
     }
@@ -1466,38 +1509,45 @@ async def buy_prize(prize_id: str, user: dict = Depends(get_current_user)):
     prize = await db.prizes.find_one({"id": prize_id, "active": True}, {"_id": 0})
     if not prize:
         raise HTTPException(status_code=404, detail="Приз не знайдено")
-    if prize["stock"] <= 0:
+
+    is_avatar = prize.get("category") == "avatar"
+    owned = prize_id in (user.get("owned_avatar_ids") or [])
+    if not is_avatar and prize.get("stock", 0) <= 0:
         raise HTTPException(status_code=400, detail="Немає в наявності")
-    if user["balance"] < prize["price"]:
+    price = 0 if (is_avatar and owned) else int(prize.get("price", 0))
+    if user.get("balance", 0) < price:
         raise HTTPException(status_code=400, detail="Недостатньо балів")
 
-    await db.users.update_one({"id": user["id"]}, {"$inc": {"balance": -prize["price"]}})
-    await db.prizes.update_one({"id": prize_id}, {"$inc": {"stock": -1}})
+    if is_avatar:
+        updates = {
+            "avatar_url": prize.get("image"),
+            "active_avatar_prize_id": prize_id,
+            "avatar_rarity": prize.get("avatar_rarity") or "basic",
+            "avatar_daily_bonus": int(prize.get("daily_bonus") or 0),
+            "avatar_task_replacements": int(prize.get("task_replacements") or 0),
+        }
+        operation = {"$set": updates, "$addToSet": {"owned_avatar_ids": prize_id}}
+        if price:
+            operation["$inc"] = {"balance": -price}
+        await db.users.update_one({"id": user["id"]}, operation)
+    else:
+        await db.users.update_one({"id": user["id"]}, {"$inc": {"balance": -price}})
+        await db.prizes.update_one({"id": prize_id}, {"$inc": {"stock": -1}})
 
     order = {
-        "id": str(uuid.uuid4()),
-        "user_id": user["id"],
-        "user_name": user["name"],
-        "prize_id": prize_id,
-        "prize_title": prize["title"],
-        "price": prize["price"],
-        "status": "processing",
-        "created_at": now_iso(),
+        "id": str(uuid.uuid4()), "user_id": user["id"], "user_name": user["name"],
+        "prize_id": prize_id, "prize_title": prize["title"], "price": price,
+        "status": "delivered" if is_avatar else "processing", "created_at": now_iso(),
     }
     await db.orders.insert_one(order)
-    await db.transactions.insert_one(
-        {
-            "id": str(uuid.uuid4()),
-            "user_id": user["id"],
-            "kind": "purchase",
-            "amount": -prize["price"],
-            "description": f"Купівля: {prize['title']}",
-            "created_at": now_iso(),
-        }
-    )
+    if price:
+        await db.transactions.insert_one({
+            "id": str(uuid.uuid4()), "user_id": user["id"], "kind": "purchase", "amount": -price,
+            "description": f"Купівля: {prize['title']}", "created_at": now_iso(),
+        })
     order.pop("_id", None)
     fresh = await db.users.find_one({"id": user["id"]}, {"_id": 0})
-    return {"order": OrderModel(**order), "user": _user_with_progress(fresh)}
+    return {"order": OrderModel(**order), "user": _user_with_progress(fresh), "equipped": is_avatar, "already_owned": owned}
 
 
 @api.get("/orders", response_model=List[OrderModel])
@@ -2385,6 +2435,8 @@ SEED_QUESTS = [
     {"title": "Оновити CRM без помилок", "description": "Всі картки клієнтів заповнені", "difficulty": "easy", "reward": 40, "goal": 8, "icon": "check-circle-2"},
 ]
 
+AVATAR_PRIZES = [{"title": "Базовий аватар • Чоловічий", "description": "Базовий візуал. Щодня +0 Point", "price": 250, "category": "avatar", "image": "/avatars/male-basic-1.webp", "icon": "user-round", "stock": 999999, "avatar_code": "male-basic-1", "avatar_rarity": "basic", "daily_bonus": 0, "task_replacements": 0}, {"title": "Базовий аватар • Жіночий 1", "description": "Базовий візуал. Щодня +0 Point", "price": 250, "category": "avatar", "image": "/avatars/female-basic-1.webp", "icon": "user-round", "stock": 999999, "avatar_code": "female-basic-1", "avatar_rarity": "basic", "daily_bonus": 0, "task_replacements": 0}, {"title": "Базовий аватар • Жіночий 2", "description": "Базовий візуал. Щодня +0 Point", "price": 250, "category": "avatar", "image": "/avatars/female-basic-2.webp", "icon": "user-round", "stock": 999999, "avatar_code": "female-basic-2", "avatar_rarity": "basic", "daily_bonus": 0, "task_replacements": 0}, {"title": "Базовий аватар • Жіночий 3", "description": "Базовий візуал. Щодня +0 Point", "price": 250, "category": "avatar", "image": "/avatars/female-basic-3.webp", "icon": "user-round", "stock": 999999, "avatar_code": "female-basic-3", "avatar_rarity": "basic", "daily_bonus": 0, "task_replacements": 0}, {"title": "Покращений аватар • Чоловічий", "description": "Покращений візуал. Щодня +5 Point", "price": 500, "category": "avatar", "image": "/avatars/male-improved-1.webp", "icon": "user-round", "stock": 999999, "avatar_code": "male-improved-1", "avatar_rarity": "improved", "daily_bonus": 5, "task_replacements": 0}, {"title": "Покращений аватар • Жіночий 1", "description": "Покращений візуал. Щодня +5 Point", "price": 500, "category": "avatar", "image": "/avatars/female-improved-1.webp", "icon": "user-round", "stock": 999999, "avatar_code": "female-improved-1", "avatar_rarity": "improved", "daily_bonus": 5, "task_replacements": 0}, {"title": "Покращений аватар • Жіночий 2", "description": "Покращений візуал. Щодня +5 Point", "price": 500, "category": "avatar", "image": "/avatars/female-improved-2.webp", "icon": "user-round", "stock": 999999, "avatar_code": "female-improved-2", "avatar_rarity": "improved", "daily_bonus": 5, "task_replacements": 0}, {"title": "Покращений аватар • Жіночий 3", "description": "Покращений візуал. Щодня +5 Point", "price": 500, "category": "avatar", "image": "/avatars/female-improved-3.webp", "icon": "user-round", "stock": 999999, "avatar_code": "female-improved-3", "avatar_rarity": "improved", "daily_bonus": 5, "task_replacements": 0}, {"title": "Рідкісний аватар • Чоловічий", "description": "Рідкісний візуал. Щодня +10 Point", "price": 750, "category": "avatar", "image": "/avatars/male-rare-1.webp", "icon": "user-round", "stock": 999999, "avatar_code": "male-rare-1", "avatar_rarity": "rare", "daily_bonus": 10, "task_replacements": 0}, {"title": "Рідкісний аватар • Жіночий 1", "description": "Рідкісний візуал. Щодня +10 Point", "price": 750, "category": "avatar", "image": "/avatars/female-rare-1.webp", "icon": "user-round", "stock": 999999, "avatar_code": "female-rare-1", "avatar_rarity": "rare", "daily_bonus": 10, "task_replacements": 0}, {"title": "Рідкісний аватар • Жіночий 2", "description": "Рідкісний візуал. Щодня +10 Point", "price": 750, "category": "avatar", "image": "/avatars/female-rare-2.webp", "icon": "user-round", "stock": 999999, "avatar_code": "female-rare-2", "avatar_rarity": "rare", "daily_bonus": 10, "task_replacements": 0}, {"title": "Рідкісний аватар • Жіночий 3", "description": "Рідкісний візуал. Щодня +10 Point", "price": 750, "category": "avatar", "image": "/avatars/female-rare-3.webp", "icon": "user-round", "stock": 999999, "avatar_code": "female-rare-3", "avatar_rarity": "rare", "daily_bonus": 10, "task_replacements": 0}, {"title": "Епічний аватар • Чоловічий", "description": "Епічний візуал. Щодня +15 Point та +1 заміна завдань", "price": 1000, "category": "avatar", "image": "/avatars/male-epic-1.webp", "icon": "user-round", "stock": 999999, "avatar_code": "male-epic-1", "avatar_rarity": "epic", "daily_bonus": 15, "task_replacements": 1}, {"title": "Епічний аватар • Жіночий 1", "description": "Епічний візуал. Щодня +15 Point та +1 заміна завдань", "price": 1000, "category": "avatar", "image": "/avatars/female-epic-1.webp", "icon": "user-round", "stock": 999999, "avatar_code": "female-epic-1", "avatar_rarity": "epic", "daily_bonus": 15, "task_replacements": 1}, {"title": "Епічний аватар • Жіночий 2", "description": "Епічний візуал. Щодня +15 Point та +1 заміна завдань", "price": 1000, "category": "avatar", "image": "/avatars/female-epic-2.webp", "icon": "user-round", "stock": 999999, "avatar_code": "female-epic-2", "avatar_rarity": "epic", "daily_bonus": 15, "task_replacements": 1}, {"title": "Епічний аватар • Жіночий 3", "description": "Епічний візуал. Щодня +15 Point та +1 заміна завдань", "price": 1000, "category": "avatar", "image": "/avatars/female-epic-3.webp", "icon": "user-round", "stock": 999999, "avatar_code": "female-epic-3", "avatar_rarity": "epic", "daily_bonus": 15, "task_replacements": 1}, {"title": "Легендарний аватар • Чоловічий", "description": "Легендарний візуал. Щодня +25 Point та +2 заміна завдань", "price": 2000, "category": "avatar", "image": "/avatars/male-legendary-1.webp", "icon": "user-round", "stock": 999999, "avatar_code": "male-legendary-1", "avatar_rarity": "legendary", "daily_bonus": 25, "task_replacements": 2}, {"title": "Легендарний аватар • Жіночий 1", "description": "Легендарний візуал. Щодня +25 Point та +2 заміна завдань", "price": 2000, "category": "avatar", "image": "/avatars/female-legendary-1.webp", "icon": "user-round", "stock": 999999, "avatar_code": "female-legendary-1", "avatar_rarity": "legendary", "daily_bonus": 25, "task_replacements": 2}, {"title": "Легендарний аватар • Жіночий 2", "description": "Легендарний візуал. Щодня +25 Point та +2 заміна завдань", "price": 2000, "category": "avatar", "image": "/avatars/female-legendary-2.webp", "icon": "user-round", "stock": 999999, "avatar_code": "female-legendary-2", "avatar_rarity": "legendary", "daily_bonus": 25, "task_replacements": 2}, {"title": "Легендарний аватар • Жіночий 3", "description": "Легендарний візуал. Щодня +25 Point та +2 заміна завдань", "price": 2000, "category": "avatar", "image": "/avatars/female-legendary-3.webp", "icon": "user-round", "stock": 999999, "avatar_code": "female-legendary-3", "avatar_rarity": "legendary", "daily_bonus": 25, "task_replacements": 2}]
+
 SEED_PRIZES = [
     {"title": "Худі CallHub", "description": "Фірмовий чорний худі з логотипом", "price": 2500, "category": "merch", "image": "https://images.pexels.com/photos/28701952/pexels-photo-28701952.jpeg", "icon": "gift", "stock": 12},
     {"title": "Додатковий вихідний", "description": "1 оплачуваний вихідний день", "price": 5000, "category": "privilege", "image": None, "icon": "calendar-off", "stock": 5},
@@ -2536,6 +2588,18 @@ async def seed_all():
         for p in SEED_PRIZES:
             await db.prizes.insert_one({"id": str(uuid.uuid4()), **p, "active": True, "created_at": now_iso()})
         logger.info("Seeded %d prizes", len(SEED_PRIZES))
+
+    # Avatar catalog is synchronized on every startup. Admin-edited prices remain untouched.
+    for avatar in AVATAR_PRIZES:
+        stable_id = f"avatar-{avatar['avatar_code']}"
+        existing = await db.prizes.find_one({"id": stable_id}, {"_id": 0, "price": 1})
+        update_fields = {**avatar, "active": True}
+        update_fields.pop("price", None)
+        await db.prizes.update_one(
+            {"id": stable_id},
+            {"$set": update_fields, "$setOnInsert": {"id": stable_id, "price": avatar["price"], "created_at": now_iso()}},
+            upsert=True,
+        )
 
 
 # ════════════════════════════════════════════════════════════════════════

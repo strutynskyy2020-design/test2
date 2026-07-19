@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Coins, Gift, CalendarOff, Coffee, Clock4, ShoppingBag, X, Check } from "lucide-react";
+import { Coins, Gift, CalendarOff, Coffee, Clock4, ShoppingBag, X, Check, UserRound } from "lucide-react";
 import { toast } from "sonner";
 import { useApp } from "@/context/AppContext";
 import { fireConfetti } from "@/lib/confetti";
@@ -9,17 +9,20 @@ const ICONS = {
   "calendar-off": CalendarOff,
   coffee: Coffee,
   "clock-4": Clock4,
+  "user-round": UserRound,
 };
 
 const PRIZE_CATEGORIES = [
   { id: "all", label: "Все" },
+  { id: "avatar", label: "Аватари" },
   { id: "merch", label: "Мерч" },
   { id: "privilege", label: "Привілеї" },
   { id: "certificate", label: "Сертифікати" },
 ];
 
-const PrizeCard = ({ prize, balance, onBuy }) => {
-  const affordable = balance >= prize.price && prize.stock > 0;
+const PrizeCard = ({ prize, balance, onBuy, owned, active }) => {
+  const effectivePrice = owned ? 0 : prize.price;
+  const affordable = balance >= effectivePrice && (prize.category === "avatar" || prize.stock > 0);
   const IconFallback = ICONS[prize.icon] || Gift;
 
   return (
@@ -37,20 +40,21 @@ const PrizeCard = ({ prize, balance, onBuy }) => {
         )}
         <div className="absolute inset-0 bg-gradient-to-t from-[#0A0A0A]/70 via-transparent to-transparent" />
         <div className="absolute top-2 left-2 text-[9px] font-black uppercase tracking-widest bg-black/50 backdrop-blur-sm text-white px-2 py-1 rounded-full border border-white/10">
-          {prize.stock > 0 ? `${prize.stock} шт` : "Немає"}
+          {prize.category === "avatar" ? (active ? "Обрано" : owned ? "Придбано" : prize.avatar_rarity || "Аватар") : (prize.stock > 0 ? `${prize.stock} шт` : "Немає")}
         </div>
       </div>
       <div className="p-4 flex-1 flex flex-col">
         <div className="text-white font-black text-sm leading-tight">{prize.title}</div>
         <div className="text-zinc-500 text-xs mt-1 line-clamp-2">{prize.description}</div>
+        {prize.category === "avatar" && (prize.daily_bonus > 0 || prize.task_replacements > 0) && <div className="mt-2 flex flex-wrap gap-1"><span className="rounded-full bg-[#39FF14]/10 px-2 py-1 text-[9px] font-black text-[#39FF14]">+{prize.daily_bonus} Point/день</span>{prize.task_replacements > 0 && <span className="rounded-full bg-[#B78CFF]/10 px-2 py-1 text-[9px] font-black text-[#B78CFF]">+{prize.task_replacements} заміни</span>}</div>}
         <div className="mt-3 flex items-center justify-between gap-2">
           <div className="flex items-center gap-1.5">
             <Coins size={16} strokeWidth={3} color="#FFB800" />
-            <span className="font-display text-lg text-[#FFB800]">{prize.price.toLocaleString("uk-UA")}</span>
+            <span className="font-display text-lg text-[#FFB800]">{(owned ? 0 : prize.price).toLocaleString("uk-UA")}</span>
           </div>
           <button
             data-testid={`buy-${prize.id}`}
-            disabled={!affordable}
+            disabled={!affordable || active}
             onClick={() => onBuy(prize)}
             className={`arcade-btn h-10 px-4 text-xs font-black uppercase tracking-wider ${
               affordable
@@ -58,7 +62,7 @@ const PrizeCard = ({ prize, balance, onBuy }) => {
                 : "bg-[#27272A] border-[#141416] text-zinc-500 cursor-not-allowed"
             }`}
           >
-            {prize.stock <= 0 ? "Немає" : affordable ? "Взяти" : "Мало балів"}
+            {active ? "Обрано" : owned ? "Обрати" : prize.stock <= 0 && prize.category !== "avatar" ? "Немає" : affordable ? (prize.category === "avatar" ? "Придбати" : "Взяти") : "Мало балів"}
           </button>
         </div>
       </div>
@@ -66,9 +70,10 @@ const PrizeCard = ({ prize, balance, onBuy }) => {
   );
 };
 
-const ConfirmSheet = ({ prize, balance, onConfirm, onClose, submitting }) => {
+const ConfirmSheet = ({ prize, balance, onConfirm, onClose, submitting, owned }) => {
   if (!prize) return null;
-  const after = balance - prize.price;
+  const effectivePrice = owned ? 0 : prize.price;
+  const after = balance - effectivePrice;
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center">
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} data-testid="confirm-backdrop" />
@@ -95,7 +100,7 @@ const ConfirmSheet = ({ prize, balance, onConfirm, onClose, submitting }) => {
             <span className="text-zinc-500 text-xs font-black uppercase tracking-widest">Ціна</span>
             <div className="flex items-center gap-1.5">
               <Coins size={16} strokeWidth={3} color="#FFB800" />
-              <span className="font-display text-lg text-[#FFB800]">{prize.price.toLocaleString("uk-UA")}</span>
+              <span className="font-display text-lg text-[#FFB800]">{effectivePrice.toLocaleString("uk-UA")}</span>
             </div>
           </div>
           <div className="flex items-center justify-between">
@@ -154,7 +159,7 @@ export default function Store() {
       return;
     }
     fireConfetti();
-    toast.success("Замовлення оформлено!", { description: `${pending.title} — в обробці`, duration: 3000 });
+    toast.success(pending.category === "avatar" ? "Аватар активовано!" : "Замовлення оформлено!", { description: pending.category === "avatar" ? `${pending.title} тепер у профілі` : `${pending.title} — в обробці`, duration: 3000 });
     setPending(null);
   };
 
@@ -202,11 +207,11 @@ export default function Store() {
 
       <div className="grid grid-cols-2 gap-3" data-testid="prize-grid">
         {filtered.map((p) => (
-          <PrizeCard key={p.id} prize={p} balance={user.balance} onBuy={setPending} />
+          <PrizeCard key={p.id} prize={p} balance={user.balance} onBuy={setPending} owned={(user.owned_avatar_ids || []).includes(p.id)} active={user.active_avatar_prize_id === p.id} />
         ))}
       </div>
 
-      <ConfirmSheet prize={pending} balance={user.balance} onConfirm={doBuy} onClose={() => setPending(null)} submitting={submitting} />
+      <ConfirmSheet prize={pending} balance={user.balance} onConfirm={doBuy} onClose={() => setPending(null)} submitting={submitting} owned={Boolean(pending && (user.owned_avatar_ids || []).includes(pending.id))} />
     </div>
   );
 }

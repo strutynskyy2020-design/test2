@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Gamepad2, Zap, ChevronLeft, Camera, User, Mail, Phone, Send, Users as UsersIcon, Loader2 } from "lucide-react";
+import { Gamepad2, Zap, ChevronLeft, User, Mail, Phone, Send, Users as UsersIcon } from "lucide-react";
 import { toast } from "sonner";
-import api, { extractError, API_BASE } from "@/lib/api";
+import api, { extractError } from "@/lib/api";
 
 const AVATAR_COLORS = ["#FFB800", "#00F0FF", "#39FF14", "#FF5C00", "#B78CFF", "#FF3B8A"];
 
@@ -27,7 +27,6 @@ export default function Register() {
   const nav = useNavigate();
   const [teams, setTeams] = useState([]);
   const [busy, setBusy] = useState(false);
-  const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [f, setF] = useState({
     first_name: "",
     last_name: "",
@@ -51,35 +50,6 @@ export default function Register() {
 
   const setField = (k, v) => setF((s) => ({ ...s, [k]: v }));
 
-  const uploadAvatar = async (file) => {
-    if (!file) return;
-    if (file.size > 15 * 1024 * 1024) {
-      toast.error("Файл більше 15 МБ");
-      return;
-    }
-    setUploadingAvatar(true);
-    try {
-      // Public endpoint requires auth; register first, then upload after (fallback: skip)
-      const fd = new FormData();
-      fd.append("file", file);
-      fd.append("category", "avatars");
-      const { data } = await api.post("/uploads", fd, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
-      setField("avatar_url", data.url);
-      toast.success("Аватар завантажено");
-    } catch (e) {
-      // If unauthorized (before signup), tell user we'll upload after sign-up
-      const st = e?.response?.status;
-      if (st === 401) {
-        toast.error("Спочатку створи акаунт — аватар можна додати в профілі");
-      } else {
-        toast.error(extractError(e, "Не вдалось завантажити"));
-      }
-    } finally {
-      setUploadingAvatar(false);
-    }
-  };
 
   const submit = async (e) => {
     e?.preventDefault?.();
@@ -104,9 +74,6 @@ export default function Register() {
     }
   };
 
-  const avatarPreviewUrl = f.avatar_url
-    ? (f.avatar_url.startsWith("http") ? f.avatar_url : `${API_BASE.replace(/\/api$/, "")}${f.avatar_url}`)
-    : null;
 
   return (
     <div className="min-h-screen w-full flex items-start justify-center px-5 py-8">
@@ -132,46 +99,8 @@ export default function Register() {
         </div>
 
         <form onSubmit={submit} className="bg-[#1A1A1E] border border-white/10 rounded-3xl p-6 space-y-4">
-          {/* Avatar picker */}
-          <div>
-            <label className="block text-[11px] font-black uppercase tracking-widest text-zinc-500 mb-2">Аватар</label>
-            <div className="flex items-center gap-3">
-              <label
-                data-testid="avatar-picker"
-                className="relative w-20 h-20 rounded-2xl flex items-center justify-center font-display text-2xl text-[#0A0A0A] cursor-pointer overflow-hidden border-b-4"
-                style={{ backgroundColor: f.avatar_color, borderColor: "#00000055" }}
-              >
-                {avatarPreviewUrl ? (
-                  <img src={avatarPreviewUrl} alt="avatar" className="w-full h-full object-cover" />
-                ) : (
-                  <span>{initials}</span>
-                )}
-                <div className="absolute bottom-0 right-0 w-7 h-7 rounded-tl-lg bg-[#0A0A0A] flex items-center justify-center border-t border-l border-white/10">
-                  {uploadingAvatar ? <Loader2 size={12} className="animate-spin text-white" /> : <Camera size={12} strokeWidth={3} color="#FFB800" />}
-                </div>
-                <input
-                  data-testid="avatar-file-input"
-                  type="file"
-                  accept="image/*"
-                  capture="user"
-                  className="absolute inset-0 opacity-0 cursor-pointer"
-                  onChange={(e) => uploadAvatar(e.target.files?.[0])}
-                />
-              </label>
-              <div className="flex-1 grid grid-cols-6 gap-1.5">
-                {AVATAR_COLORS.map((c) => (
-                  <button
-                    type="button"
-                    key={c}
-                    data-testid={`color-${c}`}
-                    onClick={() => setField("avatar_color", c)}
-                    className={`w-8 h-8 rounded-lg border-2 transition-transform active:scale-90 ${f.avatar_color === c ? "border-white" : "border-transparent"}`}
-                    style={{ backgroundColor: c }}
-                    aria-label={`color ${c}`}
-                  />
-                ))}
-              </div>
-            </div>
+          <div className="rounded-2xl border border-[#00F0FF]/25 bg-[#00F0FF]/8 px-4 py-3 text-xs font-semibold leading-relaxed text-zinc-300">
+            Після активації акаунта обери аватар у магазині. Власні фото для аватара недоступні.
           </div>
 
           <div className="grid grid-cols-2 gap-3">
