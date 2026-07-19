@@ -459,7 +459,7 @@ const UsersView = () => {
           <div className="flex-1 min-w-0">
             <div className="text-white font-black text-sm truncate flex items-center gap-1.5">
               {u.name}
-              {u.role === "admin" && <span className="text-[#FF5C00] text-[10px]">[admin]</span>}
+              {u.role === "admin" && <span className="text-[#FF5C00] text-[10px]">[admin]</span>}{u.role === "editor" && <span className="text-[#B78CFF] text-[10px]">[редактор]</span>}
               {u.is_team_leader && <Crown size={12} strokeWidth={3} className="text-[#FFB800]" />}
               {!u.approved && <span className="text-[#FF3B30] text-[9px] font-black">PENDING</span>}
             </div>
@@ -520,6 +520,7 @@ const UserEditSheet = ({ user, teams, onClose, onDone }) => {
     team_id: user.team_id || "",
     is_team_leader: !!user.is_team_leader,
     approved: user.approved !== false,
+    role: user.role || "employee",
   });
   const [busy, setBusy] = useState(false);
 
@@ -574,6 +575,14 @@ const UserEditSheet = ({ user, teams, onClose, onDone }) => {
             className="w-full h-11 px-3 rounded-xl bg-[#0A0A0A] border-2 border-white/10 text-white focus:border-[#B78CFF] outline-none"
           />
           <div className="mt-1 text-[10px] leading-4 text-zinc-600">Має точно збігатися зі значенням goals_login у Google Таблиці.</div>
+        </div>
+        <div>
+          <label className="block text-[11px] font-black uppercase text-zinc-500 mb-1">Роль</label>
+          <select data-testid="user-edit-role" value={f.role} onChange={(e) => setF({ ...f, role: e.target.value })} className="w-full h-11 px-3 rounded-xl bg-[#0A0A0A] border-2 border-white/10 text-white focus:border-[#B78CFF] outline-none">
+            <option value="employee">Працівник</option>
+            <option value="editor">Редактор</option>
+            <option value="admin">Адміністратор</option>
+          </select>
         </div>
         <div>
           <label className="block text-[11px] font-black uppercase text-zinc-500 mb-1">Посада</label>
@@ -1797,14 +1806,43 @@ const GoalsManager = () => {
   </div>;
 };
 
+// ─────────────── Editor points manager ───────────────
+const PointsManager = () => {
+  const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [adjustFor, setAdjustFor] = useState(null);
+  const load = async () => {
+    setLoading(true);
+    try { setUsers((await api.get("/admin/users")).data); }
+    catch (e) { toast.error(extractError(e)); }
+    finally { setLoading(false); }
+  };
+  useEffect(() => { load(); }, []);
+  return <div className="space-y-3">
+    {loading && <div className="py-8 text-center text-sm text-zinc-500">Завантаження...</div>}
+    {users.map((u) => <div key={u.id} className="flex items-center gap-3 rounded-2xl border border-white/10 bg-[#1A1A1E] p-3">
+      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl font-display text-sm text-black" style={{backgroundColor:u.avatar_color||"#FFB800"}}>{u.avatar_initials||"?"}</div>
+      <div className="min-w-0 flex-1"><div className="truncate text-sm font-black text-white">{u.name}</div><div className="text-xs text-zinc-500">Баланс: {u.balance.toLocaleString("uk-UA")} Point</div></div>
+      <button type="button" onClick={() => setAdjustFor(u)} className="flex h-10 w-10 items-center justify-center rounded-xl border border-[#FFB800]/40 bg-black/30 text-[#FFB800]" aria-label="Нарахувати бали"><Coins size={16}/></button>
+    </div>)}
+    {adjustFor && <AdjustPointsSheet user={adjustFor} onClose={() => setAdjustFor(null)} onDone={load}/>}
+  </div>;
+};
+
 // ─────────────── Admin page shell ───────────────
 export default function Admin() {
   const { user, mode } = useApp();
-  const [tab, setTab] = useState("analytics");
+  const isEditor = user?.role === "editor";
+  const editorTabs = [
+    { id: "daily-tasks", label: "Завдання дня", icon: CalendarDays },
+    { id: "points", label: "Нарахувати бали", icon: Coins },
+  ];
+  const availableTabs = isEditor ? editorTabs : TABS;
+  const [tab, setTab] = useState(user?.role === "editor" ? "daily-tasks" : "analytics");
 
   if (!user) return null;
-  if (user.role !== "admin") {
-    return <div className="p-8 text-center text-zinc-400">Доступ тільки для адміністраторів</div>;
+  if (!["admin", "editor"].includes(user.role)) {
+    return <div className="p-8 text-center text-zinc-400">Немає доступу до панелі</div>;
   }
   if (mode === "mock") {
     return (
@@ -1816,7 +1854,7 @@ export default function Admin() {
     );
   }
 
-  const V = { analytics: AnalyticsView, "ai-team": AITeamDashboard, "daily-tasks": DailyTasksManager, goals: GoalsManager, moderation: ModerationView, applications: ApplicationsView, users: UsersView, teams: TeamsView, prizes: PrizesView, orders: OrdersView }[tab];
+  const V = { analytics: AnalyticsView, "ai-team": AITeamDashboard, "daily-tasks": DailyTasksManager, points: PointsManager, goals: GoalsManager, moderation: ModerationView, applications: ApplicationsView, users: UsersView, teams: TeamsView, prizes: PrizesView, orders: OrdersView }[tab];
 
   return (
     <div className="px-5 pt-2 pb-8 lg:px-7 lg:pt-6" data-testid="admin-page">
@@ -1825,10 +1863,10 @@ export default function Admin() {
           <div className="sticky top-28 overflow-hidden rounded-3xl border border-white/10 bg-[#121318] p-3">
             <div className="px-3 pb-4 pt-2">
               <div className="text-[9px] font-black uppercase tracking-[0.25em] text-zinc-600">Панель управління</div>
-              <div className="mt-1 font-display text-2xl text-white">Адміністратор</div>
+              <div className="mt-1 font-display text-2xl text-white">{isEditor ? "Редактор" : "Адміністратор"}</div>
             </div>
             <div className="space-y-1" data-testid="admin-desktop-tabs">
-              {TABS.map((t) => {
+              {availableTabs.map((t) => {
                 const Icon = t.icon;
                 return (
                   <button
@@ -1849,11 +1887,11 @@ export default function Admin() {
         <div className="min-w-0 space-y-4">
           <div>
             <div className="text-[10px] font-black uppercase tracking-[0.25em] text-zinc-500">Панель управління</div>
-            <h1 className="mt-1 font-display text-3xl text-white lg:text-4xl">{TABS.find((item) => item.id === tab)?.label || "Адмін"}</h1>
+            <h1 className="mt-1 font-display text-3xl text-white lg:text-4xl">{availableTabs.find((item) => item.id === tab)?.label || "Панель"}</h1>
           </div>
 
           <div className="flex flex-wrap gap-2 pb-1 lg:hidden" data-testid="admin-tabs">
-            {TABS.map((t) => {
+            {availableTabs.map((t) => {
               const Icon = t.icon;
               return (
                 <button

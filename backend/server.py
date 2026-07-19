@@ -159,7 +159,7 @@ class UserPublic(BaseModel):
     name: str
     first_name: str = ""
     last_name: str = ""
-    role: Literal["employee", "admin"]
+    role: Literal["employee", "editor", "admin"]
     department: str = ""
     position: str = ""
     avatar_initials: str = ""
@@ -260,6 +260,7 @@ class UserAdminUpdateBody(BaseModel):
     team_id: Optional[str] = None
     is_team_leader: Optional[bool] = None
     approved: Optional[bool] = None
+    role: Optional[Literal["employee", "editor", "admin"]] = None
 
 
 class AvatarUpdateBody(BaseModel):
@@ -495,6 +496,12 @@ async def get_current_user(
 async def get_current_admin(user: dict = Depends(get_current_user)) -> dict:
     if user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Тільки для адміністраторів")
+    return user
+
+
+async def get_current_admin_or_editor(user: dict = Depends(get_current_user)) -> dict:
+    if user.get("role") not in {"admin", "editor"}:
+        raise HTTPException(status_code=403, detail="Доступ лише для адміністратора або редактора")
     return user
 
 
@@ -1320,7 +1327,7 @@ async def _ensure_daily_battles(date_key: str) -> None:
     import random
     users = await db.users.find(
         {"role": "employee", "approved": {"$ne": False}},
-        {"_id": 0, "id": 1, "name": 1, "avatar_initials": 1, "avatar_color": 1, "avatar_url": 1, "department": 1},
+        {"_id": 0, "id": 1, "name": 1, "avatar_initials": 1, "avatar_color": 1, "avatar_url": 1, "avatar_rarity": 1, "department": 1},
     ).to_list(2000)
     if not users:
         return
@@ -1463,7 +1470,7 @@ async def get_daily_tasks(user: dict = Depends(get_current_user)):
 
 
 @api.get("/admin/daily-tasks-dashboard")
-async def admin_daily_tasks_dashboard(admin: dict = Depends(get_current_admin)):
+async def admin_daily_tasks_dashboard(admin: dict = Depends(get_current_admin_or_editor)):
     date_key = kyiv_today_key()
     users = await db.users.find(
         {"role": "employee", "approved": {"$ne": False}},
@@ -1527,7 +1534,7 @@ async def admin_review_daily_task(
     user_id: str,
     task_id: int,
     decision: str,
-    admin: dict = Depends(get_current_admin),
+    admin: dict = Depends(get_current_admin_or_editor),
 ):
     if decision not in ("approve", "reject"):
         raise HTTPException(status_code=400, detail="Невідоме рішення")
@@ -1719,6 +1726,7 @@ class LeaderboardEntry(BaseModel):
     avatar_initials: str
     avatar_color: str
     avatar_url: Optional[str] = None
+    avatar_rarity: str = "basic"
     department: str
     score: int
     is_me: bool = False
@@ -1733,7 +1741,7 @@ class LeaderboardResponse(BaseModel):
 async def _leaderboard_all(current_id: str, limit: int = 10) -> LeaderboardResponse:
     users = await db.users.find(
         {"role": "employee"},
-        {"_id": 0, "id": 1, "name": 1, "avatar_initials": 1, "avatar_color": 1, "avatar_url": 1, "department": 1, "total_earned": 1},
+        {"_id": 0, "id": 1, "name": 1, "avatar_initials": 1, "avatar_color": 1, "avatar_url": 1, "avatar_rarity": 1, "department": 1, "total_earned": 1},
     ).sort("total_earned", -1).to_list(1000)
     top: List[LeaderboardEntry] = []
     my_entry = None
@@ -1745,6 +1753,7 @@ async def _leaderboard_all(current_id: str, limit: int = 10) -> LeaderboardRespo
             avatar_initials=u.get("avatar_initials", "?"),
             avatar_color=u.get("avatar_color", "#FFB800"),
             avatar_url=u.get("avatar_url"),
+            avatar_rarity=u.get("avatar_rarity", "basic"),
             department=u.get("department", ""),
             score=int(u.get("total_earned", 0)),
             is_me=(u["id"] == current_id),
@@ -1770,7 +1779,7 @@ async def _leaderboard_day(current_id: str, limit: int = 10) -> LeaderboardRespo
     users_map = {}
     async for item in db.users.find(
         {"id": {"$in": ids}, "role": "employee"},
-        {"_id": 0, "id": 1, "name": 1, "avatar_initials": 1, "avatar_color": 1, "avatar_url": 1, "department": 1},
+        {"_id": 0, "id": 1, "name": 1, "avatar_initials": 1, "avatar_color": 1, "avatar_url": 1, "avatar_rarity": 1, "department": 1},
     ):
         users_map[item["id"]] = item
     top, my_entry, rank = [], None, 0
@@ -1782,7 +1791,7 @@ async def _leaderboard_day(current_id: str, limit: int = 10) -> LeaderboardRespo
         entry = LeaderboardEntry(
             rank=rank, user_id=item["id"], name=item["name"],
             avatar_initials=item.get("avatar_initials", "?"), avatar_color=item.get("avatar_color", "#FFB800"),
-            avatar_url=item.get("avatar_url"), department=item.get("department", ""),
+            avatar_url=item.get("avatar_url"), avatar_rarity=item.get("avatar_rarity", "basic"), department=item.get("department", ""),
             score=int(row["score"]), is_me=item["id"] == current_id,
         )
         if rank <= limit:
@@ -1806,7 +1815,7 @@ async def _leaderboard_period(days: int, period_name: str, current_id: str, limi
     users_map = {}
     async for u in db.users.find(
         {"id": {"$in": ids}, "role": "employee"},
-        {"_id": 0, "id": 1, "name": 1, "avatar_initials": 1, "avatar_color": 1, "avatar_url": 1, "department": 1},
+        {"_id": 0, "id": 1, "name": 1, "avatar_initials": 1, "avatar_color": 1, "avatar_url": 1, "avatar_rarity": 1, "department": 1},
     ):
         users_map[u["id"]] = u
 
@@ -1825,6 +1834,7 @@ async def _leaderboard_period(days: int, period_name: str, current_id: str, limi
             avatar_initials=u.get("avatar_initials", "?"),
             avatar_color=u.get("avatar_color", "#FFB800"),
             avatar_url=u.get("avatar_url"),
+            avatar_rarity=u.get("avatar_rarity", "basic"),
             department=u.get("department", ""),
             score=int(g["score"]),
             is_me=(u["id"] == current_id),
@@ -1915,18 +1925,26 @@ PREDICTIONS_UK = [
     "Сьогодні є 1% шанс на джекпот у Щедрому Кубі. Спробуй.",
 ]
 
-# Cube rewards: (weight, min, max)
+# Cube faces: (face, weight %, min reward, max reward, tier)
+# The first spin each Kyiv day is free. Every next spin costs 50 Point.
+CUBE_SPIN_COST = 50
 CUBE_TABLE = [
-    (55, 10, 30),     # small
-    (30, 40, 80),     # medium
-    (12, 90, 150),    # large
-    (3, 200, 350),    # jackpot
+    (1, 37, 0, 30, "one"),
+    (2, 28, 31, 55, "two"),
+    (3, 20, 56, 70, "three"),
+    (4, 10, 71, 90, "four"),
+    (5, 4, 91, 125, "five"),
+    (6, 1, 126, 350, "six"),
 ]
 
 
 class CubeSpinResult(BaseModel):
     reward: int
-    tier: Literal["small", "medium", "large", "jackpot"]
+    face: int
+    tier: Literal["one", "two", "three", "four", "five", "six"]
+    cost: int
+    spin_count: int
+    next_spin_cost: int
     new_balance: int
     total_xp: int
 
@@ -1934,8 +1952,11 @@ class CubeSpinResult(BaseModel):
 class GamesStatus(BaseModel):
     date: str
     cube_spun: bool
+    cube_spin_count: int = 0
     cube_reward: Optional[int] = None
+    cube_face: Optional[int] = None
     cube_tier: Optional[str] = None
+    next_spin_cost: int = 0
     prediction_revealed: bool
     prediction_text: Optional[str] = None
 
@@ -1950,7 +1971,7 @@ async def _get_or_create_games_doc(user_id: str) -> dict:
     doc = await db.daily_games.find_one({"user_id": user_id, "date": key}, {"_id": 0})
     if doc:
         return doc
-    doc = {"user_id": user_id, "date": key, "cube_spun": False, "prediction_revealed": False}
+    doc = {"user_id": user_id, "date": key, "cube_spun": False, "cube_spin_count": 0, "prediction_revealed": False}
     await db.daily_games.insert_one(doc)
     doc.pop("_id", None)
     return doc
@@ -1959,11 +1980,15 @@ async def _get_or_create_games_doc(user_id: str) -> dict:
 @api.get("/games/status", response_model=GamesStatus)
 async def games_status(user: dict = Depends(get_current_user)):
     doc = await _get_or_create_games_doc(user["id"])
+    spin_count = int(doc.get("cube_spin_count") or (1 if doc.get("cube_spun") else 0))
     return GamesStatus(
         date=doc["date"],
-        cube_spun=doc.get("cube_spun", False),
+        cube_spun=spin_count > 0,
+        cube_spin_count=spin_count,
         cube_reward=doc.get("cube_reward"),
+        cube_face=doc.get("cube_face"),
         cube_tier=doc.get("cube_tier"),
+        next_spin_cost=0 if spin_count == 0 else CUBE_SPIN_COST,
         prediction_revealed=doc.get("prediction_revealed", False),
         prediction_text=doc.get("prediction_text"),
     )
@@ -1972,45 +1997,94 @@ async def games_status(user: dict = Depends(get_current_user)):
 @api.post("/games/cube/spin", response_model=CubeSpinResult)
 async def cube_spin(user: dict = Depends(get_current_user)):
     import random as _rand
-    doc = await _get_or_create_games_doc(user["id"])
-    if doc.get("cube_spun"):
-        raise HTTPException(status_code=400, detail="Куб уже кинуто сьогодні. Заходь завтра!")
 
-    # Weighted pick
-    total_weight = sum(w for w, _, _ in CUBE_TABLE)
-    roll = _rand.uniform(0, total_weight)
+    doc = await _get_or_create_games_doc(user["id"])
+    spin_count = int(doc.get("cube_spin_count") or (1 if doc.get("cube_spun") else 0))
+    cost = 0 if spin_count == 0 else CUBE_SPIN_COST
+
+    # Weighted face selection. The probability table totals exactly 100%.
+    roll = _rand.uniform(0, 100)
     acc = 0.0
     picked = CUBE_TABLE[0]
-    tier_names = ["small", "medium", "large", "jackpot"]
-    tier = "small"
-    for i, item in enumerate(CUBE_TABLE):
-        acc += item[0]
+    for item in CUBE_TABLE:
+        acc += item[1]
         if roll <= acc:
             picked = item
-            tier = tier_names[i]
             break
-    reward = _rand.randint(picked[1], picked[2])
 
-    await db.users.update_one(
-        {"id": user["id"]},
-        {"$inc": {"balance": reward, "total_earned": reward, "total_xp": reward // 3}},
+    face, _weight, reward_min, reward_max, tier = picked
+    reward = _rand.randint(reward_min, reward_max)
+    xp_reward = reward // 3
+
+    # One atomic balance update prevents parallel paid spins from overspending.
+    user_filter = {"id": user["id"]}
+    if cost:
+        user_filter["balance"] = {"$gte": cost}
+    update_result = await db.users.update_one(
+        user_filter,
+        {
+            "$inc": {
+                "balance": reward - cost,
+                "total_earned": reward,
+                "total_xp": xp_reward,
+            }
+        },
     )
+    if update_result.modified_count != 1:
+        raise HTTPException(status_code=400, detail=f"Недостатньо Point для кидка. Потрібно {cost} Point")
+
+    next_count = spin_count + 1
+    spin_record = {
+        "face": face,
+        "reward": reward,
+        "cost": cost,
+        "tier": tier,
+        "spun_at": now_iso(),
+    }
     await db.daily_games.update_one(
         {"user_id": user["id"], "date": _today_key()},
-        {"$set": {"cube_spun": True, "cube_reward": reward, "cube_tier": tier, "cube_spun_at": now_iso()}},
-    )
-    await db.transactions.insert_one(
         {
+            "$set": {
+                "cube_spun": True,
+                "cube_spin_count": next_count,
+                "cube_reward": reward,
+                "cube_face": face,
+                "cube_tier": tier,
+                "cube_spun_at": spin_record["spun_at"],
+            },
+            "$push": {"cube_spins": spin_record},
+        },
+    )
+
+    if cost:
+        await db.transactions.insert_one({
             "id": str(uuid.uuid4()),
             "user_id": user["id"],
-            "kind": "quest",
-            "amount": reward,
-            "description": f"Щедрий Куб ({tier})",
+            "kind": "purchase",
+            "amount": -cost,
+            "description": "Платний кидок Щедрого Куба",
             "created_at": now_iso(),
-        }
-    )
+        })
+    await db.transactions.insert_one({
+        "id": str(uuid.uuid4()),
+        "user_id": user["id"],
+        "kind": "quest",
+        "amount": reward,
+        "description": f"Щедрий Куб: грань {face} ({tier})",
+        "created_at": now_iso(),
+    })
+
     fresh = await db.users.find_one({"id": user["id"]}, {"_id": 0})
-    return CubeSpinResult(reward=reward, tier=tier, new_balance=fresh["balance"], total_xp=fresh["total_xp"])
+    return CubeSpinResult(
+        reward=reward,
+        face=face,
+        tier=tier,
+        cost=cost,
+        spin_count=next_count,
+        next_spin_cost=CUBE_SPIN_COST,
+        new_balance=fresh["balance"],
+        total_xp=fresh["total_xp"],
+    )
 
 
 @api.post("/games/prediction/reveal", response_model=PredictionResult)
@@ -2040,6 +2114,7 @@ class FeedEvent(BaseModel):
     avatar_initials: str
     avatar_color: str
     avatar_url: Optional[str] = None
+    avatar_rarity: str = "basic"
     department: str = ""
     title: str
     subtitle: str = ""
@@ -2090,7 +2165,7 @@ async def get_feed(limit: int = 40, user: dict = Depends(get_current_user)):
     users_map = {}
     async for u in db.users.find(
         {"id": {"$in": user_ids}, "role": "employee"},
-        {"_id": 0, "id": 1, "name": 1, "avatar_initials": 1, "avatar_color": 1, "avatar_url": 1, "department": 1},
+        {"_id": 0, "id": 1, "name": 1, "avatar_initials": 1, "avatar_color": 1, "avatar_url": 1, "avatar_rarity": 1, "department": 1},
     ):
         users_map[u["id"]] = u
 
@@ -2130,6 +2205,7 @@ async def get_feed(limit: int = 40, user: dict = Depends(get_current_user)):
                     avatar_initials=u.get("avatar_initials", "?"),
                     avatar_color=u.get("avatar_color", "#FFB800"),
                     avatar_url=u.get("avatar_url"),
+                    avatar_rarity=u.get("avatar_rarity", "basic"),
                     department=u.get("department", ""),
                     title="досягнув нового рівня",
                     subtitle=f"Рівень {lvl}",
@@ -2153,6 +2229,7 @@ async def get_feed(limit: int = 40, user: dict = Depends(get_current_user)):
             avatar_initials=u.get("avatar_initials", "?"),
             avatar_color=u.get("avatar_color", "#FFB800"),
             avatar_url=u.get("avatar_url"),
+            avatar_rarity=u.get("avatar_rarity", "basic"),
             department=u.get("department", ""),
             title=title,
             subtitle=subtitle,
@@ -2178,6 +2255,7 @@ async def get_feed(limit: int = 40, user: dict = Depends(get_current_user)):
             avatar_initials=u.get("avatar_initials", "?"),
             avatar_color=u.get("avatar_color", "#FFB800"),
             avatar_url=u.get("avatar_url"),
+            avatar_rarity=u.get("avatar_rarity", "basic"),
             department=u.get("department", ""),
             title="отримав приз",
             subtitle=o["prize_title"],
@@ -2331,7 +2409,7 @@ async def delete_comment(comment_id: str, user: dict = Depends(get_current_user)
 # Admin endpoints
 # ────────────────────────────────────────────────────────────────────────
 @api.get("/admin/users", response_model=List[UserWithProgress])
-async def admin_list_users(admin: dict = Depends(get_current_admin)):
+async def admin_list_users(admin: dict = Depends(get_current_admin_or_editor)):
     docs = await db.users.find({}, {"_id": 0}).sort("created_at", -1).to_list(1000)
     # Batch hydrate team names
     team_ids = list({d.get("team_id") for d in docs if d.get("team_id")})
@@ -2346,7 +2424,7 @@ async def admin_list_users(admin: dict = Depends(get_current_admin)):
 
 
 @api.patch("/admin/users/{user_id}/points", response_model=UserWithProgress)
-async def admin_adjust_points(user_id: str, body: PointsAdjustBody, admin: dict = Depends(get_current_admin)):
+async def admin_adjust_points(user_id: str, body: PointsAdjustBody, admin: dict = Depends(get_current_admin_or_editor)):
     target = await db.users.find_one({"id": user_id}, {"_id": 0})
     if not target:
         raise HTTPException(status_code=404, detail="Користувача не знайдено")

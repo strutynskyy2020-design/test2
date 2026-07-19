@@ -45,7 +45,7 @@ export default function AppLayout() {
   }, [user, nav]);
 
   if (!user) return null;
-  const isAdmin = user.role === "admin";
+  const isAdmin = ["admin", "editor"].includes(user.role);
   const isAdminRoute = loc.pathname.startsWith("/admin");
 
   return (

@@ -34,7 +34,7 @@ const RequireAuth = ({ children }) => {
 const RequireAdmin = ({ children }) => {
   const { user } = useApp();
   if (!user) return <Navigate to="/login" replace />;
-  if (user.role !== "admin") return <Navigate to="/" replace />;
+  if (!["admin", "editor"].includes(user.role)) return <Navigate to="/" replace />;
   return children;
 };
 

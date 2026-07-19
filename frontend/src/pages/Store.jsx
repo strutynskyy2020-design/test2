@@ -3,6 +3,7 @@ import { Coins, Gift, CalendarOff, Coffee, Clock4, ShoppingBag, X, Check, UserRo
 import { toast } from "sonner";
 import { useApp } from "@/context/AppContext";
 import { fireConfetti } from "@/lib/confetti";
+import AvatarFrame from "@/components/AvatarFrame";
 
 const ICONS = {
   gift: Gift,
@@ -31,8 +32,18 @@ const PrizeCard = ({ prize, balance, onBuy, owned, active }) => {
       }`}
     >
       <div className="relative aspect-[4/3] bg-[#0A0A0A] flex items-center justify-center overflow-hidden">
-        {prize.image ? (
-          <img src={prize.image} alt={prize.title} className={`w-full h-full object-cover ${prize.category === "avatar" ? "scale-[1.08]" : ""}`} loading="lazy" />
+        {prize.category === "avatar" ? (
+          <AvatarFrame
+            src={prize.image}
+            alt={prize.title}
+            initials="?"
+            rarity={prize.avatar_rarity}
+            size="xl"
+            className="scale-[1.12]"
+            imageClassName="scale-[1.16]"
+          />
+        ) : prize.image ? (
+          <img src={prize.image} alt={prize.title} className="h-full w-full object-cover" loading="lazy" />
         ) : (
           <IconFallback size={56} strokeWidth={2.25} color="#FFB800" />
         )}

@@ -4,6 +4,7 @@ import { Flame, Trophy, GraduationCap, Sparkles, Crown, Zap, ChevronRight, Coins
 import { useApp } from "@/context/AppContext";
 import api, { getToken } from "@/lib/api";
 import { resolveAvatarUrl } from "@/lib/avatar";
+import AvatarFrame from "@/components/AvatarFrame";
 import { getAchievements } from "@/lib/achievements";
 import { FeedItem } from "@/pages/Feed";
 
@@ -161,10 +162,19 @@ export default function Home() {
     <section className="rounded-3xl border border-white/10 bg-[#1A1A1E] p-5">
       <div className="flex items-center gap-4">
         <div className="relative shrink-0">
-          <button type="button" onClick={() => nav("/store")} className="relative block h-16 w-16 overflow-hidden rounded-2xl border border-white/10 font-display text-xl text-[#0A0A0A] active:scale-95" style={{ backgroundColor: user.avatar_color }} aria-label="Відкрити магазин аватарок">
-            {avatarSrc && !avatarImageFailed ? <img src={avatarSrc} alt="Аватар профілю" onLoad={() => setAvatarImageFailed(false)} onError={() => setAvatarImageFailed(true)} className="h-full w-full scale-[1.22] object-cover" /> : <span className="absolute inset-0 flex items-center justify-center">{user.avatar_initials}</span>}
+          <button type="button" onClick={() => nav("/store")} className="relative block active:scale-95" aria-label="Відкрити магазин аватарок">
+            <AvatarFrame
+              src={avatarSrc && !avatarImageFailed ? avatarSrc : null}
+              alt="Аватар профілю"
+              initials={user.avatar_initials}
+              color={user.avatar_color}
+              rarity={user.avatar_rarity}
+              size="md"
+              onLoad={() => setAvatarImageFailed(false)}
+              onError={() => setAvatarImageFailed(true)}
+            />
           </button>
-          <div className="absolute -bottom-1 -right-1 rounded-full border-2 border-[#0A0A0A] bg-[#FFB800] px-2 py-0.5 text-[11px] font-black text-[#0A0A0A]">LVL {level}</div>
+          <div className="absolute -bottom-2 -right-1 rounded-full border-2 border-[#0A0A0A] bg-[#FFB800] px-1.5 py-0.5 text-[9px] font-black text-[#0A0A0A]">LVL {level}</div>
         </div>
         <div className="min-w-0 flex-1"><div className="truncate font-display text-lg text-white">{user.name}</div><div className="truncate text-xs text-zinc-500">{user.position}</div><div className="truncate text-xs text-zinc-600">{user.team_name || user.department || "—"}</div></div>
       </div>
@@ -194,7 +204,7 @@ export default function Home() {
     <section className="flex items-center gap-3 rounded-3xl border border-[#FF5C00]/30 bg-gradient-to-r from-[#FF5C00]/15 to-transparent p-4"><div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#FF5C00]"><Flame size={24} color="#0A0A0A" /></div><div className="flex-1"><div className="font-black text-white">{user.streak} днів поспіль</div><div className="text-xs text-zinc-400">Не втрачай серію</div></div></section>
 
     {/* 7. Feed */}
-    <section><div className="mb-3 flex items-center justify-between px-1"><div className="flex items-center gap-2 font-display text-lg text-white"><Newspaper size={19} color="#39FF14"/>Стрічка активності</div></div>{feed.length ? <ul className="space-y-3">{feed.slice(0,4).map(ev => <FeedItem key={ev.id} ev={ev}/>)}</ul> : <div className="rounded-3xl border border-white/10 bg-[#1A1A1E] p-5 text-center text-xs text-zinc-500">Поки що немає нової активності</div>}</section>
+    <section><div className="mb-3 flex items-center justify-between px-1"><div className="flex items-center gap-2 font-display text-lg text-white"><Newspaper size={19} color="#39FF14"/>Стрічка активності</div><button type="button" onClick={() => nav("/feed")} className="rounded-full border border-white/10 bg-[#1A1A1E] px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-zinc-300 active:scale-95">Переглянути все</button></div>{feed.length ? <ul className="space-y-3">{feed.slice(0,4).map(ev => <FeedItem key={ev.id} ev={ev}/>)}</ul> : <div className="rounded-3xl border border-white/10 bg-[#1A1A1E] p-5 text-center text-xs text-zinc-500">Поки що немає нової активності</div>}</section>
 
     {/* 8. Achievements */}
     <section><div className="mb-3 flex items-center justify-between px-1"><div className="font-display text-lg text-white">Досягнення</div><div className="text-xs font-black text-zinc-500">{achievements.filter(a=>a.unlocked).length} / {achievements.length}</div></div><div className="grid grid-cols-3 gap-3">{achievements.map(a=><Badge key={a.id} ach={a}/>)}</div></section>

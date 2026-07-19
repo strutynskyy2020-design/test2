@@ -3,7 +3,7 @@ import { Swords, Gift, TrendingUp, Dice5, PackageCheck, Loader2, Newspaper } fro
 import api, { extractError } from "@/lib/api";
 import { toast } from "sonner";
 import FeedSocial from "@/components/FeedSocial";
-import { resolveAvatarUrl } from "@/lib/avatar";
+import AvatarFrame from "@/components/AvatarFrame";
 
 const KIND_META = {
   quest: {
@@ -79,16 +79,14 @@ export const FeedItem = ({ ev }) => {
       <div className="flex items-start gap-3">
       {/* Avatar */}
       <div className="relative shrink-0">
-        <div
-          className="w-11 h-11 rounded-2xl overflow-hidden flex items-center justify-center font-display text-sm text-[#0A0A0A]"
-          style={{ backgroundColor: ev.avatar_color }}
-        >
-          {ev.avatar_url ? (
-            <img src={resolveAvatarUrl(ev.avatar_url)} alt={ev.user_name} className="h-full w-full scale-[1.22] object-cover" />
-          ) : (
-            ev.avatar_initials
-          )}
-        </div>
+        <AvatarFrame
+          src={ev.avatar_url}
+          alt={ev.user_name}
+          initials={ev.avatar_initials}
+          color={ev.avatar_color}
+          rarity={ev.avatar_rarity}
+          size="sm"
+        />
         <div
           className={`absolute -bottom-1 -right-1 w-6 h-6 rounded-xl ${meta.bg} border-2 border-[#0A0A0A] flex items-center justify-center`}
           style={{ borderColor: "#0A0A0A" }}

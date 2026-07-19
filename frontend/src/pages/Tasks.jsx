@@ -200,6 +200,7 @@ export default function Tasks() {
     try {
       const response = await api.post(`/daily-tasks/${taskId}/replace`);
       setData(response.data);
+      await load();
       toast.success("Завдання замінено", { description: response.data.replacements_remaining > 0 ? `Ще доступно замін: ${response.data.replacements_remaining}` : "Ліміт замін на сьогодні вичерпано" });
     } catch (error) {
       toast.error(extractError(error, "Не вдалося замінити завдання"));

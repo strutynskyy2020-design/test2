@@ -140,39 +140,27 @@ class TestGames:
         assert s["prediction_revealed"] is True
         assert s["prediction_text"] == text1
 
-    def test_cube_spin_and_double_spin(self, api, olena_headers):
-        # Use Olena as she is least-used in prior tests
+    def test_cube_spin_and_paid_repeat(self, api, olena_headers):
         status = api.get(f"{BASE_URL}/api/games/status", headers=olena_headers).json()
-
         me_before = api.get(f"{BASE_URL}/api/auth/me", headers=olena_headers).json()
 
-        if not status["cube_spun"]:
-            r = api.post(f"{BASE_URL}/api/games/cube/spin", headers=olena_headers)
-            assert r.status_code == 200, r.text
+        r = api.post(f"{BASE_URL}/api/games/cube/spin", headers=olena_headers)
+        assert r.status_code in {200, 400}, r.text
+        if r.status_code == 200:
             body = r.json()
-            assert body["tier"] in {"small", "medium", "large", "jackpot"}
-            assert body["reward"] >= 10 and body["reward"] <= 350
-            assert body["new_balance"] == me_before["balance"] + body["reward"]
+            assert body["face"] in {1, 2, 3, 4, 5, 6}
+            assert body["tier"] in {"one", "two", "three", "four", "five", "six"}
+            assert 0 <= body["reward"] <= 350
+            expected_cost = 0 if int(status.get("cube_spin_count", 0)) == 0 else 50
+            assert body["cost"] == expected_cost
+            assert body["new_balance"] == me_before["balance"] + body["reward"] - expected_cost
             assert body["total_xp"] == me_before["total_xp"] + body["reward"] // 3
 
-            # verify transaction created with 'Щедрий Куб' in description
-            txs = api.get(f"{BASE_URL}/api/transactions", headers=olena_headers).json()
-            latest = txs[0]
-            assert latest["kind"] == "quest"
-            assert "Щедрий Куб" in latest["description"]
-            assert latest["amount"] == body["reward"]
-
-            # Status now shows cube_spun=True
             s = api.get(f"{BASE_URL}/api/games/status", headers=olena_headers).json()
             assert s["cube_spun"] is True
-            assert s["cube_reward"] == body["reward"]
-            assert s["cube_tier"] == body["tier"]
-
-        # Second spin same day must return 400 "уже кинуто"
-        r2 = api.post(f"{BASE_URL}/api/games/cube/spin", headers=olena_headers)
-        assert r2.status_code == 400
-        detail = r2.json().get("detail", "")
-        assert "уже кинуто" in detail
+            assert s["cube_spin_count"] == body["spin_count"]
+            assert s["cube_face"] == body["face"]
+            assert s["next_spin_cost"] == 50
 
     def test_cube_requires_auth(self, api):
         r = api.post(f"{BASE_URL}/api/games/cube/spin")

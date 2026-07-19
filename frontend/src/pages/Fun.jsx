@@ -1,16 +1,18 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Dice5, Sparkles, ArrowLeft, Coins, Lock, Zap } from "lucide-react";
+import { Dice5, Sparkles, ArrowLeft, Coins, Zap } from "lucide-react";
 import { toast } from "sonner";
 import api, { extractError } from "@/lib/api";
 import { useApp } from "@/context/AppContext";
 import { fireConfetti } from "@/lib/confetti";
 
 const TIER_COLORS = {
-  small:   { color: "#39FF14", label: "Мало", emoji: "🎯" },
-  medium:  { color: "#FFB800", label: "Норм", emoji: "⭐" },
-  large:   { color: "#FF5C00", label: "Круто!", emoji: "🔥" },
-  jackpot: { color: "#00F0FF", label: "ДЖЕКПОТ!", emoji: "💎" },
+  one:   { color: "#9CA3AF", label: "Грань 1" },
+  two:   { color: "#39FF14", label: "Грань 2" },
+  three: { color: "#00F0FF", label: "Грань 3" },
+  four:  { color: "#FFB800", label: "Грань 4" },
+  five:  { color: "#B575FF", label: "Грань 5" },
+  six:   { color: "#FF5C00", label: "Грань 6" },
 };
 
 const CubeFace = ({ face, rolling }) => (
@@ -22,10 +24,11 @@ const CubeFace = ({ face, rolling }) => (
   </div>
 );
 
-const FACES = ["1", "2", "3", "4", "5", "6"];
+const FACES = ["⚀", "⚁", "⚂", "⚃", "⚄", "⚅"];
+const faceGlyph = (face) => FACES[Math.max(0, Math.min(5, Number(face || 1) - 1))];
 
 export default function Fun() {
-  const { refreshMe, mode } = useApp();
+  const { refreshMe, mode, user } = useApp();
   const nav = useNavigate();
   const [status, setStatus] = useState(null);
   const [loadingStatus, setLoadingStatus] = useState(true);
@@ -36,7 +39,7 @@ export default function Fun() {
 
   const load = async () => {
     if (mode === "mock") {
-      setStatus({ date: "-", cube_spun: false, prediction_revealed: false });
+      setStatus({ date: "-", cube_spun: false, cube_spin_count: 0, next_spin_cost: 0, prediction_revealed: false });
       setLoadingStatus(false);
       return;
     }
@@ -45,7 +48,8 @@ export default function Fun() {
       const r = await api.get("/games/status");
       setStatus(r.data);
       if (r.data.cube_spun) {
-        setLastReward({ reward: r.data.cube_reward, tier: r.data.cube_tier });
+        setLastReward({ reward: r.data.cube_reward, tier: r.data.cube_tier, face: r.data.cube_face });
+        if (r.data.cube_face) setFace(faceGlyph(r.data.cube_face));
       }
     } catch (e) { toast.error(extractError(e)); }
     setLoadingStatus(false);
@@ -55,7 +59,7 @@ export default function Fun() {
 
   const spin = async () => {
     if (mode === "mock") { toast.error("Гра доступна тільки з бекендом"); return; }
-    if (status?.cube_spun || rolling) return;
+    if (rolling) return;
     setRolling(true);
     setFace("?");
     // Rolling animation — cycle faces for ~1.4s
@@ -69,11 +73,19 @@ export default function Fun() {
       setTimeout(() => {
         clearInterval(int);
         setRolling(false);
-        setFace(FACES[Math.floor(Math.random() * FACES.length)]);
-        setLastReward({ reward: r.data.reward, tier: r.data.tier });
-        setStatus((s) => ({ ...s, cube_spun: true, cube_reward: r.data.reward, cube_tier: r.data.tier }));
+        setFace(faceGlyph(r.data.face));
+        setLastReward({ reward: r.data.reward, tier: r.data.tier, face: r.data.face, cost: r.data.cost });
+        setStatus((s) => ({
+          ...s,
+          cube_spun: true,
+          cube_spin_count: r.data.spin_count,
+          cube_reward: r.data.reward,
+          cube_face: r.data.face,
+          cube_tier: r.data.tier,
+          next_spin_cost: r.data.next_spin_cost,
+        }));
         fireConfetti();
-        toast.success(`+${r.data.reward} балів!`, { description: TIER_COLORS[r.data.tier].label, duration: 3000 });
+        toast.success(`+${r.data.reward} Point`, { description: r.data.cost ? `Вартість кидка: ${r.data.cost} Point` : "Перший кидок безкоштовний", duration: 3500 });
         refreshMe();
       }, 1400);
     } catch (e) {
@@ -159,49 +171,54 @@ export default function Fun() {
         </div>
 
         <div className="mt-6 text-center w-full">
-          {status?.cube_spun && lastReward ? (
-            <div className="space-y-2" data-testid="cube-result">
-              <div className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Твій виграш сьогодні</div>
-              <div className="flex items-center justify-center gap-2">
-                <span className="text-3xl">{TIER_COLORS[lastReward.tier].emoji}</span>
-                <span className="font-display text-3xl" style={{ color: TIER_COLORS[lastReward.tier].color }}>
+          {lastReward && (
+            <div className="mb-5 space-y-2 reward-pop" data-testid="cube-result">
+              <div className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Останній результат</div>
+              <div className="flex items-center justify-center gap-3">
+                <span className="text-4xl">{faceGlyph(lastReward.face)}</span>
+                <span className="font-display text-3xl" style={{ color: TIER_COLORS[lastReward.tier]?.color || "#FFB800" }}>
                   +{lastReward.reward}
                 </span>
               </div>
-              <div className="text-[11px] font-black uppercase tracking-widest" style={{ color: TIER_COLORS[lastReward.tier].color }}>
-                {TIER_COLORS[lastReward.tier].label}
+              <div className="text-[11px] font-black uppercase tracking-widest" style={{ color: TIER_COLORS[lastReward.tier]?.color || "#FFB800" }}>
+                {TIER_COLORS[lastReward.tier]?.label || `Грань ${lastReward.face}`}
               </div>
-              <div className="mt-4 w-full h-11 rounded-xl bg-[#0A0A0A] border-2 border-white/5 flex items-center justify-center gap-2 text-zinc-500">
-                <Lock size={14} strokeWidth={3} />
-                <span className="text-xs font-black uppercase tracking-wider">Заходь завтра</span>
-              </div>
+              {Number(lastReward.cost || 0) > 0 && (
+                <div className="text-[11px] font-black text-zinc-500">Вартість спроби: −{lastReward.cost} Point</div>
+              )}
             </div>
-          ) : (
-            <>
-              <div className="text-zinc-400 text-sm mb-4">Кинь куб і отримай від 10 до 350 балів!</div>
-              <button
-                data-testid="spin-cube"
-                onClick={spin}
-                disabled={rolling || loadingStatus}
-                className="arcade-btn w-full h-14 bg-[#39FF14] border-[#1a7a0a] text-[#0A0A0A] font-black text-base uppercase tracking-wider flex items-center justify-center gap-2 disabled:opacity-60"
-              >
-                <Zap size={18} strokeWidth={3} />
-                {rolling ? "Кубик крутиться..." : "КИНУТИ КУБ"}
-              </button>
-              <div className="grid grid-cols-4 gap-1.5 mt-4 text-[10px] font-black">
-                <div className="rounded-lg py-1.5 bg-[#39FF14]/15 text-[#39FF14]">10-30<br/>55%</div>
-                <div className="rounded-lg py-1.5 bg-[#FFB800]/15 text-[#FFB800]">40-80<br/>30%</div>
-                <div className="rounded-lg py-1.5 bg-[#FF5C00]/15 text-[#FF5C00]">90-150<br/>12%</div>
-                <div className="rounded-lg py-1.5 bg-[#00F0FF]/15 text-[#00F0FF]">200+<br/>3%</div>
-              </div>
-            </>
           )}
+
+          <div className="text-zinc-400 text-sm mb-4">
+            {Number(status?.cube_spin_count || 0) === 0
+              ? "Перша спроба сьогодні безкоштовна"
+              : "Наступна спроба коштує 50 Point"}
+          </div>
+          <button
+            data-testid="spin-cube"
+            onClick={spin}
+            disabled={rolling || loadingStatus || (Number(status?.cube_spin_count || 0) > 0 && Number(user?.balance || 0) < 50)}
+            className="arcade-btn w-full h-14 bg-[#39FF14] border-[#1a7a0a] text-[#0A0A0A] font-black text-base uppercase tracking-wider flex items-center justify-center gap-2 disabled:opacity-60"
+          >
+            <Zap size={18} strokeWidth={3} />
+            {rolling
+              ? "Кубик крутиться..."
+              : Number(status?.cube_spin_count || 0) === 0
+                ? "КИНУТИ БЕЗКОШТОВНО"
+                : "КИНУТИ ЗА 50 POINT"}
+          </button>
+          {Number(status?.cube_spin_count || 0) > 0 && Number(user?.balance || 0) < 50 && (
+            <div className="mt-3 text-xs font-black text-[#FF5C00]">Недостатньо Point для наступної спроби</div>
+          )}
+          <div className="mt-3 text-[11px] font-black text-zinc-500">
+            Спроб сьогодні: {Number(status?.cube_spin_count || 0)}
+          </div>
         </div>
       </section>
 
       <div className="text-[11px] text-zinc-500 text-center font-black">
         <Coins size={12} strokeWidth={3} className="inline -mt-0.5 mr-1" />
-        Обидві гри — безкоштовно, раз на добу. Оновлення о 00:00.
+        Передбачення безкоштовне раз на добу. Перший кидок куба безкоштовний, наступні — по 50 Point.
       </div>
     </div>
   );
