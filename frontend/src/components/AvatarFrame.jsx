@@ -30,7 +30,7 @@ export default function AvatarFrame({
   rarity,
   size = "md",
   className = "",
-  imageClassName = "scale-[1.16]",
+  imageClassName = "",
   onLoad,
   onError,
 }) {
@@ -47,7 +47,7 @@ export default function AvatarFrame({
           <img
             src={resolvedSrc}
             alt={alt}
-            className={`h-full w-full object-cover ${imageClassName}`}
+            className={`avatar-frame__portrait-image ${imageClassName}`}
             onLoad={onLoad}
             onError={onError}
           />
@@ -63,9 +63,6 @@ export default function AvatarFrame({
         aria-hidden="true"
         draggable="false"
       />
-      <span className="avatar-frame__spark avatar-frame__spark--one" aria-hidden="true" />
-      <span className="avatar-frame__spark avatar-frame__spark--two" aria-hidden="true" />
-      <span className="avatar-frame__spark avatar-frame__spark--three" aria-hidden="true" />
     </div>
   );
 }

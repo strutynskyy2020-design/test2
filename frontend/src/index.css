@@ -107,129 +107,107 @@ body {
 
 /* Avatar rarity frames */
 .avatar-frame {
-  --frame-size: 64px;
-  --portrait-inset: 15.5%;
+  --frame-size: 66px;
+  --portrait-inset: 19%;
   position: relative;
+  display: grid;
+  place-items: center;
   width: var(--frame-size);
   height: var(--frame-size);
-  flex: 0 0 auto;
+  flex: 0 0 var(--frame-size);
+  line-height: 0;
   isolation: isolate;
   overflow: visible;
 }
-.avatar-frame--xs { --frame-size: 34px; }
-.avatar-frame--sm { --frame-size: 44px; }
-.avatar-frame--md { --frame-size: 64px; }
-.avatar-frame--lg { --frame-size: 78px; }
-.avatar-frame--xl { --frame-size: 96px; }
+
+.avatar-frame--xs { --frame-size: 38px; }
+.avatar-frame--sm { --frame-size: 54px; }
+.avatar-frame--md { --frame-size: 66px; }
+.avatar-frame--lg { --frame-size: 86px; }
+.avatar-frame--xl { --frame-size: clamp(122px, 34vw, 138px); }
 
 .avatar-frame__portrait {
   position: absolute;
   z-index: 1;
   inset: var(--portrait-inset);
+  display: grid;
+  place-items: center;
   overflow: hidden;
   border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
   color: #080808;
   font-family: 'Unbounded', sans-serif;
   font-weight: 900;
+  background: #17171b;
   box-shadow:
-    inset 0 0 0 1px rgba(255,255,255,.16),
-    inset 0 -8px 16px rgba(0,0,0,.24);
+    inset 0 0 0 1px rgba(255,255,255,.13),
+    inset 0 -5px 12px rgba(0,0,0,.18);
 }
+
 .avatar-frame__portrait::after {
   content: "";
   position: absolute;
   inset: 0;
   pointer-events: none;
-  background: radial-gradient(circle at 50% 32%, transparent 42%, rgba(0,0,0,.22) 100%);
+  background: radial-gradient(circle at 50% 38%, transparent 58%, rgba(0,0,0,.14) 100%);
 }
-.avatar-frame__portrait img { transform-origin: 50% 48%; }
-.avatar-frame__initials { font-size: calc(var(--frame-size) * .25); }
+
+.avatar-frame__portrait-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 50% 47%;
+  transform: scale(1.18);
+  transform-origin: 50% 48%;
+}
+
+.avatar-frame--xs .avatar-frame__portrait-image,
+.avatar-frame--sm .avatar-frame__portrait-image {
+  transform: scale(1.22);
+}
+
+.avatar-frame__initials {
+  font-size: calc(var(--frame-size) * .22);
+  line-height: 1;
+}
+
 .avatar-frame__art {
   position: absolute;
   z-index: 3;
-  inset: -8%;
-  width: 116%;
-  height: 116%;
-  overflow: visible;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
   object-fit: contain;
+  object-position: 50% 50%;
   user-select: none;
   pointer-events: none;
-  filter: drop-shadow(0 3px 4px rgba(0,0,0,.72));
+  transform: translateZ(0);
+  filter: drop-shadow(0 2px 2px rgba(0,0,0,.62));
 }
 
-.avatar-frame--basic { --portrait-inset: 16%; }
-.avatar-frame--improved { --portrait-inset: 16%; }
-.avatar-frame--rare { --portrait-inset: 16.5%; }
-.avatar-frame--epic { --portrait-inset: 17%; }
-.avatar-frame--legendary { --portrait-inset: 17.5%; }
+.avatar-frame--basic { --portrait-inset: 18.5%; }
+.avatar-frame--improved { --portrait-inset: 19%; }
+.avatar-frame--rare { --portrait-inset: 19%; }
+.avatar-frame--epic { --portrait-inset: 19.5%; }
+.avatar-frame--legendary { --portrait-inset: 19.5%; }
 
+/* Static, restrained accents. The PNG artwork carries the rarity colour;
+   these shadows only separate the border from the dark UI. */
 .avatar-frame--improved .avatar-frame__art {
-  animation: avatar-breathe-green 3s ease-in-out infinite;
+  filter: drop-shadow(0 2px 2px rgba(0,0,0,.62)) drop-shadow(0 0 2px rgba(57,255,20,.22));
 }
 .avatar-frame--rare .avatar-frame__art {
-  animation: avatar-energy-blue 4.8s ease-in-out infinite;
+  filter: drop-shadow(0 2px 2px rgba(0,0,0,.62)) drop-shadow(0 0 2px rgba(0,174,255,.24));
 }
 .avatar-frame--epic .avatar-frame__art {
-  animation: avatar-crystal-pulse 3.6s ease-in-out infinite;
+  filter: drop-shadow(0 2px 2px rgba(0,0,0,.62)) drop-shadow(0 0 2px rgba(183,92,255,.24));
 }
 .avatar-frame--legendary .avatar-frame__art {
-  inset: -13%;
-  width: 126%;
-  height: 126%;
-  animation: avatar-gold-shimmer 3.2s ease-in-out infinite;
+  filter: drop-shadow(0 2px 2px rgba(0,0,0,.68)) drop-shadow(0 0 2px rgba(255,184,0,.25));
 }
 
-.avatar-frame__spark {
-  display: none;
-  position: absolute;
-  z-index: 4;
-  width: max(2px, calc(var(--frame-size) * .045));
-  height: max(2px, calc(var(--frame-size) * .045));
-  border-radius: 999px;
-  pointer-events: none;
-}
-.avatar-frame--epic .avatar-frame__spark,
-.avatar-frame--legendary .avatar-frame__spark { display: block; }
-.avatar-frame--epic .avatar-frame__spark {
-  background: #e580ff;
-  box-shadow: 0 0 8px #c43cff, 0 0 14px rgba(172,50,255,.65);
-}
-.avatar-frame--legendary .avatar-frame__spark {
-  background: #fff1a8;
-  box-shadow: 0 0 8px #ffb800, 0 0 15px rgba(255,184,0,.75);
-}
-.avatar-frame__spark--one { left: 4%; top: 22%; animation: avatar-spark 2.5s ease-in-out infinite; }
-.avatar-frame__spark--two { right: 2%; top: 37%; animation: avatar-spark 2.9s ease-in-out .7s infinite; }
-.avatar-frame__spark--three { left: 24%; bottom: 0; animation: avatar-spark 3.3s ease-in-out 1.15s infinite; }
-
-@keyframes avatar-breathe-green {
-  0%,100% { filter: drop-shadow(0 0 3px rgba(57,255,20,.35)); }
-  50% { filter: drop-shadow(0 0 9px rgba(57,255,20,.8)); }
-}
-@keyframes avatar-energy-blue {
-  0%,100% { filter: drop-shadow(0 0 4px rgba(0,153,255,.45)) brightness(1); }
-  50% { filter: drop-shadow(0 0 10px rgba(0,196,255,.85)) brightness(1.14); }
-}
-@keyframes avatar-crystal-pulse {
-  0%,100% { filter: drop-shadow(0 0 4px rgba(183,92,255,.48)) saturate(1); }
-  50% { filter: drop-shadow(0 0 12px rgba(205,79,255,.9)) saturate(1.22); }
-}
-@keyframes avatar-gold-shimmer {
-  0%,100% { filter: drop-shadow(0 0 5px rgba(255,184,0,.52)) brightness(1); }
-  50% { filter: drop-shadow(0 0 13px rgba(255,184,0,.95)) brightness(1.18) saturate(1.15); }
-}
-@keyframes avatar-spark {
-  0%,100% { transform: scale(.45); opacity: .15; }
-  45% { transform: scale(1.2); opacity: 1; }
-  70% { transform: scale(.7); opacity: .35; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .avatar-frame__art,
-  .avatar-frame__spark { animation: none !important; }
+@media (max-width: 390px) {
+  .avatar-frame--xl { --frame-size: 120px; }
 }
 
 /* Generous Cube v44: slower cinematic true-3D scene */

@@ -169,14 +169,14 @@ export default function Home() {
               initials={user.avatar_initials}
               color={user.avatar_color}
               rarity={user.avatar_rarity}
-              size="md"
+              size="lg"
               onLoad={() => setAvatarImageFailed(false)}
               onError={() => setAvatarImageFailed(true)}
             />
           </button>
-          <div className="absolute -bottom-2 -right-1 rounded-full border-2 border-[#0A0A0A] bg-[#FFB800] px-1.5 py-0.5 text-[9px] font-black text-[#0A0A0A]">LVL {level}</div>
+          <div className="absolute -bottom-1 right-0 rounded-full border-2 border-[#0A0A0A] bg-[#FFB800] px-1.5 py-0.5 text-[9px] font-black text-[#0A0A0A]">LVL {level}</div>
         </div>
-        <div className="min-w-0 flex-1"><div className="truncate font-display text-lg text-white">{user.name}</div><div className="truncate text-xs text-zinc-500">{user.position}</div><div className="truncate text-xs text-zinc-600">{user.team_name || user.department || "—"}</div></div>
+        <div className="min-w-0 flex-1 overflow-hidden"><div className="truncate font-display text-[17px] leading-tight text-white">{user.name}</div><div className="truncate text-xs text-zinc-500">{user.position}</div><div className="truncate text-xs text-zinc-600">{user.team_name || user.department || "—"}</div></div>
       </div>
       <div className="mt-5"><div className="mb-2 flex justify-between"><div className="text-[11px] font-black uppercase tracking-widest text-zinc-500">Рівень {level}</div><div className="text-[11px] font-black text-white">{xp} / {xpNext} XP</div></div><div className="h-4 overflow-hidden rounded-full border border-white/5 bg-[#0A0A0A]"><div className="xp-stripes h-full rounded-full" style={{ width: `${xpPct}%`, background: "linear-gradient(90deg,#FF5C00,#FFB800)" }} /></div></div>
     </section>

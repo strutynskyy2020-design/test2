@@ -22,9 +22,9 @@ const RankBadge = ({ rank }) => {
 const Row = ({ entry, dim }) => (
   <div
     data-testid={`lb-row-${entry.rank}`}
-    className={`flex items-center gap-3 rounded-2xl border-2 p-3 transition-all ${
+    className={`flex min-h-[88px] items-center gap-3 rounded-2xl border-2 px-3 py-2.5 transition-all ${
       entry.is_me
-        ? "border-[#FFB800]/60 bg-[#FFB800]/10 glow-yellow"
+        ? "border-[#FFB800]/60 bg-[#FFB800]/10"
         : dim
         ? "border-white/5 bg-[#141416]"
         : "border-white/10 bg-[#1A1A1E]"
@@ -37,7 +37,7 @@ const Row = ({ entry, dim }) => (
       initials={entry.avatar_initials || "?"}
       color={entry.avatar_color}
       rarity={entry.avatar_rarity}
-      size="sm"
+      size="md"
     />
     <div className="min-w-0 flex-1">
       <div className={`truncate text-sm font-black ${entry.is_me ? "text-[#FFB800]" : "text-white"}`}>
@@ -45,7 +45,7 @@ const Row = ({ entry, dim }) => (
       </div>
       <div className="truncate text-[11px] text-zinc-500">{entry.department || "—"}</div>
     </div>
-    <div className="flex shrink-0 items-center gap-1.5">
+    <div className="flex min-w-[82px] shrink-0 items-center justify-end gap-1.5">
       <Coins size={14} strokeWidth={3} color="#FFB800" />
       <span className="font-display text-base text-[#FFB800]">{entry.score.toLocaleString("uk-UA")}</span>
     </div>
