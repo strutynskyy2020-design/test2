@@ -14,10 +14,8 @@ const ICONS = {
 
 const PRIZE_CATEGORIES = [
   { id: "all", label: "Все" },
-  { id: "avatar", label: "Аватари" },
-  { id: "merch", label: "Мерч" },
   { id: "privilege", label: "Привілеї" },
-  { id: "certificate", label: "Сертифікати" },
+  { id: "avatar", label: "Аватарки" },
 ];
 
 const PrizeCard = ({ prize, balance, onBuy, owned, active }) => {
@@ -34,7 +32,7 @@ const PrizeCard = ({ prize, balance, onBuy, owned, active }) => {
     >
       <div className="relative aspect-[4/3] bg-[#0A0A0A] flex items-center justify-center overflow-hidden">
         {prize.image ? (
-          <img src={prize.image} alt={prize.title} className="w-full h-full object-cover" loading="lazy" />
+          <img src={prize.image} alt={prize.title} className={`w-full h-full object-cover ${prize.category === "avatar" ? "scale-[1.08]" : ""}`} loading="lazy" />
         ) : (
           <IconFallback size={56} strokeWidth={2.25} color="#FFB800" />
         )}
@@ -141,10 +139,40 @@ export default function Store() {
   const [pending, setPending] = useState(null);
   const [submitting, setSubmitting] = useState(false);
 
-  const filtered = useMemo(
-    () => (cat === "all" ? prizes : prizes.filter((p) => p.category === cat)),
-    [cat, prizes]
-  );
+  const filtered = useMemo(() => {
+    const visible = prizes.filter((prize) =>
+      ["privilege", "avatar"].includes(prize.category)
+    );
+
+    if (cat === "all") {
+      return [...visible].sort((a, b) => {
+        const categoryOrder = { privilege: 0, avatar: 1 };
+        const categoryDiff =
+          (categoryOrder[a.category] ?? 99) -
+          (categoryOrder[b.category] ?? 99);
+
+        if (categoryDiff !== 0) return categoryDiff;
+
+        if (a.category === "avatar" && b.category === "avatar") {
+          const rarityOrder = {
+            basic: 0,
+            improved: 1,
+            rare: 2,
+            epic: 3,
+            legendary: 4,
+          };
+          const rarityDiff =
+            (rarityOrder[a.avatar_rarity] ?? 99) -
+            (rarityOrder[b.avatar_rarity] ?? 99);
+          if (rarityDiff !== 0) return rarityDiff;
+        }
+
+        return Number(a.price || 0) - Number(b.price || 0);
+      });
+    }
+
+    return visible.filter((prize) => prize.category === cat);
+  }, [cat, prizes]);
 
   if (!user) return null;
 

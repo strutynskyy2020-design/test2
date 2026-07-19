@@ -317,7 +317,7 @@ const DailyTasksManager = () => {
           <section key={operator.id} className="overflow-hidden rounded-3xl border border-white/10 bg-[#1A1A1E]">
             <div className="flex items-center gap-3 border-b border-white/10 p-4">
               <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-2xl font-display text-sm text-[#0A0A0A]" style={{ backgroundColor: operator.avatar_color || "#FFB800" }}>
-                {operator.avatar_url ? <img src={resolveAvatarUrl(operator.avatar_url)} alt={operator.name} className="h-full w-full object-cover" /> : (operator.avatar_initials || "?")}
+                {operator.avatar_url ? <img src={resolveAvatarUrl(operator.avatar_url)} alt={operator.name} className="h-full w-full scale-[1.22] object-cover" /> : (operator.avatar_initials || "?")}
               </div>
               <div className="min-w-0 flex-1">
                 <div className="truncate text-base font-black text-white">{operator.name}</div>
@@ -365,7 +365,7 @@ const DailyTasksManager = () => {
             <div key={operator.id} className="grid grid-cols-[230px_repeat(3,minmax(210px,1fr))_190px] items-stretch px-5 transition-colors hover:bg-white/[0.02]">
               <div className="flex items-center gap-3 border-r border-white/5 py-5 pr-4">
                 <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-2xl font-display text-sm text-[#0A0A0A]" style={{ backgroundColor: operator.avatar_color || "#FFB800" }}>
-                  {operator.avatar_url ? <img src={resolveAvatarUrl(operator.avatar_url)} alt={operator.name} className="h-full w-full object-cover" /> : (operator.avatar_initials || "?")}
+                  {operator.avatar_url ? <img src={resolveAvatarUrl(operator.avatar_url)} alt={operator.name} className="h-full w-full scale-[1.22] object-cover" /> : (operator.avatar_initials || "?")}
                 </div>
                 <div className="min-w-0">
                   <div className="truncate text-sm font-black text-white">{operator.name}</div>
@@ -1775,7 +1775,7 @@ const GoalsManager = () => {
         const avatar = u.avatar_url ? (u.avatar_url.startsWith("http") ? u.avatar_url : `${API_BASE.replace(/\/api$/, "")}${u.avatar_url}`) : null;
         return <section key={u.id} className="rounded-3xl border border-white/10 bg-[#1A1A1E] p-4 lg:p-5">
           <div className="mb-4 flex items-center gap-3">
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-2xl font-display text-sm text-black" style={{ backgroundColor: u.avatar_color || "#FFB800" }}>{avatar ? <img src={avatar} alt={u.name} className="h-full w-full object-cover"/> : u.avatar_initials || "?"}</div>
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-2xl font-display text-sm text-black" style={{ backgroundColor: u.avatar_color || "#FFB800" }}>{avatar ? <img src={avatar} alt={u.name} className="h-full w-full scale-[1.22] object-cover"/> : u.avatar_initials || "?"}</div>
             <div className="min-w-0 flex-1"><div className="truncate font-black text-white">{u.name}</div><div className="truncate text-xs text-zinc-500">{u.position || u.department || "Оператор"}</div><div className={`mt-1 text-[9px] font-black uppercase ${u.google_synced ? "text-[#39FF14]" : "text-zinc-600"}`}>{u.goals_login ? (u.google_synced ? `Google: ${u.goals_login}` : `Ключ: ${u.goals_login} • рядок не знайдено`) : "Google-ключ не задано"}</div></div>
             <div className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase ${u.goals?.weekly_complete ? "bg-[#39FF14]/15 text-[#39FF14]" : "bg-[#FFB800]/10 text-[#FFB800]"}`}>{u.goals?.weekly_complete ? "3/3" : `${[u.goals?.credit,u.goals?.debit,u.goals?.deposit].filter(x=>x?.complete).length}/3`}</div>
           </div>

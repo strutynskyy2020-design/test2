@@ -162,7 +162,7 @@ export default function Home() {
       <div className="flex items-center gap-4">
         <div className="relative shrink-0">
           <button type="button" onClick={() => nav("/store")} className="relative block h-16 w-16 overflow-hidden rounded-2xl border border-white/10 font-display text-xl text-[#0A0A0A] active:scale-95" style={{ backgroundColor: user.avatar_color }} aria-label="Відкрити магазин аватарок">
-            {avatarSrc && !avatarImageFailed ? <img src={avatarSrc} alt="Аватар профілю" onLoad={() => setAvatarImageFailed(false)} onError={() => setAvatarImageFailed(true)} className="h-full w-full object-cover" /> : <span className="absolute inset-0 flex items-center justify-center">{user.avatar_initials}</span>}
+            {avatarSrc && !avatarImageFailed ? <img src={avatarSrc} alt="Аватар профілю" onLoad={() => setAvatarImageFailed(false)} onError={() => setAvatarImageFailed(true)} className="h-full w-full scale-[1.22] object-cover" /> : <span className="absolute inset-0 flex items-center justify-center">{user.avatar_initials}</span>}
           </button>
           <div className="absolute -bottom-1 -right-1 rounded-full border-2 border-[#0A0A0A] bg-[#FFB800] px-2 py-0.5 text-[11px] font-black text-[#0A0A0A]">LVL {level}</div>
         </div>

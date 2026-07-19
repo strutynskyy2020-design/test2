@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CalendarClock, CheckCircle2, Coins, RefreshCw, ShieldAlert, Sparkles, XCircle, Zap } from "lucide-react";
+import { CalendarClock, CheckCircle2, Coins, RefreshCw, Sparkles, Swords, Trophy, XCircle, Zap } from "lucide-react";
 import { toast } from "sonner";
 import api, { extractError } from "@/lib/api";
 
@@ -96,15 +96,79 @@ const TaskCard = ({ task, canReplace, replacing, onReplace }) => {
   );
 };
 
+const BattleCard = ({ battle }) => {
+  if (!battle || battle.status === "waiting") {
+    return (
+      <section className="rounded-3xl border border-[#B78CFF]/30 bg-[#B78CFF]/10 p-5">
+        <div className="flex items-center gap-3">
+          <Swords size={22} strokeWidth={3} color="#B78CFF" />
+          <div>
+            <div className="text-sm font-black text-white">Щоденний батл</div>
+            <div className="mt-1 text-xs text-zinc-400">Суперник ще підбирається.</div>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  const leadText = battle.is_tied
+    ? "Зараз нічия"
+    : battle.is_leading
+    ? "Ти попереду"
+    : "Суперник попереду";
+
+  return (
+    <section className="overflow-hidden rounded-3xl border-2 border-[#B78CFF]/40 bg-[#1A1A1E] p-5 shadow-[0_16px_40px_rgba(183,140,255,0.12)]">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#B78CFF]/15 text-[#B78CFF]">
+            <Swords size={24} strokeWidth={3} />
+          </div>
+          <div>
+            <div className="text-[10px] font-black uppercase tracking-[0.18em] text-[#B78CFF]">Батл дня</div>
+            <div className="mt-1 text-lg font-black text-white">Ти проти {battle.opponent?.name || "суперника"}</div>
+          </div>
+        </div>
+        <div className="rounded-2xl border border-[#FFB800]/30 bg-[#FFB800]/10 px-3 py-2 text-right">
+          <div className="text-[9px] font-black uppercase tracking-wider text-zinc-500">Приз</div>
+          <div className="flex items-center gap-1 font-black text-[#FFB800]"><Trophy size={14} /> +{battle.reward || 50}</div>
+        </div>
+      </div>
+
+      <div className="mt-5 grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+        <div className="rounded-2xl bg-black/25 p-3 text-center">
+          <div className="text-[10px] font-black uppercase tracking-wider text-zinc-500">Ти</div>
+          <div className="mt-1 font-display text-3xl text-[#00F0FF]">{battle.my_score || 0}</div>
+        </div>
+        <div className="font-display text-zinc-600">VS</div>
+        <div className="rounded-2xl bg-black/25 p-3 text-center">
+          <div className="truncate text-[10px] font-black uppercase tracking-wider text-zinc-500">{battle.opponent?.name || "Суперник"}</div>
+          <div className="mt-1 font-display text-3xl text-[#FF5C00]">{battle.opponent_score || 0}</div>
+        </div>
+      </div>
+
+      <div className="mt-4 flex items-center justify-between gap-3 text-xs">
+        <span className={`font-black ${battle.is_tied ? "text-zinc-400" : battle.is_leading ? "text-[#39FF14]" : "text-[#FF5C00]"}`}>{leadText}</span>
+        <span className="text-right font-semibold text-zinc-500">Перемога: +50 Point. Нічия: обом по +{battle.tie_reward || 25} Point.</span>
+      </div>
+    </section>
+  );
+};
+
 export default function Tasks() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [replacingId, setReplacingId] = useState(null);
+  const [battle, setBattle] = useState(null);
 
   const load = useCallback(async () => {
     try {
-      const response = await api.get("/daily-tasks");
-      setData(response.data);
+      const [tasksResponse, battleResponse] = await Promise.all([
+        api.get("/daily-tasks"),
+        api.get("/daily-battle"),
+      ]);
+      setData(tasksResponse.data);
+      setBattle(battleResponse.data);
     } catch (error) {
       toast.error(extractError(error, "Не вдалося завантажити завдання"));
     } finally {
@@ -114,6 +178,15 @@ export default function Tasks() {
 
   useEffect(() => {
     load();
+    const timer = window.setInterval(load, 60000);
+    const refreshOnFocus = () => {
+      if (document.visibilityState === "visible") load();
+    };
+    document.addEventListener("visibilitychange", refreshOnFocus);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", refreshOnFocus);
+    };
   }, [load]);
 
   const countdown = useCountdown(data?.refresh_at, load);
@@ -161,12 +234,7 @@ export default function Tasks() {
         </div>
       </section>
 
-      <section className="flex items-start gap-3 rounded-3xl border border-[#FFB800]/25 bg-[#FFB800]/8 p-4">
-        <ShieldAlert size={20} strokeWidth={3} color="#FFB800" className="mt-0.5 shrink-0" />
-        <p className="text-xs font-semibold leading-relaxed text-zinc-300">
-          Перед надсиланням матеріалів у Teams обов’язково приховуйте ІПН, номер телефону та інші персональні дані клієнта.
-        </p>
-      </section>
+      <BattleCard battle={battle} />
 
       {loading ? (
         <div className="py-12 text-center text-sm font-black text-zinc-500">Завантаження…</div>

@@ -73,6 +73,13 @@ def kyiv_tomorrow_iso() -> str:
     tomorrow = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
     return tomorrow.isoformat()
 
+
+def kyiv_day_bounds_utc(date_key: str) -> tuple[str, str]:
+    day = datetime.strptime(date_key, "%Y-%m-%d").replace(tzinfo=KYIV_TZ)
+    start = day.astimezone(timezone.utc)
+    end = (day + timedelta(days=1)).astimezone(timezone.utc)
+    return start.isoformat(), end.isoformat()
+
 async def _touch_daily_streak(user: dict) -> dict:
     """Update a user's consecutive-day streak once per Kyiv calendar day."""
     today = kyiv_today_key()
@@ -1283,6 +1290,146 @@ async def _get_or_create_daily_task_set(user_id: str) -> dict:
     doc.pop("_id", None)
     return doc
 
+# ────────────────────────────────────────────────────────────────────────
+# Daily battles
+# ────────────────────────────────────────────────────────────────────────
+async def _points_for_day(user_id: str, date_key: str) -> int:
+    start, end = kyiv_day_bounds_utc(date_key)
+    pipeline = [
+        {"$match": {
+            "user_id": user_id,
+            "created_at": {"$gte": start, "$lt": end},
+            "amount": {"$gt": 0},
+            "kind": {"$nin": ["battle_win_bonus", "battle_tie_bonus"]},
+        }},
+        {"$group": {"_id": None, "score": {"$sum": "$amount"}}},
+    ]
+    rows = await db.transactions.aggregate(pipeline).to_list(1)
+    return int(rows[0]["score"]) if rows else 0
+
+
+async def _ensure_daily_battles(date_key: str) -> None:
+    marker = await db.daily_battle_days.update_one(
+        {"date": date_key},
+        {"$setOnInsert": {"date": date_key, "created_at": now_iso()}},
+        upsert=True,
+    )
+    if marker.upserted_id is None:
+        return
+    import hashlib
+    import random
+    users = await db.users.find(
+        {"role": "employee", "approved": {"$ne": False}},
+        {"_id": 0, "id": 1, "name": 1, "avatar_initials": 1, "avatar_color": 1, "avatar_url": 1, "department": 1},
+    ).to_list(2000)
+    if not users:
+        return
+    seed = int(hashlib.sha256(f"tm6-battle:{date_key}".encode()).hexdigest()[:16], 16)
+    random.Random(seed).shuffle(users)
+    docs = []
+    for index in range(0, len(users), 2):
+        left = users[index]
+        right = users[index + 1] if index + 1 < len(users) else {
+            "id": "__tm6_bot__", "name": "TM6 Bot", "avatar_initials": "AI",
+            "avatar_color": "#00F0FF", "avatar_url": None, "department": "Віртуальний суперник",
+        }
+        pair_id = str(uuid.uuid4())
+        base = {
+            "pair_id": pair_id, "date": date_key, "status": "active", "winner_id": None,
+            "reward": 50, "settled_at": None, "created_at": now_iso(),
+        }
+        docs.append({**base, "user_id": left["id"], "opponent_id": right["id"], "opponent": right})
+        if right["id"] != "__tm6_bot__":
+            docs.append({**base, "user_id": right["id"], "opponent_id": left["id"], "opponent": left})
+    if docs:
+        try:
+            await db.daily_battles.insert_many(docs, ordered=False)
+        except Exception:
+            pass
+
+
+async def _settle_finished_battles() -> None:
+    today = kyiv_today_key()
+    pairs = await db.daily_battles.find(
+        {"date": {"$lt": today}, "status": "active"},
+        {"_id": 0, "pair_id": 1, "date": 1, "user_id": 1, "opponent_id": 1},
+    ).to_list(10000)
+    by_pair = {}
+    for row in pairs:
+        by_pair.setdefault(row["pair_id"], row)
+    for pair_id, row in by_pair.items():
+        user_id, opponent_id, date_key = row["user_id"], row["opponent_id"], row["date"]
+        user_score = await _points_for_day(user_id, date_key)
+        opponent_score = 0 if opponent_id == "__tm6_bot__" else await _points_for_day(opponent_id, date_key)
+        winner_id = user_id if user_score > opponent_score else opponent_id if opponent_score > user_score else None
+        is_tie = user_score == opponent_score
+        settled_at = now_iso()
+        result_scores = {user_id: user_score, opponent_id: opponent_score}
+        await db.daily_battles.update_many(
+            {"pair_id": pair_id},
+            {"$set": {
+                "status": "finished",
+                "winner_id": winner_id,
+                "is_tie": is_tie,
+                "scores": result_scores,
+                "settled_at": settled_at,
+            }},
+        )
+        if is_tie:
+            tie_user_ids = [uid for uid in (user_id, opponent_id) if uid != "__tm6_bot__"]
+            for tie_user_id in tie_user_ids:
+                existing = await db.transactions.find_one({
+                    "kind": "battle_tie_bonus",
+                    "user_id": tie_user_id,
+                    "meta.pair_id": pair_id,
+                })
+                if existing:
+                    continue
+                await db.users.update_one(
+                    {"id": tie_user_id},
+                    {"$inc": {"balance": 25, "total_earned": 25}},
+                )
+                await db.transactions.insert_one({
+                    "id": str(uuid.uuid4()),
+                    "user_id": tie_user_id,
+                    "kind": "battle_tie_bonus",
+                    "amount": 25,
+                    "description": "Нічия у щоденному батлі",
+                    "created_at": settled_at,
+                    "meta": {"pair_id": pair_id, "battle_date": date_key},
+                })
+        elif winner_id and winner_id != "__tm6_bot__":
+            existing = await db.transactions.find_one({"kind": "battle_win_bonus", "meta.pair_id": pair_id})
+            if not existing:
+                await db.users.update_one(
+                    {"id": winner_id},
+                    {"$inc": {"balance": 50, "total_earned": 50}},
+                )
+                await db.transactions.insert_one({
+                    "id": str(uuid.uuid4()), "user_id": winner_id, "kind": "battle_win_bonus", "amount": 50,
+                    "description": "Перемога у щоденному батлі", "created_at": settled_at,
+                    "meta": {"pair_id": pair_id, "battle_date": date_key},
+                })
+
+
+@api.get("/daily-battle")
+async def daily_battle(user: dict = Depends(get_current_user)):
+    await _settle_finished_battles()
+    today = kyiv_today_key()
+    await _ensure_daily_battles(today)
+    battle = await db.daily_battles.find_one({"date": today, "user_id": user["id"]}, {"_id": 0})
+    if not battle:
+        return {"date": today, "status": "waiting", "reward": 50, "tie_reward": 25, "refresh_at": kyiv_tomorrow_iso()}
+    my_score = await _points_for_day(user["id"], today)
+    opponent_id = battle.get("opponent_id")
+    opponent_score = 0 if opponent_id == "__tm6_bot__" else await _points_for_day(opponent_id, today)
+    return {
+        **battle, "my_score": my_score, "opponent_score": opponent_score,
+        "is_leading": my_score > opponent_score, "is_tied": my_score == opponent_score,
+        "tie_reward": 25, "refresh_at": kyiv_tomorrow_iso(),
+    }
+
+
 @api.get("/daily-tasks")
 async def get_daily_tasks(user: dict = Depends(get_current_user)):
     task_set = await _get_or_create_daily_task_set(user["id"])
@@ -1609,6 +1756,42 @@ async def _leaderboard_all(current_id: str, limit: int = 10) -> LeaderboardRespo
     return LeaderboardResponse(period="all", top=top, my_entry=my_entry if (my_entry and my_entry.rank > limit) else None)
 
 
+async def _leaderboard_day(current_id: str, limit: int = 10) -> LeaderboardResponse:
+    start, end = kyiv_day_bounds_utc(kyiv_today_key())
+    pipeline = [
+        {"$match": {"created_at": {"$gte": start, "$lt": end}, "amount": {"$gt": 0}}},
+        {"$group": {"_id": "$user_id", "score": {"$sum": "$amount"}}},
+        {"$sort": {"score": -1}},
+    ]
+    grouped = await db.transactions.aggregate(pipeline).to_list(1000)
+    if not grouped:
+        return LeaderboardResponse(period="day", top=[], my_entry=None)
+    ids = [row["_id"] for row in grouped]
+    users_map = {}
+    async for item in db.users.find(
+        {"id": {"$in": ids}, "role": "employee"},
+        {"_id": 0, "id": 1, "name": 1, "avatar_initials": 1, "avatar_color": 1, "avatar_url": 1, "department": 1},
+    ):
+        users_map[item["id"]] = item
+    top, my_entry, rank = [], None, 0
+    for row in grouped:
+        item = users_map.get(row["_id"])
+        if not item:
+            continue
+        rank += 1
+        entry = LeaderboardEntry(
+            rank=rank, user_id=item["id"], name=item["name"],
+            avatar_initials=item.get("avatar_initials", "?"), avatar_color=item.get("avatar_color", "#FFB800"),
+            avatar_url=item.get("avatar_url"), department=item.get("department", ""),
+            score=int(row["score"]), is_me=item["id"] == current_id,
+        )
+        if rank <= limit:
+            top.append(entry)
+        if item["id"] == current_id:
+            my_entry = entry
+    return LeaderboardResponse(period="day", top=top, my_entry=my_entry if (my_entry and my_entry.rank > limit) else None)
+
+
 async def _leaderboard_period(days: int, period_name: str, current_id: str, limit: int = 10) -> LeaderboardResponse:
     since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
     pipeline = [
@@ -1654,9 +1837,11 @@ async def _leaderboard_period(days: int, period_name: str, current_id: str, limi
 
 
 @api.get("/leaderboard", response_model=LeaderboardResponse)
-async def leaderboard(period: Literal["week", "month", "all"] = "week", user: dict = Depends(get_current_user)):
+async def leaderboard(period: Literal["day", "week", "month", "all"] = "week", user: dict = Depends(get_current_user)):
     if period == "all":
         return await _leaderboard_all(user["id"])
+    if period == "day":
+        return await _leaderboard_day(user["id"])
     if period == "week":
         return await _leaderboard_period(7, "week", user["id"])
     return await _leaderboard_period(30, "month", user["id"])

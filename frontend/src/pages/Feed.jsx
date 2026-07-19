@@ -84,7 +84,7 @@ export const FeedItem = ({ ev }) => {
           style={{ backgroundColor: ev.avatar_color }}
         >
           {ev.avatar_url ? (
-            <img src={resolveAvatarUrl(ev.avatar_url)} alt={ev.user_name} className="w-full h-full object-cover" />
+            <img src={resolveAvatarUrl(ev.avatar_url)} alt={ev.user_name} className="h-full w-full scale-[1.22] object-cover" />
           ) : (
             ev.avatar_initials
           )}

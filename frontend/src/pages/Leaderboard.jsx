@@ -6,6 +6,7 @@ import { useApp } from "@/context/AppContext";
 import { resolveAvatarUrl } from "@/lib/avatar";
 
 const PERIODS = [
+  { id: "day", label: "День" },
   { id: "week", label: "Тиждень" },
   { id: "month", label: "Місяць" },
   { id: "all", label: "Всього" },
@@ -38,7 +39,7 @@ const Row = ({ entry, dim }) => (
       style={{ backgroundColor: entry.avatar_color }}
     >
       {entry.avatar_url ? (
-        <img src={resolveAvatarUrl(entry.avatar_url)} alt={entry.name} className="w-full h-full object-cover" />
+        <img src={resolveAvatarUrl(entry.avatar_url)} alt={entry.name} className="h-full w-full scale-[1.22] object-cover" />
       ) : (
         entry.avatar_initials || "?"
       )}
