@@ -42,7 +42,10 @@ export default function AvatarFrame({
       className={`avatar-frame avatar-frame--${resolvedRarity} avatar-frame--${size} ${className}`}
       data-rarity={resolvedRarity}
     >
-      <div className="avatar-frame__portrait" style={{ backgroundColor: color }}>
+      <div
+        className={`avatar-frame__portrait ${resolvedSrc ? "avatar-frame__portrait--image" : "avatar-frame__portrait--fallback"}`}
+        style={resolvedSrc ? undefined : { backgroundColor: color }}
+      >
         {resolvedSrc ? (
           <img
             src={resolvedSrc}

@@ -31,7 +31,7 @@ const PrizeCard = ({ prize, balance, onBuy, owned, active }) => {
         affordable ? "border-white/10" : "border-white/5"
       }`}
     >
-      <div className="relative aspect-[4/3] min-h-[154px] bg-[radial-gradient(circle_at_50%_46%,rgba(255,255,255,0.045),transparent_60%)] bg-[#0A0A0A] flex items-center justify-center overflow-hidden">
+      <div className="relative aspect-[4/3] min-h-[154px] bg-[#0A0A0A] flex items-center justify-center overflow-hidden">
         {prize.category === "avatar" ? (
           <AvatarFrame
             src={prize.image}
@@ -45,7 +45,7 @@ const PrizeCard = ({ prize, balance, onBuy, owned, active }) => {
         ) : (
           <IconFallback size={56} strokeWidth={2.25} color="#FFB800" />
         )}
-        <div className="absolute inset-0 bg-gradient-to-t from-[#0A0A0A]/35 via-transparent to-transparent" />
+        {prize.category !== "avatar" && <div className="absolute inset-0 bg-gradient-to-t from-[#0A0A0A]/35 via-transparent to-transparent" />}
         <div className="absolute top-2 left-2 text-[9px] font-black uppercase tracking-widest bg-black/50 backdrop-blur-sm text-white px-2 py-1 rounded-full border border-white/10">
           {prize.category === "avatar" ? (active ? "Обрано" : owned ? "Придбано" : prize.avatar_rarity || "Аватар") : (prize.stock > 0 ? `${prize.stock} шт` : "Немає")}
         </div>

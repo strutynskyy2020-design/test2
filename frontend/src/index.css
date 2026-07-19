@@ -137,32 +137,28 @@ body {
   color: #080808;
   font-family: 'Unbounded', sans-serif;
   font-weight: 900;
+  background: transparent;
+}
+
+.avatar-frame__portrait--fallback {
   background: #17171b;
   box-shadow:
     inset 0 0 0 1px rgba(255,255,255,.13),
     inset 0 -5px 12px rgba(0,0,0,.18);
 }
 
-.avatar-frame__portrait::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background: radial-gradient(circle at 50% 38%, transparent 58%, rgba(0,0,0,.14) 100%);
-}
-
 .avatar-frame__portrait-image {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  object-position: 50% 47%;
-  transform: scale(1.18);
-  transform-origin: 50% 48%;
+  object-position: 50% 46%;
+  transform: scale(1.28);
+  transform-origin: 50% 46%;
 }
 
 .avatar-frame--xs .avatar-frame__portrait-image,
 .avatar-frame--sm .avatar-frame__portrait-image {
-  transform: scale(1.22);
+  transform: scale(1.30);
 }
 
 .avatar-frame__initials {
@@ -182,29 +178,14 @@ body {
   user-select: none;
   pointer-events: none;
   transform: translateZ(0);
-  filter: drop-shadow(0 2px 2px rgba(0,0,0,.62));
+  filter: none;
 }
 
-.avatar-frame--basic { --portrait-inset: 18.5%; }
-.avatar-frame--improved { --portrait-inset: 19%; }
-.avatar-frame--rare { --portrait-inset: 19%; }
-.avatar-frame--epic { --portrait-inset: 19.5%; }
-.avatar-frame--legendary { --portrait-inset: 19.5%; }
-
-/* Static, restrained accents. The PNG artwork carries the rarity colour;
-   these shadows only separate the border from the dark UI. */
-.avatar-frame--improved .avatar-frame__art {
-  filter: drop-shadow(0 2px 2px rgba(0,0,0,.62)) drop-shadow(0 0 2px rgba(57,255,20,.22));
-}
-.avatar-frame--rare .avatar-frame__art {
-  filter: drop-shadow(0 2px 2px rgba(0,0,0,.62)) drop-shadow(0 0 2px rgba(0,174,255,.24));
-}
-.avatar-frame--epic .avatar-frame__art {
-  filter: drop-shadow(0 2px 2px rgba(0,0,0,.62)) drop-shadow(0 0 2px rgba(183,92,255,.24));
-}
-.avatar-frame--legendary .avatar-frame__art {
-  filter: drop-shadow(0 2px 2px rgba(0,0,0,.68)) drop-shadow(0 0 2px rgba(255,184,0,.25));
-}
+.avatar-frame--basic { --portrait-inset: 14%; }
+.avatar-frame--improved { --portrait-inset: 14%; }
+.avatar-frame--rare { --portrait-inset: 14%; }
+.avatar-frame--epic { --portrait-inset: 14%; }
+.avatar-frame--legendary { --portrait-inset: 14%; }
 
 @media (max-width: 390px) {
   .avatar-frame--xl { --frame-size: 120px; }
