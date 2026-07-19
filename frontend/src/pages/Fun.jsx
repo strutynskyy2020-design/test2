@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Dice5, Sparkles, ArrowLeft, Coins, Zap, Gift, Info, WalletCards } from "lucide-react";
 import { toast } from "sonner";
@@ -25,12 +25,13 @@ const FACE_DOTS = {
 };
 
 const FACE_ROTATIONS = {
-  1: { x: 0, y: 0 },
-  2: { x: -90, y: 0 },
-  3: { x: 0, y: -90 },
-  4: { x: 0, y: 90 },
-  5: { x: 90, y: 0 },
-  6: { x: 0, y: 180 },
+  // A small permanent tilt keeps the die visibly three-dimensional after it lands.
+  1: { x: -16, y: 24 },
+  2: { x: -106, y: 24 },
+  3: { x: -16, y: -66 },
+  4: { x: -16, y: 114 },
+  5: { x: 74, y: 24 },
+  6: { x: -16, y: 204 },
 };
 
 const CubeSide = ({ value, side }) => (
@@ -43,26 +44,81 @@ const CubeSide = ({ value, side }) => (
   </div>
 );
 
-const CubeFace = ({ face, rolling }) => {
+const CubeFace = ({ face, rolling, rollId }) => {
   const numericFace = Number(face) || 1;
   const rotation = FACE_ROTATIONS[numericFace] || FACE_ROTATIONS[1];
+  const cubeRef = useRef(null);
+  const flightRef = useRef(null);
+
+  useEffect(() => {
+    const cube = cubeRef.current;
+    const flight = flightRef.current;
+    if (!cube || !flight) return undefined;
+
+    const finalTransform = `rotateX(${rotation.x}deg) rotateY(${rotation.y}deg) rotateZ(0deg)`;
+    const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+
+    if (!rolling || reducedMotion) {
+      cube.getAnimations().forEach((animation) => animation.cancel());
+      flight.getAnimations().forEach((animation) => animation.cancel());
+      cube.style.transform = finalTransform;
+      flight.style.transform = "translate3d(0,-18px,0) scale(1)";
+      return undefined;
+    }
+
+    const spin = cube.animate(
+      [
+        { transform: cube.style.transform || finalTransform, offset: 0 },
+        { transform: `rotateX(${rotation.x + 310}deg) rotateY(${rotation.y + 450}deg) rotateZ(120deg)`, offset: 0.25 },
+        { transform: `rotateX(${rotation.x + 760}deg) rotateY(${rotation.y + 930}deg) rotateZ(255deg)`, offset: 0.58 },
+        { transform: `rotateX(${rotation.x + 1180}deg) rotateY(${rotation.y + 1410}deg) rotateZ(330deg)`, offset: 0.82 },
+        { transform: `rotateX(${rotation.x + 1440}deg) rotateY(${rotation.y + 1800}deg) rotateZ(360deg)`, offset: 1 },
+      ],
+      { duration: 1500, easing: "cubic-bezier(.18,.72,.18,1)", fill: "forwards" }
+    );
+
+    const flightAnimation = flight.animate(
+      [
+        { transform: "translate3d(0,-18px,0) scale(1)", offset: 0 },
+        { transform: "translate3d(0,-72px,28px) scale(1.08)", offset: 0.28 },
+        { transform: "translate3d(0,-30px,10px) scale(.98)", offset: 0.68 },
+        { transform: "translate3d(0,-10px,0) scale(1.035)", offset: 0.88 },
+        { transform: "translate3d(0,-18px,0) scale(1)", offset: 1 },
+      ],
+      { duration: 1500, easing: "cubic-bezier(.2,.7,.2,1)", fill: "forwards" }
+    );
+
+    spin.onfinish = () => {
+      spin.cancel();
+      cube.style.transform = finalTransform;
+    };
+    flightAnimation.onfinish = () => {
+      flightAnimation.cancel();
+      flight.style.transform = "translate3d(0,-18px,0) scale(1)";
+    };
+
+    return () => {
+      spin.cancel();
+      flightAnimation.cancel();
+    };
+  }, [numericFace, rolling, rollId, rotation.x, rotation.y]);
 
   return (
-    <div className="generous-cube-stage" aria-label={`Грань куба ${numericFace}`}>
+    <div className={`generous-cube-stage ${rolling ? "is-rolling" : ""}`} aria-label={`Грань куба ${numericFace}`}>
       <div className="generous-cube-energy generous-cube-energy--outer" />
       <div className="generous-cube-energy generous-cube-energy--inner" />
       <div className="generous-cube-aura" />
-      <div
-        className={`generous-cube ${rolling ? "is-rolling" : ""}`}
-        style={{ "--cube-x": `${rotation.x}deg`, "--cube-y": `${rotation.y}deg` }}
-      >
-        <CubeSide value={1} side="front" />
-        <CubeSide value={6} side="back" />
-        <CubeSide value={3} side="right" />
-        <CubeSide value={4} side="left" />
-        <CubeSide value={2} side="top" />
-        <CubeSide value={5} side="bottom" />
+      <div ref={flightRef} className="generous-cube-flight">
+        <div ref={cubeRef} className="generous-cube" style={{ transform: `rotateX(${rotation.x}deg) rotateY(${rotation.y}deg) rotateZ(0deg)` }}>
+          <CubeSide value={1} side="front" />
+          <CubeSide value={6} side="back" />
+          <CubeSide value={3} side="right" />
+          <CubeSide value={4} side="left" />
+          <CubeSide value={2} side="top" />
+          <CubeSide value={5} side="bottom" />
+        </div>
       </div>
+      <div className="generous-cube-shadow" />
       <div className="generous-cube-platform">
         <span />
         <i />
@@ -81,6 +137,8 @@ export default function Fun() {
   const [loadingStatus, setLoadingStatus] = useState(true);
   const [rolling, setRolling] = useState(false);
   const [lastReward, setLastReward] = useState(null);
+  const [pendingFace, setPendingFace] = useState(null);
+  const [rollId, setRollId] = useState(0);
   const [revealing, setRevealing] = useState(false);
 
   const load = async () => {
@@ -108,8 +166,11 @@ export default function Fun() {
     setRolling(true);
     try {
       const r = await api.post("/games/cube/spin");
+      setPendingFace(r.data.face);
+      setRollId((value) => value + 1);
       setTimeout(() => {
         setRolling(false);
+        setPendingFace(null);
         setLastReward({ reward: r.data.reward, tier: r.data.tier, face: r.data.face, cost: r.data.cost });
         setStatus((s) => ({
           ...s,
@@ -123,9 +184,10 @@ export default function Fun() {
         fireConfetti();
         toast.success(`+${r.data.reward} Point`, { description: r.data.cost ? `Вартість кидка: ${r.data.cost} Point` : "Перший кидок безкоштовний", duration: 3500 });
         refreshMe();
-      }, 1400);
+      }, 1500);
     } catch (e) {
       setRolling(false);
+      setPendingFace(null);
       toast.error(extractError(e));
     }
   };
@@ -235,7 +297,11 @@ export default function Fun() {
           </div>
         </div>
 
-        <CubeFace face={Number(lastReward?.face || status?.cube_face || 1)} rolling={rolling} />
+        <CubeFace
+          face={Number(pendingFace || lastReward?.face || status?.cube_face || 1)}
+          rolling={rolling && pendingFace !== null}
+          rollId={rollId}
+        />
 
         <div className="generous-cube-result" aria-live="polite">
           {lastReward ? (
