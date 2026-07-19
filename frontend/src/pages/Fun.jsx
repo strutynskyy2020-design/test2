@@ -24,7 +24,8 @@ const FACE_DOTS = {
   6: [1, 3, 4, 6, 7, 9],
 };
 
-const CUBE_VISUAL_VERSION = "v43-real-3d";
+const CUBE_VISUAL_VERSION = "v44-slower-cinematic-3d";
+const CUBE_ANIMATION_MS = 3200;
 
 const FACE_ROTATIONS = {
   // A small permanent tilt keeps the die visibly three-dimensional after it lands.
@@ -71,23 +72,28 @@ const CubeFace = ({ face, rolling, rollId }) => {
     const spin = cube.animate(
       [
         { transform: cube.style.transform || finalTransform, offset: 0 },
-        { transform: `rotateX(${rotation.x + 310}deg) rotateY(${rotation.y + 450}deg) rotateZ(120deg)`, offset: 0.25 },
-        { transform: `rotateX(${rotation.x + 760}deg) rotateY(${rotation.y + 930}deg) rotateZ(255deg)`, offset: 0.58 },
-        { transform: `rotateX(${rotation.x + 1180}deg) rotateY(${rotation.y + 1410}deg) rotateZ(330deg)`, offset: 0.82 },
-        { transform: `rotateX(${rotation.x + 1440}deg) rotateY(${rotation.y + 1800}deg) rotateZ(360deg)`, offset: 1 },
+        { transform: `rotateX(${rotation.x + 120}deg) rotateY(${rotation.y + 150}deg) rotateZ(35deg)`, offset: 0.12 },
+        { transform: `rotateX(${rotation.x + 390}deg) rotateY(${rotation.y + 510}deg) rotateZ(120deg)`, offset: 0.34 },
+        { transform: `rotateX(${rotation.x + 720}deg) rotateY(${rotation.y + 900}deg) rotateZ(230deg)`, offset: 0.58 },
+        { transform: `rotateX(${rotation.x + 980}deg) rotateY(${rotation.y + 1220}deg) rotateZ(310deg)`, offset: 0.76 },
+        { transform: `rotateX(${rotation.x + 1120}deg) rotateY(${rotation.y + 1390}deg) rotateZ(350deg)`, offset: 0.88 },
+        { transform: `rotateX(${rotation.x + 1080}deg) rotateY(${rotation.y + 1440}deg) rotateZ(360deg)`, offset: 1 },
       ],
-      { duration: 1500, easing: "cubic-bezier(.18,.72,.18,1)", fill: "forwards" }
+      { duration: CUBE_ANIMATION_MS, easing: "cubic-bezier(.16,.72,.16,1)", fill: "forwards" }
     );
 
     const flightAnimation = flight.animate(
       [
         { transform: "translate3d(0,-18px,0) scale(1)", offset: 0 },
-        { transform: "translate3d(0,-72px,28px) scale(1.08)", offset: 0.28 },
-        { transform: "translate3d(0,-30px,10px) scale(.98)", offset: 0.68 },
-        { transform: "translate3d(0,-10px,0) scale(1.035)", offset: 0.88 },
+        { transform: "translate3d(0,-8px,0) scale(.94)", offset: 0.1 },
+        { transform: "translate3d(0,-102px,42px) scale(1.14)", offset: 0.34 },
+        { transform: "translate3d(0,-92px,35px) scale(1.11)", offset: 0.58 },
+        { transform: "translate3d(0,-34px,10px) scale(1.02)", offset: 0.78 },
+        { transform: "translate3d(0,-8px,0) scale(.97)", offset: 0.88 },
+        { transform: "translate3d(0,-28px,5px) scale(1.04)", offset: 0.94 },
         { transform: "translate3d(0,-18px,0) scale(1)", offset: 1 },
       ],
-      { duration: 1500, easing: "cubic-bezier(.2,.7,.2,1)", fill: "forwards" }
+      { duration: CUBE_ANIMATION_MS, easing: "cubic-bezier(.18,.68,.14,1)", fill: "forwards" }
     );
 
     spin.onfinish = () => {
@@ -142,6 +148,7 @@ export default function Fun() {
   const [pendingFace, setPendingFace] = useState(null);
   const [rollId, setRollId] = useState(0);
   const [revealing, setRevealing] = useState(false);
+  const [displayedReward, setDisplayedReward] = useState(0);
 
   const load = async () => {
     if (mode === "mock") {
@@ -162,6 +169,26 @@ export default function Fun() {
 
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [mode]);
 
+  useEffect(() => {
+    const target = Number(lastReward?.reward || 0);
+    if (!target) {
+      setDisplayedReward(0);
+      return undefined;
+    }
+
+    const duration = 650;
+    const startedAt = performance.now();
+    let frameId;
+    const tick = (now) => {
+      const progress = Math.min(1, (now - startedAt) / duration);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      setDisplayedReward(Math.round(target * eased));
+      if (progress < 1) frameId = requestAnimationFrame(tick);
+    };
+    frameId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frameId);
+  }, [lastReward?.reward, lastReward?.face]);
+
   const spin = async () => {
     if (mode === "mock") { toast.error("Гра доступна тільки з бекендом"); return; }
     if (rolling) return;
@@ -170,7 +197,8 @@ export default function Fun() {
       const r = await api.post("/games/cube/spin");
       setPendingFace(r.data.face);
       setRollId((value) => value + 1);
-      setTimeout(() => {
+      window.setTimeout(() => {
+        if (navigator.vibrate) navigator.vibrate([18, 35, 28]);
         setRolling(false);
         setPendingFace(null);
         setLastReward({ reward: r.data.reward, tier: r.data.tier, face: r.data.face, cost: r.data.cost });
@@ -186,7 +214,7 @@ export default function Fun() {
         fireConfetti();
         toast.success(`+${r.data.reward} Point`, { description: r.data.cost ? `Вартість кидка: ${r.data.cost} Point` : "Перший кидок безкоштовний", duration: 3500 });
         refreshMe();
-      }, 1500);
+      }, CUBE_ANIMATION_MS);
     } catch (e) {
       setRolling(false);
       setPendingFace(null);
@@ -313,7 +341,7 @@ export default function Fun() {
                 <span className="generous-cube-result-face">{faceGlyph(lastReward.face)}</span>
                 <div>
                   <small>{TIER_COLORS[lastReward.tier]?.label || `Грань ${lastReward.face}`}</small>
-                  <strong style={{ color: TIER_COLORS[lastReward.tier]?.color || "#B575FF" }}>+{lastReward.reward}</strong>
+                  <strong style={{ color: TIER_COLORS[lastReward.tier]?.color || "#B575FF" }}>+{displayedReward}</strong>
                   <em>Point</em>
                 </div>
               </div>
