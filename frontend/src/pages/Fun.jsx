@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Dice5, Sparkles, ArrowLeft, Coins, Zap } from "lucide-react";
+import { Dice5, Sparkles, ArrowLeft, Coins, Zap, Gift, Info, WalletCards } from "lucide-react";
 import { toast } from "sonner";
 import api, { extractError } from "@/lib/api";
 import { useApp } from "@/context/AppContext";
@@ -15,14 +15,61 @@ const TIER_COLORS = {
   six:   { color: "#FF5C00", label: "Грань 6" },
 };
 
-const CubeFace = ({ face, rolling }) => (
-  <div
-    className={`relative w-32 h-32 rounded-3xl bg-[#FFB800] border-b-8 border-[#7a5900] flex items-center justify-center text-[#0A0A0A] font-display text-6xl transition-transform ${rolling ? "animate-spin" : ""}`}
-    style={{ animationDuration: rolling ? "0.4s" : undefined, boxShadow: "0 0 40px rgba(255,184,0,0.35)" }}
-  >
-    {face}
+const FACE_DOTS = {
+  1: [5],
+  2: [1, 9],
+  3: [1, 5, 9],
+  4: [1, 3, 7, 9],
+  5: [1, 3, 5, 7, 9],
+  6: [1, 3, 4, 6, 7, 9],
+};
+
+const FACE_ROTATIONS = {
+  1: { x: 0, y: 0 },
+  2: { x: -90, y: 0 },
+  3: { x: 0, y: -90 },
+  4: { x: 0, y: 90 },
+  5: { x: 90, y: 0 },
+  6: { x: 0, y: 180 },
+};
+
+const CubeSide = ({ value, side }) => (
+  <div className={`generous-cube-side generous-cube-side--${side}`}>
+    <div className="generous-cube-grid">
+      {Array.from({ length: 9 }, (_, index) => (
+        <span key={index} className={FACE_DOTS[value].includes(index + 1) ? "generous-cube-dot" : ""} />
+      ))}
+    </div>
   </div>
 );
+
+const CubeFace = ({ face, rolling }) => {
+  const numericFace = Number(face) || 1;
+  const rotation = FACE_ROTATIONS[numericFace] || FACE_ROTATIONS[1];
+
+  return (
+    <div className="generous-cube-stage" aria-label={`Грань куба ${numericFace}`}>
+      <div className="generous-cube-energy generous-cube-energy--outer" />
+      <div className="generous-cube-energy generous-cube-energy--inner" />
+      <div className="generous-cube-aura" />
+      <div
+        className={`generous-cube ${rolling ? "is-rolling" : ""}`}
+        style={{ "--cube-x": `${rotation.x}deg`, "--cube-y": `${rotation.y}deg` }}
+      >
+        <CubeSide value={1} side="front" />
+        <CubeSide value={6} side="back" />
+        <CubeSide value={3} side="right" />
+        <CubeSide value={4} side="left" />
+        <CubeSide value={2} side="top" />
+        <CubeSide value={5} side="bottom" />
+      </div>
+      <div className="generous-cube-platform">
+        <span />
+        <i />
+      </div>
+    </div>
+  );
+};
 
 const FACES = ["⚀", "⚁", "⚂", "⚃", "⚄", "⚅"];
 const faceGlyph = (face) => FACES[Math.max(0, Math.min(5, Number(face || 1) - 1))];
@@ -33,7 +80,6 @@ export default function Fun() {
   const [status, setStatus] = useState(null);
   const [loadingStatus, setLoadingStatus] = useState(true);
   const [rolling, setRolling] = useState(false);
-  const [face, setFace] = useState("?");
   const [lastReward, setLastReward] = useState(null);
   const [revealing, setRevealing] = useState(false);
 
@@ -49,7 +95,6 @@ export default function Fun() {
       setStatus(r.data);
       if (r.data.cube_spun) {
         setLastReward({ reward: r.data.cube_reward, tier: r.data.cube_tier, face: r.data.cube_face });
-        if (r.data.cube_face) setFace(faceGlyph(r.data.cube_face));
       }
     } catch (e) { toast.error(extractError(e)); }
     setLoadingStatus(false);
@@ -61,19 +106,10 @@ export default function Fun() {
     if (mode === "mock") { toast.error("Гра доступна тільки з бекендом"); return; }
     if (rolling) return;
     setRolling(true);
-    setFace("?");
-    // Rolling animation — cycle faces for ~1.4s
-    let ticks = 0;
-    const int = setInterval(() => {
-      setFace(FACES[Math.floor(Math.random() * FACES.length)]);
-      ticks++;
-    }, 90);
     try {
       const r = await api.post("/games/cube/spin");
       setTimeout(() => {
-        clearInterval(int);
         setRolling(false);
-        setFace(faceGlyph(r.data.face));
         setLastReward({ reward: r.data.reward, tier: r.data.tier, face: r.data.face, cost: r.data.cost });
         setStatus((s) => ({
           ...s,
@@ -89,7 +125,6 @@ export default function Fun() {
         refreshMe();
       }, 1400);
     } catch (e) {
-      clearInterval(int);
       setRolling(false);
       toast.error(extractError(e));
     }
@@ -159,61 +194,91 @@ export default function Fun() {
       {/* Cube game */}
       <section
         data-testid="cube-card"
-        className="bg-[#1A1A1E] border-2 border-white/10 rounded-3xl p-5 flex flex-col items-center"
+        className="generous-cube-card"
       >
-        <div className="flex items-center gap-2 mb-4 self-start">
-          <Dice5 size={16} strokeWidth={3} color="#39FF14" />
-          <div className="text-[11px] font-black uppercase tracking-widest text-[#39FF14]">Щедрий Куб</div>
+        <div className="generous-cube-header">
+          <div className="flex items-center gap-2">
+            <span className="generous-cube-header-icon"><Dice5 size={18} strokeWidth={3} /></span>
+            <div>
+              <div className="text-[10px] font-black uppercase tracking-[0.22em] text-[#39FF14]">Щедрий куб</div>
+              <div className="mt-0.5 text-xs font-bold text-zinc-500">Кидай і забирай до 350 Point</div>
+            </div>
+          </div>
+          <details className="generous-cube-info">
+            <summary><Info size={14} /> Як працює?</summary>
+            <div className="generous-cube-prizes">
+              {[
+                [1, "0–30"], [2, "31–55"], [3, "56–70"],
+                [4, "71–90"], [5, "91–125"], [6, "126–350"],
+              ].map(([value, range]) => (
+                <div key={value}><span>{faceGlyph(value)}</span><b>{value}</b><em>{range} Point</em></div>
+              ))}
+              <p>Ймовірності граней приховані. Кожен виграш визначається випадково в межах діапазону.</p>
+            </div>
+          </details>
         </div>
 
-        <div className={rolling ? "" : "float-y"}>
-          <CubeFace face={face} rolling={rolling} />
+        <div className="generous-cube-meta-grid">
+          <div className="generous-cube-meta">
+            <Gift size={18} />
+            <span>
+              <small>Перший кидок</small>
+              <strong>{Number(status?.cube_spin_count || 0) === 0 ? "Безкоштовний" : "Використано"}</strong>
+            </span>
+          </div>
+          <div className="generous-cube-meta generous-cube-meta--balance">
+            <WalletCards size={18} />
+            <span>
+              <small>Ваш баланс</small>
+              <strong>{Number(user?.balance || 0).toLocaleString("uk-UA")} Point</strong>
+            </span>
+          </div>
         </div>
 
-        <div className="mt-6 text-center w-full">
-          {lastReward && (
-            <div className="mb-5 space-y-2 reward-pop" data-testid="cube-result">
-              <div className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Останній результат</div>
-              <div className="flex items-center justify-center gap-3">
-                <span className="text-4xl">{faceGlyph(lastReward.face)}</span>
-                <span className="font-display text-3xl" style={{ color: TIER_COLORS[lastReward.tier]?.color || "#FFB800" }}>
-                  +{lastReward.reward}
-                </span>
-              </div>
-              <div className="text-[11px] font-black uppercase tracking-widest" style={{ color: TIER_COLORS[lastReward.tier]?.color || "#FFB800" }}>
-                {TIER_COLORS[lastReward.tier]?.label || `Грань ${lastReward.face}`}
+        <CubeFace face={Number(lastReward?.face || status?.cube_face || 1)} rolling={rolling} />
+
+        <div className="generous-cube-result" aria-live="polite">
+          {lastReward ? (
+            <div className="reward-pop" data-testid="cube-result">
+              <div className="generous-cube-result-label">Останній результат</div>
+              <div className="generous-cube-result-main">
+                <span className="generous-cube-result-face">{faceGlyph(lastReward.face)}</span>
+                <div>
+                  <small>{TIER_COLORS[lastReward.tier]?.label || `Грань ${lastReward.face}`}</small>
+                  <strong style={{ color: TIER_COLORS[lastReward.tier]?.color || "#B575FF" }}>+{lastReward.reward}</strong>
+                  <em>Point</em>
+                </div>
               </div>
               {Number(lastReward.cost || 0) > 0 && (
-                <div className="text-[11px] font-black text-zinc-500">Вартість спроби: −{lastReward.cost} Point</div>
+                <div className="generous-cube-cost-note">Вартість кидка: −{lastReward.cost} Point</div>
               )}
             </div>
+          ) : (
+            <div className="generous-cube-empty-result">
+              <Sparkles size={18} />
+              <span>Зроби кидок, щоб побачити свій виграш</span>
+            </div>
           )}
-
-          <div className="text-zinc-400 text-sm mb-4">
-            {Number(status?.cube_spin_count || 0) === 0
-              ? "Перша спроба сьогодні безкоштовна"
-              : "Наступна спроба коштує 50 Point"}
-          </div>
-          <button
-            data-testid="spin-cube"
-            onClick={spin}
-            disabled={rolling || loadingStatus || (Number(status?.cube_spin_count || 0) > 0 && Number(user?.balance || 0) < 50)}
-            className="arcade-btn w-full h-14 bg-[#39FF14] border-[#1a7a0a] text-[#0A0A0A] font-black text-base uppercase tracking-wider flex items-center justify-center gap-2 disabled:opacity-60"
-          >
-            <Zap size={18} strokeWidth={3} />
-            {rolling
-              ? "Кубик крутиться..."
-              : Number(status?.cube_spin_count || 0) === 0
-                ? "КИНУТИ БЕЗКОШТОВНО"
-                : "КИНУТИ ЗА 50 POINT"}
-          </button>
-          {Number(status?.cube_spin_count || 0) > 0 && Number(user?.balance || 0) < 50 && (
-            <div className="mt-3 text-xs font-black text-[#FF5C00]">Недостатньо Point для наступної спроби</div>
-          )}
-          <div className="mt-3 text-[11px] font-black text-zinc-500">
-            Спроб сьогодні: {Number(status?.cube_spin_count || 0)}
-          </div>
         </div>
+
+        <button
+          data-testid="spin-cube"
+          onClick={spin}
+          disabled={rolling || loadingStatus || (Number(status?.cube_spin_count || 0) > 0 && Number(user?.balance || 0) < 50)}
+          className="generous-cube-button"
+        >
+          <Zap size={20} strokeWidth={3} />
+          {rolling
+            ? "КУБ НАБИРАЄ ЕНЕРГІЮ..."
+            : Number(status?.cube_spin_count || 0) === 0
+              ? "КИНУТИ БЕЗКОШТОВНО"
+              : "КИНУТИ ЗА 50 POINT"}
+        </button>
+
+        {Number(status?.cube_spin_count || 0) > 0 && Number(user?.balance || 0) < 50 && (
+          <div className="mt-3 text-center text-xs font-black text-[#FF5C00]">Недостатньо Point для наступної спроби</div>
+        )}
+        <div className="generous-cube-attempts">Спроб сьогодні: <b>{Number(status?.cube_spin_count || 0)}</b></div>
       </section>
 
       <div className="text-[11px] text-zinc-500 text-center font-black">
