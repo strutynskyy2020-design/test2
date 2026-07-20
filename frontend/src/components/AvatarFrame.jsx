@@ -51,6 +51,7 @@ export default function AvatarFrame({
             src={resolvedSrc}
             alt={alt}
             className={`avatar-frame__portrait-image ${imageClassName}`}
+            decoding="async"
             onLoad={onLoad}
             onError={onError}
           />
@@ -64,6 +65,7 @@ export default function AvatarFrame({
         src={FRAME_ASSETS[resolvedRarity]}
         alt=""
         aria-hidden="true"
+        decoding="async"
         draggable="false"
       />
     </div>
