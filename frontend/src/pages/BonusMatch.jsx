@@ -1015,7 +1015,7 @@ export default function BonusMatch() {
     }
   };
 
-  const useBooster = async (booster, row = null, col = null) => {
+  const applyBooster = async (booster, row = null, col = null) => {
     if (!game || moving || game.status !== "active") return;
     if (Number(boosterInventory[booster] || 0) <= 0) {
       toast.info("Спочатку придбай цей бонус");
@@ -1086,7 +1086,7 @@ export default function BonusMatch() {
       return;
     }
     if (booster === "shuffle") {
-      useBooster(booster);
+      applyBooster(booster);
       return;
     }
     const next = activeBooster === booster ? null : booster;
@@ -1149,7 +1149,7 @@ export default function BonusMatch() {
     const cell = displayBoard?.[row]?.[col];
     if (activeBooster) {
       if (!cell) return;
-      useBooster(activeBooster, row, col);
+      applyBooster(activeBooster, row, col);
       return;
     }
     if (!cell || cell.obstacle) {

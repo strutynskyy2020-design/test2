@@ -1,0 +1,40 @@
+--- /mnt/data/tm6v69-work/frontend/src/pages/BonusMatch.jsx	2026-07-23 23:00:42.803326395 +0000
++++ /mnt/data/tm6v70-work/frontend/src/pages/BonusMatch.jsx	2026-07-23 23:01:08.135325761 +0000
+@@ -1015,7 +1015,7 @@
+     }
+   };
+ 
+-  const useBooster = async (booster, row = null, col = null) => {
++  const applyBooster = async (booster, row = null, col = null) => {
+     if (!game || moving || game.status !== "active") return;
+     if (Number(boosterInventory[booster] || 0) <= 0) {
+       toast.info("Спочатку придбай цей бонус");
+@@ -1086,7 +1086,7 @@
+       return;
+     }
+     if (booster === "shuffle") {
+-      useBooster(booster);
++      applyBooster(booster);
+       return;
+     }
+     const next = activeBooster === booster ? null : booster;
+@@ -1149,7 +1149,7 @@
+     const cell = displayBoard?.[row]?.[col];
+     if (activeBooster) {
+       if (!cell) return;
+-      useBooster(activeBooster, row, col);
++      applyBooster(activeBooster, row, col);
+       return;
+     }
+     if (!cell || cell.obstacle) {
+--- /mnt/data/tm6v69-work/frontend/public/service-worker.js	2026-07-23 22:52:12.615339160 +0000
++++ /mnt/data/tm6v70-work/frontend/public/service-worker.js	2026-07-23 23:01:08.135325761 +0000
+@@ -2,7 +2,7 @@
+  * Dynamic data is always network-only.
+  * App shell uses network-first so new deployments replace old PWA files promptly.
+  */
+-const VERSION = "tm6-v69";
++const VERSION = "tm6-v70";
+ const STATIC_CACHE = `${VERSION}-static`;
+ const RUNTIME_CACHE = `${VERSION}-runtime`;
+ 
