@@ -21,6 +21,7 @@ import CreditGoals from "@/pages/CreditGoals";
 import CreditLeaderboard from "@/pages/CreditLeaderboard";
 import DebitLeaderboard from "@/pages/DebitLeaderboard";
 import DebitIssuances from "@/pages/DebitIssuances";
+import BonusMatch from "@/pages/BonusMatch";
 
 const Splash = () => (
   <div className="min-h-screen w-full flex items-center justify-center">
@@ -69,6 +70,7 @@ function App() {
             <Route path="/store" element={<Store />} />
             <Route path="/leaderboard" element={<Leaderboard />} />
             <Route path="/fun" element={<Fun />} />
+            <Route path="/games/bonus-match" element={<BonusMatch />} />
             <Route path="/history" element={<History />} />
             <Route path="/feed" element={<Feed />} />
             <Route path="/admin" element={<RequireAdmin><Admin /></RequireAdmin>} />

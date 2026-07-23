@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Flame, Trophy, GraduationCap, Sparkles, Crown, Award, Medal, Star, Zap, ChevronRight, Coins, TrendingUp, Swords, Gift, Lock, Dice5, ScrollText, Target, Newspaper } from "lucide-react";
+import { Flame, Trophy, GraduationCap, Sparkles, Crown, Award, Medal, Star, Zap, ChevronRight, Coins, TrendingUp, Swords, Gift, Lock, Dice5, ScrollText, Target, Newspaper, Gamepad2 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import api, { getToken } from "@/lib/api";
 import { resolveAvatarUrl } from "@/lib/avatar";
@@ -220,6 +220,11 @@ export default function Home() {
     {/* 8. Achievements */}
     <section><div className="mb-3 flex items-center justify-between px-1"><div className="font-display text-lg text-white">Досягнення</div><div className="text-xs font-black text-zinc-500">{achievements.filter(a=>a.unlocked).length} / {achievements.length}</div></div><div className="grid grid-cols-3 gap-3">{achievements.map(a=><Badge key={a.id} ach={a}/>)}</div></section>
 
-    <section className="flex items-center gap-4 rounded-3xl border border-white/10 bg-[#1A1A1E] p-5"><div className="flex h-12 w-12 items-center justify-center rounded-2xl border-2 border-[#FFB800]/50 bg-[#FFB800]/15"><Zap size={22} color="#FFB800" /></div><div className="flex-1"><div className="text-sm font-black text-white">До нового рівня</div><div className="text-xs text-zinc-500">{xpNext-xp} XP</div></div><ChevronRight color="#FFB800" /></section>
+    <button type="button" onClick={() => nav("/games/bonus-match")} className="group relative flex w-full items-center gap-4 overflow-hidden rounded-3xl border border-[#7C3AED]/55 bg-gradient-to-r from-[#25103F] via-[#18121F] to-[#101014] p-5 text-left shadow-[0_16px_36px_rgba(124,58,237,.16)] active:scale-[.99]">
+      <div className="absolute -right-8 -top-10 h-28 w-28 rounded-full bg-[#7C3AED]/20 blur-2xl" />
+      <div className="relative flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-[#B78CFF]/45 bg-[#7C3AED]/25 text-[#C9A7FF] shadow-[0_0_24px_rgba(124,58,237,.22)]"><Gamepad2 size={27} strokeWidth={2.8} /></div>
+      <div className="relative min-w-0 flex-1"><div className="flex items-center gap-2"><div className="font-display text-xl text-white">BONUS MATCH</div><Zap size={16} color="#FFB800" fill="#FFB800" /></div><div className="mt-1 text-xs font-bold text-zinc-400">Збирай 3+ фішки та вигравай Point</div></div>
+      <ChevronRight className="relative shrink-0 text-[#B78CFF] transition-transform group-active:translate-x-1" />
+    </button>
   </div>;
 }

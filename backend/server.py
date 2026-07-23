@@ -2413,6 +2413,500 @@ async def prediction_reveal(user: dict = Depends(get_current_user)):
     )
     return PredictionResult(text=text, date=key)
 
+# ────────────────────────────────────────────────────────────────────────
+# Bonus Match — server-authoritative match-3 mini game
+# ────────────────────────────────────────────────────────────────────────
+BONUS_MATCH_ROWS = 7
+BONUS_MATCH_COLS = 7
+BONUS_MATCH_MAX_LEVEL = 50
+BONUS_MATCH_MAX_LIVES = 5
+BONUS_MATCH_LIFE_REGEN_MINUTES = 30
+BONUS_MATCH_DAILY_POINT_CAP = 40
+BONUS_MATCH_SYMBOLS = ["coin", "star", "gift", "cube", "zap", "trophy"]
+BONUS_MATCH_POINT_REWARD = {1: 2, 2: 4, 3: 7}
+BONUS_MATCH_XP_REWARD = {1: 5, 2: 10, 3: 15}
+
+
+class BonusMatchStartBody(BaseModel):
+    level: int = 1
+
+
+class BonusMatchMoveBody(BaseModel):
+    session_id: str
+    from_row: int
+    from_col: int
+    to_row: int
+    to_col: int
+
+
+def _bonus_match_level_config(level: int) -> dict:
+    level = max(1, min(BONUS_MATCH_MAX_LEVEL, int(level or 1)))
+    target_score = 900 + level * 260
+    target_coins = 6 + ((level + 1) // 2)
+    moves = max(17, 23 - ((level - 1) // 6))
+    return {
+        "level": level,
+        "moves": moves,
+        "target_score": target_score,
+        "target_coins": target_coins,
+        "star_thresholds": [target_score, int(target_score * 1.35), int(target_score * 1.72)],
+    }
+
+
+def _bonus_match_find_matches(board: list[list[str]]) -> set[tuple[int, int]]:
+    matched: set[tuple[int, int]] = set()
+    rows = len(board)
+    cols = len(board[0]) if rows else 0
+
+    for row in range(rows):
+        start = 0
+        while start < cols:
+            symbol = board[row][start]
+            end = start + 1
+            while end < cols and board[row][end] == symbol:
+                end += 1
+            if symbol is not None and end - start >= 3:
+                matched.update((row, col) for col in range(start, end))
+            start = end
+
+    for col in range(cols):
+        start = 0
+        while start < rows:
+            symbol = board[start][col]
+            end = start + 1
+            while end < rows and board[end][col] == symbol:
+                end += 1
+            if symbol is not None and end - start >= 3:
+                matched.update((row, col) for row in range(start, end))
+            start = end
+
+    return matched
+
+
+def _bonus_match_has_move(board: list[list[str]]) -> bool:
+    rows = len(board)
+    cols = len(board[0]) if rows else 0
+    for row in range(rows):
+        for col in range(cols):
+            for dr, dc in ((0, 1), (1, 0)):
+                next_row, next_col = row + dr, col + dc
+                if next_row >= rows or next_col >= cols:
+                    continue
+                board[row][col], board[next_row][next_col] = board[next_row][next_col], board[row][col]
+                valid = bool(_bonus_match_find_matches(board))
+                board[row][col], board[next_row][next_col] = board[next_row][next_col], board[row][col]
+                if valid:
+                    return True
+    return False
+
+
+def _bonus_match_make_board() -> list[list[str]]:
+    import random as _random
+
+    for _ in range(120):
+        board: list[list[str]] = []
+        for row in range(BONUS_MATCH_ROWS):
+            board.append([])
+            for col in range(BONUS_MATCH_COLS):
+                blocked: set[str] = set()
+                if col >= 2 and board[row][col - 1] == board[row][col - 2]:
+                    blocked.add(board[row][col - 1])
+                if row >= 2 and board[row - 1][col] == board[row - 2][col]:
+                    blocked.add(board[row - 1][col])
+                choices = [symbol for symbol in BONUS_MATCH_SYMBOLS if symbol not in blocked]
+                board[row].append(_random.choice(choices))
+        if _bonus_match_has_move(board):
+            return board
+    return [[BONUS_MATCH_SYMBOLS[(row * 2 + col * 3) % len(BONUS_MATCH_SYMBOLS)] for col in range(BONUS_MATCH_COLS)] for row in range(BONUS_MATCH_ROWS)]
+
+
+def _bonus_match_collapse(board: list[list[Optional[str]]]) -> list[list[str]]:
+    import random as _random
+
+    rows = len(board)
+    cols = len(board[0]) if rows else 0
+    for col in range(cols):
+        values = [board[row][col] for row in range(rows) if board[row][col] is not None]
+        missing = rows - len(values)
+        new_values = [_random.choice(BONUS_MATCH_SYMBOLS) for _ in range(missing)] + values
+        for row in range(rows):
+            board[row][col] = new_values[row]
+    return board  # type: ignore[return-value]
+
+
+def _bonus_match_parse_iso(value: Optional[str]) -> datetime:
+    if not value:
+        return datetime.now(timezone.utc)
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+    except (ValueError, TypeError):
+        return datetime.now(timezone.utc)
+
+
+async def _bonus_match_profile(user_id: str) -> dict:
+    now = datetime.now(timezone.utc)
+    profile = await db.bonus_match_profiles.find_one({"user_id": user_id}, {"_id": 0})
+    if not profile:
+        profile = {
+            "user_id": user_id,
+            "current_level": 1,
+            "total_stars": 0,
+            "lives": BONUS_MATCH_MAX_LIVES,
+            "lives_updated_at": now.isoformat(),
+            "created_at": now.isoformat(),
+            "updated_at": now.isoformat(),
+        }
+        try:
+            await db.bonus_match_profiles.insert_one(profile.copy())
+        except Exception:
+            profile = await db.bonus_match_profiles.find_one({"user_id": user_id}, {"_id": 0}) or profile
+
+    lives = max(0, min(BONUS_MATCH_MAX_LIVES, int(profile.get("lives", BONUS_MATCH_MAX_LIVES))))
+    anchor = _bonus_match_parse_iso(profile.get("lives_updated_at"))
+    if lives < BONUS_MATCH_MAX_LIVES:
+        elapsed_seconds = max(0, (now - anchor).total_seconds())
+        gained = int(elapsed_seconds // (BONUS_MATCH_LIFE_REGEN_MINUTES * 60))
+        if gained > 0:
+            lives = min(BONUS_MATCH_MAX_LIVES, lives + gained)
+            if lives >= BONUS_MATCH_MAX_LIVES:
+                anchor = now
+            else:
+                anchor = anchor + timedelta(minutes=BONUS_MATCH_LIFE_REGEN_MINUTES * gained)
+            await db.bonus_match_profiles.update_one(
+                {"user_id": user_id},
+                {"$set": {"lives": lives, "lives_updated_at": anchor.isoformat(), "updated_at": now.isoformat()}},
+            )
+            profile["lives"] = lives
+            profile["lives_updated_at"] = anchor.isoformat()
+
+    profile.setdefault("current_level", 1)
+    profile.setdefault("total_stars", 0)
+    profile["lives"] = lives
+    profile["next_life_at"] = None if lives >= BONUS_MATCH_MAX_LIVES else (anchor + timedelta(minutes=BONUS_MATCH_LIFE_REGEN_MINUTES)).isoformat()
+    return profile
+
+
+def _bonus_match_session_payload(session: dict) -> dict:
+    return {
+        "id": session["id"],
+        "level": int(session["level"]),
+        "board": session["board"],
+        "moves_left": int(session["moves_left"]),
+        "score": int(session.get("score", 0)),
+        "coins_collected": int(session.get("coins_collected", 0)),
+        "status": session.get("status", "active"),
+        "config": session.get("config") or _bonus_match_level_config(session["level"]),
+        "cascades": int(session.get("cascades", 0)),
+        "created_at": session.get("created_at"),
+        "completed_at": session.get("completed_at"),
+    }
+
+
+async def _bonus_match_top_today(limit: int = 5) -> list[dict]:
+    start_iso, end_iso = kyiv_day_bounds_utc(kyiv_today_key())
+    rows = await db.bonus_match_sessions.aggregate([
+        {"$match": {"status": "won", "completed_at": {"$gte": start_iso, "$lt": end_iso}}},
+        {"$group": {"_id": "$user_id", "score": {"$max": "$score"}, "level": {"$max": "$level"}}},
+        {"$sort": {"score": -1, "level": -1}},
+        {"$limit": limit},
+    ]).to_list(limit)
+    if not rows:
+        return []
+    users = await db.users.find(
+        {"id": {"$in": [row["_id"] for row in rows]}},
+        {"_id": 0, "id": 1, "name": 1, "avatar_initials": 1, "avatar_color": 1, "avatar_url": 1, "avatar_rarity": 1},
+    ).to_list(limit)
+    user_map = {item["id"]: item for item in users}
+    result = []
+    for index, row in enumerate(rows, start=1):
+        player = user_map.get(row["_id"], {})
+        result.append({
+            "rank": index,
+            "user_id": row["_id"],
+            "name": player.get("name", "Працівник"),
+            "avatar_initials": player.get("avatar_initials", "TM"),
+            "avatar_color": player.get("avatar_color", "#7C3AED"),
+            "avatar_url": player.get("avatar_url"),
+            "avatar_rarity": player.get("avatar_rarity", "basic"),
+            "score": int(row.get("score", 0)),
+            "level": int(row.get("level", 1)),
+        })
+    return result
+
+
+async def _bonus_match_reward_win(user: dict, session: dict, stars: int) -> dict:
+    level = int(session["level"])
+    now = now_iso()
+    existing = await db.bonus_match_completions.find_one(
+        {"user_id": user["id"], "level": level},
+        {"_id": 0},
+    )
+    previous_stars = int(existing.get("stars", 0)) if existing else 0
+    first_completion = existing is None
+    best_stars = max(previous_stars, stars)
+    star_delta = max(0, best_stars - previous_stars)
+
+    await db.bonus_match_completions.update_one(
+        {"user_id": user["id"], "level": level},
+        {
+            "$set": {
+                "stars": best_stars,
+                "best_score": max(int(existing.get("best_score", 0)) if existing else 0, int(session.get("score", 0))),
+                "updated_at": now,
+            },
+            "$setOnInsert": {
+                "id": str(uuid.uuid4()),
+                "user_id": user["id"],
+                "level": level,
+                "created_at": now,
+            },
+        },
+        upsert=True,
+    )
+
+    profile = await _bonus_match_profile(user["id"])
+    refunded_lives = min(BONUS_MATCH_MAX_LIVES, int(profile.get("lives", 0)) + 1)
+    profile_updates: dict = {
+        "$max": {"current_level": min(BONUS_MATCH_MAX_LEVEL, level + 1)},
+        "$set": {"lives": refunded_lives, "updated_at": now},
+    }
+    if refunded_lives >= BONUS_MATCH_MAX_LIVES:
+        profile_updates["$set"]["lives_updated_at"] = now
+    if star_delta:
+        profile_updates["$inc"] = {"total_stars": star_delta}
+    await db.bonus_match_profiles.update_one({"user_id": user["id"]}, profile_updates)
+
+    points_awarded = 0
+    xp_awarded = 0
+    first_win_bonus = 0
+    if first_completion:
+        date_key = kyiv_today_key()
+        daily = await db.bonus_match_daily.find_one({"user_id": user["id"], "date": date_key}, {"_id": 0}) or {}
+        points_today = int(daily.get("points_awarded", 0))
+        first_win_bonus = 5 if int(daily.get("wins", 0)) == 0 else 0
+        raw_points = BONUS_MATCH_POINT_REWARD.get(stars, 0) + first_win_bonus
+        points_awarded = max(0, min(raw_points, BONUS_MATCH_DAILY_POINT_CAP - points_today))
+        xp_awarded = BONUS_MATCH_XP_REWARD.get(stars, 0)
+
+        await db.bonus_match_daily.update_one(
+            {"user_id": user["id"], "date": date_key},
+            {
+                "$inc": {"wins": 1, "points_awarded": points_awarded, "xp_awarded": xp_awarded},
+                "$set": {"updated_at": now},
+                "$setOnInsert": {"created_at": now},
+            },
+            upsert=True,
+        )
+        if points_awarded or xp_awarded:
+            await db.users.update_one(
+                {"id": user["id"]},
+                {"$inc": {"balance": points_awarded, "total_earned": points_awarded, "total_xp": xp_awarded}},
+            )
+            await db.transactions.insert_one({
+                "id": str(uuid.uuid4()),
+                "user_id": user["id"],
+                "kind": "bonus_match",
+                "amount": points_awarded,
+                "description": f"Bonus Match: рівень {level}, {stars} зірки, +{xp_awarded} XP",
+                "created_at": now,
+                "meta": {"level": level, "stars": stars, "xp": xp_awarded, "first_win_bonus": first_win_bonus},
+            })
+
+    fresh_user = await db.users.find_one({"id": user["id"]}, {"_id": 0})
+    fresh_profile = await _bonus_match_profile(user["id"])
+    return {
+        "first_completion": first_completion,
+        "stars": stars,
+        "points_awarded": points_awarded,
+        "xp_awarded": xp_awarded,
+        "first_win_bonus": first_win_bonus if points_awarded else 0,
+        "new_balance": int(fresh_user.get("balance", 0)) if fresh_user else int(user.get("balance", 0)),
+        "total_xp": int(fresh_user.get("total_xp", 0)) if fresh_user else int(user.get("total_xp", 0)),
+        "current_level": int(fresh_profile.get("current_level", level + 1)),
+        "total_stars": int(fresh_profile.get("total_stars", 0)),
+        "lives": int(fresh_profile.get("lives", BONUS_MATCH_MAX_LIVES)),
+    }
+
+
+@api.get("/games/bonus-match/status")
+async def bonus_match_status(user: dict = Depends(get_current_user)):
+    profile = await _bonus_match_profile(user["id"])
+    date_key = kyiv_today_key()
+    daily = await db.bonus_match_daily.find_one({"user_id": user["id"], "date": date_key}, {"_id": 0}) or {}
+    completions = await db.bonus_match_completions.find(
+        {"user_id": user["id"]}, {"_id": 0, "level": 1, "stars": 1, "best_score": 1}
+    ).sort("level", 1).to_list(BONUS_MATCH_MAX_LEVEL)
+    active = await db.bonus_match_sessions.find_one(
+        {"user_id": user["id"], "status": "active"}, {"_id": 0}, sort=[("created_at", -1)]
+    )
+    return {
+        "profile": {
+            "current_level": int(profile.get("current_level", 1)),
+            "total_stars": int(profile.get("total_stars", 0)),
+            "lives": int(profile.get("lives", BONUS_MATCH_MAX_LIVES)),
+            "max_lives": BONUS_MATCH_MAX_LIVES,
+            "next_life_at": profile.get("next_life_at"),
+            "daily_points": int(daily.get("points_awarded", 0)),
+            "daily_point_cap": BONUS_MATCH_DAILY_POINT_CAP,
+        },
+        "completions": completions,
+        "active_session": _bonus_match_session_payload(active) if active else None,
+        "top_today": await _bonus_match_top_today(),
+    }
+
+
+@api.post("/games/bonus-match/start")
+async def bonus_match_start(body: BonusMatchStartBody, user: dict = Depends(get_current_user)):
+    profile = await _bonus_match_profile(user["id"])
+    requested_level = max(1, min(BONUS_MATCH_MAX_LEVEL, int(body.level or 1)))
+    if requested_level > int(profile.get("current_level", 1)):
+        raise HTTPException(status_code=400, detail="Цей рівень ще не відкрито")
+
+    existing = await db.bonus_match_sessions.find_one(
+        {"user_id": user["id"], "status": "active"}, {"_id": 0}, sort=[("created_at", -1)]
+    )
+    if existing:
+        return {
+            "session": _bonus_match_session_payload(existing),
+            "profile": {
+                "lives": int(profile.get("lives", BONUS_MATCH_MAX_LIVES)),
+                "max_lives": BONUS_MATCH_MAX_LIVES,
+                "next_life_at": profile.get("next_life_at"),
+            },
+            "resumed": True,
+        }
+
+    lives = int(profile.get("lives", 0))
+    if lives <= 0:
+        raise HTTPException(status_code=400, detail="Життя закінчилися. Наступне відновиться через 30 хвилин")
+
+    now = now_iso()
+    lives_anchor = profile.get("lives_updated_at")
+    if lives >= BONUS_MATCH_MAX_LIVES:
+        lives_anchor = now
+    await db.bonus_match_profiles.update_one(
+        {"user_id": user["id"]},
+        {"$set": {"lives": lives - 1, "lives_updated_at": lives_anchor or now, "updated_at": now}},
+    )
+
+    config = _bonus_match_level_config(requested_level)
+    session = {
+        "id": str(uuid.uuid4()),
+        "user_id": user["id"],
+        "level": requested_level,
+        "board": _bonus_match_make_board(),
+        "moves_left": config["moves"],
+        "score": 0,
+        "coins_collected": 0,
+        "cascades": 0,
+        "status": "active",
+        "config": config,
+        "created_at": now,
+        "updated_at": now,
+    }
+    await db.bonus_match_sessions.insert_one(session.copy())
+    refreshed = await _bonus_match_profile(user["id"])
+    return {
+        "session": _bonus_match_session_payload(session),
+        "profile": {
+            "lives": int(refreshed.get("lives", lives - 1)),
+            "max_lives": BONUS_MATCH_MAX_LIVES,
+            "next_life_at": refreshed.get("next_life_at"),
+        },
+        "resumed": False,
+    }
+
+
+@api.post("/games/bonus-match/move")
+async def bonus_match_move(body: BonusMatchMoveBody, user: dict = Depends(get_current_user)):
+    session = await db.bonus_match_sessions.find_one(
+        {"id": body.session_id, "user_id": user["id"]}, {"_id": 0}
+    )
+    if not session:
+        raise HTTPException(status_code=404, detail="Ігрову сесію не знайдено")
+    if session.get("status") != "active":
+        return {"valid": False, "message": "Цей рівень уже завершено", "session": _bonus_match_session_payload(session)}
+
+    coordinates = [body.from_row, body.from_col, body.to_row, body.to_col]
+    if any(value < 0 for value in coordinates):
+        raise HTTPException(status_code=400, detail="Некоректні координати ходу")
+    if body.from_row >= BONUS_MATCH_ROWS or body.to_row >= BONUS_MATCH_ROWS or body.from_col >= BONUS_MATCH_COLS or body.to_col >= BONUS_MATCH_COLS:
+        raise HTTPException(status_code=400, detail="Некоректні координати ходу")
+    if abs(body.from_row - body.to_row) + abs(body.from_col - body.to_col) != 1:
+        return {"valid": False, "message": "Обери сусідню фішку", "session": _bonus_match_session_payload(session)}
+
+    board = [list(row) for row in session["board"]]
+    board[body.from_row][body.from_col], board[body.to_row][body.to_col] = board[body.to_row][body.to_col], board[body.from_row][body.from_col]
+    matches = _bonus_match_find_matches(board)
+    if not matches:
+        return {"valid": False, "message": "Цей хід не створює комбінацію", "session": _bonus_match_session_payload(session)}
+
+    score_gain = 0
+    coins_gain = 0
+    cascade_count = 0
+    while matches and cascade_count < 12:
+        cascade_count += 1
+        match_count = len(matches)
+        coins_gain += sum(1 for row, col in matches if board[row][col] == "coin")
+        score_gain += match_count * 100 + max(0, match_count - 3) * 70 + (cascade_count - 1) * 90
+        nullable_board: list[list[Optional[str]]] = [list(row) for row in board]
+        for row, col in matches:
+            nullable_board[row][col] = None
+        board = _bonus_match_collapse(nullable_board)
+        matches = _bonus_match_find_matches(board)
+
+    if not _bonus_match_has_move(board):
+        board = _bonus_match_make_board()
+
+    moves_left = max(0, int(session.get("moves_left", 0)) - 1)
+    score = int(session.get("score", 0)) + score_gain
+    coins_collected = int(session.get("coins_collected", 0)) + coins_gain
+    config = session.get("config") or _bonus_match_level_config(session["level"])
+    won = score >= int(config["target_score"]) and coins_collected >= int(config["target_coins"])
+    status_value = "won" if won else ("lost" if moves_left <= 0 else "active")
+    now = now_iso()
+
+    updates = {
+        "board": board,
+        "moves_left": moves_left,
+        "score": score,
+        "coins_collected": coins_collected,
+        "cascades": int(session.get("cascades", 0)) + cascade_count,
+        "status": status_value,
+        "updated_at": now,
+    }
+    if status_value != "active":
+        updates["completed_at"] = now
+    await db.bonus_match_sessions.update_one({"id": session["id"]}, {"$set": updates})
+    session = {**session, **updates}
+
+    result = None
+    if won:
+        thresholds = config["star_thresholds"]
+        stars = 3 if score >= thresholds[2] else 2 if score >= thresholds[1] else 1
+        result = await _bonus_match_reward_win(user, session, stars)
+    elif status_value == "lost":
+        profile = await _bonus_match_profile(user["id"])
+        result = {
+            "stars": 0,
+            "points_awarded": 0,
+            "xp_awarded": 0,
+            "lives": int(profile.get("lives", 0)),
+            "current_level": int(profile.get("current_level", 1)),
+            "total_stars": int(profile.get("total_stars", 0)),
+        }
+
+    return {
+        "valid": True,
+        "message": f"+{score_gain} очок" if score_gain else "Хід зараховано",
+        "score_gain": score_gain,
+        "coins_gain": coins_gain,
+        "cascade_count": cascade_count,
+        "session": _bonus_match_session_payload(session),
+        "result": result,
+    }
+
 
 # ────────────────────────────────────────────────────────────────────────
 # Motivational feed (activity stream)
@@ -2460,6 +2954,8 @@ def _classify_transaction(tx: dict, level_at_time: Optional[int] = None):
         return "quest", "приєднався до команди", "стартовий бонус"
     if kind == "goal_reward":
         return "goal", "виконав ціль", desc
+    if kind == "bonus_match":
+        return "quest", "пройшов рівень Bonus Match", desc.replace("Bonus Match: ", "")
     return "quest", desc or "активність", ""
 
 
@@ -2808,6 +3304,10 @@ async def admin_delete_user(user_id: str, admin: dict = Depends(get_current_admi
         db.user_goals,
         db.user_achievements,
         db.page_views,
+        db.bonus_match_profiles,
+        db.bonus_match_sessions,
+        db.bonus_match_completions,
+        db.bonus_match_daily,
     )
     for collection in user_collections:
         await collection.delete_many({"user_id": user_id})
@@ -3124,6 +3624,11 @@ async def seed_all():
     await db.transactions.create_index("created_at")
     await db.daily_progress.create_index([("user_id", 1), ("date", 1)], unique=True)
     await db.daily_games.create_index([("user_id", 1), ("date", 1)], unique=True)
+    await db.bonus_match_profiles.create_index("user_id", unique=True)
+    await db.bonus_match_sessions.create_index([("user_id", 1), ("status", 1), ("created_at", -1)])
+    await db.bonus_match_sessions.create_index([("status", 1), ("completed_at", -1)])
+    await db.bonus_match_completions.create_index([("user_id", 1), ("level", 1)], unique=True)
+    await db.bonus_match_daily.create_index([("user_id", 1), ("date", 1)], unique=True)
     await db.daily_task_sets.create_index([("user_id", 1), ("date", 1)], unique=True)
     await db.daily_task_reviews.create_index([("user_id", 1), ("date", 1), ("task_id", 1)], unique=True)
     await db.teams.create_index("name", unique=True)
