@@ -4,6 +4,7 @@ import {
   Users, Swords, Gift, ShoppingBag, BarChart3, Plus, Pencil, Trash2, X, Minus, Check, Coins, Trophy, ChevronRight,
   UserCog, ShieldCheck, Crown, UsersRound, Inbox, UserCheck, ClipboardList, CheckCircle2, XCircle,
   ArrowUp, ArrowDown, FileText, BrainCircuit, Clock3, TrendingUp, Search, CalendarDays, Target, Save, ChevronDown,
+  KeyRound, Award, Medal, Star, Sparkles, Send,
 } from "lucide-react";
 import api, { extractError, API_BASE, getToken } from "@/lib/api";
 import { useApp } from "@/context/AppContext";
@@ -17,6 +18,7 @@ const TABS = [
   { id: "applications", label: "Заявки", icon: Inbox },
   { id: "users", label: "Юзери", icon: Users },
   { id: "teams", label: "Команди", icon: UsersRound },
+  { id: "achievements", label: "Досягнення", icon: Award },
   { id: "prizes", label: "Призи", icon: Gift },
   { id: "orders", label: "Замовлення", icon: ShoppingBag },
 ];
@@ -64,6 +66,38 @@ const AnalyticsView = () => {
         <StatBox label="Замовлень в обробці" value={data.orders_processing} accent="#00F0FF" />
         <StatBox label="Балів нараховано" value={data.total_points_earned.toLocaleString("uk-UA")} accent="#39FF14" />
         <StatBox label="Балів витрачено" value={data.total_points_spent.toLocaleString("uk-UA")} accent="#FF5C00" />
+        <StatBox label="Переглядів сторінок · 30 днів" value={Number(data.total_page_views || 0).toLocaleString("uk-UA")} accent="#B78CFF" />
+        <StatBox label="Активних працівників · 30 днів" value={Number(data.unique_page_users || 0)} accent="#00F0FF" />
+      </div>
+
+      <div className="bg-[#1A1A1E] border border-white/10 rounded-2xl p-4" data-testid="page-usage-analytics">
+        <div className="flex items-center justify-between gap-3 mb-3">
+          <div>
+            <div className="font-black text-white text-sm uppercase tracking-wider">Найпопулярніші вкладки та сторінки</div>
+            <div className="mt-1 text-[10px] font-bold text-zinc-500">За останні {data.page_usage_period_days || 30} днів · адмін-панель не враховується</div>
+          </div>
+          <BarChart3 size={18} className="shrink-0 text-[#B78CFF]" />
+        </div>
+        <div className="space-y-3">
+          {(data.popular_pages || []).map((page, index) => {
+            const maxViews = Math.max(1, Number(data.popular_pages?.[0]?.views || 1));
+            const width = Math.max(5, Math.round(Number(page.views || 0) / maxViews * 100));
+            return <div key={`${page.path}-${index}`} className="rounded-xl bg-black/25 p-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm font-black text-white">{page.label || page.path}</div>
+                  <div className="mt-0.5 truncate text-[10px] text-zinc-600">{page.path}</div>
+                </div>
+                <div className="shrink-0 text-right">
+                  <div className="text-sm font-black text-[#B78CFF]">{Number(page.views || 0).toLocaleString("uk-UA")}</div>
+                  <div className="text-[9px] font-bold text-zinc-600">{page.unique_users || 0} працівн.</div>
+                </div>
+              </div>
+              <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/5"><div className="h-full rounded-full bg-[#B78CFF]" style={{width:`${width}%`}} /></div>
+            </div>;
+          })}
+          {!(data.popular_pages || []).length && <div className="py-4 text-center text-xs text-zinc-500">Статистика почне збиратися після оновлення frontend.</div>}
+        </div>
       </div>
 
       <div className="bg-[#1A1A1E] border border-white/10 rounded-2xl p-4">
@@ -413,6 +447,7 @@ const UsersView = () => {
   const [loading, setLoading] = useState(true);
   const [adjustFor, setAdjustFor] = useState(null);
   const [editFor, setEditFor] = useState(null);
+  const [passwordFor, setPasswordFor] = useState(null);
   const [showCreate, setShowCreate] = useState(false);
 
   const load = async () => {
@@ -480,6 +515,14 @@ const UsersView = () => {
               <UserCog size={14} strokeWidth={3} />
             </button>
             <button
+              data-testid={`password-user-${u.id}`}
+              onClick={() => setPasswordFor(u)}
+              className="w-9 h-9 rounded-xl bg-[#0A0A0A] border border-[#B78CFF]/40 text-[#B78CFF] flex items-center justify-center active:scale-95"
+              aria-label="Змінити пароль"
+            >
+              <KeyRound size={14} strokeWidth={3} />
+            </button>
+            <button
               data-testid={`adjust-${u.id}`}
               onClick={() => setAdjustFor(u)}
               className="w-9 h-9 rounded-xl bg-[#0A0A0A] border border-[#FFB800]/40 text-[#FFB800] flex items-center justify-center active:scale-95"
@@ -502,9 +545,76 @@ const UsersView = () => {
       ))}
 
       {adjustFor && <AdjustPointsSheet user={adjustFor} onClose={() => setAdjustFor(null)} onDone={load} />}
+      {passwordFor && <PasswordResetSheet user={passwordFor} onClose={() => setPasswordFor(null)} />}
       {editFor && <UserEditSheet user={editFor} teams={teams} onClose={() => setEditFor(null)} onDone={load} />}
       {showCreate && <CreateUserSheet onClose={() => setShowCreate(false)} onDone={load} />}
     </div>
+  );
+};
+
+const PasswordResetSheet = ({ user, onClose }) => {
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const submit = async () => {
+    if (password.length < 6) {
+      toast.error("Пароль має містити щонайменше 6 символів");
+      return;
+    }
+    if (password !== confirmPassword) {
+      toast.error("Паролі не збігаються");
+      return;
+    }
+    if (!window.confirm(`Змінити пароль для ${user.name}? Усі активні сесії цього акаунта буде завершено.`)) return;
+    setBusy(true);
+    try {
+      const { data } = await api.patch(`/admin/users/${user.id}/password`, { new_password: password });
+      toast.success(data?.message || "Пароль змінено. Усі сесії завершено");
+      onClose();
+    } catch (e) {
+      toast.error(extractError(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <BottomSheet onClose={onClose} title={`Новий пароль: ${user.name}`}>
+      <div className="rounded-2xl border border-[#B78CFF]/25 bg-[#B78CFF]/[.07] p-3 text-xs leading-relaxed text-zinc-300">
+        Після збереження акаунт автоматично вийде з усіх телефонів і браузерів. Для повторного входу потрібен новий пароль.
+      </div>
+      <label className="block text-[11px] font-black uppercase text-zinc-500 mt-4 mb-1">Новий пароль</label>
+      <input
+        data-testid="reset-password-new"
+        type="password"
+        autoComplete="new-password"
+        value={password}
+        onChange={(e) => setPassword(e.target.value)}
+        placeholder="Мінімум 6 символів"
+        className="w-full h-12 px-4 rounded-xl bg-[#0A0A0A] border-2 border-white/10 text-white focus:border-[#B78CFF] outline-none"
+      />
+      <label className="block text-[11px] font-black uppercase text-zinc-500 mt-3 mb-1">Повтори пароль</label>
+      <input
+        data-testid="reset-password-confirm"
+        type="password"
+        autoComplete="new-password"
+        value={confirmPassword}
+        onChange={(e) => setConfirmPassword(e.target.value)}
+        placeholder="Ще раз новий пароль"
+        className="w-full h-12 px-4 rounded-xl bg-[#0A0A0A] border-2 border-white/10 text-white focus:border-[#B78CFF] outline-none"
+      />
+      <button
+        data-testid="reset-password-submit"
+        type="button"
+        onClick={submit}
+        disabled={busy || !password || !confirmPassword}
+        className="arcade-btn w-full h-12 mt-5 bg-[#B78CFF] border-[#5B21B6] text-[#0A0A0A] font-black text-sm uppercase tracking-wider flex items-center justify-center gap-2 disabled:opacity-50"
+      >
+        <KeyRound size={16} strokeWidth={3} />
+        {busy ? "Змінюємо..." : "Змінити пароль"}
+      </button>
+    </BottomSheet>
   );
 };
 
@@ -619,6 +729,126 @@ const UserEditSheet = ({ user, teams, onClose, onDone }) => {
       </button>
     </BottomSheet>
   );
+};
+
+// ─────────────── Achievements admin ───────────────
+const ACHIEVEMENT_ICON_OPTIONS = [
+  { value: "trophy", label: "Кубок", Icon: Trophy },
+  { value: "award", label: "Нагорода", Icon: Award },
+  { value: "medal", label: "Медаль", Icon: Medal },
+  { value: "star", label: "Зірка", Icon: Star },
+  { value: "crown", label: "Корона", Icon: Crown },
+  { value: "sparkles", label: "Особливе", Icon: Sparkles },
+];
+const achievementIcon = (name) => ACHIEVEMENT_ICON_OPTIONS.find((item) => item.value === name)?.Icon || Award;
+
+const AchievementsView = () => {
+  const [data, setData] = useState({ achievements: [], users: [] });
+  const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState(null);
+  const [granting, setGranting] = useState(null);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const { data: dashboard } = await api.get("/admin/achievements-dashboard");
+      setData({ achievements: dashboard.achievements || [], users: dashboard.users || [] });
+    } catch (e) { toast.error(extractError(e)); }
+    finally { setLoading(false); }
+  };
+  useEffect(() => { load(); }, []);
+
+  return <div className="space-y-3" data-testid="achievements-admin-view">
+    <button type="button" onClick={() => setEditing({ isNew: true })} className="arcade-btn flex h-11 w-full items-center justify-center gap-2 border-[#7a5900] bg-[#FFB800] text-xs font-black uppercase tracking-wider text-[#0A0A0A]">
+      <Plus size={16} strokeWidth={3}/> Створити досягнення
+    </button>
+    {loading && <div className="py-8 text-center text-sm text-zinc-500">Завантаження...</div>}
+    {!loading && !data.achievements.length && <div className="rounded-2xl border border-white/10 bg-[#1A1A1E] p-6 text-center text-sm text-zinc-500">Ще немає створених досягнень.</div>}
+    {data.achievements.map((achievement) => {
+      const Icon = achievementIcon(achievement.icon);
+      return <div key={achievement.id} className={`rounded-2xl border bg-[#1A1A1E] p-4 ${achievement.active ? "border-white/10" : "border-white/5 opacity-60"}`}>
+        <div className="flex items-start gap-3">
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border-2" style={{color:achievement.color,borderColor:`${achievement.color}66`,backgroundColor:`${achievement.color}18`}}><Icon size={22} strokeWidth={2.8}/></div>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2"><div className="font-black text-white">{achievement.title}</div><span className={`rounded-full px-2 py-0.5 text-[8px] font-black uppercase ${achievement.active ? "bg-[#39FF14]/10 text-[#39FF14]" : "bg-white/5 text-zinc-500"}`}>{achievement.active ? "Активне" : "Приховане"}</span></div>
+            <div className="mt-1 text-xs leading-relaxed text-zinc-500">{achievement.description || "Без опису"}</div>
+            <div className="mt-2 text-[10px] font-black uppercase tracking-wider text-[#B78CFF]">Видано: {achievement.granted_count || 0}</div>
+          </div>
+        </div>
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          <button type="button" onClick={() => setEditing(achievement)} className="flex h-10 items-center justify-center gap-2 rounded-xl border border-[#00F0FF]/30 bg-black/25 text-xs font-black text-[#00F0FF]"><Pencil size={14}/>Редагувати</button>
+          <button type="button" onClick={() => setGranting(achievement)} className="flex h-10 items-center justify-center gap-2 rounded-xl border border-[#B78CFF]/35 bg-[#B78CFF]/10 text-xs font-black text-[#D7C0FF]"><Send size={14}/>Видати</button>
+        </div>
+      </div>;
+    })}
+    {editing && <AchievementEditSheet achievement={editing} onClose={() => setEditing(null)} onDone={load}/>} 
+    {granting && <AchievementGrantSheet achievement={granting} users={data.users} onClose={() => setGranting(null)} onDone={load}/>} 
+  </div>;
+};
+
+const AchievementEditSheet = ({ achievement, onClose, onDone }) => {
+  const isNew = !!achievement?.isNew;
+  const [form, setForm] = useState({
+    title: isNew ? "" : achievement.title || "",
+    description: isNew ? "" : achievement.description || "",
+    icon: isNew ? "trophy" : achievement.icon || "trophy",
+    color: isNew ? "#FFB800" : achievement.color || "#FFB800",
+    active: isNew ? true : achievement.active !== false,
+  });
+  const [busy, setBusy] = useState(false);
+  const save = async () => {
+    if (form.title.trim().length < 2) return toast.error("Введіть назву досягнення");
+    setBusy(true);
+    try {
+      if (isNew) await api.post("/admin/achievements", form);
+      else await api.patch(`/admin/achievements/${achievement.id}`, form);
+      toast.success(isNew ? "Досягнення створено" : "Досягнення оновлено");
+      onDone(); onClose();
+    } catch (e) { toast.error(extractError(e)); }
+    finally { setBusy(false); }
+  };
+  return <BottomSheet onClose={onClose} title={isNew ? "Нове досягнення" : "Редагувати досягнення"}>
+    <label className="mb-1 block text-[11px] font-black uppercase text-zinc-500">Назва</label>
+    <input value={form.title} onChange={(e)=>setForm({...form,title:e.target.value})} maxLength={80} className="h-12 w-full rounded-xl border-2 border-white/10 bg-[#0A0A0A] px-4 text-white outline-none focus:border-[#FFB800]" placeholder="Наприклад: Майстер продажів"/>
+    <label className="mb-1 mt-3 block text-[11px] font-black uppercase text-zinc-500">Опис</label>
+    <textarea value={form.description} onChange={(e)=>setForm({...form,description:e.target.value})} maxLength={300} rows={3} className="w-full resize-none rounded-xl border-2 border-white/10 bg-[#0A0A0A] p-4 text-white outline-none focus:border-[#FFB800]" placeholder="За що працівник отримує нагороду"/>
+    <div className="mt-3 grid grid-cols-[1fr_90px] gap-3">
+      <div><label className="mb-1 block text-[11px] font-black uppercase text-zinc-500">Іконка</label><select value={form.icon} onChange={(e)=>setForm({...form,icon:e.target.value})} className="h-12 w-full rounded-xl border-2 border-white/10 bg-[#0A0A0A] px-3 text-white outline-none focus:border-[#B78CFF]">{ACHIEVEMENT_ICON_OPTIONS.map((item)=><option key={item.value} value={item.value}>{item.label}</option>)}</select></div>
+      <div><label className="mb-1 block text-[11px] font-black uppercase text-zinc-500">Колір</label><input type="color" value={form.color} onChange={(e)=>setForm({...form,color:e.target.value})} className="h-12 w-full rounded-xl border-2 border-white/10 bg-[#0A0A0A] p-1"/></div>
+    </div>
+    <label className="mt-4 flex cursor-pointer items-center gap-2"><input type="checkbox" checked={form.active} onChange={(e)=>setForm({...form,active:e.target.checked})} className="h-5 w-5 accent-[#39FF14]"/><span className="text-sm font-black text-white">Показувати працівникам після видачі</span></label>
+    <button type="button" onClick={save} disabled={busy} className="arcade-btn mt-5 flex h-12 w-full items-center justify-center gap-2 border-[#7a5900] bg-[#FFB800] text-sm font-black uppercase tracking-wider text-[#0A0A0A] disabled:opacity-50"><Save size={16}/>{busy ? "Зберігаємо..." : "Зберегти"}</button>
+  </BottomSheet>;
+};
+
+const AchievementGrantSheet = ({ achievement, users, onClose, onDone }) => {
+  const [localUsers, setLocalUsers] = useState(users || []);
+  const [busyId, setBusyId] = useState(null);
+  const toggle = async (user) => {
+    const granted = (user.achievement_ids || []).includes(achievement.id);
+    setBusyId(user.id);
+    try {
+      if (granted) await api.delete(`/admin/users/${user.id}/achievements/${achievement.id}`);
+      else await api.post(`/admin/users/${user.id}/achievements/${achievement.id}`);
+      setLocalUsers((current)=>current.map((item)=>item.id===user.id ? {...item,achievement_ids:granted ? (item.achievement_ids||[]).filter((id)=>id!==achievement.id) : [...(item.achievement_ids||[]),achievement.id]} : item));
+      toast.success(granted ? "Досягнення відкликано" : "Досягнення видано");
+      onDone();
+    } catch (e) { toast.error(extractError(e)); }
+    finally { setBusyId(null); }
+  };
+  return <BottomSheet onClose={onClose} title={`Видати: ${achievement.title}`}>
+    <div className="max-h-[58vh] space-y-2 overflow-y-auto pr-1">
+      {localUsers.map((user)=>{
+        const granted=(user.achievement_ids||[]).includes(achievement.id);
+        return <div key={user.id} className="flex items-center gap-3 rounded-2xl border border-white/10 bg-black/25 p-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl font-display text-xs text-black" style={{backgroundColor:user.avatar_color||"#FFB800"}}>{user.avatar_initials||"?"}</div>
+          <div className="min-w-0 flex-1"><div className="truncate text-sm font-black text-white">{user.name}</div><div className="truncate text-[10px] text-zinc-500">{user.email}</div></div>
+          <button type="button" onClick={()=>toggle(user)} disabled={busyId===user.id} className={`h-9 shrink-0 rounded-xl border px-3 text-[10px] font-black uppercase ${granted ? "border-[#FF3B30]/35 bg-[#FF3B30]/10 text-[#FF6B65]" : "border-[#39FF14]/35 bg-[#39FF14]/10 text-[#39FF14]"}`}>{busyId===user.id ? "..." : granted ? "Відкликати" : "Видати"}</button>
+        </div>;
+      })}
+      {!localUsers.length && <div className="py-6 text-center text-sm text-zinc-500">Немає працівників</div>}
+    </div>
+  </BottomSheet>;
 };
 
 // ─────────────── Teams admin ───────────────
@@ -1854,7 +2084,7 @@ export default function Admin() {
     );
   }
 
-  const V = { analytics: AnalyticsView, "ai-team": AITeamDashboard, "daily-tasks": DailyTasksManager, points: PointsManager, goals: GoalsManager, moderation: ModerationView, applications: ApplicationsView, users: UsersView, teams: TeamsView, prizes: PrizesView, orders: OrdersView }[tab];
+  const V = { analytics: AnalyticsView, "ai-team": AITeamDashboard, "daily-tasks": DailyTasksManager, points: PointsManager, goals: GoalsManager, moderation: ModerationView, applications: ApplicationsView, users: UsersView, teams: TeamsView, achievements: AchievementsView, prizes: PrizesView, orders: OrdersView }[tab];
 
   return (
     <div className="px-5 pt-2 pb-8 lg:px-7 lg:pt-6" data-testid="admin-page">

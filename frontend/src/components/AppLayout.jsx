@@ -2,8 +2,42 @@ import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { Home, ClipboardList, Gift, LogOut, Shield, Trophy, UsersRound, Bot, Target } from "lucide-react";
 import { useEffect } from "react";
 import { useApp } from "@/context/AppContext";
+import api from "@/lib/api";
 import InstallPrompt from "@/components/InstallPrompt";
 import NotificationBell from "@/components/NotificationBell";
+
+const PAGE_LABELS = {
+  "/": "Головна",
+  "/tasks": "Завдання",
+  "/quests": "Квести",
+  "/teams": "Команди",
+  "/ai-trainer": "AI-тренажер",
+  "/goals": "Цілі",
+  "/goals/credit": "Кредитний рейтинг",
+  "/goals/credit/me": "Мої кредитні показники",
+  "/goals/debit": "Дебетовий рейтинг",
+  "/goals/debit/me": "Мої дебетові видачі",
+  "/store": "Магазин",
+  "/leaderboard": "Загальний рейтинг",
+  "/fun": "Щедрий куб",
+  "/history": "Історія Point",
+  "/feed": "Стрічка активності",
+};
+
+const getPageLabel = (pathname, search) => {
+  const base = PAGE_LABELS[pathname] || pathname;
+  const params = new URLSearchParams(search || "");
+  if (pathname === "/goals/debit/me") {
+    return `${base} · ${params.get("period") === "yesterday" ? "Вчора" : "Місяць"}`;
+  }
+  if (pathname === "/goals/credit/me") {
+    const channel = params.get("channel");
+    const channelLabel = { xsell: "X-Sell", web_apps: "Web Apps", inb: "INB" }[channel] || "Показники";
+    const periodLabel = params.get("period") === "yesterday" ? "Вчора" : "Місяць";
+    return `${base} · ${channelLabel} · ${periodLabel}`;
+  }
+  return base;
+};
 
 const NavItem = ({ to, icon: Icon, label, testId, exact = true }) => (
   <NavLink
@@ -43,6 +77,26 @@ export default function AppLayout() {
   useEffect(() => {
     if (!user) nav("/login", { replace: true });
   }, [user, nav]);
+
+  useEffect(() => {
+    if (!user || loc.pathname.startsWith("/admin")) return;
+    const path = `${loc.pathname}${loc.search || ""}`;
+    const now = Date.now();
+    const previous = sessionStorage.getItem("tm6-last-page-view") || "";
+    const [previousPath, previousTime] = previous.split("|");
+    if (previousPath === path && now - Number(previousTime || 0) < 2000) return;
+    sessionStorage.setItem("tm6-last-page-view", `${path}|${now}`);
+    let sessionId = sessionStorage.getItem("tm6-usage-session-id");
+    if (!sessionId) {
+      sessionId = `${now}-${Math.random().toString(36).slice(2, 10)}`;
+      sessionStorage.setItem("tm6-usage-session-id", sessionId);
+    }
+    api.post("/analytics/page-view", {
+      path,
+      label: getPageLabel(loc.pathname, loc.search),
+      session_id: sessionId,
+    }).catch(() => {});
+  }, [user?.id, loc.pathname, loc.search]);
 
   if (!user) return null;
   const isAdmin = ["admin", "editor"].includes(user.role);

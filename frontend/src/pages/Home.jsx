@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Flame, Trophy, GraduationCap, Sparkles, Crown, Zap, ChevronRight, Coins, TrendingUp, Swords, Gift, Lock, Dice5, ScrollText, Target, Newspaper } from "lucide-react";
+import { Flame, Trophy, GraduationCap, Sparkles, Crown, Award, Medal, Star, Zap, ChevronRight, Coins, TrendingUp, Swords, Gift, Lock, Dice5, ScrollText, Target, Newspaper } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import api, { getToken } from "@/lib/api";
 import { resolveAvatarUrl } from "@/lib/avatar";
@@ -8,7 +8,7 @@ import AvatarFrame from "@/components/AvatarFrame";
 import { getAchievements } from "@/lib/achievements";
 import { FeedItem } from "@/pages/Feed";
 
-const ICONS = { flame: Flame, trophy: Trophy, "graduation-cap": GraduationCap, sparkles: Sparkles, crown: Crown };
+const ICONS = { flame: Flame, trophy: Trophy, "graduation-cap": GraduationCap, sparkles: Sparkles, crown: Crown, award: Award, medal: Medal, star: Star };
 
 const Badge = ({ ach }) => {
   const Icon = ICONS[ach.icon] || Sparkles;
@@ -73,6 +73,7 @@ export default function Home() {
   const [avatarImageFailed, setAvatarImageFailed] = useState(false);
   const [goals, setGoals] = useState(defaultGoals);
   const [feed, setFeed] = useState([]);
+  const [awardedAchievements, setAwardedAchievements] = useState([]);
 
   useEffect(() => {
     if (!user) return;
@@ -121,6 +122,11 @@ export default function Home() {
     api.get("/feed", { params: { limit: 5 } }).then(r => {
       if (!cancelled) setFeed(r.data.events || []);
     }).catch(() => {});
+    api.get("/achievements/me").then((r) => {
+      if (!cancelled) setAwardedAchievements(Array.isArray(r.data) ? r.data : []);
+    }).catch(() => {
+      if (!cancelled) setAwardedAchievements([]);
+    });
 
     const refreshWhenVisible = () => {
       if (document.visibilityState === "visible") loadGoogleGoals();
@@ -147,7 +153,12 @@ export default function Home() {
   const xp = user.xp ?? 0;
   const xpNext = user.xp_to_next ?? 1000;
   const xpPct = Math.min(100, Math.round((xp / xpNext) * 100));
-  const achievements = getAchievements(user);
+  const automaticAchievements = getAchievements(user);
+  const automaticIds = new Set(automaticAchievements.map((item) => item.id));
+  const customAchievements = awardedAchievements
+    .filter((item) => item?.id && !automaticIds.has(item.id))
+    .map((item) => ({ ...item, unlocked: true, custom: true }));
+  const achievements = [...automaticAchievements, ...customAchievements];
   const avatarSrc = resolveAvatarUrl(user.avatar_url);
   const weeklyDone = [goals.credit, goals.debit, goals.deposit].filter(g => g?.complete).length;
   const bonusCurrent = Number(goals.monthly_bonus_current || 0);

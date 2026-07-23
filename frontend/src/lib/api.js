@@ -20,6 +20,19 @@ api.interceptors.request.use((cfg) => {
   return cfg;
 });
 
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error?.response?.status === 401 && getToken()) {
+      clearToken();
+      window.dispatchEvent(new CustomEvent("tm6-auth-invalidated", {
+        detail: { message: error?.response?.data?.detail || "Сесію завершено. Увійдіть знову" },
+      }));
+    }
+    return Promise.reject(error);
+  }
+);
+
 export const extractError = (err, fallback = "Помилка запиту") => {
   const detail = err?.response?.data?.detail;
   if (typeof detail === "string") return detail;

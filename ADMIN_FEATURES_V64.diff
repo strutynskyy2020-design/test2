@@ -1,0 +1,670 @@
+diff -ruN /mnt/data/tm6v63-original/ADMIN_SECURITY_ACHIEVEMENTS_ANALYTICS_V64.md /mnt/data/tm6v64-work/ADMIN_SECURITY_ACHIEVEMENTS_ANALYTICS_V64.md
+--- /mnt/data/tm6v63-original/ADMIN_SECURITY_ACHIEVEMENTS_ANALYTICS_V64.md	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/tm6v64-work/ADMIN_SECURITY_ACHIEVEMENTS_ANALYTICS_V64.md	2026-07-23 20:21:19.595565664 +0000
+@@ -0,0 +1,47 @@
++# TM6 Bonus v64 — безпека, досягнення та аналітика використання
++
++## Паролі користувачів
++
++- У вкладці «Юзери» біля кожного профілю є кнопка з ключем.
++- Адміністратор задає новий пароль і підтверджує його.
++- Backend змінює `password_hash` та збільшує `auth_version`.
++- Усі раніше видані JWT стають недійсними.
++- Відкриті пристрої автоматично виходять під час наступного API-запиту або фонової перевірки сесії (не пізніше приблизно ніж за 60 секунд, якщо застосунок відкритий).
++
++## Досягнення
++
++Додано вкладку «Досягнення» в адмін-панелі:
++
++- створення нового досягнення;
++- редагування назви, опису, іконки, кольору та видимості;
++- видача досягнення конкретним працівникам;
++- відкликання раніше виданого досягнення;
++- сповіщення працівника після видачі;
++- відображення виданих нагород на головній сторінці разом з автоматичними досягненнями.
++
++Колекції MongoDB:
++
++- `achievements` — каталог досягнень;
++- `user_achievements` — факти видачі працівникам.
++
++## Статистика використання
++
++Frontend записує авторизовані переходи працівників і редакторів на сторінки застосунку.
++Адмінські сторінки не враховуються.
++
++В огляді адмін-панелі показуються:
++
++- загальна кількість переглядів за останні 30 днів;
++- кількість унікальних активних працівників;
++- топ сторінок і вкладок;
++- кількість переглядів та унікальних користувачів для кожної сторінки.
++
++Колекція MongoDB: `page_views`.
++
++## Змінені файли
++
++- `backend/server.py`
++- `frontend/src/pages/Admin.jsx`
++- `frontend/src/pages/Home.jsx`
++- `frontend/src/components/AppLayout.jsx`
++- `frontend/public/service-worker.js`
+Binary files /mnt/data/tm6v63-original/backend/__pycache__/server.cpython-313.pyc and /mnt/data/tm6v64-work/backend/__pycache__/server.cpython-313.pyc differ
+diff -ruN /mnt/data/tm6v63-original/backend/server.py /mnt/data/tm6v64-work/backend/server.py
+--- /mnt/data/tm6v63-original/backend/server.py	2026-07-23 20:07:48.000000000 +0000
++++ /mnt/data/tm6v64-work/backend/server.py	2026-07-23 20:20:49.867566407 +0000
+@@ -12,6 +12,7 @@
+ import uuid
+ import logging
+ import shutil
++import re
+ from datetime import datetime, timezone, timedelta
+ from zoneinfo import ZoneInfo
+ from typing import List, Optional, Literal
+@@ -289,6 +290,28 @@
+     new_password: str = Field(min_length=6, max_length=128)
+ 
+ 
++class AchievementCreateBody(BaseModel):
++    title: str = Field(min_length=2, max_length=80)
++    description: str = Field(default="", max_length=300)
++    icon: str = Field(default="trophy", max_length=40)
++    color: str = Field(default="#FFB800", max_length=20)
++    active: bool = True
++
++
++class AchievementUpdateBody(BaseModel):
++    title: Optional[str] = Field(default=None, min_length=2, max_length=80)
++    description: Optional[str] = Field(default=None, max_length=300)
++    icon: Optional[str] = Field(default=None, max_length=40)
++    color: Optional[str] = Field(default=None, max_length=20)
++    active: Optional[bool] = None
++
++
++class PageViewBody(BaseModel):
++    path: str = Field(min_length=1, max_length=240)
++    label: str = Field(default="", max_length=120)
++    session_id: Optional[str] = Field(default=None, max_length=80)
++
++
+ class UserAdminUpdateBody(BaseModel):
+     first_name: Optional[str] = None
+     last_name: Optional[str] = None
+@@ -723,6 +746,49 @@
+     return _user_with_progress(user)
+ 
+ 
++@api.post("/analytics/page-view", status_code=201)
++async def track_page_view(body: PageViewBody, user: dict = Depends(get_current_user)):
++    """Record an authenticated employee/editor page visit for admin usage analytics."""
++    if user.get("role") not in PLAYER_ROLES:
++        return {"ok": True, "tracked": False}
++    path = str(body.path or "").strip()
++    if not path.startswith("/") or path.startswith("/admin"):
++        return {"ok": True, "tracked": False}
++    created_at = now_iso()
++    await db.page_views.insert_one({
++        "id": str(uuid.uuid4()),
++        "user_id": user["id"],
++        "user_name": user.get("name", "Працівник"),
++        "role": user.get("role", "employee"),
++        "path": path,
++        "label": str(body.label or path).strip() or path,
++        "session_id": str(body.session_id or "").strip() or None,
++        "date": kyiv_today_key(),
++        "created_at": created_at,
++    })
++    return {"ok": True, "tracked": True}
++
++
++@api.get("/achievements/me")
++async def my_awarded_achievements(user: dict = Depends(get_current_user)):
++    grants = await db.user_achievements.find(
++        {"user_id": user["id"]}, {"_id": 0}
++    ).sort("granted_at", -1).to_list(500)
++    if not grants:
++        return []
++    achievement_ids = [grant["achievement_id"] for grant in grants]
++    definitions = await db.achievements.find(
++        {"id": {"$in": achievement_ids}, "active": {"$ne": False}}, {"_id": 0}
++    ).to_list(500)
++    by_id = {item["id"]: item for item in definitions}
++    result = []
++    for grant in grants:
++        achievement = by_id.get(grant["achievement_id"])
++        if achievement:
++            result.append({**achievement, "granted_at": grant.get("granted_at"), "unlocked": True, "custom": True})
++    return result
++
++
+ @api.patch("/auth/me/avatar", response_model=UserWithProgress)
+ async def update_my_avatar(body: AvatarUpdateBody, user: dict = Depends(get_current_user)):
+     raise HTTPException(status_code=403, detail="Власні аватари вимкнено. Оберіть аватар у магазині")
+@@ -1093,6 +1159,129 @@
+ 
+ 
+ # ────────────────────────────────────────────────────────────────────────
++# Achievements admin
++# ────────────────────────────────────────────────────────────────────────
++@api.get("/admin/achievements-dashboard")
++async def admin_achievements_dashboard(admin: dict = Depends(get_current_admin)):
++    achievements = await db.achievements.find({}, {"_id": 0}).sort("created_at", 1).to_list(500)
++    grants = await db.user_achievements.find({}, {"_id": 0}).to_list(5000)
++    grant_count = {}
++    grants_by_user = {}
++    for grant in grants:
++        achievement_id = grant.get("achievement_id")
++        user_id = grant.get("user_id")
++        if achievement_id:
++            grant_count[achievement_id] = grant_count.get(achievement_id, 0) + 1
++        if user_id and achievement_id:
++            grants_by_user.setdefault(user_id, []).append(achievement_id)
++    users = await db.users.find(
++        {"role": {"$in": PLAYER_ROLES}},
++        {"_id": 0, "id": 1, "name": 1, "email": 1, "avatar_initials": 1, "avatar_color": 1, "role": 1},
++    ).sort("name", 1).to_list(1000)
++    return {
++        "achievements": [{**item, "granted_count": grant_count.get(item["id"], 0)} for item in achievements],
++        "users": [{**item, "achievement_ids": grants_by_user.get(item["id"], [])} for item in users],
++    }
++
++
++@api.post("/admin/achievements", status_code=201)
++async def admin_create_achievement(body: AchievementCreateBody, admin: dict = Depends(get_current_admin)):
++    title = body.title.strip()
++    duplicate = await db.achievements.find_one({"title": {"$regex": f"^{re.escape(title)}$", "$options": "i"}}, {"_id": 0, "id": 1})
++    if duplicate:
++        raise HTTPException(status_code=409, detail="Досягнення з такою назвою вже існує")
++    doc = {
++        "id": str(uuid.uuid4()),
++        "title": title,
++        "description": body.description.strip(),
++        "icon": body.icon.strip() or "trophy",
++        "color": body.color.strip() or "#FFB800",
++        "active": body.active,
++        "created_by": admin["id"],
++        "created_at": now_iso(),
++    }
++    await db.achievements.insert_one(doc)
++    return {k: v for k, v in doc.items() if k != "_id"}
++
++
++@api.patch("/admin/achievements/{achievement_id}")
++async def admin_update_achievement(
++    achievement_id: str,
++    body: AchievementUpdateBody,
++    admin: dict = Depends(get_current_admin),
++):
++    current = await db.achievements.find_one({"id": achievement_id}, {"_id": 0})
++    if not current:
++        raise HTTPException(status_code=404, detail="Досягнення не знайдено")
++    updates = {key: value for key, value in body.model_dump().items() if value is not None}
++    for field in ("title", "description", "icon", "color"):
++        if field in updates:
++            updates[field] = str(updates[field]).strip()
++    if "title" in updates:
++        duplicate = await db.achievements.find_one(
++            {"title": {"$regex": f"^{re.escape(updates['title'])}$", "$options": "i"}, "id": {"$ne": achievement_id}},
++            {"_id": 0, "id": 1},
++        )
++        if duplicate:
++            raise HTTPException(status_code=409, detail="Досягнення з такою назвою вже існує")
++    updates["updated_at"] = now_iso()
++    updates["updated_by"] = admin["id"]
++    await db.achievements.update_one({"id": achievement_id}, {"$set": updates})
++    return await db.achievements.find_one({"id": achievement_id}, {"_id": 0})
++
++
++@api.post("/admin/users/{user_id}/achievements/{achievement_id}", status_code=201)
++async def admin_grant_achievement(
++    user_id: str,
++    achievement_id: str,
++    admin: dict = Depends(get_current_admin),
++):
++    target = await db.users.find_one({"id": user_id, "role": {"$in": PLAYER_ROLES}}, {"_id": 0})
++    if not target:
++        raise HTTPException(status_code=404, detail="Працівника не знайдено")
++    achievement = await db.achievements.find_one({"id": achievement_id}, {"_id": 0})
++    if not achievement:
++        raise HTTPException(status_code=404, detail="Досягнення не знайдено")
++    existing = await db.user_achievements.find_one({"user_id": user_id, "achievement_id": achievement_id}, {"_id": 0, "id": 1})
++    if existing:
++        raise HTTPException(status_code=409, detail="Це досягнення вже видано працівнику")
++    granted_at = now_iso()
++    grant = {
++        "id": str(uuid.uuid4()),
++        "user_id": user_id,
++        "achievement_id": achievement_id,
++        "granted_by": admin["id"],
++        "granted_by_name": admin.get("name", "Адміністратор"),
++        "granted_at": granted_at,
++    }
++    await db.user_achievements.insert_one(grant)
++    await db.admin_audit_logs.insert_one({
++        "id": str(uuid.uuid4()), "admin_id": admin["id"], "admin_name": admin.get("name", "Адміністратор"),
++        "action": "achievement_granted", "target_user_id": user_id, "target_user_name": target.get("name", "Працівник"),
++        "achievement_id": achievement_id, "achievement_title": achievement.get("title"), "created_at": granted_at,
++    })
++    await _notify(user_id, "achievement", "Нове досягнення!", achievement.get("title", "Досягнення"), "/", "award")
++    return {"ok": True, "grant": {k: v for k, v in grant.items() if k != "_id"}}
++
++
++@api.delete("/admin/users/{user_id}/achievements/{achievement_id}", status_code=204)
++async def admin_revoke_achievement(
++    user_id: str,
++    achievement_id: str,
++    admin: dict = Depends(get_current_admin),
++):
++    result = await db.user_achievements.delete_one({"user_id": user_id, "achievement_id": achievement_id})
++    if result.deleted_count == 0:
++        raise HTTPException(status_code=404, detail="Видане досягнення не знайдено")
++    await db.admin_audit_logs.insert_one({
++        "id": str(uuid.uuid4()), "admin_id": admin["id"], "admin_name": admin.get("name", "Адміністратор"),
++        "action": "achievement_revoked", "target_user_id": user_id, "achievement_id": achievement_id,
++        "created_at": now_iso(),
++    })
++    return None
++
++
++# ────────────────────────────────────────────────────────────────────────
+ # Quests
+ # ────────────────────────────────────────────────────────────────────────
+ def _today_key() -> str:
+@@ -2617,6 +2806,8 @@
+         db.reactions,
+         db.transactions,
+         db.user_goals,
++        db.user_achievements,
++        db.page_views,
+     )
+     for collection in user_collections:
+         await collection.delete_many({"user_id": user_id})
+@@ -2743,6 +2934,30 @@
+         quest_titles[q["id"]] = q["title"]
+     popular_quests = [{"title": quest_titles.get(p["_id"], "—"), "claims": p["count"]} for p in pop]
+ 
++    usage_cutoff = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
++    usage_pipeline = [
++        {"$match": {"created_at": {"$gte": usage_cutoff}, "role": {"$in": PLAYER_ROLES}}},
++        {"$group": {
++            "_id": {"path": "$path", "label": "$label"},
++            "views": {"$sum": 1},
++            "users": {"$addToSet": "$user_id"},
++            "last_seen": {"$max": "$created_at"},
++        }},
++        {"$project": {
++            "_id": 0,
++            "path": "$_id.path",
++            "label": "$_id.label",
++            "views": 1,
++            "unique_users": {"$size": "$users"},
++            "last_seen": 1,
++        }},
++        {"$sort": {"views": -1, "unique_users": -1}},
++        {"$limit": 15},
++    ]
++    popular_pages = await db.page_views.aggregate(usage_pipeline).to_list(15)
++    total_page_views = await db.page_views.count_documents({"created_at": {"$gte": usage_cutoff}, "role": {"$in": PLAYER_ROLES}})
++    unique_page_users = await db.page_views.distinct("user_id", {"created_at": {"$gte": usage_cutoff}, "role": {"$in": PLAYER_ROLES}})
++
+     return {
+         "total_users": total_users,
+         "total_quests": total_quests,
+@@ -2752,6 +2967,10 @@
+         "total_points_spent": abs(spent[0]["sum"]) if spent else 0,
+         "top_earners": top_earners,
+         "popular_quests": popular_quests,
++        "page_usage_period_days": 30,
++        "total_page_views": total_page_views,
++        "unique_page_users": len(unique_page_users),
++        "popular_pages": popular_pages,
+     }
+ 
+ 
+@@ -2908,6 +3127,11 @@
+     await db.daily_task_sets.create_index([("user_id", 1), ("date", 1)], unique=True)
+     await db.daily_task_reviews.create_index([("user_id", 1), ("date", 1), ("task_id", 1)], unique=True)
+     await db.teams.create_index("name", unique=True)
++    await db.achievements.create_index("title", unique=True)
++    await db.user_achievements.create_index([("user_id", 1), ("achievement_id", 1)], unique=True)
++    await db.user_achievements.create_index("achievement_id")
++    await db.page_views.create_index([("created_at", -1), ("path", 1)])
++    await db.page_views.create_index([("user_id", 1), ("created_at", -1)])
+ 
+     # Teams — seed first so we can attach users
+     team_key_to_id = {}
+diff -ruN /mnt/data/tm6v63-original/frontend/public/service-worker.js /mnt/data/tm6v64-work/frontend/public/service-worker.js
+--- /mnt/data/tm6v63-original/frontend/public/service-worker.js	2026-07-23 20:07:48.000000000 +0000
++++ /mnt/data/tm6v64-work/frontend/public/service-worker.js	2026-07-23 20:21:19.595565664 +0000
+@@ -2,7 +2,7 @@
+  * Dynamic data is always network-only.
+  * App shell uses network-first so new deployments replace old PWA files promptly.
+  */
+-const VERSION = "tm6-v63";
++const VERSION = "tm6-v64";
+ const STATIC_CACHE = `${VERSION}-static`;
+ const RUNTIME_CACHE = `${VERSION}-runtime`;
+ 
+diff -ruN /mnt/data/tm6v63-original/frontend/src/components/AppLayout.jsx /mnt/data/tm6v64-work/frontend/src/components/AppLayout.jsx
+--- /mnt/data/tm6v63-original/frontend/src/components/AppLayout.jsx	2026-07-23 10:59:34.000000000 +0000
++++ /mnt/data/tm6v64-work/frontend/src/components/AppLayout.jsx	2026-07-23 20:18:06.227570502 +0000
+@@ -2,9 +2,43 @@
+ import { Home, ClipboardList, Gift, LogOut, Shield, Trophy, UsersRound, Bot, Target } from "lucide-react";
+ import { useEffect } from "react";
+ import { useApp } from "@/context/AppContext";
++import api from "@/lib/api";
+ import InstallPrompt from "@/components/InstallPrompt";
+ import NotificationBell from "@/components/NotificationBell";
+ 
++const PAGE_LABELS = {
++  "/": "Головна",
++  "/tasks": "Завдання",
++  "/quests": "Квести",
++  "/teams": "Команди",
++  "/ai-trainer": "AI-тренажер",
++  "/goals": "Цілі",
++  "/goals/credit": "Кредитний рейтинг",
++  "/goals/credit/me": "Мої кредитні показники",
++  "/goals/debit": "Дебетовий рейтинг",
++  "/goals/debit/me": "Мої дебетові видачі",
++  "/store": "Магазин",
++  "/leaderboard": "Загальний рейтинг",
++  "/fun": "Щедрий куб",
++  "/history": "Історія Point",
++  "/feed": "Стрічка активності",
++};
++
++const getPageLabel = (pathname, search) => {
++  const base = PAGE_LABELS[pathname] || pathname;
++  const params = new URLSearchParams(search || "");
++  if (pathname === "/goals/debit/me") {
++    return `${base} · ${params.get("period") === "yesterday" ? "Вчора" : "Місяць"}`;
++  }
++  if (pathname === "/goals/credit/me") {
++    const channel = params.get("channel");
++    const channelLabel = { xsell: "X-Sell", web_apps: "Web Apps", inb: "INB" }[channel] || "Показники";
++    const periodLabel = params.get("period") === "yesterday" ? "Вчора" : "Місяць";
++    return `${base} · ${channelLabel} · ${periodLabel}`;
++  }
++  return base;
++};
++
+ const NavItem = ({ to, icon: Icon, label, testId, exact = true }) => (
+   <NavLink
+     to={to}
+@@ -44,6 +78,26 @@
+     if (!user) nav("/login", { replace: true });
+   }, [user, nav]);
+ 
++  useEffect(() => {
++    if (!user || loc.pathname.startsWith("/admin")) return;
++    const path = `${loc.pathname}${loc.search || ""}`;
++    const now = Date.now();
++    const previous = sessionStorage.getItem("tm6-last-page-view") || "";
++    const [previousPath, previousTime] = previous.split("|");
++    if (previousPath === path && now - Number(previousTime || 0) < 2000) return;
++    sessionStorage.setItem("tm6-last-page-view", `${path}|${now}`);
++    let sessionId = sessionStorage.getItem("tm6-usage-session-id");
++    if (!sessionId) {
++      sessionId = `${now}-${Math.random().toString(36).slice(2, 10)}`;
++      sessionStorage.setItem("tm6-usage-session-id", sessionId);
++    }
++    api.post("/analytics/page-view", {
++      path,
++      label: getPageLabel(loc.pathname, loc.search),
++      session_id: sessionId,
++    }).catch(() => {});
++  }, [user?.id, loc.pathname, loc.search]);
++
+   if (!user) return null;
+   const isAdmin = ["admin", "editor"].includes(user.role);
+   const isAdminRoute = loc.pathname.startsWith("/admin");
+diff -ruN /mnt/data/tm6v63-original/frontend/src/pages/Admin.jsx /mnt/data/tm6v64-work/frontend/src/pages/Admin.jsx
+--- /mnt/data/tm6v63-original/frontend/src/pages/Admin.jsx	2026-07-23 20:06:46.000000000 +0000
++++ /mnt/data/tm6v64-work/frontend/src/pages/Admin.jsx	2026-07-23 20:19:55.583567765 +0000
+@@ -4,7 +4,7 @@
+   Users, Swords, Gift, ShoppingBag, BarChart3, Plus, Pencil, Trash2, X, Minus, Check, Coins, Trophy, ChevronRight,
+   UserCog, ShieldCheck, Crown, UsersRound, Inbox, UserCheck, ClipboardList, CheckCircle2, XCircle,
+   ArrowUp, ArrowDown, FileText, BrainCircuit, Clock3, TrendingUp, Search, CalendarDays, Target, Save, ChevronDown,
+-  KeyRound,
++  KeyRound, Award, Medal, Star, Sparkles, Send,
+ } from "lucide-react";
+ import api, { extractError, API_BASE, getToken } from "@/lib/api";
+ import { useApp } from "@/context/AppContext";
+@@ -18,6 +18,7 @@
+   { id: "applications", label: "Заявки", icon: Inbox },
+   { id: "users", label: "Юзери", icon: Users },
+   { id: "teams", label: "Команди", icon: UsersRound },
++  { id: "achievements", label: "Досягнення", icon: Award },
+   { id: "prizes", label: "Призи", icon: Gift },
+   { id: "orders", label: "Замовлення", icon: ShoppingBag },
+ ];
+@@ -65,6 +66,38 @@
+         <StatBox label="Замовлень в обробці" value={data.orders_processing} accent="#00F0FF" />
+         <StatBox label="Балів нараховано" value={data.total_points_earned.toLocaleString("uk-UA")} accent="#39FF14" />
+         <StatBox label="Балів витрачено" value={data.total_points_spent.toLocaleString("uk-UA")} accent="#FF5C00" />
++        <StatBox label="Переглядів сторінок · 30 днів" value={Number(data.total_page_views || 0).toLocaleString("uk-UA")} accent="#B78CFF" />
++        <StatBox label="Активних працівників · 30 днів" value={Number(data.unique_page_users || 0)} accent="#00F0FF" />
++      </div>
++
++      <div className="bg-[#1A1A1E] border border-white/10 rounded-2xl p-4" data-testid="page-usage-analytics">
++        <div className="flex items-center justify-between gap-3 mb-3">
++          <div>
++            <div className="font-black text-white text-sm uppercase tracking-wider">Найпопулярніші вкладки та сторінки</div>
++            <div className="mt-1 text-[10px] font-bold text-zinc-500">За останні {data.page_usage_period_days || 30} днів · адмін-панель не враховується</div>
++          </div>
++          <BarChart3 size={18} className="shrink-0 text-[#B78CFF]" />
++        </div>
++        <div className="space-y-3">
++          {(data.popular_pages || []).map((page, index) => {
++            const maxViews = Math.max(1, Number(data.popular_pages?.[0]?.views || 1));
++            const width = Math.max(5, Math.round(Number(page.views || 0) / maxViews * 100));
++            return <div key={`${page.path}-${index}`} className="rounded-xl bg-black/25 p-3">
++              <div className="flex items-start justify-between gap-3">
++                <div className="min-w-0 flex-1">
++                  <div className="truncate text-sm font-black text-white">{page.label || page.path}</div>
++                  <div className="mt-0.5 truncate text-[10px] text-zinc-600">{page.path}</div>
++                </div>
++                <div className="shrink-0 text-right">
++                  <div className="text-sm font-black text-[#B78CFF]">{Number(page.views || 0).toLocaleString("uk-UA")}</div>
++                  <div className="text-[9px] font-bold text-zinc-600">{page.unique_users || 0} працівн.</div>
++                </div>
++              </div>
++              <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/5"><div className="h-full rounded-full bg-[#B78CFF]" style={{width:`${width}%`}} /></div>
++            </div>;
++          })}
++          {!(data.popular_pages || []).length && <div className="py-4 text-center text-xs text-zinc-500">Статистика почне збиратися після оновлення frontend.</div>}
++        </div>
+       </div>
+ 
+       <div className="bg-[#1A1A1E] border border-white/10 rounded-2xl p-4">
+@@ -698,6 +731,126 @@
+   );
+ };
+ 
++// ─────────────── Achievements admin ───────────────
++const ACHIEVEMENT_ICON_OPTIONS = [
++  { value: "trophy", label: "Кубок", Icon: Trophy },
++  { value: "award", label: "Нагорода", Icon: Award },
++  { value: "medal", label: "Медаль", Icon: Medal },
++  { value: "star", label: "Зірка", Icon: Star },
++  { value: "crown", label: "Корона", Icon: Crown },
++  { value: "sparkles", label: "Особливе", Icon: Sparkles },
++];
++const achievementIcon = (name) => ACHIEVEMENT_ICON_OPTIONS.find((item) => item.value === name)?.Icon || Award;
++
++const AchievementsView = () => {
++  const [data, setData] = useState({ achievements: [], users: [] });
++  const [loading, setLoading] = useState(true);
++  const [editing, setEditing] = useState(null);
++  const [granting, setGranting] = useState(null);
++
++  const load = async () => {
++    setLoading(true);
++    try {
++      const { data: dashboard } = await api.get("/admin/achievements-dashboard");
++      setData({ achievements: dashboard.achievements || [], users: dashboard.users || [] });
++    } catch (e) { toast.error(extractError(e)); }
++    finally { setLoading(false); }
++  };
++  useEffect(() => { load(); }, []);
++
++  return <div className="space-y-3" data-testid="achievements-admin-view">
++    <button type="button" onClick={() => setEditing({ isNew: true })} className="arcade-btn flex h-11 w-full items-center justify-center gap-2 border-[#7a5900] bg-[#FFB800] text-xs font-black uppercase tracking-wider text-[#0A0A0A]">
++      <Plus size={16} strokeWidth={3}/> Створити досягнення
++    </button>
++    {loading && <div className="py-8 text-center text-sm text-zinc-500">Завантаження...</div>}
++    {!loading && !data.achievements.length && <div className="rounded-2xl border border-white/10 bg-[#1A1A1E] p-6 text-center text-sm text-zinc-500">Ще немає створених досягнень.</div>}
++    {data.achievements.map((achievement) => {
++      const Icon = achievementIcon(achievement.icon);
++      return <div key={achievement.id} className={`rounded-2xl border bg-[#1A1A1E] p-4 ${achievement.active ? "border-white/10" : "border-white/5 opacity-60"}`}>
++        <div className="flex items-start gap-3">
++          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border-2" style={{color:achievement.color,borderColor:`${achievement.color}66`,backgroundColor:`${achievement.color}18`}}><Icon size={22} strokeWidth={2.8}/></div>
++          <div className="min-w-0 flex-1">
++            <div className="flex flex-wrap items-center gap-2"><div className="font-black text-white">{achievement.title}</div><span className={`rounded-full px-2 py-0.5 text-[8px] font-black uppercase ${achievement.active ? "bg-[#39FF14]/10 text-[#39FF14]" : "bg-white/5 text-zinc-500"}`}>{achievement.active ? "Активне" : "Приховане"}</span></div>
++            <div className="mt-1 text-xs leading-relaxed text-zinc-500">{achievement.description || "Без опису"}</div>
++            <div className="mt-2 text-[10px] font-black uppercase tracking-wider text-[#B78CFF]">Видано: {achievement.granted_count || 0}</div>
++          </div>
++        </div>
++        <div className="mt-3 grid grid-cols-2 gap-2">
++          <button type="button" onClick={() => setEditing(achievement)} className="flex h-10 items-center justify-center gap-2 rounded-xl border border-[#00F0FF]/30 bg-black/25 text-xs font-black text-[#00F0FF]"><Pencil size={14}/>Редагувати</button>
++          <button type="button" onClick={() => setGranting(achievement)} className="flex h-10 items-center justify-center gap-2 rounded-xl border border-[#B78CFF]/35 bg-[#B78CFF]/10 text-xs font-black text-[#D7C0FF]"><Send size={14}/>Видати</button>
++        </div>
++      </div>;
++    })}
++    {editing && <AchievementEditSheet achievement={editing} onClose={() => setEditing(null)} onDone={load}/>} 
++    {granting && <AchievementGrantSheet achievement={granting} users={data.users} onClose={() => setGranting(null)} onDone={load}/>} 
++  </div>;
++};
++
++const AchievementEditSheet = ({ achievement, onClose, onDone }) => {
++  const isNew = !!achievement?.isNew;
++  const [form, setForm] = useState({
++    title: isNew ? "" : achievement.title || "",
++    description: isNew ? "" : achievement.description || "",
++    icon: isNew ? "trophy" : achievement.icon || "trophy",
++    color: isNew ? "#FFB800" : achievement.color || "#FFB800",
++    active: isNew ? true : achievement.active !== false,
++  });
++  const [busy, setBusy] = useState(false);
++  const save = async () => {
++    if (form.title.trim().length < 2) return toast.error("Введіть назву досягнення");
++    setBusy(true);
++    try {
++      if (isNew) await api.post("/admin/achievements", form);
++      else await api.patch(`/admin/achievements/${achievement.id}`, form);
++      toast.success(isNew ? "Досягнення створено" : "Досягнення оновлено");
++      onDone(); onClose();
++    } catch (e) { toast.error(extractError(e)); }
++    finally { setBusy(false); }
++  };
++  return <BottomSheet onClose={onClose} title={isNew ? "Нове досягнення" : "Редагувати досягнення"}>
++    <label className="mb-1 block text-[11px] font-black uppercase text-zinc-500">Назва</label>
++    <input value={form.title} onChange={(e)=>setForm({...form,title:e.target.value})} maxLength={80} className="h-12 w-full rounded-xl border-2 border-white/10 bg-[#0A0A0A] px-4 text-white outline-none focus:border-[#FFB800]" placeholder="Наприклад: Майстер продажів"/>
++    <label className="mb-1 mt-3 block text-[11px] font-black uppercase text-zinc-500">Опис</label>
++    <textarea value={form.description} onChange={(e)=>setForm({...form,description:e.target.value})} maxLength={300} rows={3} className="w-full resize-none rounded-xl border-2 border-white/10 bg-[#0A0A0A] p-4 text-white outline-none focus:border-[#FFB800]" placeholder="За що працівник отримує нагороду"/>
++    <div className="mt-3 grid grid-cols-[1fr_90px] gap-3">
++      <div><label className="mb-1 block text-[11px] font-black uppercase text-zinc-500">Іконка</label><select value={form.icon} onChange={(e)=>setForm({...form,icon:e.target.value})} className="h-12 w-full rounded-xl border-2 border-white/10 bg-[#0A0A0A] px-3 text-white outline-none focus:border-[#B78CFF]">{ACHIEVEMENT_ICON_OPTIONS.map((item)=><option key={item.value} value={item.value}>{item.label}</option>)}</select></div>
++      <div><label className="mb-1 block text-[11px] font-black uppercase text-zinc-500">Колір</label><input type="color" value={form.color} onChange={(e)=>setForm({...form,color:e.target.value})} className="h-12 w-full rounded-xl border-2 border-white/10 bg-[#0A0A0A] p-1"/></div>
++    </div>
++    <label className="mt-4 flex cursor-pointer items-center gap-2"><input type="checkbox" checked={form.active} onChange={(e)=>setForm({...form,active:e.target.checked})} className="h-5 w-5 accent-[#39FF14]"/><span className="text-sm font-black text-white">Показувати працівникам після видачі</span></label>
++    <button type="button" onClick={save} disabled={busy} className="arcade-btn mt-5 flex h-12 w-full items-center justify-center gap-2 border-[#7a5900] bg-[#FFB800] text-sm font-black uppercase tracking-wider text-[#0A0A0A] disabled:opacity-50"><Save size={16}/>{busy ? "Зберігаємо..." : "Зберегти"}</button>
++  </BottomSheet>;
++};
++
++const AchievementGrantSheet = ({ achievement, users, onClose, onDone }) => {
++  const [localUsers, setLocalUsers] = useState(users || []);
++  const [busyId, setBusyId] = useState(null);
++  const toggle = async (user) => {
++    const granted = (user.achievement_ids || []).includes(achievement.id);
++    setBusyId(user.id);
++    try {
++      if (granted) await api.delete(`/admin/users/${user.id}/achievements/${achievement.id}`);
++      else await api.post(`/admin/users/${user.id}/achievements/${achievement.id}`);
++      setLocalUsers((current)=>current.map((item)=>item.id===user.id ? {...item,achievement_ids:granted ? (item.achievement_ids||[]).filter((id)=>id!==achievement.id) : [...(item.achievement_ids||[]),achievement.id]} : item));
++      toast.success(granted ? "Досягнення відкликано" : "Досягнення видано");
++      onDone();
++    } catch (e) { toast.error(extractError(e)); }
++    finally { setBusyId(null); }
++  };
++  return <BottomSheet onClose={onClose} title={`Видати: ${achievement.title}`}>
++    <div className="max-h-[58vh] space-y-2 overflow-y-auto pr-1">
++      {localUsers.map((user)=>{
++        const granted=(user.achievement_ids||[]).includes(achievement.id);
++        return <div key={user.id} className="flex items-center gap-3 rounded-2xl border border-white/10 bg-black/25 p-3">
++          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl font-display text-xs text-black" style={{backgroundColor:user.avatar_color||"#FFB800"}}>{user.avatar_initials||"?"}</div>
++          <div className="min-w-0 flex-1"><div className="truncate text-sm font-black text-white">{user.name}</div><div className="truncate text-[10px] text-zinc-500">{user.email}</div></div>
++          <button type="button" onClick={()=>toggle(user)} disabled={busyId===user.id} className={`h-9 shrink-0 rounded-xl border px-3 text-[10px] font-black uppercase ${granted ? "border-[#FF3B30]/35 bg-[#FF3B30]/10 text-[#FF6B65]" : "border-[#39FF14]/35 bg-[#39FF14]/10 text-[#39FF14]"}`}>{busyId===user.id ? "..." : granted ? "Відкликати" : "Видати"}</button>
++        </div>;
++      })}
++      {!localUsers.length && <div className="py-6 text-center text-sm text-zinc-500">Немає працівників</div>}
++    </div>
++  </BottomSheet>;
++};
++
+ // ─────────────── Teams admin ───────────────
+ const TEAM_COLORS = ["#FFB800", "#00F0FF", "#39FF14", "#FF5C00", "#B78CFF", "#FF3B8A"];
+ 
+@@ -1931,7 +2084,7 @@
+     );
+   }
+ 
+-  const V = { analytics: AnalyticsView, "ai-team": AITeamDashboard, "daily-tasks": DailyTasksManager, points: PointsManager, goals: GoalsManager, moderation: ModerationView, applications: ApplicationsView, users: UsersView, teams: TeamsView, prizes: PrizesView, orders: OrdersView }[tab];
++  const V = { analytics: AnalyticsView, "ai-team": AITeamDashboard, "daily-tasks": DailyTasksManager, points: PointsManager, goals: GoalsManager, moderation: ModerationView, applications: ApplicationsView, users: UsersView, teams: TeamsView, achievements: AchievementsView, prizes: PrizesView, orders: OrdersView }[tab];
+ 
+   return (
+     <div className="px-5 pt-2 pb-8 lg:px-7 lg:pt-6" data-testid="admin-page">
+diff -ruN /mnt/data/tm6v63-original/frontend/src/pages/Home.jsx /mnt/data/tm6v64-work/frontend/src/pages/Home.jsx
+--- /mnt/data/tm6v63-original/frontend/src/pages/Home.jsx	2026-07-23 18:34:12.000000000 +0000
++++ /mnt/data/tm6v64-work/frontend/src/pages/Home.jsx	2026-07-23 20:18:28.979569932 +0000
+@@ -1,6 +1,6 @@
+ import { useEffect, useState } from "react";
+ import { useNavigate } from "react-router-dom";
+-import { Flame, Trophy, GraduationCap, Sparkles, Crown, Zap, ChevronRight, Coins, TrendingUp, Swords, Gift, Lock, Dice5, ScrollText, Target, Newspaper } from "lucide-react";
++import { Flame, Trophy, GraduationCap, Sparkles, Crown, Award, Medal, Star, Zap, ChevronRight, Coins, TrendingUp, Swords, Gift, Lock, Dice5, ScrollText, Target, Newspaper } from "lucide-react";
+ import { useApp } from "@/context/AppContext";
+ import api, { getToken } from "@/lib/api";
+ import { resolveAvatarUrl } from "@/lib/avatar";
+@@ -8,7 +8,7 @@
+ import { getAchievements } from "@/lib/achievements";
+ import { FeedItem } from "@/pages/Feed";
+ 
+-const ICONS = { flame: Flame, trophy: Trophy, "graduation-cap": GraduationCap, sparkles: Sparkles, crown: Crown };
++const ICONS = { flame: Flame, trophy: Trophy, "graduation-cap": GraduationCap, sparkles: Sparkles, crown: Crown, award: Award, medal: Medal, star: Star };
+ 
+ const Badge = ({ ach }) => {
+   const Icon = ICONS[ach.icon] || Sparkles;
+@@ -73,6 +73,7 @@
+   const [avatarImageFailed, setAvatarImageFailed] = useState(false);
+   const [goals, setGoals] = useState(defaultGoals);
+   const [feed, setFeed] = useState([]);
++  const [awardedAchievements, setAwardedAchievements] = useState([]);
+ 
+   useEffect(() => {
+     if (!user) return;
+@@ -121,6 +122,11 @@
+     api.get("/feed", { params: { limit: 5 } }).then(r => {
+       if (!cancelled) setFeed(r.data.events || []);
+     }).catch(() => {});
++    api.get("/achievements/me").then((r) => {
++      if (!cancelled) setAwardedAchievements(Array.isArray(r.data) ? r.data : []);
++    }).catch(() => {
++      if (!cancelled) setAwardedAchievements([]);
++    });
+ 
+     const refreshWhenVisible = () => {
+       if (document.visibilityState === "visible") loadGoogleGoals();
+@@ -147,7 +153,12 @@
+   const xp = user.xp ?? 0;
+   const xpNext = user.xp_to_next ?? 1000;
+   const xpPct = Math.min(100, Math.round((xp / xpNext) * 100));
+-  const achievements = getAchievements(user);
++  const automaticAchievements = getAchievements(user);
++  const automaticIds = new Set(automaticAchievements.map((item) => item.id));
++  const customAchievements = awardedAchievements
++    .filter((item) => item?.id && !automaticIds.has(item.id))
++    .map((item) => ({ ...item, unlocked: true, custom: true }));
++  const achievements = [...automaticAchievements, ...customAchievements];
+   const avatarSrc = resolveAvatarUrl(user.avatar_url);
+   const weeklyDone = [goals.credit, goals.debit, goals.deposit].filter(g => g?.complete).length;
+   const bonusCurrent = Number(goals.monthly_bonus_current || 0);
