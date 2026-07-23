@@ -2418,7 +2418,9 @@ async def prediction_reveal(user: dict = Depends(get_current_user)):
 # ────────────────────────────────────────────────────────────────────────
 BONUS_MATCH_ROWS = 7
 BONUS_MATCH_COLS = 7
-BONUS_MATCH_MAX_LEVEL = 50
+BONUS_MATCH_DEFAULT_LEVEL_COUNT = 50
+BONUS_MATCH_LEVEL_LIMIT = 200
+BONUS_MATCH_MAX_LEVEL = BONUS_MATCH_LEVEL_LIMIT
 BONUS_MATCH_MAX_LIVES = 5
 BONUS_MATCH_LIFE_REGEN_MINUTES = 30
 BONUS_MATCH_DAILY_POINT_CAP = 40
@@ -2438,6 +2440,13 @@ BONUS_MATCH_OBSTACLE_HITS = {
 BONUS_MATCH_SPECIAL_SCORE = {
     "rocket_row": 450, "rocket_col": 450, "bomb": 700, "color_bomb": 1100,
 }
+BONUS_MATCH_BOOSTER_PRICE = 50
+BONUS_MATCH_BOOSTERS = {
+    "hammer": {"label": "Молоток", "score": 250},
+    "rocket": {"label": "Ракета", "score": 850},
+    "color_bomb": {"label": "Райдужний джокер", "score": 1200},
+    "shuffle": {"label": "Перемішування", "score": 0},
+}
 
 
 class BonusMatchStartBody(BaseModel):
@@ -2450,6 +2459,34 @@ class BonusMatchMoveBody(BaseModel):
     from_col: int
     to_row: int
     to_col: int
+
+
+class BonusMatchBoosterPurchaseBody(BaseModel):
+    booster: Literal["hammer", "rocket", "color_bomb", "shuffle"]
+
+
+class BonusMatchBoosterUseBody(BaseModel):
+    session_id: str
+    booster: Literal["hammer", "rocket", "color_bomb", "shuffle"]
+    row: Optional[int] = None
+    col: Optional[int] = None
+
+
+class BonusMatchLevelAdminBody(BaseModel):
+    level: Optional[int] = None
+    title: str = ""
+    moves: int = Field(default=20, ge=5, le=80)
+    target_score: int = Field(default=2500, ge=100, le=10_000_000)
+    target_coins: int = Field(default=10, ge=0, le=5000)
+    star_thresholds: List[int] = Field(default_factory=list)
+    is_milestone: bool = False
+    is_boss: bool = False
+    reward_multiplier: int = Field(default=1, ge=1, le=10)
+    obstacles: List[str] = Field(default_factory=list)
+    new_obstacle: Optional[str] = None
+    obstacle_count: int = Field(default=0, ge=0, le=35)
+    obstacle_layout: List[dict] = Field(default_factory=list)
+    active: bool = True
 
 
 def _bonus_match_new_cell(
@@ -2548,9 +2585,14 @@ def _bonus_match_cell_swappable(cell: Optional[dict]) -> bool:
 
 
 def _bonus_match_level_config(level: int) -> dict:
-    level = max(1, min(BONUS_MATCH_MAX_LEVEL, int(level or 1)))
+    """Return the built-in difficulty curve for a level.
+
+    MongoDB overrides are merged by ``_bonus_match_get_level_config``. Keeping
+    this function synchronous is useful for board helpers and old sessions.
+    """
+    level = max(1, min(BONUS_MATCH_LEVEL_LIMIT, int(level or 1)))
     milestone = level % 5 == 0
-    stage = level // 5
+    stage = min(len(BONUS_MATCH_OBSTACLE_ORDER), level // 5)
     base_target = 900 + level * 260
     ordinary_stage = (level - 1) // 5
     target_score = int(base_target * (1 + ordinary_stage * 0.10))
@@ -2586,6 +2628,7 @@ def _bonus_match_level_config(level: int) -> dict:
     newest_obstacle = unlocked_obstacles[-1] if unlocked_obstacles else None
     return {
         "level": level,
+        "title": f"Рівень {level}",
         "moves": moves,
         "target_score": target_score,
         "target_coins": target_coins,
@@ -2602,7 +2645,149 @@ def _bonus_match_level_config(level: int) -> dict:
         "obstacles": unlocked_obstacles,
         "new_obstacle": newest_obstacle if milestone else None,
         "obstacle_count": obstacle_count,
+        "obstacle_layout": [],
+        "active": True,
+        "custom": False,
     }
+
+
+def _bonus_match_normalize_obstacle_layout(layout) -> list[dict]:
+    normalized: list[dict] = []
+    used: set[tuple[int, int]] = set()
+    for item in list(layout or []):
+        if not isinstance(item, dict):
+            continue
+        try:
+            row = int(item.get("row"))
+            col = int(item.get("col"))
+        except (TypeError, ValueError):
+            continue
+        obstacle = str(item.get("obstacle") or item.get("type") or "").strip()
+        if (
+            obstacle not in BONUS_MATCH_OBSTACLE_HITS
+            or not (0 <= row < BONUS_MATCH_ROWS)
+            or not (0 <= col < BONUS_MATCH_COLS)
+            or (row, col) in used
+        ):
+            continue
+        used.add((row, col))
+        normalized.append({
+            "row": row,
+            "col": col,
+            "obstacle": obstacle,
+            "hits": max(1, min(9, int(item.get("hits") or BONUS_MATCH_OBSTACLE_HITS[obstacle]))),
+        })
+    return normalized[:35]
+
+
+def _bonus_match_merge_level_doc(level: int, doc: Optional[dict]) -> dict:
+    base = _bonus_match_level_config(level)
+    if not doc:
+        return base
+    thresholds = [
+        max(1, int(value))
+        for value in list(doc.get("star_thresholds") or [])[:3]
+        if str(value).strip()
+    ]
+    target_score = max(100, int(doc.get("target_score", base["target_score"])))
+    while len(thresholds) < 3:
+        fallback = [target_score, int(target_score * 1.35), int(target_score * 1.72)]
+        thresholds.append(fallback[len(thresholds)])
+    thresholds = sorted([max(target_score, value) for value in thresholds])
+    obstacles = [
+        value for value in list(doc.get("obstacles") or [])
+        if value in BONUS_MATCH_OBSTACLE_HITS
+    ]
+    new_obstacle = doc.get("new_obstacle")
+    if new_obstacle not in BONUS_MATCH_OBSTACLE_HITS:
+        new_obstacle = None
+    is_boss = bool(doc.get("is_boss", base["is_boss"]))
+    is_milestone = bool(doc.get("is_milestone", base["is_milestone"]))
+    reward_multiplier = max(1, min(10, int(doc.get("reward_multiplier", base["reward_multiplier"]))))
+    return {
+        **base,
+        "title": str(doc.get("title") or base["title"]).strip()[:80],
+        "moves": max(5, min(80, int(doc.get("moves", base["moves"])))),
+        "target_score": target_score,
+        "target_coins": max(0, min(5000, int(doc.get("target_coins", base["target_coins"])))),
+        "star_thresholds": thresholds,
+        "is_milestone": is_milestone,
+        "is_boss": is_boss,
+        "reward_multiplier": reward_multiplier,
+        "challenge_title": "РІВЕНЬ-ВИКЛИК!" if is_milestone else None,
+        "boss_title": "БОС-РІВЕНЬ" if is_boss else None,
+        "obstacles": list(dict.fromkeys(obstacles)),
+        "new_obstacle": new_obstacle,
+        "obstacle_count": max(0, min(35, int(doc.get("obstacle_count", base["obstacle_count"])))),
+        "obstacle_layout": _bonus_match_normalize_obstacle_layout(doc.get("obstacle_layout")),
+        "active": bool(doc.get("active", True)),
+        "custom": True,
+    }
+
+
+async def _bonus_match_level_catalog(include_inactive: bool = False) -> list[dict]:
+    docs = await db.bonus_match_levels.find({}, {"_id": 0}).sort("level", 1).to_list(BONUS_MATCH_LEVEL_LIMIT)
+    docs_by_level = {int(doc.get("level", 0)): doc for doc in docs if 1 <= int(doc.get("level", 0)) <= BONUS_MATCH_LEVEL_LIMIT}
+    levels = set(range(1, BONUS_MATCH_DEFAULT_LEVEL_COUNT + 1)) | set(docs_by_level)
+    result: list[dict] = []
+    for level in sorted(levels):
+        config = _bonus_match_merge_level_doc(level, docs_by_level.get(level))
+        if include_inactive or config.get("active", True):
+            result.append(config)
+    return result
+
+
+async def _bonus_match_get_level_config(level: int, include_inactive: bool = False) -> Optional[dict]:
+    level = max(1, min(BONUS_MATCH_LEVEL_LIMIT, int(level or 1)))
+    doc = await db.bonus_match_levels.find_one({"level": level}, {"_id": 0})
+    if level > BONUS_MATCH_DEFAULT_LEVEL_COUNT and not doc:
+        return None
+    config = _bonus_match_merge_level_doc(level, doc)
+    if not include_inactive and not config.get("active", True):
+        return None
+    return config
+
+
+async def _bonus_match_max_active_level() -> int:
+    levels = await _bonus_match_level_catalog()
+    return max((int(item["level"]) for item in levels), default=1)
+
+
+async def _bonus_match_reconcile_unlocked_level(
+    user_id: str,
+    profile: dict,
+    levels: list[dict],
+    completed_levels: Optional[set[int]] = None,
+) -> int:
+    active_numbers = sorted({int(item["level"]) for item in levels})
+    if not active_numbers:
+        return 1
+    stored = max(1, int(profile.get("current_level", 1)))
+    if stored in active_numbers:
+        unlocked = stored
+    else:
+        next_active = [number for number in active_numbers if number >= stored]
+        unlocked = min(next_active) if next_active else max(active_numbers)
+
+    if completed_levels is None:
+        rows = await db.bonus_match_completions.find(
+            {"user_id": user_id}, {"_id": 0, "level": 1}
+        ).to_list(BONUS_MATCH_LEVEL_LIMIT)
+        completed_levels = {int(item.get("level", 0)) for item in rows}
+
+    while unlocked in completed_levels:
+        next_levels = [number for number in active_numbers if number > unlocked]
+        if not next_levels:
+            break
+        unlocked = min(next_levels)
+
+    if unlocked > stored:
+        await db.bonus_match_profiles.update_one(
+            {"user_id": user_id},
+            {"$max": {"current_level": unlocked}, "$set": {"updated_at": now_iso()}},
+        )
+        profile["current_level"] = unlocked
+    return unlocked
 
 
 def _bonus_match_find_runs(board: list[list[Optional[dict]]]) -> list[dict]:
@@ -2807,38 +2992,97 @@ def _bonus_match_make_plain_board() -> list[list[Optional[dict]]]:
 
 def _bonus_match_make_board(
     level: int = 1,
+    config: Optional[dict] = None,
 ) -> list[list[Optional[dict]]]:
     import random as _random
 
-    config = _bonus_match_level_config(level)
-    for _ in range(160):
+    config = config or _bonus_match_level_config(level)
+    manual_layout = _bonus_match_normalize_obstacle_layout(
+        config.get("obstacle_layout")
+    )
+    last_board = None
+    for _ in range(180):
         board = _bonus_match_make_plain_board()
-        obstacle_types = list(config.get("obstacles") or [])
-        obstacle_count = int(config.get("obstacle_count", 0))
-        if obstacle_types and obstacle_count:
-            positions = [
-                (row, col)
-                for row in range(BONUS_MATCH_ROWS)
-                for col in range(BONUS_MATCH_COLS)
-            ]
-            _random.shuffle(positions)
-            newest = config.get("new_obstacle")
-            for index, (row, col) in enumerate(
-                positions[:obstacle_count]
-            ):
-                if newest and index < max(2, obstacle_count // 3):
-                    obstacle = newest
-                else:
-                    obstacle = _random.choice(obstacle_types)
-                board[row][col] = _bonus_match_new_cell(
-                    obstacle=obstacle
+        last_board = board
+        if manual_layout:
+            for item in manual_layout:
+                board[item["row"]][item["col"]] = _bonus_match_new_cell(
+                    obstacle=item["obstacle"],
+                    obstacle_hits=item["hits"],
                 )
-        if (
-            not _bonus_match_find_matches(board)
-            and _bonus_match_has_move(board)
-        ):
+        else:
+            obstacle_types = [
+                item for item in list(config.get("obstacles") or [])
+                if item in BONUS_MATCH_OBSTACLE_HITS
+            ]
+            obstacle_count = max(0, min(35, int(config.get("obstacle_count", 0))))
+            if obstacle_types and obstacle_count:
+                positions = [
+                    (row, col)
+                    for row in range(BONUS_MATCH_ROWS)
+                    for col in range(BONUS_MATCH_COLS)
+                ]
+                _random.shuffle(positions)
+                newest = config.get("new_obstacle")
+                for index, (row, col) in enumerate(positions[:obstacle_count]):
+                    if newest in BONUS_MATCH_OBSTACLE_HITS and index < max(2, obstacle_count // 3):
+                        obstacle = newest
+                    else:
+                        obstacle = _random.choice(obstacle_types)
+                    board[row][col] = _bonus_match_new_cell(obstacle=obstacle)
+        if not _bonus_match_find_matches(board) and _bonus_match_has_move(board):
             return board
-    return _bonus_match_make_plain_board()
+    return last_board if manual_layout and last_board else _bonus_match_make_plain_board()
+
+
+def _bonus_match_shuffle_board(
+    board: list[list[Optional[dict]]],
+) -> list[list[Optional[dict]]]:
+    import random as _random
+
+    source = _bonus_match_clone_board(board)
+    positions = [
+        (row, col)
+        for row in range(BONUS_MATCH_ROWS)
+        for col in range(BONUS_MATCH_COLS)
+        if source[row][col] and not source[row][col].get("obstacle")
+    ]
+    pieces = [source[row][col] for row, col in positions]
+    for _ in range(160):
+        shuffled = pieces[:]
+        _random.shuffle(shuffled)
+        candidate = _bonus_match_clone_board(source)
+        for (row, col), cell in zip(positions, shuffled):
+            candidate[row][col] = cell
+        if not _bonus_match_find_matches(candidate) and _bonus_match_has_move(candidate):
+            return candidate
+    return source
+
+
+def _bonus_match_ensure_playable_board(
+    board: list[list[Optional[dict]]],
+    level: int,
+    config: Optional[dict] = None,
+) -> tuple[list[list[Optional[dict]]], bool, str]:
+    """Return a board with at least one legal move.
+
+    First we reshuffle the existing movable pieces so their stable ids,
+    specials and the obstacle layout are preserved. Only if no playable
+    arrangement can be found do we regenerate the board as a safe fallback.
+    """
+    source = _bonus_match_clone_board(board)
+    if _bonus_match_has_move(source):
+        return source, False, "none"
+
+    shuffled = _bonus_match_shuffle_board(source)
+    if (
+        _bonus_match_has_move(shuffled)
+        and not _bonus_match_find_matches(shuffled)
+    ):
+        return shuffled, True, "shuffle"
+
+    regenerated = _bonus_match_make_board(level, config)
+    return regenerated, True, "regenerate"
 
 
 def _bonus_match_collapse(
@@ -3142,6 +3386,7 @@ async def _bonus_match_profile(user_id: str) -> dict:
             "current_level": 1,
             "total_stars": 0,
             "lives": BONUS_MATCH_MAX_LIVES,
+            "boosters": {key: 0 for key in BONUS_MATCH_BOOSTERS},
             "lives_updated_at": now.isoformat(),
             "created_at": now.isoformat(),
             "updated_at": now.isoformat(),
@@ -3194,6 +3439,11 @@ async def _bonus_match_profile(user_id: str) -> dict:
 
     profile.setdefault("current_level", 1)
     profile.setdefault("total_stars", 0)
+    stored_boosters = profile.get("boosters") if isinstance(profile.get("boosters"), dict) else {}
+    profile["boosters"] = {
+        key: max(0, int(stored_boosters.get(key, 0) or 0))
+        for key in BONUS_MATCH_BOOSTERS
+    }
     profile["lives"] = lives
     profile["next_life_at"] = (
         None
@@ -3336,16 +3586,17 @@ async def _bonus_match_reward_win(
     )
 
     profile = await _bonus_match_profile(user["id"])
+    catalog = await _bonus_match_level_catalog()
+    active_numbers = [int(item["level"]) for item in catalog]
+    next_levels = [number for number in active_numbers if number > level]
+    unlocked_level = min(next_levels) if next_levels else level
     refunded_lives = min(
         BONUS_MATCH_MAX_LIVES,
         int(profile.get("lives", 0)) + 1,
     )
     profile_updates: dict = {
         "$max": {
-            "current_level": min(
-                BONUS_MATCH_MAX_LEVEL,
-                level + 1,
-            )
+            "current_level": unlocked_level
         },
         "$set": {
             "lives": refunded_lives,
@@ -3492,11 +3743,452 @@ async def _bonus_match_reward_win(
     }
 
 
+
+def _bonus_match_admin_level_doc(level: int, body: BonusMatchLevelAdminBody) -> dict:
+    payload = body.model_dump()
+    target_score = max(100, int(payload.get("target_score") or 100))
+    thresholds = [
+        max(target_score, int(value))
+        for value in list(payload.get("star_thresholds") or [])[:3]
+        if str(value).strip()
+    ]
+    defaults = [target_score, int(target_score * 1.35), int(target_score * 1.72)]
+    while len(thresholds) < 3:
+        thresholds.append(defaults[len(thresholds)])
+    thresholds = sorted(thresholds)
+    obstacles = [
+        value for value in list(payload.get("obstacles") or [])
+        if value in BONUS_MATCH_OBSTACLE_HITS
+    ]
+    new_obstacle = payload.get("new_obstacle")
+    if new_obstacle not in BONUS_MATCH_OBSTACLE_HITS:
+        new_obstacle = None
+    now = now_iso()
+    return {
+        "level": level,
+        "title": str(payload.get("title") or f"Рівень {level}").strip()[:80],
+        "moves": max(5, min(80, int(payload.get("moves") or 20))),
+        "target_score": target_score,
+        "target_coins": max(0, min(5000, int(payload.get("target_coins") or 0))),
+        "star_thresholds": thresholds,
+        "is_milestone": bool(payload.get("is_milestone")),
+        "is_boss": bool(payload.get("is_boss")),
+        "reward_multiplier": max(1, min(10, int(payload.get("reward_multiplier") or 1))),
+        "obstacles": list(dict.fromkeys(obstacles)),
+        "new_obstacle": new_obstacle,
+        "obstacle_count": max(0, min(35, int(payload.get("obstacle_count") or 0))),
+        "obstacle_layout": _bonus_match_normalize_obstacle_layout(payload.get("obstacle_layout")),
+        "active": bool(payload.get("active", True)),
+        "updated_at": now,
+    }
+
+
+@api.get("/admin/bonus-match/levels")
+async def admin_bonus_match_levels(admin: dict = Depends(get_current_admin)):
+    levels = await _bonus_match_level_catalog(include_inactive=True)
+    return {
+        "levels": levels,
+        "default_level_count": BONUS_MATCH_DEFAULT_LEVEL_COUNT,
+        "level_limit": BONUS_MATCH_LEVEL_LIMIT,
+        "rows": BONUS_MATCH_ROWS,
+        "cols": BONUS_MATCH_COLS,
+        "obstacles": [
+            {
+                "id": key,
+                "hits": hits,
+                "label": {
+                    "ice": "Крига", "chain": "Ланцюг", "crate": "Ящик",
+                    "stone": "Камінь", "crystal": "Кристал", "web": "Павутина",
+                    "shield": "Щит", "slime": "Слиз", "metal": "Метал", "core": "Ядро",
+                }.get(key, key),
+            }
+            for key, hits in BONUS_MATCH_OBSTACLE_HITS.items()
+        ],
+    }
+
+
+@api.post("/admin/bonus-match/levels", status_code=201)
+async def admin_create_bonus_match_level(
+    body: BonusMatchLevelAdminBody,
+    admin: dict = Depends(get_current_admin),
+):
+    existing_levels = await _bonus_match_level_catalog(include_inactive=True)
+    requested = int(body.level or 0)
+    level = requested or (max((int(item["level"]) for item in existing_levels), default=0) + 1)
+    if not (1 <= level <= BONUS_MATCH_LEVEL_LIMIT):
+        raise HTTPException(status_code=400, detail=f"Номер рівня має бути від 1 до {BONUS_MATCH_LEVEL_LIMIT}")
+    existing = await db.bonus_match_levels.find_one({"level": level}, {"_id": 0})
+    if existing or level <= BONUS_MATCH_DEFAULT_LEVEL_COUNT:
+        raise HTTPException(status_code=409, detail="Такий рівень уже існує. Відредагуйте його замість створення")
+    doc = _bonus_match_admin_level_doc(level, body)
+    doc.update({"created_at": now_iso(), "created_by": admin["id"]})
+    await db.bonus_match_levels.insert_one(doc.copy())
+    return _bonus_match_merge_level_doc(level, doc)
+
+
+@api.patch("/admin/bonus-match/levels/{level}")
+async def admin_update_bonus_match_level(
+    level: int,
+    body: BonusMatchLevelAdminBody,
+    admin: dict = Depends(get_current_admin),
+):
+    if not (1 <= level <= BONUS_MATCH_LEVEL_LIMIT):
+        raise HTTPException(status_code=400, detail="Некоректний номер рівня")
+    if level > BONUS_MATCH_DEFAULT_LEVEL_COUNT:
+        existing = await db.bonus_match_levels.find_one({"level": level}, {"_id": 0})
+        if not existing:
+            raise HTTPException(status_code=404, detail="Рівень не знайдено")
+    doc = _bonus_match_admin_level_doc(level, body)
+    doc["updated_by"] = admin["id"]
+    await db.bonus_match_levels.update_one(
+        {"level": level},
+        {
+            "$set": doc,
+            "$setOnInsert": {"created_at": now_iso(), "created_by": admin["id"]},
+        },
+        upsert=True,
+    )
+    return _bonus_match_merge_level_doc(level, doc)
+
+
+@api.delete("/admin/bonus-match/levels/{level}", status_code=204)
+async def admin_delete_bonus_match_level(
+    level: int,
+    admin: dict = Depends(get_current_admin),
+):
+    if level <= BONUS_MATCH_DEFAULT_LEVEL_COUNT:
+        await db.bonus_match_levels.delete_one({"level": level})
+        return None
+    deleted = await db.bonus_match_levels.delete_one({"level": level})
+    if not deleted.deleted_count:
+        raise HTTPException(status_code=404, detail="Рівень не знайдено")
+    return None
+
+
+def _bonus_match_followup_cascades(
+    board: list[list[Optional[dict]]],
+    combo_start: int = 2,
+) -> tuple[list[list[Optional[dict]]], list[dict], int, int, int]:
+    groups = _bonus_match_find_match_groups(board)
+    score_gain = 0
+    coins_gain = 0
+    cascade_count = 0
+    steps: list[dict] = []
+    combo = combo_start
+    while groups and cascade_count < 11:
+        cascade_count += 1
+        matched_cells: set[tuple[int, int]] = set()
+        protected: set[tuple[int, int]] = set()
+        created_specials: list[dict] = []
+        for group in groups:
+            matched_cells.update(group["cells"])
+            special = _bonus_match_group_special(group)
+            if not special:
+                continue
+            anchor = _bonus_match_pick_special_anchor(board, group, [])
+            if anchor:
+                cell = board[anchor[0]][anchor[1]]
+                if cell:
+                    cell["special"] = special
+                    protected.add(anchor)
+                    created_specials.append({
+                        "row": anchor[0], "col": anchor[1], "special": special,
+                        "symbol": cell.get("symbol"), "id": cell.get("id"),
+                    })
+        clear_cells = set(matched_cells) - protected
+        clear_cells, activated_specials = _bonus_match_expand_specials(
+            board, clear_cells, set(), protected, None,
+        )
+        if not clear_cells and not created_specials:
+            break
+        board_before_clear = _bonus_match_clone_board(board)
+        coins_this_step = 0
+        symbol_cells_cleared = 0
+        for row, col in clear_cells:
+            cell = board[row][col]
+            if cell and not cell.get("obstacle"):
+                if cell.get("symbol") == "coin":
+                    coins_this_step += 1
+                if cell.get("symbol") or cell.get("special"):
+                    symbol_cells_cleared += 1
+        obstacle_changes = _bonus_match_damage_obstacles(board, clear_cells)
+        for row, col in clear_cells:
+            if (row, col) in protected:
+                continue
+            cell = board[row][col]
+            if cell and not cell.get("obstacle"):
+                board[row][col] = None
+        special_bonus = sum(BONUS_MATCH_SPECIAL_SCORE.get(item["special"], 0) for item in activated_specials)
+        long_match_bonus = sum(
+            max(0, len(run["cells"]) - 3) * 120
+            for group in groups for run in group["runs"]
+        )
+        obstacle_bonus = sum(180 if item["destroyed"] else 70 for item in obstacle_changes)
+        base_score = symbol_cells_cleared * 100 + special_bonus + long_match_bonus + obstacle_bonus
+        step_score = int(base_score * (1 + (combo - 1) * 0.25))
+        score_gain += step_score
+        coins_gain += coins_this_step
+        board_after_clear = _bonus_match_clone_board(board)
+        board, spawned = _bonus_match_collapse(board)
+        steps.append({
+            "combo": combo,
+            "score_gain": step_score,
+            "coins_gain": coins_this_step,
+            "matched_cells": [{"row": row, "col": col} for row, col in sorted(matched_cells)],
+            "cleared_cells": [{"row": row, "col": col} for row, col in sorted(clear_cells)],
+            "created_specials": created_specials,
+            "activated_specials": activated_specials,
+            "obstacle_changes": obstacle_changes,
+            "board_before_clear": board_before_clear,
+            "board_after_clear": board_after_clear,
+            "board_after_collapse": _bonus_match_clone_board(board),
+            "spawned": spawned,
+        })
+        groups = _bonus_match_find_match_groups(board)
+        combo += 1
+    return board, steps, score_gain, coins_gain, cascade_count
+
+
+@api.post("/games/bonus-match/boosters/purchase")
+async def bonus_match_purchase_booster(
+    body: BonusMatchBoosterPurchaseBody,
+    user: dict = Depends(get_current_user),
+):
+    booster = body.booster
+    await _bonus_match_profile(user["id"])
+    charged = await db.users.update_one(
+        {"id": user["id"], "balance": {"$gte": BONUS_MATCH_BOOSTER_PRICE}},
+        {"$inc": {"balance": -BONUS_MATCH_BOOSTER_PRICE}},
+    )
+    if not charged.modified_count:
+        raise HTTPException(status_code=400, detail="Недостатньо Point для покупки")
+    try:
+        await db.bonus_match_profiles.update_one(
+            {"user_id": user["id"]},
+            {
+                "$inc": {f"boosters.{booster}": 1},
+                "$set": {"updated_at": now_iso()},
+            },
+        )
+        await db.transactions.insert_one({
+            "id": str(uuid.uuid4()),
+            "user_id": user["id"],
+            "kind": "bonus_match_booster",
+            "amount": -BONUS_MATCH_BOOSTER_PRICE,
+            "description": f"Bonus Match: {BONUS_MATCH_BOOSTERS[booster]['label']}",
+            "created_at": now_iso(),
+            "meta": {"booster": booster},
+        })
+    except Exception:
+        await db.users.update_one({"id": user["id"]}, {"$inc": {"balance": BONUS_MATCH_BOOSTER_PRICE}})
+        raise
+    profile = await _bonus_match_profile(user["id"])
+    fresh_user = await db.users.find_one({"id": user["id"]}, {"_id": 0, "balance": 1}) or user
+    return {
+        "booster": booster,
+        "price": BONUS_MATCH_BOOSTER_PRICE,
+        "boosters": profile["boosters"],
+        "balance": int(fresh_user.get("balance", 0)),
+    }
+
+
+@api.post("/games/bonus-match/boosters/use")
+async def bonus_match_use_booster(
+    body: BonusMatchBoosterUseBody,
+    user: dict = Depends(get_current_user),
+):
+    booster = body.booster
+    session = await db.bonus_match_sessions.find_one(
+        {"id": body.session_id, "user_id": user["id"]}, {"_id": 0},
+    )
+    if not session:
+        raise HTTPException(status_code=404, detail="Ігрову сесію не знайдено")
+    if session.get("status") != "active":
+        raise HTTPException(status_code=400, detail="Рівень уже завершено")
+    profile = await _bonus_match_profile(user["id"])
+    if int(profile.get("boosters", {}).get(booster, 0)) <= 0:
+        raise HTTPException(status_code=400, detail="Спочатку придбай цей бонус")
+
+    board = _bonus_match_clone_board(session.get("board"))
+    original_board = _bonus_match_clone_board(board)
+    config = session.get("config") or _bonus_match_level_config(session["level"])
+    score_gain = 0
+    coins_gain = 0
+    cascade_count = 0
+    steps: list[dict] = []
+    reshuffled = False
+    reshuffle_method = "none"
+
+    if booster == "shuffle":
+        board = _bonus_match_shuffle_board(board)
+        board, _, fallback_method = _bonus_match_ensure_playable_board(
+            board, int(session["level"]), config
+        )
+        reshuffled = True
+        reshuffle_method = "shuffle" if fallback_method == "none" else fallback_method
+    else:
+        if body.row is None or body.col is None:
+            raise HTTPException(status_code=400, detail="Оберіть клітинку для бонусу")
+        row = int(body.row)
+        col = int(body.col)
+        if not (0 <= row < BONUS_MATCH_ROWS and 0 <= col < BONUS_MATCH_COLS):
+            raise HTTPException(status_code=400, detail="Некоректна клітинка")
+        target_cell = board[row][col]
+        if not target_cell:
+            raise HTTPException(status_code=400, detail="Клітинка порожня")
+
+        clear_cells: set[tuple[int, int]] = set()
+        activated_specials: list[dict] = []
+        obstacle_changes: list[dict] = []
+        effect_name = f"booster_{booster}"
+
+        if booster == "hammer":
+            if target_cell.get("obstacle"):
+                obstacle_changes.append({
+                    "row": row, "col": col, "obstacle": target_cell.get("obstacle"),
+                    "before": int(target_cell.get("obstacle_hits", 1)), "after": 0, "destroyed": True,
+                })
+                board[row][col] = None
+            else:
+                clear_cells.add((row, col))
+        elif booster == "rocket":
+            clear_cells = {(row, current_col) for current_col in range(BONUS_MATCH_COLS)} | {
+                (current_row, col) for current_row in range(BONUS_MATCH_ROWS)
+            }
+        elif booster == "color_bomb":
+            symbol = _bonus_match_cell_symbol(target_cell)
+            if not symbol:
+                raise HTTPException(status_code=400, detail="Джокер потрібно застосувати до звичайної фішки")
+            clear_cells = {
+                (current_row, current_col)
+                for current_row, board_row in enumerate(board)
+                for current_col, cell in enumerate(board_row)
+                if _bonus_match_cell_symbol(cell) == symbol
+            }
+
+        if clear_cells:
+            clear_cells, chained = _bonus_match_expand_specials(board, clear_cells, set(), set(), None)
+            activated_specials.extend(chained)
+            obstacle_changes.extend(_bonus_match_damage_obstacles(board, clear_cells))
+        activated_specials.insert(0, {
+            "row": row, "col": col, "special": effect_name,
+            "targets": [{"row": target_row, "col": target_col} for target_row, target_col in sorted(clear_cells)],
+        })
+
+        board_before_clear = _bonus_match_clone_board(original_board)
+        coins_this_step = 0
+        symbols_cleared = 0
+        for target_row, target_col in clear_cells:
+            cell = board[target_row][target_col]
+            if cell and not cell.get("obstacle"):
+                if cell.get("symbol") == "coin":
+                    coins_this_step += 1
+                if cell.get("symbol") or cell.get("special"):
+                    symbols_cleared += 1
+                board[target_row][target_col] = None
+        visual_clear_cells = {
+            (current_row, current_col)
+            for current_row in range(BONUS_MATCH_ROWS)
+            for current_col in range(BONUS_MATCH_COLS)
+            if board_before_clear[current_row][current_col] is not None
+            and board[current_row][current_col] is None
+        }
+        base_score = BONUS_MATCH_BOOSTERS[booster]["score"] + symbols_cleared * 100
+        base_score += sum(180 if item.get("destroyed") else 70 for item in obstacle_changes)
+        base_score += sum(BONUS_MATCH_SPECIAL_SCORE.get(item.get("special"), 0) for item in activated_specials)
+        score_gain += base_score
+        coins_gain += coins_this_step
+        board_after_clear = _bonus_match_clone_board(board)
+        board, spawned = _bonus_match_collapse(board)
+        steps.append({
+            "combo": 1,
+            "score_gain": base_score,
+            "coins_gain": coins_this_step,
+            "matched_cells": [],
+            "cleared_cells": [{"row": target_row, "col": target_col} for target_row, target_col in sorted(visual_clear_cells)],
+            "created_specials": [],
+            "activated_specials": activated_specials,
+            "obstacle_changes": obstacle_changes,
+            "board_before_clear": board_before_clear,
+            "board_after_clear": board_after_clear,
+            "board_after_collapse": _bonus_match_clone_board(board),
+            "spawned": spawned,
+        })
+        board, cascade_steps, cascade_score, cascade_coins, extra_cascades = _bonus_match_followup_cascades(board, 2)
+        steps.extend(cascade_steps)
+        score_gain += cascade_score
+        coins_gain += cascade_coins
+        cascade_count = 1 + extra_cascades
+        board, auto_reshuffled, auto_method = _bonus_match_ensure_playable_board(
+            board, int(session["level"]), config
+        )
+        if auto_reshuffled:
+            reshuffled = True
+            reshuffle_method = auto_method
+
+    consumed = await db.bonus_match_profiles.update_one(
+        {"user_id": user["id"], f"boosters.{booster}": {"$gte": 1}},
+        {"$inc": {f"boosters.{booster}": -1}, "$set": {"updated_at": now_iso()}},
+    )
+    if not consumed.modified_count:
+        raise HTTPException(status_code=409, detail="Бонус уже використано на іншому пристрої")
+
+    score = int(session.get("score", 0)) + score_gain
+    coins_collected = int(session.get("coins_collected", 0)) + coins_gain
+    won = score >= int(config["target_score"]) and coins_collected >= int(config["target_coins"])
+    status_value = "won" if won else "active"
+    updates = {
+        "board": board,
+        "score": score,
+        "coins_collected": coins_collected,
+        "cascades": int(session.get("cascades", 0)) + cascade_count,
+        "status": status_value,
+        "updated_at": now_iso(),
+    }
+    if won:
+        updates["completed_at"] = now_iso()
+    await db.bonus_match_sessions.update_one({"id": session["id"]}, {"$set": updates})
+    session = {**session, **updates}
+
+    result = None
+    if won:
+        thresholds = config["star_thresholds"]
+        stars = 3 if score >= thresholds[2] else 2 if score >= thresholds[1] else 1
+        result = await _bonus_match_reward_win(user, session, stars)
+
+    fresh_profile = await _bonus_match_profile(user["id"])
+    frames = []
+    if booster == "shuffle":
+        frames = [{"phase": "reshuffle", "duration_ms": 420, "board": _bonus_match_clone_board(board)}]
+    else:
+        frames = _bonus_match_animation_frames(original_board, steps, board, reshuffled)[1:]
+    return {
+        "valid": True,
+        "message": f"{BONUS_MATCH_BOOSTERS[booster]['label']} використано",
+        "booster": booster,
+        "score_gain": score_gain,
+        "coins_gain": coins_gain,
+        "cascade_count": cascade_count,
+        "session": _bonus_match_session_payload(session),
+        "result": result,
+        "profile": {"boosters": fresh_profile["boosters"]},
+        "animation": {
+            "steps": steps,
+            "frames": frames,
+            "reshuffled": reshuffled,
+            "reason": "manual" if booster == "shuffle" else ("no_moves" if reshuffled else None),
+            "method": reshuffle_method,
+        },
+    }
+
+
 @api.get("/games/bonus-match/status")
 async def bonus_match_status(
     user: dict = Depends(get_current_user),
 ):
     profile = await _bonus_match_profile(user["id"])
+    levels = await _bonus_match_level_catalog()
+    max_level = max((int(item["level"]) for item in levels), default=1)
     date_key = kyiv_today_key()
     daily = await db.bonus_match_daily.find_one(
         {
@@ -3516,7 +4208,13 @@ async def bonus_match_status(
     ).sort(
         "level",
         1,
-    ).to_list(BONUS_MATCH_MAX_LEVEL)
+    ).to_list(BONUS_MATCH_LEVEL_LIMIT)
+    unlocked_level = await _bonus_match_reconcile_unlocked_level(
+        user["id"],
+        profile,
+        levels,
+        {int(item.get("level", 0)) for item in completions},
+    )
     active = await db.bonus_match_sessions.find_one(
         {
             "user_id": user["id"],
@@ -3525,35 +4223,56 @@ async def bonus_match_status(
         {"_id": 0},
         sort=[("created_at", -1)],
     )
+    active_session_animation = None
+    if active:
+        original_active_board = _bonus_match_clone_board(active.get("board"))
+        active_config = active.get("config") or _bonus_match_level_config(active.get("level", 1))
+        playable_board, auto_reshuffled, reshuffle_method = _bonus_match_ensure_playable_board(
+            original_active_board,
+            int(active.get("level", 1)),
+            active_config,
+        )
+        if auto_reshuffled:
+            reshuffled_at = now_iso()
+            await db.bonus_match_sessions.update_one(
+                {"id": active["id"], "user_id": user["id"], "status": "active"},
+                {"$set": {"board": playable_board, "updated_at": reshuffled_at}},
+            )
+            active = {**active, "board": playable_board, "updated_at": reshuffled_at}
+            active_session_animation = {
+                "reshuffled": True,
+                "reason": "no_moves",
+                "method": reshuffle_method,
+                "from_board": original_active_board,
+                "frames": [{
+                    "phase": "reshuffle",
+                    "duration_ms": 520,
+                    "board": _bonus_match_clone_board(playable_board),
+                }],
+            }
+    fresh_user = await db.users.find_one({"id": user["id"]}, {"_id": 0, "balance": 1}) or user
     return {
         "profile": {
-            "current_level": int(
-                profile.get("current_level", 1)
-            ),
-            "total_stars": int(
-                profile.get("total_stars", 0)
-            ),
-            "lives": int(
-                profile.get(
-                    "lives",
-                    BONUS_MATCH_MAX_LIVES,
-                )
-            ),
+            "current_level": unlocked_level,
+            "max_level": max_level,
+            "total_stars": int(profile.get("total_stars", 0)),
+            "lives": int(profile.get("lives", BONUS_MATCH_MAX_LIVES)),
             "max_lives": BONUS_MATCH_MAX_LIVES,
             "next_life_at": profile.get("next_life_at"),
-            "daily_points": int(
-                daily.get("points_awarded", 0)
-            ),
-            "daily_point_cap": (
-                BONUS_MATCH_DAILY_POINT_CAP
-            ),
+            "daily_points": int(daily.get("points_awarded", 0)),
+            "daily_point_cap": BONUS_MATCH_DAILY_POINT_CAP,
+            "boosters": profile.get("boosters", {key: 0 for key in BONUS_MATCH_BOOSTERS}),
+            "booster_price": BONUS_MATCH_BOOSTER_PRICE,
+            "balance": int(fresh_user.get("balance", 0)),
         },
+        "levels": levels,
+        "booster_catalog": [
+            {"id": key, "label": value["label"], "price": BONUS_MATCH_BOOSTER_PRICE}
+            for key, value in BONUS_MATCH_BOOSTERS.items()
+        ],
         "completions": completions,
-        "active_session": (
-            _bonus_match_session_payload(active)
-            if active
-            else None
-        ),
+        "active_session": _bonus_match_session_payload(active) if active else None,
+        "active_session_animation": active_session_animation,
         "top_today": await _bonus_match_top_today(),
     }
 
@@ -3564,20 +4283,14 @@ async def bonus_match_start(
     user: dict = Depends(get_current_user),
 ):
     profile = await _bonus_match_profile(user["id"])
-    requested_level = max(
-        1,
-        min(
-            BONUS_MATCH_MAX_LEVEL,
-            int(body.level or 1),
-        ),
-    )
-    if requested_level > int(
-        profile.get("current_level", 1)
-    ):
-        raise HTTPException(
-            status_code=400,
-            detail="Цей рівень ще не відкрито",
-        )
+    levels = await _bonus_match_level_catalog()
+    unlocked_level = await _bonus_match_reconcile_unlocked_level(user["id"], profile, levels)
+    requested_level = max(1, min(BONUS_MATCH_LEVEL_LIMIT, int(body.level or 1)))
+    config = next((item for item in levels if int(item["level"]) == requested_level), None)
+    if not config:
+        raise HTTPException(status_code=404, detail="Рівень не знайдено або вимкнено")
+    if requested_level > unlocked_level:
+        raise HTTPException(status_code=400, detail="Цей рівень ще не відкрито")
 
     existing = await db.bonus_match_sessions.find_one(
         {
@@ -3588,10 +4301,37 @@ async def bonus_match_start(
         sort=[("created_at", -1)],
     )
     if existing:
+        original_existing_board = _bonus_match_clone_board(existing.get("board"))
+        existing_config = existing.get("config") or _bonus_match_level_config(existing.get("level", 1))
+        playable_board, auto_reshuffled, reshuffle_method = _bonus_match_ensure_playable_board(
+            original_existing_board,
+            int(existing.get("level", 1)),
+            existing_config,
+        )
+        resume_animation = None
+        if auto_reshuffled:
+            reshuffled_at = now_iso()
+            await db.bonus_match_sessions.update_one(
+                {"id": existing["id"], "user_id": user["id"], "status": "active"},
+                {"$set": {"board": playable_board, "updated_at": reshuffled_at}},
+            )
+            existing = {**existing, "board": playable_board, "updated_at": reshuffled_at}
+            resume_animation = {
+                "reshuffled": True,
+                "reason": "no_moves",
+                "method": reshuffle_method,
+                "from_board": original_existing_board,
+                "frames": [{
+                    "phase": "reshuffle",
+                    "duration_ms": 520,
+                    "board": _bonus_match_clone_board(playable_board),
+                }],
+            }
         return {
             "session": _bonus_match_session_payload(
                 existing
             ),
+            "animation": resume_animation,
             "profile": {
                 "lives": int(
                     profile.get(
@@ -3600,9 +4340,8 @@ async def bonus_match_start(
                     )
                 ),
                 "max_lives": BONUS_MATCH_MAX_LIVES,
-                "next_life_at": profile.get(
-                    "next_life_at"
-                ),
+                "next_life_at": profile.get("next_life_at"),
+                "boosters": profile.get("boosters", {key: 0 for key in BONUS_MATCH_BOOSTERS}),
             },
             "resumed": True,
         }
@@ -3630,12 +4369,11 @@ async def bonus_match_start(
         }},
     )
 
-    config = _bonus_match_level_config(requested_level)
     session = {
         "id": str(uuid.uuid4()),
         "user_id": user["id"],
         "level": requested_level,
-        "board": _bonus_match_make_board(requested_level),
+        "board": _bonus_match_make_board(requested_level, config),
         "moves_left": config["moves"],
         "score": 0,
         "coins_collected": 0,
@@ -3656,9 +4394,8 @@ async def bonus_match_start(
                 refreshed.get("lives", lives - 1)
             ),
             "max_lives": BONUS_MATCH_MAX_LIVES,
-            "next_life_at": refreshed.get(
-                "next_life_at"
-            ),
+            "next_life_at": refreshed.get("next_life_at"),
+            "boosters": refreshed.get("boosters", {key: 0 for key in BONUS_MATCH_BOOSTERS}),
         },
         "resumed": False,
     }
@@ -3688,6 +4425,43 @@ async def bonus_match_move(
             "session": _bonus_match_session_payload(
                 session
             ),
+        }
+
+    original_session_board = _bonus_match_clone_board(session.get("board"))
+    session_config = session.get("config") or _bonus_match_level_config(session.get("level", 1))
+    playable_board, auto_reshuffled, reshuffle_method = _bonus_match_ensure_playable_board(
+        original_session_board,
+        int(session.get("level", 1)),
+        session_config,
+    )
+    if auto_reshuffled:
+        reshuffled_at = now_iso()
+        await db.bonus_match_sessions.update_one(
+            {"id": session["id"], "user_id": user["id"], "status": "active"},
+            {"$set": {"board": playable_board, "updated_at": reshuffled_at}},
+        )
+        session = {**session, "board": playable_board, "updated_at": reshuffled_at}
+        return {
+            "valid": True,
+            "move_consumed": False,
+            "auto_reshuffled": True,
+            "message": "На полі не залишилося ходів. Фішки автоматично перемішано",
+            "score_gain": 0,
+            "coins_gain": 0,
+            "cascade_count": 0,
+            "session": _bonus_match_session_payload(session),
+            "result": None,
+            "animation": {
+                "reshuffled": True,
+                "reason": "no_moves",
+                "method": reshuffle_method,
+                "from_board": original_session_board,
+                "frames": [{
+                    "phase": "reshuffle",
+                    "duration_ms": 520,
+                    "board": _bonus_match_clone_board(playable_board),
+                }],
+            },
         }
 
     coordinates = [
@@ -4020,13 +4794,8 @@ async def bonus_match_move(
         )
         preferred = []
 
-    if not _bonus_match_has_move(board):
-        board = _bonus_match_make_board(
-            int(session["level"])
-        )
-        reshuffled = True
-    else:
-        reshuffled = False
+    reshuffled = False
+    reshuffle_method = "none"
 
     moves_left = max(
         0,
@@ -4060,6 +4829,12 @@ async def bonus_match_move(
             else "active"
         )
     )
+    if status_value == "active":
+        board, reshuffled, reshuffle_method = _bonus_match_ensure_playable_board(
+            board,
+            int(session["level"]),
+            config,
+        )
     now = now_iso()
 
     updates = {
@@ -4150,6 +4925,8 @@ async def bonus_match_move(
                 reshuffled,
             ),
             "reshuffled": reshuffled,
+            "reason": "no_moves" if reshuffled else None,
+            "method": reshuffle_method,
         },
     }
 
@@ -4875,6 +5652,7 @@ async def seed_all():
     await db.bonus_match_sessions.create_index([("status", 1), ("completed_at", -1)])
     await db.bonus_match_completions.create_index([("user_id", 1), ("level", 1)], unique=True)
     await db.bonus_match_daily.create_index([("user_id", 1), ("date", 1)], unique=True)
+    await db.bonus_match_levels.create_index("level", unique=True)
     await db.daily_task_sets.create_index([("user_id", 1), ("date", 1)], unique=True)
     await db.daily_task_reviews.create_index([("user_id", 1), ("date", 1), ("task_id", 1)], unique=True)
     await db.teams.create_index("name", unique=True)

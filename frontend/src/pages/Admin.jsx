@@ -4,7 +4,7 @@ import {
   Users, Swords, Gift, ShoppingBag, BarChart3, Plus, Pencil, Trash2, X, Minus, Check, Coins, Trophy, ChevronRight,
   UserCog, ShieldCheck, Crown, UsersRound, Inbox, UserCheck, ClipboardList, CheckCircle2, XCircle,
   ArrowUp, ArrowDown, FileText, BrainCircuit, Clock3, TrendingUp, Search, CalendarDays, Target, Save, ChevronDown,
-  KeyRound, Award, Medal, Star, Sparkles, Send,
+  KeyRound, Award, Medal, Star, Sparkles, Send, Gamepad2, RotateCcw,
 } from "lucide-react";
 import api, { extractError, API_BASE, getToken } from "@/lib/api";
 import { useApp } from "@/context/AppContext";
@@ -19,6 +19,7 @@ const TABS = [
   { id: "users", label: "Юзери", icon: Users },
   { id: "teams", label: "Команди", icon: UsersRound },
   { id: "achievements", label: "Досягнення", icon: Award },
+  { id: "bonus-match", label: "Bonus Match", icon: Gamepad2 },
   { id: "prizes", label: "Призи", icon: Gift },
   { id: "orders", label: "Замовлення", icon: ShoppingBag },
 ];
@@ -2059,6 +2060,248 @@ const PointsManager = () => {
   </div>;
 };
 
+
+// ─────────────── Bonus Match level editor ───────────────
+const BONUS_MATCH_OBSTACLE_STYLE = {
+  ice: { label: "Крига", color: "#7DD3FC" },
+  chain: { label: "Ланцюг", color: "#A1A1AA" },
+  crate: { label: "Ящик", color: "#FDBA74" },
+  stone: { label: "Камінь", color: "#D4D4D8" },
+  crystal: { label: "Кристал", color: "#C084FC" },
+  web: { label: "Павутина", color: "#E4E4E7" },
+  shield: { label: "Щит", color: "#60A5FA" },
+  slime: { label: "Слиз", color: "#4ADE80" },
+  metal: { label: "Метал", color: "#CBD5E1" },
+  core: { label: "Ядро", color: "#FF4D55" },
+};
+
+const BonusMatchLevelEditor = ({ level, obstacleCatalog, onClose, onSaved }) => {
+  const isNew = Boolean(level?._new);
+  const [f, setF] = useState({
+    level: Number(level?.level || 1),
+    title: level?.title || `Рівень ${level?.level || 1}`,
+    moves: Number(level?.moves || 20),
+    target_score: Number(level?.target_score || 2500),
+    target_coins: Number(level?.target_coins || 10),
+    star_thresholds: Array.isArray(level?.star_thresholds) && level.star_thresholds.length === 3
+      ? level.star_thresholds.map(Number)
+      : [2500, 3400, 4300],
+    is_milestone: Boolean(level?.is_milestone),
+    is_boss: Boolean(level?.is_boss),
+    reward_multiplier: Number(level?.reward_multiplier || 1),
+    obstacles: Array.isArray(level?.obstacles) ? level.obstacles : [],
+    new_obstacle: level?.new_obstacle || "",
+    obstacle_count: Number(level?.obstacle_count || 0),
+    obstacle_layout: Array.isArray(level?.obstacle_layout) ? level.obstacle_layout : [],
+    active: level?.active !== false,
+  });
+  const [paint, setPaint] = useState(obstacleCatalog?.[0]?.id || "ice");
+  const [busy, setBusy] = useState(false);
+
+  const setNumber = (key, value, min = 0) => setF((current) => ({
+    ...current,
+    [key]: Math.max(min, Number(value || 0)),
+  }));
+
+  const toggleAllowedObstacle = (id) => {
+    setF((current) => ({
+      ...current,
+      obstacles: current.obstacles.includes(id)
+        ? current.obstacles.filter((item) => item !== id)
+        : [...current.obstacles, id],
+    }));
+  };
+
+  const paintCell = (row, col) => {
+    setF((current) => {
+      const without = current.obstacle_layout.filter((item) => !(item.row === row && item.col === col));
+      if (paint === "erase") return { ...current, obstacle_layout: without };
+      const obstacle = obstacleCatalog.find((item) => item.id === paint);
+      return {
+        ...current,
+        obstacle_layout: [
+          ...without,
+          { row, col, obstacle: paint, hits: Number(obstacle?.hits || 1) },
+        ],
+      };
+    });
+  };
+
+  const layoutMap = new Map(f.obstacle_layout.map((item) => [`${item.row}:${item.col}`, item]));
+
+  const save = async () => {
+    if (!f.title.trim()) return toast.error("Вкажіть назву рівня");
+    if (f.star_thresholds.some((value) => Number(value) < Number(f.target_score))) {
+      return toast.error("Пороги зірок не можуть бути нижчими за цільовий рахунок");
+    }
+    setBusy(true);
+    try {
+      const payload = {
+        ...f,
+        star_thresholds: f.star_thresholds.map(Number),
+        new_obstacle: f.new_obstacle || null,
+      };
+      if (isNew) await api.post("/admin/bonus-match/levels", payload);
+      else await api.patch(`/admin/bonus-match/levels/${f.level}`, payload);
+      toast.success(isNew ? "Рівень створено" : "Рівень оновлено");
+      onSaved();
+    } catch (error) {
+      toast.error(extractError(error, "Не вдалося зберегти рівень"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return <BottomSheet onClose={onClose} title={isNew ? "НОВИЙ РІВЕНЬ" : `РІВЕНЬ ${f.level}`}>
+    <div className="space-y-5">
+      <div className="grid grid-cols-2 gap-3">
+        <label className="text-[9px] font-black uppercase text-zinc-600">Номер рівня
+          <input type="number" min="1" max="200" disabled={!isNew} value={f.level} onChange={(e) => setNumber("level", e.target.value, 1)} className="mt-1 h-11 w-full rounded-xl border border-white/10 bg-[#121318] px-3 text-white outline-none disabled:opacity-50" />
+        </label>
+        <label className="text-[9px] font-black uppercase text-zinc-600">Кількість ходів
+          <input type="number" min="5" max="80" value={f.moves} onChange={(e) => setNumber("moves", e.target.value, 5)} className="mt-1 h-11 w-full rounded-xl border border-white/10 bg-[#121318] px-3 text-white outline-none focus:border-[#B78CFF]" />
+        </label>
+      </div>
+
+      <label className="block text-[9px] font-black uppercase text-zinc-600">Назва
+        <input value={f.title} onChange={(e) => setF((current) => ({ ...current, title: e.target.value }))} className="mt-1 h-11 w-full rounded-xl border border-white/10 bg-[#121318] px-3 text-white outline-none focus:border-[#B78CFF]" />
+      </label>
+
+      <div className="grid grid-cols-2 gap-3">
+        <label className="text-[9px] font-black uppercase text-zinc-600">Цільовий рахунок
+          <input type="number" min="100" value={f.target_score} onChange={(e) => setNumber("target_score", e.target.value, 100)} className="mt-1 h-11 w-full rounded-xl border border-white/10 bg-[#121318] px-3 text-white outline-none focus:border-[#B78CFF]" />
+        </label>
+        <label className="text-[9px] font-black uppercase text-zinc-600">Ціль монет
+          <input type="number" min="0" value={f.target_coins} onChange={(e) => setNumber("target_coins", e.target.value, 0)} className="mt-1 h-11 w-full rounded-xl border border-white/10 bg-[#121318] px-3 text-white outline-none focus:border-[#B78CFF]" />
+        </label>
+      </div>
+
+      <div>
+        <div className="text-[9px] font-black uppercase tracking-wider text-zinc-600">Пороги зірок</div>
+        <div className="mt-2 grid grid-cols-3 gap-2">
+          {f.star_thresholds.map((value, index) => <label key={index} className="text-[9px] font-black text-zinc-500">{index + 1} ★
+            <input type="number" min={f.target_score} value={value} onChange={(e) => setF((current) => ({ ...current, star_thresholds: current.star_thresholds.map((item, itemIndex) => itemIndex === index ? Number(e.target.value || 0) : item) }))} className="mt-1 h-10 w-full rounded-xl border border-white/10 bg-[#121318] px-2 text-xs text-white outline-none" />
+          </label>)}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        <button type="button" onClick={() => setF((current) => ({ ...current, is_milestone: !current.is_milestone }))} className={`h-11 rounded-xl border text-[10px] font-black uppercase ${f.is_milestone ? "border-[#B78CFF] bg-[#B78CFF]/15 text-[#C9A7FF]" : "border-white/10 bg-black/20 text-zinc-500"}`}>РІВЕНЬ-ВИКЛИК</button>
+        <button type="button" onClick={() => setF((current) => ({ ...current, is_boss: !current.is_boss }))} className={`h-11 rounded-xl border text-[10px] font-black uppercase ${f.is_boss ? "border-[#FF5C00] bg-[#FF5C00]/15 text-[#FF8A4C]" : "border-white/10 bg-black/20 text-zinc-500"}`}>БОС-РІВЕНЬ</button>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <label className="text-[9px] font-black uppercase text-zinc-600">Множник нагороди
+          <input type="number" min="1" max="10" value={f.reward_multiplier} onChange={(e) => setNumber("reward_multiplier", e.target.value, 1)} className="mt-1 h-11 w-full rounded-xl border border-white/10 bg-[#121318] px-3 text-white outline-none" />
+        </label>
+        <label className="text-[9px] font-black uppercase text-zinc-600">Автоперешкод
+          <input type="number" min="0" max="35" value={f.obstacle_count} onChange={(e) => setNumber("obstacle_count", e.target.value, 0)} className="mt-1 h-11 w-full rounded-xl border border-white/10 bg-[#121318] px-3 text-white outline-none" />
+        </label>
+      </div>
+
+      <div>
+        <div className="flex items-center justify-between gap-3">
+          <div><div className="text-[10px] font-black uppercase text-white">ДОЗВОЛЕНІ ПЕРЕШКОДИ</div><div className="text-[9px] text-zinc-600">Використовуються для випадкового заповнення</div></div>
+          <select value={f.new_obstacle} onChange={(e) => setF((current) => ({ ...current, new_obstacle: e.target.value }))} className="h-10 max-w-[150px] rounded-xl border border-white/10 bg-[#121318] px-2 text-[10px] font-black text-white">
+            <option value="">Без нової</option>
+            {obstacleCatalog.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+          </select>
+        </div>
+        <div className="mt-2 flex flex-wrap gap-2">
+          {obstacleCatalog.map((item) => <button key={item.id} type="button" onClick={() => toggleAllowedObstacle(item.id)} className={`rounded-full border px-3 py-2 text-[9px] font-black uppercase ${f.obstacles.includes(item.id) ? "border-[#B78CFF] bg-[#B78CFF]/15 text-[#D8C1FF]" : "border-white/10 bg-black/20 text-zinc-500"}`}>{item.label}</button>)}
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-white/10 bg-black/25 p-3">
+        <div className="flex items-start justify-between gap-3">
+          <div><div className="text-[10px] font-black uppercase text-white">СХЕМА ПЕРЕШКОД 7×7</div><div className="mt-1 text-[9px] text-zinc-600">Якщо схема заповнена, вона має пріоритет над випадковою генерацією.</div></div>
+          <div className="text-[10px] font-black text-[#B78CFF]">{f.obstacle_layout.length}/35</div>
+        </div>
+        <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+          <button type="button" onClick={() => setPaint("erase")} className={`h-9 shrink-0 rounded-xl border px-3 text-[9px] font-black uppercase ${paint === "erase" ? "border-[#FF4D55] bg-[#FF4D55]/15 text-[#FF767C]" : "border-white/10 text-zinc-500"}`}>Гумка</button>
+          {obstacleCatalog.map((item) => <button key={item.id} type="button" onClick={() => setPaint(item.id)} className={`h-9 shrink-0 rounded-xl border px-3 text-[9px] font-black uppercase ${paint === item.id ? "border-[#B78CFF] bg-[#B78CFF]/15 text-white" : "border-white/10 text-zinc-500"}`}>{item.label}</button>)}
+        </div>
+        <div className="mt-3 grid grid-cols-7 gap-1">
+          {Array.from({ length: 49 }, (_, index) => {
+            const row = Math.floor(index / 7);
+            const col = index % 7;
+            const item = layoutMap.get(`${row}:${col}`);
+            const style = item ? BONUS_MATCH_OBSTACLE_STYLE[item.obstacle] : null;
+            return <button key={index} type="button" onClick={() => paintCell(row, col)} className="relative aspect-square rounded-lg border border-white/10 bg-[#11101A] text-[8px] font-black" style={{ color: style?.color || "#3F3F46", background: item ? `${style?.color || "#B78CFF"}18` : undefined }} title={item ? `${style?.label}: ${item.hits} уд.` : "Порожньо"}>{item ? item.hits : "·"}</button>;
+          })}
+        </div>
+      </div>
+
+      <button type="button" onClick={() => setF((current) => ({ ...current, active: !current.active }))} className={`flex h-12 w-full items-center justify-center rounded-2xl border text-xs font-black uppercase ${f.active ? "border-[#39FF14]/40 bg-[#39FF14]/10 text-[#39FF14]" : "border-[#FF4D55]/40 bg-[#FF4D55]/10 text-[#FF686F]"}`}>{f.active ? "РІВЕНЬ АКТИВНИЙ" : "РІВЕНЬ ВИМКНЕНО"}</button>
+      <button type="button" onClick={save} disabled={busy} className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[#FFB800] text-xs font-black uppercase text-[#0A0A0A] disabled:opacity-50"><Save size={17} />{busy ? "ЗБЕРЕЖЕННЯ..." : "ЗБЕРЕГТИ РІВЕНЬ"}</button>
+    </div>
+  </BottomSheet>;
+};
+
+const BonusMatchLevelsView = () => {
+  const [data, setData] = useState(null);
+  const [editing, setEditing] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const response = await api.get("/admin/bonus-match/levels");
+      setData(response.data);
+    } catch (error) {
+      toast.error(extractError(error, "Не вдалося завантажити рівні"));
+    } finally {
+      setLoading(false);
+    }
+  };
+  useEffect(() => { load(); }, []);
+
+  const resetOrDelete = async (level) => {
+    const isDefault = Number(level.level) <= Number(data?.default_level_count || 50);
+    const message = isDefault
+      ? `Скинути рівень ${level.level} до стандартних параметрів?`
+      : `Видалити рівень ${level.level}?`;
+    if (!window.confirm(message)) return;
+    try {
+      await api.delete(`/admin/bonus-match/levels/${level.level}`);
+      toast.success(isDefault ? "Стандартні параметри відновлено" : "Рівень видалено");
+      load();
+    } catch (error) {
+      toast.error(extractError(error));
+    }
+  };
+
+  if (loading) return <div className="py-10 text-center text-sm font-black text-zinc-500">Завантаження рівнів…</div>;
+  if (!data) return <div className="py-10 text-center text-sm font-black text-zinc-500">Немає даних</div>;
+  const nextLevel = Math.min(data.level_limit, Math.max(...data.levels.map((item) => Number(item.level)), 0) + 1);
+
+  return <div className="space-y-3" data-testid="bonus-match-levels-admin">
+    <div className="rounded-2xl border border-[#B78CFF]/30 bg-[#B78CFF]/10 p-4">
+      <div className="flex items-center gap-3"><Gamepad2 size={22} className="text-[#B78CFF]" /><div><div className="text-sm font-black uppercase text-white">РЕДАКТОР BONUS MATCH</div><div className="mt-1 text-[10px] text-zinc-500">Змінюй складність, цілі, ходи та точне розташування перешкод.</div></div></div>
+    </div>
+    <button type="button" onClick={() => setEditing({ _new: true, level: nextLevel, title: `Рівень ${nextLevel}`, moves: 18, target_score: 5000, target_coins: 15, star_thresholds: [5000, 6750, 8600], reward_multiplier: 1, obstacles: [], obstacle_layout: [], active: true })} className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[#FFB800] text-xs font-black uppercase text-[#0A0A0A]"><Plus size={17} />СТВОРИТИ НОВИЙ РІВЕНЬ</button>
+
+    <div className="space-y-2">
+      {data.levels.map((level) => <div key={level.level} className={`rounded-2xl border p-3 ${level.active ? "border-white/10 bg-[#1A1A1E]" : "border-[#FF4D55]/20 bg-[#FF4D55]/[.04] opacity-70"}`}>
+        <div className="flex items-start gap-3">
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-[#B78CFF]/30 bg-[#B78CFF]/10 font-display text-xl text-[#C9A7FF]">{level.level}</div>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-1.5"><div className="truncate text-sm font-black text-white">{level.title || `Рівень ${level.level}`}</div>{level.is_boss && <span className="rounded-full bg-[#FF5C00]/15 px-2 py-0.5 text-[8px] font-black text-[#FF7D36]">БОС</span>}{level.custom && <span className="rounded-full bg-[#00F0FF]/10 px-2 py-0.5 text-[8px] font-black text-[#00F0FF]">ЗМІНЕНО</span>}</div>
+            <div className="mt-1 text-[10px] font-bold text-zinc-500">{level.moves} ходів · {Number(level.target_score).toLocaleString("uk-UA")} очок · {level.target_coins} монет</div>
+            <div className="mt-1 text-[9px] text-zinc-600">Перешкоди: {level.obstacle_layout?.length ? `схема ${level.obstacle_layout.length}` : level.obstacle_count ? `${level.obstacle_count} випадково` : "немає"} · нагорода ×{level.reward_multiplier}</div>
+          </div>
+          <div className="flex shrink-0 gap-1.5">
+            <button type="button" onClick={() => setEditing(level)} className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-black/30 text-white"><Pencil size={14} /></button>
+            <button type="button" onClick={() => resetOrDelete(level)} className="flex h-9 w-9 items-center justify-center rounded-xl border border-[#FF4D55]/30 bg-[#FF4D55]/10 text-[#FF5B63]">{Number(level.level) <= data.default_level_count ? <RotateCcw size={14} /> : <Trash2 size={14} />}</button>
+          </div>
+        </div>
+      </div>)}
+    </div>
+
+    {editing && <BonusMatchLevelEditor level={editing} obstacleCatalog={data.obstacles || []} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />}
+  </div>;
+};
+
 // ─────────────── Admin page shell ───────────────
 export default function Admin() {
   const { user, mode } = useApp();
@@ -2084,7 +2327,7 @@ export default function Admin() {
     );
   }
 
-  const V = { analytics: AnalyticsView, "ai-team": AITeamDashboard, "daily-tasks": DailyTasksManager, points: PointsManager, goals: GoalsManager, moderation: ModerationView, applications: ApplicationsView, users: UsersView, teams: TeamsView, achievements: AchievementsView, prizes: PrizesView, orders: OrdersView }[tab];
+  const V = { analytics: AnalyticsView, "ai-team": AITeamDashboard, "daily-tasks": DailyTasksManager, points: PointsManager, goals: GoalsManager, moderation: ModerationView, applications: ApplicationsView, users: UsersView, teams: TeamsView, achievements: AchievementsView, "bonus-match": BonusMatchLevelsView, prizes: PrizesView, orders: OrdersView }[tab];
 
   return (
     <div className="px-5 pt-2 pb-8 lg:px-7 lg:pt-6" data-testid="admin-page">

@@ -1,0 +1,375 @@
+--- /mnt/data/tm6v68-work/backend/server.py	2026-07-23 22:43:25.463352349 +0000
++++ /mnt/data/tm6v69-work/backend/server.py	2026-07-23 22:50:48.571341262 +0000
+@@ -3059,6 +3059,32 @@
+     return source
+ 
+ 
++def _bonus_match_ensure_playable_board(
++    board: list[list[Optional[dict]]],
++    level: int,
++    config: Optional[dict] = None,
++) -> tuple[list[list[Optional[dict]]], bool, str]:
++    """Return a board with at least one legal move.
++
++    First we reshuffle the existing movable pieces so their stable ids,
++    specials and the obstacle layout are preserved. Only if no playable
++    arrangement can be found do we regenerate the board as a safe fallback.
++    """
++    source = _bonus_match_clone_board(board)
++    if _bonus_match_has_move(source):
++        return source, False, "none"
++
++    shuffled = _bonus_match_shuffle_board(source)
++    if (
++        _bonus_match_has_move(shuffled)
++        and not _bonus_match_find_matches(shuffled)
++    ):
++        return shuffled, True, "shuffle"
++
++    regenerated = _bonus_match_make_board(level, config)
++    return regenerated, True, "regenerate"
++
++
+ def _bonus_match_collapse(
+     board: list[list[Optional[dict]]],
+ ) -> tuple[list[list[Optional[dict]]], list[dict]]:
+@@ -3991,10 +4017,15 @@
+     cascade_count = 0
+     steps: list[dict] = []
+     reshuffled = False
++    reshuffle_method = "none"
+ 
+     if booster == "shuffle":
+         board = _bonus_match_shuffle_board(board)
++        board, _, fallback_method = _bonus_match_ensure_playable_board(
++            board, int(session["level"]), config
++        )
+         reshuffled = True
++        reshuffle_method = "shuffle" if fallback_method == "none" else fallback_method
+     else:
+         if body.row is None or body.col is None:
+             raise HTTPException(status_code=400, detail="Оберіть клітинку для бонусу")
+@@ -4088,9 +4119,12 @@
+         score_gain += cascade_score
+         coins_gain += cascade_coins
+         cascade_count = 1 + extra_cascades
+-        if not _bonus_match_has_move(board):
+-            board = _bonus_match_make_board(int(session["level"]), config)
++        board, auto_reshuffled, auto_method = _bonus_match_ensure_playable_board(
++            board, int(session["level"]), config
++        )
++        if auto_reshuffled:
+             reshuffled = True
++            reshuffle_method = auto_method
+ 
+     consumed = await db.bonus_match_profiles.update_one(
+         {"user_id": user["id"], f"boosters.{booster}": {"$gte": 1}},
+@@ -4142,6 +4176,8 @@
+             "steps": steps,
+             "frames": frames,
+             "reshuffled": reshuffled,
++            "reason": "manual" if booster == "shuffle" else ("no_moves" if reshuffled else None),
++            "method": reshuffle_method,
+         },
+     }
+ 
+@@ -4187,6 +4223,33 @@
+         {"_id": 0},
+         sort=[("created_at", -1)],
+     )
++    active_session_animation = None
++    if active:
++        original_active_board = _bonus_match_clone_board(active.get("board"))
++        active_config = active.get("config") or _bonus_match_level_config(active.get("level", 1))
++        playable_board, auto_reshuffled, reshuffle_method = _bonus_match_ensure_playable_board(
++            original_active_board,
++            int(active.get("level", 1)),
++            active_config,
++        )
++        if auto_reshuffled:
++            reshuffled_at = now_iso()
++            await db.bonus_match_sessions.update_one(
++                {"id": active["id"], "user_id": user["id"], "status": "active"},
++                {"$set": {"board": playable_board, "updated_at": reshuffled_at}},
++            )
++            active = {**active, "board": playable_board, "updated_at": reshuffled_at}
++            active_session_animation = {
++                "reshuffled": True,
++                "reason": "no_moves",
++                "method": reshuffle_method,
++                "from_board": original_active_board,
++                "frames": [{
++                    "phase": "reshuffle",
++                    "duration_ms": 520,
++                    "board": _bonus_match_clone_board(playable_board),
++                }],
++            }
+     fresh_user = await db.users.find_one({"id": user["id"]}, {"_id": 0, "balance": 1}) or user
+     return {
+         "profile": {
+@@ -4209,6 +4272,7 @@
+         ],
+         "completions": completions,
+         "active_session": _bonus_match_session_payload(active) if active else None,
++        "active_session_animation": active_session_animation,
+         "top_today": await _bonus_match_top_today(),
+     }
+ 
+@@ -4237,10 +4301,37 @@
+         sort=[("created_at", -1)],
+     )
+     if existing:
++        original_existing_board = _bonus_match_clone_board(existing.get("board"))
++        existing_config = existing.get("config") or _bonus_match_level_config(existing.get("level", 1))
++        playable_board, auto_reshuffled, reshuffle_method = _bonus_match_ensure_playable_board(
++            original_existing_board,
++            int(existing.get("level", 1)),
++            existing_config,
++        )
++        resume_animation = None
++        if auto_reshuffled:
++            reshuffled_at = now_iso()
++            await db.bonus_match_sessions.update_one(
++                {"id": existing["id"], "user_id": user["id"], "status": "active"},
++                {"$set": {"board": playable_board, "updated_at": reshuffled_at}},
++            )
++            existing = {**existing, "board": playable_board, "updated_at": reshuffled_at}
++            resume_animation = {
++                "reshuffled": True,
++                "reason": "no_moves",
++                "method": reshuffle_method,
++                "from_board": original_existing_board,
++                "frames": [{
++                    "phase": "reshuffle",
++                    "duration_ms": 520,
++                    "board": _bonus_match_clone_board(playable_board),
++                }],
++            }
+         return {
+             "session": _bonus_match_session_payload(
+                 existing
+             ),
++            "animation": resume_animation,
+             "profile": {
+                 "lives": int(
+                     profile.get(
+@@ -4336,6 +4427,43 @@
+             ),
+         }
+ 
++    original_session_board = _bonus_match_clone_board(session.get("board"))
++    session_config = session.get("config") or _bonus_match_level_config(session.get("level", 1))
++    playable_board, auto_reshuffled, reshuffle_method = _bonus_match_ensure_playable_board(
++        original_session_board,
++        int(session.get("level", 1)),
++        session_config,
++    )
++    if auto_reshuffled:
++        reshuffled_at = now_iso()
++        await db.bonus_match_sessions.update_one(
++            {"id": session["id"], "user_id": user["id"], "status": "active"},
++            {"$set": {"board": playable_board, "updated_at": reshuffled_at}},
++        )
++        session = {**session, "board": playable_board, "updated_at": reshuffled_at}
++        return {
++            "valid": True,
++            "move_consumed": False,
++            "auto_reshuffled": True,
++            "message": "На полі не залишилося ходів. Фішки автоматично перемішано",
++            "score_gain": 0,
++            "coins_gain": 0,
++            "cascade_count": 0,
++            "session": _bonus_match_session_payload(session),
++            "result": None,
++            "animation": {
++                "reshuffled": True,
++                "reason": "no_moves",
++                "method": reshuffle_method,
++                "from_board": original_session_board,
++                "frames": [{
++                    "phase": "reshuffle",
++                    "duration_ms": 520,
++                    "board": _bonus_match_clone_board(playable_board),
++                }],
++            },
++        }
++
+     coordinates = [
+         body.from_row,
+         body.from_col,
+@@ -4666,14 +4794,8 @@
+         )
+         preferred = []
+ 
+-    if not _bonus_match_has_move(board):
+-        board = _bonus_match_make_board(
+-            int(session["level"]),
+-            session.get("config") or _bonus_match_level_config(session["level"]),
+-        )
+-        reshuffled = True
+-    else:
+-        reshuffled = False
++    reshuffled = False
++    reshuffle_method = "none"
+ 
+     moves_left = max(
+         0,
+@@ -4707,6 +4829,12 @@
+             else "active"
+         )
+     )
++    if status_value == "active":
++        board, reshuffled, reshuffle_method = _bonus_match_ensure_playable_board(
++            board,
++            int(session["level"]),
++            config,
++        )
+     now = now_iso()
+ 
+     updates = {
+@@ -4797,6 +4925,8 @@
+                 reshuffled,
+             ),
+             "reshuffled": reshuffled,
++            "reason": "no_moves" if reshuffled else None,
++            "method": reshuffle_method,
+         },
+     }
+ 
+
+--- FRONTEND ---
+--- /mnt/data/tm6v68-work/frontend/src/pages/BonusMatch.jsx	2026-07-23 22:43:25.495352348 +0000
++++ /mnt/data/tm6v69-work/frontend/src/pages/BonusMatch.jsx	2026-07-23 22:51:32.543340162 +0000
+@@ -345,9 +345,11 @@
+     matches = findMatches(board);
+   }
+ 
++  let reshuffled = false;
+   if (!hasPossibleMove(board)) {
+     const fresh = makeMockBoard(game.level);
+     fresh.forEach((row, rowIndex) => row.forEach((cell, colIndex) => { board[rowIndex][colIndex] = cell; }));
++    reshuffled = true;
+   }
+ 
+   const score = game.score + scoreGain;
+@@ -364,7 +366,7 @@
+     coins_gain: coinsGain,
+     cascade_count: steps.length,
+     session,
+-    animation: { swapped_board: swapped, steps, reshuffled: false },
++    animation: { swapped_board: swapped, steps, reshuffled, reason: reshuffled ? "no_moves" : null },
+     result: status === "active" ? null : {
+       stars,
+       points_awarded: won ? [0, 2, 4, 7][stars] + 5 : 0,
+@@ -638,6 +640,32 @@
+   const [activeBooster, setActiveBooster] = useState(null);
+   const [buyingBooster, setBuyingBooster] = useState(null);
+ 
++  const applySessionState = async (rawSession, animation = null) => {
++    const session = { ...rawSession, board: normalizeBoard(rawSession?.board) };
++    setGame(session);
++    setAnimatedScore(session.score || 0);
++
++    if (animation?.reshuffled) {
++      const fromBoard = normalizeBoard(animation.from_board || rawSession?.board);
++      const finalFrame = Array.isArray(animation.frames)
++        ? [...animation.frames].reverse().find((frame) => frame.phase === "reshuffle") || animation.frames[animation.frames.length - 1]
++        : null;
++      const targetBoard = normalizeBoard(finalFrame?.board || rawSession?.board);
++      setDisplayBoard(fromBoard);
++      setFlash("ХОДІВ НЕМАЄ");
++      await wait(reducedMotion ? 25 : 90);
++      setFlash("ПЕРЕМІШУЄМО");
++      setDisplayBoard(targetBoard);
++      await wait(reducedMotion ? 70 : Number(finalFrame?.duration_ms || 520));
++      setFlash("");
++      toast.info("На полі не залишилося ходів. Фішки автоматично перемішано");
++      return session;
++    }
++
++    setDisplayBoard(session.board);
++    return session;
++  };
++
+   const loadStatus = async () => {
+     if (mode === "mock") {
+       const mockStatus = {
+@@ -662,10 +690,7 @@
+       setStatus(data);
+       setSelectedLevel(Number(data.profile.current_level || 1));
+       if (data.active_session) {
+-        const session = { ...data.active_session, board: normalizeBoard(data.active_session.board) };
+-        setGame(session);
+-        setDisplayBoard(session.board);
+-        setAnimatedScore(session.score || 0);
++        await applySessionState(data.active_session, data.active_session_animation);
+       }
+     } catch (error) {
+       toast.error(extractError(error, "Не вдалося завантажити Bonus Match"));
+@@ -728,10 +753,7 @@
+     try {
+       setLoading(true);
+       const { data } = await api.post("/games/bonus-match/start", { level });
+-      const session = { ...data.session, board: normalizeBoard(data.session.board) };
+-      setGame(session);
+-      setDisplayBoard(session.board);
+-      setAnimatedScore(session.score || 0);
++      await applySessionState(data.session, data.animation);
+       setStatus((current) => (current ? { ...current, profile: { ...current.profile, ...data.profile } } : current));
+       if (data.resumed) toast.info("Продовжуємо незавершений рівень");
+     } catch (error) {
+@@ -820,8 +842,16 @@
+             spawned_ids: (step.spawned || []).map((item) => item.id).filter(Boolean),
+           },
+         ]),
++        ...(animation.reshuffled && data.session?.board
++          ? [{ phase: "reshuffle", board: data.session.board, duration_ms: 520 }]
++          : []),
+       ];
+ 
++    if (data.move_consumed === false && animation.from_board) {
++      setDisplayBoard(normalizeBoard(animation.from_board));
++      await wait(reducedMotion ? 20 : 70);
++    }
++
+     const swapFrame = frames.find((frame) => frame.phase === "swap");
+     if (swapFrame?.board) {
+       setDisplayBoard(normalizeBoard(swapFrame.board));
+@@ -929,12 +959,22 @@
+       }
+ 
+       if (frame.phase === "reshuffle" && frame.board) {
++        setFlash(animation.reason === "manual" ? "ПЕРЕМІШУЄМО" : "ХОДІВ НЕМАЄ");
++        await wait(reducedMotion ? 20 : 80);
++        setFlash("ПЕРЕМІШУЄМО");
+         setDisplayBoard(normalizeBoard(frame.board));
+-        await wait(reducedMotion ? 60 : Number(frame.duration_ms || 360));
++        await wait(reducedMotion ? 60 : Number(frame.duration_ms || 520));
++        setFlash("");
+       }
+     }
+ 
+-    if (animation.reshuffled) toast.info("На полі не залишилося ходів. Фішки перемішано");
++    if (animation.reshuffled) {
++      toast.info(
++        animation.reason === "manual"
++          ? "Поле перемішано"
++          : "На полі не залишилося ходів. Фішки автоматично перемішано",
++      );
++    }
+     setAnimatedScore(data.session.score || runningScore);
+     setDisplayBoard(normalizeBoard(data.session.board));
+     setGame({ ...data.session, board: normalizeBoard(data.session.board) });
+
+--- SERVICE WORKER ---
+--- /mnt/data/tm6v68-work/frontend/public/service-worker.js	2026-07-23 22:34:02.707366429 +0000
++++ /mnt/data/tm6v69-work/frontend/public/service-worker.js	2026-07-23 22:52:12.615339160 +0000
+@@ -2,7 +2,7 @@
+  * Dynamic data is always network-only.
+  * App shell uses network-first so new deployments replace old PWA files promptly.
+  */
+-const VERSION = "tm6-v68";
++const VERSION = "tm6-v69";
+ const STATIC_CACHE = `${VERSION}-static`;
+ const RUNTIME_CACHE = `${VERSION}-runtime`;
+ 

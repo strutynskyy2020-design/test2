@@ -12,8 +12,10 @@ import {
   Gamepad2,
   Gem,
   Gift,
+  Hammer,
   Heart,
   Lock,
+  Plus,
   Rocket,
   RotateCcw,
   Shield,
@@ -33,7 +35,7 @@ import AvatarFrame from "@/components/AvatarFrame";
 
 const ROWS = 7;
 const COLS = 7;
-const MAX_LEVEL = 50;
+const MAX_LEVEL = 200;
 const SYMBOLS = ["coin", "star", "gift", "cube", "zap", "trophy"];
 const BOSS_LEVELS = { 25: 2, 40: 2, 50: 3 };
 const OBSTACLE_ORDER = ["ice", "chain", "crate", "stone", "crystal", "web", "shield", "slime", "metal", "core"];
@@ -75,6 +77,13 @@ const SPECIAL_TOASTS = {
   rocket_col: "Ракета створена!",
   bomb: "Бомба готова!",
   color_bomb: "Джокер зібрано!",
+};
+
+const BOOSTERS = {
+  hammer: { Icon: Hammer, label: "Молоток", short: "Прибрати одну фішку або перешкоду", color: "#B78CFF" },
+  rocket: { Icon: Rocket, label: "Ракета", short: "Очистити рядок і колонку", color: "#FF5C00" },
+  color_bomb: { Icon: CircleDot, label: "Райдужний джокер", short: "Прибрати всі фішки одного типу", color: "#F64CFF" },
+  shuffle: { Icon: RotateCcw, label: "Перемішати", short: "Повністю перемішати поле", color: "#00F0FF" },
 };
 
 const OBSTACLE_NAMES = {
@@ -336,9 +345,11 @@ const runMockMove = (game, from, to) => {
     matches = findMatches(board);
   }
 
+  let reshuffled = false;
   if (!hasPossibleMove(board)) {
     const fresh = makeMockBoard(game.level);
     fresh.forEach((row, rowIndex) => row.forEach((cell, colIndex) => { board[rowIndex][colIndex] = cell; }));
+    reshuffled = true;
   }
 
   const score = game.score + scoreGain;
@@ -355,7 +366,7 @@ const runMockMove = (game, from, to) => {
     coins_gain: coinsGain,
     cascade_count: steps.length,
     session,
-    animation: { swapped_board: swapped, steps, reshuffled: false },
+    animation: { swapped_board: swapped, steps, reshuffled, reason: reshuffled ? "no_moves" : null },
     result: status === "active" ? null : {
       stars,
       points_awarded: won ? [0, 2, 4, 7][stars] + 5 : 0,
@@ -376,6 +387,7 @@ function Piece({
   cell,
   selected,
   disabled,
+  targetable = false,
   removing,
   shaking,
   spawned,
@@ -402,7 +414,7 @@ function Piece({
       layoutId={`bonus-piece-${cell.id}`}
       type="button"
       onClick={onClick}
-      disabled={disabled || Boolean(obstacle)}
+      disabled={disabled || (Boolean(obstacle) && !targetable)}
       aria-label={`${label}, рядок ${row + 1}, колонка ${col + 1}`}
       className="relative flex aspect-square min-w-0 touch-manipulation items-center justify-center overflow-hidden rounded-[10px] border border-white/10"
       style={{
@@ -426,7 +438,7 @@ function Piece({
           rotate: 30,
           transition: { duration: 0.28, delay: removeDelay, ease: "easeIn" },
         }}
-      whileTap={disabled || obstacle ? undefined : { scale: 0.86 }}
+      whileTap={disabled || (obstacle && !targetable) ? undefined : { scale: 0.86 }}
       transition={
         shaking
           ? { duration: reducedMotion ? 0.01 : 0.32, ease: "easeInOut" }
@@ -547,6 +559,38 @@ function SpecialEffects({ effects = [] }) {
             />
           );
         }
+        if (effect.special === "booster_rocket") {
+          return (
+            <motion.div key={`booster-rocket-${effectIndex}`} className="pointer-events-none absolute inset-0">
+              <motion.div
+                className="absolute left-0 right-0 h-[8px] rounded-full bg-gradient-to-r from-transparent via-[#FF5C00] to-transparent"
+                style={{ top: `${((effect.row + 0.5) / ROWS) * 100}%` }}
+                initial={{ scaleX: 0, opacity: 0 }} animate={{ scaleX: 1, opacity: [0, 1, 0] }} transition={{ duration: 0.34 }}
+              />
+              <motion.div
+                className="absolute bottom-0 top-0 w-[8px] rounded-full bg-gradient-to-b from-transparent via-[#FFB800] to-transparent"
+                style={{ left: `${((effect.col + 0.5) / COLS) * 100}%` }}
+                initial={{ scaleY: 0, opacity: 0 }} animate={{ scaleY: 1, opacity: [0, 1, 0] }} transition={{ duration: 0.34 }}
+              />
+            </motion.div>
+          );
+        }
+        if (effect.special === "booster_hammer") {
+          return (
+            <motion.div
+              key={`booster-hammer-${effectIndex}`}
+              className="pointer-events-none absolute aspect-square rounded-full border-4 border-[#B78CFF]"
+              style={{
+                width: `${(1.6 / COLS) * 100}%`,
+                left: `${((effect.col - 0.3) / COLS) * 100}%`,
+                top: `${((effect.row - 0.3) / ROWS) * 100}%`,
+              }}
+              initial={{ scale: 0.2, opacity: 1 }}
+              animate={{ scale: 1.5, opacity: 0 }}
+              transition={{ duration: 0.32, ease: "easeOut" }}
+            />
+          );
+        }
         return (effect.targets || []).slice(0, 24).map((target, targetIndex) => (
           <motion.div
             key={`joker-${effectIndex}-${targetIndex}`}
@@ -593,11 +637,40 @@ export default function BonusMatch() {
   const [scoreFlights, setScoreFlights] = useState([]);
   const [boardFx, setBoardFx] = useState("");
   const [bossPrompt, setBossPrompt] = useState(null);
+  const [activeBooster, setActiveBooster] = useState(null);
+  const [buyingBooster, setBuyingBooster] = useState(null);
+
+  const applySessionState = async (rawSession, animation = null) => {
+    const session = { ...rawSession, board: normalizeBoard(rawSession?.board) };
+    setGame(session);
+    setAnimatedScore(session.score || 0);
+
+    if (animation?.reshuffled) {
+      const fromBoard = normalizeBoard(animation.from_board || rawSession?.board);
+      const finalFrame = Array.isArray(animation.frames)
+        ? [...animation.frames].reverse().find((frame) => frame.phase === "reshuffle") || animation.frames[animation.frames.length - 1]
+        : null;
+      const targetBoard = normalizeBoard(finalFrame?.board || rawSession?.board);
+      setDisplayBoard(fromBoard);
+      setFlash("ХОДІВ НЕМАЄ");
+      await wait(reducedMotion ? 25 : 90);
+      setFlash("ПЕРЕМІШУЄМО");
+      setDisplayBoard(targetBoard);
+      await wait(reducedMotion ? 70 : Number(finalFrame?.duration_ms || 520));
+      setFlash("");
+      toast.info("На полі не залишилося ходів. Фішки автоматично перемішано");
+      return session;
+    }
+
+    setDisplayBoard(session.board);
+    return session;
+  };
 
   const loadStatus = async () => {
     if (mode === "mock") {
       const mockStatus = {
-        profile: { current_level: 12, total_stars: 26, lives: 5, max_lives: 5, next_life_at: null, daily_points: 17, daily_point_cap: 40 },
+        profile: { current_level: 12, max_level: 50, total_stars: 26, lives: 5, max_lives: 5, next_life_at: null, daily_points: 17, daily_point_cap: 40, balance: 24500, booster_price: 50, boosters: { hammer: 2, rocket: 1, color_bomb: 1, shuffle: 2 } },
+        levels: Array.from({ length: 50 }, (_, index) => levelConfig(index + 1)),
         completions: Array.from({ length: 11 }, (_, index) => ({ level: index + 1, stars: index % 3 === 0 ? 3 : 2, best_score: 1600 + index * 300 })),
         active_session: null,
         top_today: [
@@ -617,10 +690,7 @@ export default function BonusMatch() {
       setStatus(data);
       setSelectedLevel(Number(data.profile.current_level || 1));
       if (data.active_session) {
-        const session = { ...data.active_session, board: normalizeBoard(data.active_session.board) };
-        setGame(session);
-        setDisplayBoard(session.board);
-        setAnimatedScore(session.score || 0);
+        await applySessionState(data.active_session, data.active_session_animation);
       }
     } catch (error) {
       toast.error(extractError(error, "Не вдалося завантажити Bonus Match"));
@@ -639,19 +709,24 @@ export default function BonusMatch() {
     [status?.completions],
   );
   const chosenCompletion = completionsByLevel.get(selectedLevel);
-  const selectedConfig = levelConfig(selectedLevel);
+  const levelCatalog = useMemo(() => (status?.levels || []).slice().sort((a, b) => Number(a.level) - Number(b.level)), [status?.levels]);
+  const levelCatalogMap = useMemo(() => new Map(levelCatalog.map((item) => [Number(item.level), item])), [levelCatalog]);
+  const selectedConfig = levelCatalogMap.get(Number(selectedLevel)) || levelConfig(selectedLevel);
   const config = game?.config || selectedConfig;
+  const boosterInventory = status?.profile?.boosters || {};
+  const boosterPrice = Number(status?.profile?.booster_price || 50);
   const scoreProgress = Math.min(100, Math.round(((animatedScore || 0) / Math.max(1, config.target_score)) * 100));
   const coinProgress = Math.min(100, Math.round(((game?.coins_collected || 0) / Math.max(1, config.target_coins)) * 100));
 
   const startGame = async (level = selectedLevel, confirmed = false) => {
-    const preview = levelConfig(level);
+    const preview = levelCatalogMap.get(Number(level)) || levelConfig(level);
     if (preview.is_boss && !confirmed) {
       setBossPrompt(preview);
       return;
     }
     setBossPrompt(null);
     setSelected(null);
+    setActiveBooster(null);
     setResult(null);
     setFlash("");
     setBoardFx("");
@@ -678,10 +753,7 @@ export default function BonusMatch() {
     try {
       setLoading(true);
       const { data } = await api.post("/games/bonus-match/start", { level });
-      const session = { ...data.session, board: normalizeBoard(data.session.board) };
-      setGame(session);
-      setDisplayBoard(session.board);
-      setAnimatedScore(session.score || 0);
+      await applySessionState(data.session, data.animation);
       setStatus((current) => (current ? { ...current, profile: { ...current.profile, ...data.profile } } : current));
       if (data.resumed) toast.info("Продовжуємо незавершений рівень");
     } catch (error) {
@@ -770,7 +842,15 @@ export default function BonusMatch() {
             spawned_ids: (step.spawned || []).map((item) => item.id).filter(Boolean),
           },
         ]),
+        ...(animation.reshuffled && data.session?.board
+          ? [{ phase: "reshuffle", board: data.session.board, duration_ms: 520 }]
+          : []),
       ];
+
+    if (data.move_consumed === false && animation.from_board) {
+      setDisplayBoard(normalizeBoard(animation.from_board));
+      await wait(reducedMotion ? 20 : 70);
+    }
 
     const swapFrame = frames.find((frame) => frame.phase === "swap");
     if (swapFrame?.board) {
@@ -879,15 +959,140 @@ export default function BonusMatch() {
       }
 
       if (frame.phase === "reshuffle" && frame.board) {
+        setFlash(animation.reason === "manual" ? "ПЕРЕМІШУЄМО" : "ХОДІВ НЕМАЄ");
+        await wait(reducedMotion ? 20 : 80);
+        setFlash("ПЕРЕМІШУЄМО");
         setDisplayBoard(normalizeBoard(frame.board));
-        await wait(reducedMotion ? 60 : Number(frame.duration_ms || 360));
+        await wait(reducedMotion ? 60 : Number(frame.duration_ms || 520));
+        setFlash("");
       }
     }
 
-    if (animation.reshuffled) toast.info("На полі не залишилося ходів. Фішки перемішано");
+    if (animation.reshuffled) {
+      toast.info(
+        animation.reason === "manual"
+          ? "Поле перемішано"
+          : "На полі не залишилося ходів. Фішки автоматично перемішано",
+      );
+    }
     setAnimatedScore(data.session.score || runningScore);
     setDisplayBoard(normalizeBoard(data.session.board));
     setGame({ ...data.session, board: normalizeBoard(data.session.board) });
+  };
+
+  const patchBoosterProfile = (boosters, balance) => {
+    setStatus((current) => current ? {
+      ...current,
+      profile: {
+        ...current.profile,
+        boosters: boosters || current.profile.boosters || {},
+        balance: balance === undefined ? current.profile.balance : Number(balance),
+      },
+    } : current);
+  };
+
+  const purchaseBooster = async (booster) => {
+    if (buyingBooster || moving) return;
+    const meta = BOOSTERS[booster];
+    if (!window.confirm(`Придбати «${meta.label}» за ${boosterPrice} Point?`)) return;
+    if (mode === "mock") {
+      const balance = Number(status?.profile?.balance || 0);
+      if (balance < boosterPrice) return toast.error("Недостатньо Point для покупки");
+      patchBoosterProfile({ ...boosterInventory, [booster]: Number(boosterInventory[booster] || 0) + 1 }, balance - boosterPrice);
+      toast.success(`${meta.label} придбано`);
+      return;
+    }
+    setBuyingBooster(booster);
+    try {
+      const { data } = await api.post("/games/bonus-match/boosters/purchase", { booster });
+      patchBoosterProfile(data.boosters, data.balance);
+      await refreshMe().catch(() => {});
+      toast.success(`${meta.label} придбано`, { description: `−${data.price || boosterPrice} Point` });
+    } catch (error) {
+      toast.error(extractError(error, "Не вдалося придбати бонус"));
+    } finally {
+      setBuyingBooster(null);
+    }
+  };
+
+  const useBooster = async (booster, row = null, col = null) => {
+    if (!game || moving || game.status !== "active") return;
+    if (Number(boosterInventory[booster] || 0) <= 0) {
+      toast.info("Спочатку придбай цей бонус");
+      return;
+    }
+    setMoving(true);
+    setSelected(null);
+    setActiveBooster(null);
+    const startingBoard = normalizeBoard(displayBoard.length ? displayBoard : game.board);
+    try {
+      if (mode === "mock") {
+        let nextBoard = cloneBoard(startingBoard);
+        if (booster === "shuffle") {
+          nextBoard = makeMockBoard(game.level);
+        } else if (row !== null && col !== null) {
+          if (booster === "hammer") nextBoard[row][col] = null;
+          if (booster === "rocket") {
+            for (let index = 0; index < COLS; index += 1) nextBoard[row][index] = null;
+            for (let index = 0; index < ROWS; index += 1) nextBoard[index][col] = null;
+          }
+          if (booster === "color_bomb") {
+            const symbol = matchSymbol(nextBoard[row]?.[col]);
+            if (!symbol) throw new Error("Джокер потрібно застосувати до звичайної фішки");
+            for (let currentRow = 0; currentRow < ROWS; currentRow += 1) {
+              for (let currentCol = 0; currentCol < COLS; currentCol += 1) {
+                if (matchSymbol(nextBoard[currentRow][currentCol]) === symbol) nextBoard[currentRow][currentCol] = null;
+              }
+            }
+          }
+          nextBoard = collapseMockBoard(nextBoard).board;
+        }
+        const nextScore = Number(game.score || 0) + (booster === "shuffle" ? 0 : 500);
+        setDisplayBoard(normalizeBoard(nextBoard));
+        setGame((current) => ({ ...current, board: normalizeBoard(nextBoard), score: nextScore }));
+        setAnimatedScore(nextScore);
+        patchBoosterProfile({ ...boosterInventory, [booster]: Math.max(0, Number(boosterInventory[booster] || 0) - 1) });
+        toast.success(`${BOOSTERS[booster].label} використано`);
+        return;
+      }
+      const { data } = await api.post("/games/bonus-match/boosters/use", {
+        session_id: game.id,
+        booster,
+        row,
+        col,
+      });
+      await animateServerMove(data, game.score);
+      patchBoosterProfile(data.profile?.boosters);
+      toast.success(data.message || `${BOOSTERS[booster].label} використано`);
+      if (data.result) {
+        setResult(data.result);
+        setBoardFx("won");
+        if (!reducedMotion) fireConfetti();
+        await refreshMe().catch(() => {});
+        await loadStatus();
+      }
+    } catch (error) {
+      setDisplayBoard(startingBoard);
+      toast.error(extractError(error, "Не вдалося використати бонус"));
+    } finally {
+      setMoving(false);
+    }
+  };
+
+  const selectBooster = (booster) => {
+    if (!game || game.status !== "active" || moving) return;
+    if (Number(boosterInventory[booster] || 0) <= 0) {
+      toast.info(`Натисни «+», щоб придбати за ${boosterPrice} Point`);
+      return;
+    }
+    if (booster === "shuffle") {
+      useBooster(booster);
+      return;
+    }
+    const next = activeBooster === booster ? null : booster;
+    setActiveBooster(next);
+    setSelected(null);
+    if (next) toast.info(BOOSTERS[booster].short);
   };
 
   const makeMove = async (from, to) => {
@@ -942,6 +1147,11 @@ export default function BonusMatch() {
   const handlePiece = (row, col) => {
     if (moving || game?.status !== "active") return;
     const cell = displayBoard?.[row]?.[col];
+    if (activeBooster) {
+      if (!cell) return;
+      useBooster(activeBooster, row, col);
+      return;
+    }
     if (!cell || cell.obstacle) {
       if (cell?.obstacle) toast.info(`${OBSTACLE_NAMES[cell.obstacle] || "Перешкода"}: зруйнуй її збігами поруч`);
       return;
@@ -962,9 +1172,17 @@ export default function BonusMatch() {
     makeMove(selected, { row, col });
   };
 
+  const unlockedLevels = levelCatalog
+    .map((item) => Number(item.level))
+    .filter((level) => level <= Number(status?.profile?.current_level || 1));
+
+  const selectedUnlockedIndex = unlockedLevels.indexOf(Number(selectedLevel));
+
   const chooseLevel = (delta) => {
-    const maxLevel = Number(status?.profile?.current_level || 1);
-    setSelectedLevel((current) => Math.max(1, Math.min(maxLevel, current + delta)));
+    if (!unlockedLevels.length) return;
+    const currentIndex = Math.max(0, unlockedLevels.indexOf(Number(selectedLevel)));
+    const nextIndex = Math.max(0, Math.min(unlockedLevels.length - 1, currentIndex + delta));
+    setSelectedLevel(unlockedLevels[nextIndex]);
   };
 
   const leaveBoard = () => {
@@ -973,6 +1191,7 @@ export default function BonusMatch() {
     setDisplayBoard([]);
     setResult(null);
     setBoardFx("");
+    setActiveBooster(null);
     loadStatus();
   };
 
@@ -1000,7 +1219,7 @@ export default function BonusMatch() {
         </div>
         <div className="flex items-center gap-1 rounded-2xl border border-[#FFB800]/25 bg-[#FFB800]/10 px-2.5 py-2 text-[#FFB800]">
           <Coins size={15} />
-          <span className="text-sm font-black tabular-nums">{formatNumber(user?.balance)}</span>
+          <span className="text-sm font-black tabular-nums">{formatNumber(status?.profile?.balance ?? user?.balance)}</span>
         </div>
       </section>
 
@@ -1049,12 +1268,13 @@ export default function BonusMatch() {
             )}
 
             <div className="mt-5 flex items-center justify-center gap-4">
-              <button type="button" onClick={() => chooseLevel(-1)} disabled={selectedLevel <= 1} className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-black/25 text-zinc-300 disabled:opacity-30 active:scale-95"><ChevronLeft /></button>
+              <button type="button" onClick={() => chooseLevel(-1)} disabled={selectedUnlockedIndex <= 0} className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-black/25 text-zinc-300 disabled:opacity-30 active:scale-95"><ChevronLeft /></button>
               <div className="min-w-[140px] text-center">
                 <div className="font-display text-[52px] leading-none text-white">{selectedLevel}</div>
+                <div className="mt-1 truncate text-[10px] font-black uppercase tracking-wider text-zinc-500">{selectedConfig.title || `Рівень ${selectedLevel}`}</div>
                 <div className="mt-2 flex justify-center"><Stars count={chosenCompletion?.stars || 0} size={21} reducedMotion={reducedMotion} /></div>
               </div>
-              <button type="button" onClick={() => chooseLevel(1)} disabled={selectedLevel >= (status?.profile?.current_level || 1)} className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-black/25 text-zinc-300 disabled:opacity-30 active:scale-95"><ChevronRight /></button>
+              <button type="button" onClick={() => chooseLevel(1)} disabled={selectedUnlockedIndex < 0 || selectedUnlockedIndex >= unlockedLevels.length - 1} className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-black/25 text-zinc-300 disabled:opacity-30 active:scale-95"><ChevronRight /></button>
             </div>
 
             <div className="mt-5 grid grid-cols-3 gap-2">
@@ -1175,6 +1395,7 @@ export default function BonusMatch() {
                           col={col}
                           selected={selected?.row === row && selected?.col === col}
                           disabled={moving || game.status !== "active"}
+                          targetable={Boolean(activeBooster && activeBooster !== "shuffle")}
                           removing={removingIds.has(cell.id)}
                           shaking={shakingIds.has(cell.id)}
                           spawned={spawnedIds.has(cell.id)}
@@ -1234,7 +1455,37 @@ export default function BonusMatch() {
               )}
             </motion.div>
 
-            <div className="mt-3 flex items-center justify-between px-1 text-[10px] font-bold text-zinc-600"><span>Натисни фішку, потім сусідню</span><span>{coinProgress}% монет</span></div>
+            <div className="mt-3 rounded-2xl border border-white/[.08] bg-black/25 p-2.5">
+              <div className="mb-2 flex items-center justify-between gap-2 px-1">
+                <div>
+                  <div className="text-[9px] font-black uppercase tracking-[.16em] text-zinc-500">БОНУСИ</div>
+                  <div className="mt-0.5 text-[8px] font-bold text-zinc-700">Кожен бонус коштує {boosterPrice} Point</div>
+                </div>
+                {activeBooster && <button type="button" onClick={() => setActiveBooster(null)} className="rounded-full border border-[#FF4D55]/30 bg-[#FF4D55]/10 px-2 py-1 text-[8px] font-black uppercase text-[#FF686F]">СКАСУВАТИ</button>}
+              </div>
+              <div className="grid grid-cols-4 gap-2">
+                {Object.entries(BOOSTERS).map(([id, item]) => {
+                  const Icon = item.Icon;
+                  const count = Number(boosterInventory[id] || 0);
+                  const active = activeBooster === id;
+                  return <div key={id} className={`relative rounded-xl border p-1.5 text-center transition-colors ${active ? "border-[#B78CFF] bg-[#B78CFF]/15" : "border-white/10 bg-[#11101A]"}`}>
+                    <button type="button" disabled={moving || game.status !== "active"} onClick={() => selectBooster(id)} className="flex w-full flex-col items-center gap-1 py-1 disabled:opacity-40" aria-label={item.label}>
+                      <motion.div animate={active && !reducedMotion ? { scale: [1, 1.12, 1] } : { scale: 1 }} transition={{ duration: 0.8, repeat: active ? Infinity : 0 }} className="flex h-9 w-9 items-center justify-center rounded-xl border" style={{ borderColor: `${item.color}66`, background: `${item.color}18` }}>
+                        <Icon size={20} color={item.color} strokeWidth={2.8} />
+                      </motion.div>
+                      <span className="max-w-full truncate text-[7px] font-black uppercase text-zinc-400">{item.label}</span>
+                    </button>
+                    <div className="absolute -right-1.5 -top-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#7C3AED] px-1 text-[9px] font-black text-white">{count}</div>
+                    <button type="button" disabled={buyingBooster === id || moving} onClick={(event) => { event.stopPropagation(); purchaseBooster(id); }} className="absolute -bottom-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full border border-[#FFB800]/50 bg-[#2C2100] text-[#FFB800] disabled:opacity-50" aria-label={`Придбати ${item.label}`}>
+                      {buyingBooster === id ? <span className="text-[8px]">…</span> : <Plus size={12} strokeWidth={3} />}
+                    </button>
+                  </div>;
+                })}
+              </div>
+              {activeBooster && <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} className="mt-2 rounded-xl border border-[#B78CFF]/25 bg-[#B78CFF]/10 px-3 py-2 text-center text-[9px] font-black text-[#D8C1FF]">ОБЕРИ КЛІТИНКУ: {BOOSTERS[activeBooster].short}</motion.div>}
+            </div>
+
+            <div className="mt-3 flex items-center justify-between px-1 text-[10px] font-bold text-zinc-600"><span>{activeBooster ? "Торкнися цільової клітинки" : "Натисни фішку, потім сусідню"}</span><span>{coinProgress}% монет</span></div>
           </motion.section>
 
           <AnimatePresence>
@@ -1257,7 +1508,7 @@ export default function BonusMatch() {
                 )}
                 <div className="mt-4 grid grid-cols-2 gap-2">
                   <button type="button" onClick={() => { setGame(null); setDisplayBoard([]); setResult(null); setBoardFx(""); loadStatus(); }} className="flex h-12 items-center justify-center rounded-2xl border border-white/10 bg-[#1A1A1E] text-sm font-black text-zinc-300 active:scale-95"><RotateCcw size={17} className="mr-2" />РІВНІ</button>
-                  <button type="button" onClick={() => startGame(game.status === "won" ? Math.min(MAX_LEVEL, result?.current_level || game.level + 1) : game.level)} className="flex h-12 items-center justify-center rounded-2xl bg-[#7C3AED] text-sm font-black text-white active:scale-95">{game.status === "won" ? "ДАЛІ" : "ЩЕ РАЗ"}<ChevronRight size={17} className="ml-1" /></button>
+                  <button type="button" onClick={() => startGame(game.status === "won" ? (result?.current_level || game.level) : game.level)} className="flex h-12 items-center justify-center rounded-2xl bg-[#7C3AED] text-sm font-black text-white active:scale-95">{game.status === "won" ? "ДАЛІ" : "ЩЕ РАЗ"}<ChevronRight size={17} className="ml-1" /></button>
                 </div>
               </motion.section>
             )}

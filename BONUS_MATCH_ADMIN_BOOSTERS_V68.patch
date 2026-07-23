@@ -1,0 +1,1653 @@
+diff --git a/backend/server.py b/backend/server.py
+--- a/backend/server.py
++++ b/backend/server.py
+@@ -2418,7 +2418,9 @@
+ # ────────────────────────────────────────────────────────────────────────
+ BONUS_MATCH_ROWS = 7
+ BONUS_MATCH_COLS = 7
+-BONUS_MATCH_MAX_LEVEL = 50
++BONUS_MATCH_DEFAULT_LEVEL_COUNT = 50
++BONUS_MATCH_LEVEL_LIMIT = 200
++BONUS_MATCH_MAX_LEVEL = BONUS_MATCH_LEVEL_LIMIT
+ BONUS_MATCH_MAX_LIVES = 5
+ BONUS_MATCH_LIFE_REGEN_MINUTES = 30
+ BONUS_MATCH_DAILY_POINT_CAP = 40
+@@ -2438,6 +2440,13 @@
+ BONUS_MATCH_SPECIAL_SCORE = {
+     "rocket_row": 450, "rocket_col": 450, "bomb": 700, "color_bomb": 1100,
+ }
++BONUS_MATCH_BOOSTER_PRICE = 50
++BONUS_MATCH_BOOSTERS = {
++    "hammer": {"label": "Молоток", "score": 250},
++    "rocket": {"label": "Ракета", "score": 850},
++    "color_bomb": {"label": "Райдужний джокер", "score": 1200},
++    "shuffle": {"label": "Перемішування", "score": 0},
++}
+ 
+ 
+ class BonusMatchStartBody(BaseModel):
+@@ -2450,6 +2459,34 @@
+     from_col: int
+     to_row: int
+     to_col: int
++
++
++class BonusMatchBoosterPurchaseBody(BaseModel):
++    booster: Literal["hammer", "rocket", "color_bomb", "shuffle"]
++
++
++class BonusMatchBoosterUseBody(BaseModel):
++    session_id: str
++    booster: Literal["hammer", "rocket", "color_bomb", "shuffle"]
++    row: Optional[int] = None
++    col: Optional[int] = None
++
++
++class BonusMatchLevelAdminBody(BaseModel):
++    level: Optional[int] = None
++    title: str = ""
++    moves: int = Field(default=20, ge=5, le=80)
++    target_score: int = Field(default=2500, ge=100, le=10_000_000)
++    target_coins: int = Field(default=10, ge=0, le=5000)
++    star_thresholds: List[int] = Field(default_factory=list)
++    is_milestone: bool = False
++    is_boss: bool = False
++    reward_multiplier: int = Field(default=1, ge=1, le=10)
++    obstacles: List[str] = Field(default_factory=list)
++    new_obstacle: Optional[str] = None
++    obstacle_count: int = Field(default=0, ge=0, le=35)
++    obstacle_layout: List[dict] = Field(default_factory=list)
++    active: bool = True
+ 
+ 
+ def _bonus_match_new_cell(
+@@ -2548,9 +2585,14 @@
+ 
+ 
+ def _bonus_match_level_config(level: int) -> dict:
+-    level = max(1, min(BONUS_MATCH_MAX_LEVEL, int(level or 1)))
++    """Return the built-in difficulty curve for a level.
++
++    MongoDB overrides are merged by ``_bonus_match_get_level_config``. Keeping
++    this function synchronous is useful for board helpers and old sessions.
++    """
++    level = max(1, min(BONUS_MATCH_LEVEL_LIMIT, int(level or 1)))
+     milestone = level % 5 == 0
+-    stage = level // 5
++    stage = min(len(BONUS_MATCH_OBSTACLE_ORDER), level // 5)
+     base_target = 900 + level * 260
+     ordinary_stage = (level - 1) // 5
+     target_score = int(base_target * (1 + ordinary_stage * 0.10))
+@@ -2586,6 +2628,7 @@
+     newest_obstacle = unlocked_obstacles[-1] if unlocked_obstacles else None
+     return {
+         "level": level,
++        "title": f"Рівень {level}",
+         "moves": moves,
+         "target_score": target_score,
+         "target_coins": target_coins,
+@@ -2602,7 +2645,149 @@
+         "obstacles": unlocked_obstacles,
+         "new_obstacle": newest_obstacle if milestone else None,
+         "obstacle_count": obstacle_count,
++        "obstacle_layout": [],
++        "active": True,
++        "custom": False,
+     }
++
++
++def _bonus_match_normalize_obstacle_layout(layout) -> list[dict]:
++    normalized: list[dict] = []
++    used: set[tuple[int, int]] = set()
++    for item in list(layout or []):
++        if not isinstance(item, dict):
++            continue
++        try:
++            row = int(item.get("row"))
++            col = int(item.get("col"))
++        except (TypeError, ValueError):
++            continue
++        obstacle = str(item.get("obstacle") or item.get("type") or "").strip()
++        if (
++            obstacle not in BONUS_MATCH_OBSTACLE_HITS
++            or not (0 <= row < BONUS_MATCH_ROWS)
++            or not (0 <= col < BONUS_MATCH_COLS)
++            or (row, col) in used
++        ):
++            continue
++        used.add((row, col))
++        normalized.append({
++            "row": row,
++            "col": col,
++            "obstacle": obstacle,
++            "hits": max(1, min(9, int(item.get("hits") or BONUS_MATCH_OBSTACLE_HITS[obstacle]))),
++        })
++    return normalized[:35]
++
++
++def _bonus_match_merge_level_doc(level: int, doc: Optional[dict]) -> dict:
++    base = _bonus_match_level_config(level)
++    if not doc:
++        return base
++    thresholds = [
++        max(1, int(value))
++        for value in list(doc.get("star_thresholds") or [])[:3]
++        if str(value).strip()
++    ]
++    target_score = max(100, int(doc.get("target_score", base["target_score"])))
++    while len(thresholds) < 3:
++        fallback = [target_score, int(target_score * 1.35), int(target_score * 1.72)]
++        thresholds.append(fallback[len(thresholds)])
++    thresholds = sorted([max(target_score, value) for value in thresholds])
++    obstacles = [
++        value for value in list(doc.get("obstacles") or [])
++        if value in BONUS_MATCH_OBSTACLE_HITS
++    ]
++    new_obstacle = doc.get("new_obstacle")
++    if new_obstacle not in BONUS_MATCH_OBSTACLE_HITS:
++        new_obstacle = None
++    is_boss = bool(doc.get("is_boss", base["is_boss"]))
++    is_milestone = bool(doc.get("is_milestone", base["is_milestone"]))
++    reward_multiplier = max(1, min(10, int(doc.get("reward_multiplier", base["reward_multiplier"]))))
++    return {
++        **base,
++        "title": str(doc.get("title") or base["title"]).strip()[:80],
++        "moves": max(5, min(80, int(doc.get("moves", base["moves"])))),
++        "target_score": target_score,
++        "target_coins": max(0, min(5000, int(doc.get("target_coins", base["target_coins"])))),
++        "star_thresholds": thresholds,
++        "is_milestone": is_milestone,
++        "is_boss": is_boss,
++        "reward_multiplier": reward_multiplier,
++        "challenge_title": "РІВЕНЬ-ВИКЛИК!" if is_milestone else None,
++        "boss_title": "БОС-РІВЕНЬ" if is_boss else None,
++        "obstacles": list(dict.fromkeys(obstacles)),
++        "new_obstacle": new_obstacle,
++        "obstacle_count": max(0, min(35, int(doc.get("obstacle_count", base["obstacle_count"])))),
++        "obstacle_layout": _bonus_match_normalize_obstacle_layout(doc.get("obstacle_layout")),
++        "active": bool(doc.get("active", True)),
++        "custom": True,
++    }
++
++
++async def _bonus_match_level_catalog(include_inactive: bool = False) -> list[dict]:
++    docs = await db.bonus_match_levels.find({}, {"_id": 0}).sort("level", 1).to_list(BONUS_MATCH_LEVEL_LIMIT)
++    docs_by_level = {int(doc.get("level", 0)): doc for doc in docs if 1 <= int(doc.get("level", 0)) <= BONUS_MATCH_LEVEL_LIMIT}
++    levels = set(range(1, BONUS_MATCH_DEFAULT_LEVEL_COUNT + 1)) | set(docs_by_level)
++    result: list[dict] = []
++    for level in sorted(levels):
++        config = _bonus_match_merge_level_doc(level, docs_by_level.get(level))
++        if include_inactive or config.get("active", True):
++            result.append(config)
++    return result
++
++
++async def _bonus_match_get_level_config(level: int, include_inactive: bool = False) -> Optional[dict]:
++    level = max(1, min(BONUS_MATCH_LEVEL_LIMIT, int(level or 1)))
++    doc = await db.bonus_match_levels.find_one({"level": level}, {"_id": 0})
++    if level > BONUS_MATCH_DEFAULT_LEVEL_COUNT and not doc:
++        return None
++    config = _bonus_match_merge_level_doc(level, doc)
++    if not include_inactive and not config.get("active", True):
++        return None
++    return config
++
++
++async def _bonus_match_max_active_level() -> int:
++    levels = await _bonus_match_level_catalog()
++    return max((int(item["level"]) for item in levels), default=1)
++
++
++async def _bonus_match_reconcile_unlocked_level(
++    user_id: str,
++    profile: dict,
++    levels: list[dict],
++    completed_levels: Optional[set[int]] = None,
++) -> int:
++    active_numbers = sorted({int(item["level"]) for item in levels})
++    if not active_numbers:
++        return 1
++    stored = max(1, int(profile.get("current_level", 1)))
++    if stored in active_numbers:
++        unlocked = stored
++    else:
++        next_active = [number for number in active_numbers if number >= stored]
++        unlocked = min(next_active) if next_active else max(active_numbers)
++
++    if completed_levels is None:
++        rows = await db.bonus_match_completions.find(
++            {"user_id": user_id}, {"_id": 0, "level": 1}
++        ).to_list(BONUS_MATCH_LEVEL_LIMIT)
++        completed_levels = {int(item.get("level", 0)) for item in rows}
++
++    while unlocked in completed_levels:
++        next_levels = [number for number in active_numbers if number > unlocked]
++        if not next_levels:
++            break
++        unlocked = min(next_levels)
++
++    if unlocked > stored:
++        await db.bonus_match_profiles.update_one(
++            {"user_id": user_id},
++            {"$max": {"current_level": unlocked}, "$set": {"updated_at": now_iso()}},
++        )
++        profile["current_level"] = unlocked
++    return unlocked
+ 
+ 
+ def _bonus_match_find_runs(board: list[list[Optional[dict]]]) -> list[dict]:
+@@ -2807,38 +2992,71 @@
+ 
+ def _bonus_match_make_board(
+     level: int = 1,
++    config: Optional[dict] = None,
+ ) -> list[list[Optional[dict]]]:
+     import random as _random
+ 
+-    config = _bonus_match_level_config(level)
++    config = config or _bonus_match_level_config(level)
++    manual_layout = _bonus_match_normalize_obstacle_layout(
++        config.get("obstacle_layout")
++    )
++    last_board = None
++    for _ in range(180):
++        board = _bonus_match_make_plain_board()
++        last_board = board
++        if manual_layout:
++            for item in manual_layout:
++                board[item["row"]][item["col"]] = _bonus_match_new_cell(
++                    obstacle=item["obstacle"],
++                    obstacle_hits=item["hits"],
++                )
++        else:
++            obstacle_types = [
++                item for item in list(config.get("obstacles") or [])
++                if item in BONUS_MATCH_OBSTACLE_HITS
++            ]
++            obstacle_count = max(0, min(35, int(config.get("obstacle_count", 0))))
++            if obstacle_types and obstacle_count:
++                positions = [
++                    (row, col)
++                    for row in range(BONUS_MATCH_ROWS)
++                    for col in range(BONUS_MATCH_COLS)
++                ]
++                _random.shuffle(positions)
++                newest = config.get("new_obstacle")
++                for index, (row, col) in enumerate(positions[:obstacle_count]):
++                    if newest in BONUS_MATCH_OBSTACLE_HITS and index < max(2, obstacle_count // 3):
++                        obstacle = newest
++                    else:
++                        obstacle = _random.choice(obstacle_types)
++                    board[row][col] = _bonus_match_new_cell(obstacle=obstacle)
++        if not _bonus_match_find_matches(board) and _bonus_match_has_move(board):
++            return board
++    return last_board if manual_layout and last_board else _bonus_match_make_plain_board()
++
++
++def _bonus_match_shuffle_board(
++    board: list[list[Optional[dict]]],
++) -> list[list[Optional[dict]]]:
++    import random as _random
++
++    source = _bonus_match_clone_board(board)
++    positions = [
++        (row, col)
++        for row in range(BONUS_MATCH_ROWS)
++        for col in range(BONUS_MATCH_COLS)
++        if source[row][col] and not source[row][col].get("obstacle")
++    ]
++    pieces = [source[row][col] for row, col in positions]
+     for _ in range(160):
+-        board = _bonus_match_make_plain_board()
+-        obstacle_types = list(config.get("obstacles") or [])
+-        obstacle_count = int(config.get("obstacle_count", 0))
+-        if obstacle_types and obstacle_count:
+-            positions = [
+-                (row, col)
+-                for row in range(BONUS_MATCH_ROWS)
+-                for col in range(BONUS_MATCH_COLS)
+-            ]
+-            _random.shuffle(positions)
+-            newest = config.get("new_obstacle")
+-            for index, (row, col) in enumerate(
+-                positions[:obstacle_count]
+-            ):
+-                if newest and index < max(2, obstacle_count // 3):
+-                    obstacle = newest
+-                else:
+-                    obstacle = _random.choice(obstacle_types)
+-                board[row][col] = _bonus_match_new_cell(
+-                    obstacle=obstacle
+-                )
+-        if (
+-            not _bonus_match_find_matches(board)
+-            and _bonus_match_has_move(board)
+-        ):
+-            return board
+-    return _bonus_match_make_plain_board()
++        shuffled = pieces[:]
++        _random.shuffle(shuffled)
++        candidate = _bonus_match_clone_board(source)
++        for (row, col), cell in zip(positions, shuffled):
++            candidate[row][col] = cell
++        if not _bonus_match_find_matches(candidate) and _bonus_match_has_move(candidate):
++            return candidate
++    return source
+ 
+ 
+ def _bonus_match_collapse(
+@@ -3142,6 +3360,7 @@
+             "current_level": 1,
+             "total_stars": 0,
+             "lives": BONUS_MATCH_MAX_LIVES,
++            "boosters": {key: 0 for key in BONUS_MATCH_BOOSTERS},
+             "lives_updated_at": now.isoformat(),
+             "created_at": now.isoformat(),
+             "updated_at": now.isoformat(),
+@@ -3194,6 +3413,11 @@
+ 
+     profile.setdefault("current_level", 1)
+     profile.setdefault("total_stars", 0)
++    stored_boosters = profile.get("boosters") if isinstance(profile.get("boosters"), dict) else {}
++    profile["boosters"] = {
++        key: max(0, int(stored_boosters.get(key, 0) or 0))
++        for key in BONUS_MATCH_BOOSTERS
++    }
+     profile["lives"] = lives
+     profile["next_life_at"] = (
+         None
+@@ -3336,16 +3560,17 @@
+     )
+ 
+     profile = await _bonus_match_profile(user["id"])
++    catalog = await _bonus_match_level_catalog()
++    active_numbers = [int(item["level"]) for item in catalog]
++    next_levels = [number for number in active_numbers if number > level]
++    unlocked_level = min(next_levels) if next_levels else level
+     refunded_lives = min(
+         BONUS_MATCH_MAX_LIVES,
+         int(profile.get("lives", 0)) + 1,
+     )
+     profile_updates: dict = {
+         "$max": {
+-            "current_level": min(
+-                BONUS_MATCH_MAX_LEVEL,
+-                level + 1,
+-            )
++            "current_level": unlocked_level
+         },
+         "$set": {
+             "lives": refunded_lives,
+@@ -3492,11 +3717,442 @@
+     }
+ 
+ 
++
++def _bonus_match_admin_level_doc(level: int, body: BonusMatchLevelAdminBody) -> dict:
++    payload = body.model_dump()
++    target_score = max(100, int(payload.get("target_score") or 100))
++    thresholds = [
++        max(target_score, int(value))
++        for value in list(payload.get("star_thresholds") or [])[:3]
++        if str(value).strip()
++    ]
++    defaults = [target_score, int(target_score * 1.35), int(target_score * 1.72)]
++    while len(thresholds) < 3:
++        thresholds.append(defaults[len(thresholds)])
++    thresholds = sorted(thresholds)
++    obstacles = [
++        value for value in list(payload.get("obstacles") or [])
++        if value in BONUS_MATCH_OBSTACLE_HITS
++    ]
++    new_obstacle = payload.get("new_obstacle")
++    if new_obstacle not in BONUS_MATCH_OBSTACLE_HITS:
++        new_obstacle = None
++    now = now_iso()
++    return {
++        "level": level,
++        "title": str(payload.get("title") or f"Рівень {level}").strip()[:80],
++        "moves": max(5, min(80, int(payload.get("moves") or 20))),
++        "target_score": target_score,
++        "target_coins": max(0, min(5000, int(payload.get("target_coins") or 0))),
++        "star_thresholds": thresholds,
++        "is_milestone": bool(payload.get("is_milestone")),
++        "is_boss": bool(payload.get("is_boss")),
++        "reward_multiplier": max(1, min(10, int(payload.get("reward_multiplier") or 1))),
++        "obstacles": list(dict.fromkeys(obstacles)),
++        "new_obstacle": new_obstacle,
++        "obstacle_count": max(0, min(35, int(payload.get("obstacle_count") or 0))),
++        "obstacle_layout": _bonus_match_normalize_obstacle_layout(payload.get("obstacle_layout")),
++        "active": bool(payload.get("active", True)),
++        "updated_at": now,
++    }
++
++
++@api.get("/admin/bonus-match/levels")
++async def admin_bonus_match_levels(admin: dict = Depends(get_current_admin)):
++    levels = await _bonus_match_level_catalog(include_inactive=True)
++    return {
++        "levels": levels,
++        "default_level_count": BONUS_MATCH_DEFAULT_LEVEL_COUNT,
++        "level_limit": BONUS_MATCH_LEVEL_LIMIT,
++        "rows": BONUS_MATCH_ROWS,
++        "cols": BONUS_MATCH_COLS,
++        "obstacles": [
++            {
++                "id": key,
++                "hits": hits,
++                "label": {
++                    "ice": "Крига", "chain": "Ланцюг", "crate": "Ящик",
++                    "stone": "Камінь", "crystal": "Кристал", "web": "Павутина",
++                    "shield": "Щит", "slime": "Слиз", "metal": "Метал", "core": "Ядро",
++                }.get(key, key),
++            }
++            for key, hits in BONUS_MATCH_OBSTACLE_HITS.items()
++        ],
++    }
++
++
++@api.post("/admin/bonus-match/levels", status_code=201)
++async def admin_create_bonus_match_level(
++    body: BonusMatchLevelAdminBody,
++    admin: dict = Depends(get_current_admin),
++):
++    existing_levels = await _bonus_match_level_catalog(include_inactive=True)
++    requested = int(body.level or 0)
++    level = requested or (max((int(item["level"]) for item in existing_levels), default=0) + 1)
++    if not (1 <= level <= BONUS_MATCH_LEVEL_LIMIT):
++        raise HTTPException(status_code=400, detail=f"Номер рівня має бути від 1 до {BONUS_MATCH_LEVEL_LIMIT}")
++    existing = await db.bonus_match_levels.find_one({"level": level}, {"_id": 0})
++    if existing or level <= BONUS_MATCH_DEFAULT_LEVEL_COUNT:
++        raise HTTPException(status_code=409, detail="Такий рівень уже існує. Відредагуйте його замість створення")
++    doc = _bonus_match_admin_level_doc(level, body)
++    doc.update({"created_at": now_iso(), "created_by": admin["id"]})
++    await db.bonus_match_levels.insert_one(doc.copy())
++    return _bonus_match_merge_level_doc(level, doc)
++
++
++@api.patch("/admin/bonus-match/levels/{level}")
++async def admin_update_bonus_match_level(
++    level: int,
++    body: BonusMatchLevelAdminBody,
++    admin: dict = Depends(get_current_admin),
++):
++    if not (1 <= level <= BONUS_MATCH_LEVEL_LIMIT):
++        raise HTTPException(status_code=400, detail="Некоректний номер рівня")
++    if level > BONUS_MATCH_DEFAULT_LEVEL_COUNT:
++        existing = await db.bonus_match_levels.find_one({"level": level}, {"_id": 0})
++        if not existing:
++            raise HTTPException(status_code=404, detail="Рівень не знайдено")
++    doc = _bonus_match_admin_level_doc(level, body)
++    doc["updated_by"] = admin["id"]
++    await db.bonus_match_levels.update_one(
++        {"level": level},
++        {
++            "$set": doc,
++            "$setOnInsert": {"created_at": now_iso(), "created_by": admin["id"]},
++        },
++        upsert=True,
++    )
++    return _bonus_match_merge_level_doc(level, doc)
++
++
++@api.delete("/admin/bonus-match/levels/{level}", status_code=204)
++async def admin_delete_bonus_match_level(
++    level: int,
++    admin: dict = Depends(get_current_admin),
++):
++    if level <= BONUS_MATCH_DEFAULT_LEVEL_COUNT:
++        await db.bonus_match_levels.delete_one({"level": level})
++        return None
++    deleted = await db.bonus_match_levels.delete_one({"level": level})
++    if not deleted.deleted_count:
++        raise HTTPException(status_code=404, detail="Рівень не знайдено")
++    return None
++
++
++def _bonus_match_followup_cascades(
++    board: list[list[Optional[dict]]],
++    combo_start: int = 2,
++) -> tuple[list[list[Optional[dict]]], list[dict], int, int, int]:
++    groups = _bonus_match_find_match_groups(board)
++    score_gain = 0
++    coins_gain = 0
++    cascade_count = 0
++    steps: list[dict] = []
++    combo = combo_start
++    while groups and cascade_count < 11:
++        cascade_count += 1
++        matched_cells: set[tuple[int, int]] = set()
++        protected: set[tuple[int, int]] = set()
++        created_specials: list[dict] = []
++        for group in groups:
++            matched_cells.update(group["cells"])
++            special = _bonus_match_group_special(group)
++            if not special:
++                continue
++            anchor = _bonus_match_pick_special_anchor(board, group, [])
++            if anchor:
++                cell = board[anchor[0]][anchor[1]]
++                if cell:
++                    cell["special"] = special
++                    protected.add(anchor)
++                    created_specials.append({
++                        "row": anchor[0], "col": anchor[1], "special": special,
++                        "symbol": cell.get("symbol"), "id": cell.get("id"),
++                    })
++        clear_cells = set(matched_cells) - protected
++        clear_cells, activated_specials = _bonus_match_expand_specials(
++            board, clear_cells, set(), protected, None,
++        )
++        if not clear_cells and not created_specials:
++            break
++        board_before_clear = _bonus_match_clone_board(board)
++        coins_this_step = 0
++        symbol_cells_cleared = 0
++        for row, col in clear_cells:
++            cell = board[row][col]
++            if cell and not cell.get("obstacle"):
++                if cell.get("symbol") == "coin":
++                    coins_this_step += 1
++                if cell.get("symbol") or cell.get("special"):
++                    symbol_cells_cleared += 1
++        obstacle_changes = _bonus_match_damage_obstacles(board, clear_cells)
++        for row, col in clear_cells:
++            if (row, col) in protected:
++                continue
++            cell = board[row][col]
++            if cell and not cell.get("obstacle"):
++                board[row][col] = None
++        special_bonus = sum(BONUS_MATCH_SPECIAL_SCORE.get(item["special"], 0) for item in activated_specials)
++        long_match_bonus = sum(
++            max(0, len(run["cells"]) - 3) * 120
++            for group in groups for run in group["runs"]
++        )
++        obstacle_bonus = sum(180 if item["destroyed"] else 70 for item in obstacle_changes)
++        base_score = symbol_cells_cleared * 100 + special_bonus + long_match_bonus + obstacle_bonus
++        step_score = int(base_score * (1 + (combo - 1) * 0.25))
++        score_gain += step_score
++        coins_gain += coins_this_step
++        board_after_clear = _bonus_match_clone_board(board)
++        board, spawned = _bonus_match_collapse(board)
++        steps.append({
++            "combo": combo,
++            "score_gain": step_score,
++            "coins_gain": coins_this_step,
++            "matched_cells": [{"row": row, "col": col} for row, col in sorted(matched_cells)],
++            "cleared_cells": [{"row": row, "col": col} for row, col in sorted(clear_cells)],
++            "created_specials": created_specials,
++            "activated_specials": activated_specials,
++            "obstacle_changes": obstacle_changes,
++            "board_before_clear": board_before_clear,
++            "board_after_clear": board_after_clear,
++            "board_after_collapse": _bonus_match_clone_board(board),
++            "spawned": spawned,
++        })
++        groups = _bonus_match_find_match_groups(board)
++        combo += 1
++    return board, steps, score_gain, coins_gain, cascade_count
++
++
++@api.post("/games/bonus-match/boosters/purchase")
++async def bonus_match_purchase_booster(
++    body: BonusMatchBoosterPurchaseBody,
++    user: dict = Depends(get_current_user),
++):
++    booster = body.booster
++    await _bonus_match_profile(user["id"])
++    charged = await db.users.update_one(
++        {"id": user["id"], "balance": {"$gte": BONUS_MATCH_BOOSTER_PRICE}},
++        {"$inc": {"balance": -BONUS_MATCH_BOOSTER_PRICE}},
++    )
++    if not charged.modified_count:
++        raise HTTPException(status_code=400, detail="Недостатньо Point для покупки")
++    try:
++        await db.bonus_match_profiles.update_one(
++            {"user_id": user["id"]},
++            {
++                "$inc": {f"boosters.{booster}": 1},
++                "$set": {"updated_at": now_iso()},
++            },
++        )
++        await db.transactions.insert_one({
++            "id": str(uuid.uuid4()),
++            "user_id": user["id"],
++            "kind": "bonus_match_booster",
++            "amount": -BONUS_MATCH_BOOSTER_PRICE,
++            "description": f"Bonus Match: {BONUS_MATCH_BOOSTERS[booster]['label']}",
++            "created_at": now_iso(),
++            "meta": {"booster": booster},
++        })
++    except Exception:
++        await db.users.update_one({"id": user["id"]}, {"$inc": {"balance": BONUS_MATCH_BOOSTER_PRICE}})
++        raise
++    profile = await _bonus_match_profile(user["id"])
++    fresh_user = await db.users.find_one({"id": user["id"]}, {"_id": 0, "balance": 1}) or user
++    return {
++        "booster": booster,
++        "price": BONUS_MATCH_BOOSTER_PRICE,
++        "boosters": profile["boosters"],
++        "balance": int(fresh_user.get("balance", 0)),
++    }
++
++
++@api.post("/games/bonus-match/boosters/use")
++async def bonus_match_use_booster(
++    body: BonusMatchBoosterUseBody,
++    user: dict = Depends(get_current_user),
++):
++    booster = body.booster
++    session = await db.bonus_match_sessions.find_one(
++        {"id": body.session_id, "user_id": user["id"]}, {"_id": 0},
++    )
++    if not session:
++        raise HTTPException(status_code=404, detail="Ігрову сесію не знайдено")
++    if session.get("status") != "active":
++        raise HTTPException(status_code=400, detail="Рівень уже завершено")
++    profile = await _bonus_match_profile(user["id"])
++    if int(profile.get("boosters", {}).get(booster, 0)) <= 0:
++        raise HTTPException(status_code=400, detail="Спочатку придбай цей бонус")
++
++    board = _bonus_match_clone_board(session.get("board"))
++    original_board = _bonus_match_clone_board(board)
++    config = session.get("config") or _bonus_match_level_config(session["level"])
++    score_gain = 0
++    coins_gain = 0
++    cascade_count = 0
++    steps: list[dict] = []
++    reshuffled = False
++
++    if booster == "shuffle":
++        board = _bonus_match_shuffle_board(board)
++        reshuffled = True
++    else:
++        if body.row is None or body.col is None:
++            raise HTTPException(status_code=400, detail="Оберіть клітинку для бонусу")
++        row = int(body.row)
++        col = int(body.col)
++        if not (0 <= row < BONUS_MATCH_ROWS and 0 <= col < BONUS_MATCH_COLS):
++            raise HTTPException(status_code=400, detail="Некоректна клітинка")
++        target_cell = board[row][col]
++        if not target_cell:
++            raise HTTPException(status_code=400, detail="Клітинка порожня")
++
++        clear_cells: set[tuple[int, int]] = set()
++        activated_specials: list[dict] = []
++        obstacle_changes: list[dict] = []
++        effect_name = f"booster_{booster}"
++
++        if booster == "hammer":
++            if target_cell.get("obstacle"):
++                obstacle_changes.append({
++                    "row": row, "col": col, "obstacle": target_cell.get("obstacle"),
++                    "before": int(target_cell.get("obstacle_hits", 1)), "after": 0, "destroyed": True,
++                })
++                board[row][col] = None
++            else:
++                clear_cells.add((row, col))
++        elif booster == "rocket":
++            clear_cells = {(row, current_col) for current_col in range(BONUS_MATCH_COLS)} | {
++                (current_row, col) for current_row in range(BONUS_MATCH_ROWS)
++            }
++        elif booster == "color_bomb":
++            symbol = _bonus_match_cell_symbol(target_cell)
++            if not symbol:
++                raise HTTPException(status_code=400, detail="Джокер потрібно застосувати до звичайної фішки")
++            clear_cells = {
++                (current_row, current_col)
++                for current_row, board_row in enumerate(board)
++                for current_col, cell in enumerate(board_row)
++                if _bonus_match_cell_symbol(cell) == symbol
++            }
++
++        if clear_cells:
++            clear_cells, chained = _bonus_match_expand_specials(board, clear_cells, set(), set(), None)
++            activated_specials.extend(chained)
++            obstacle_changes.extend(_bonus_match_damage_obstacles(board, clear_cells))
++        activated_specials.insert(0, {
++            "row": row, "col": col, "special": effect_name,
++            "targets": [{"row": target_row, "col": target_col} for target_row, target_col in sorted(clear_cells)],
++        })
++
++        board_before_clear = _bonus_match_clone_board(original_board)
++        coins_this_step = 0
++        symbols_cleared = 0
++        for target_row, target_col in clear_cells:
++            cell = board[target_row][target_col]
++            if cell and not cell.get("obstacle"):
++                if cell.get("symbol") == "coin":
++                    coins_this_step += 1
++                if cell.get("symbol") or cell.get("special"):
++                    symbols_cleared += 1
++                board[target_row][target_col] = None
++        visual_clear_cells = {
++            (current_row, current_col)
++            for current_row in range(BONUS_MATCH_ROWS)
++            for current_col in range(BONUS_MATCH_COLS)
++            if board_before_clear[current_row][current_col] is not None
++            and board[current_row][current_col] is None
++        }
++        base_score = BONUS_MATCH_BOOSTERS[booster]["score"] + symbols_cleared * 100
++        base_score += sum(180 if item.get("destroyed") else 70 for item in obstacle_changes)
++        base_score += sum(BONUS_MATCH_SPECIAL_SCORE.get(item.get("special"), 0) for item in activated_specials)
++        score_gain += base_score
++        coins_gain += coins_this_step
++        board_after_clear = _bonus_match_clone_board(board)
++        board, spawned = _bonus_match_collapse(board)
++        steps.append({
++            "combo": 1,
++            "score_gain": base_score,
++            "coins_gain": coins_this_step,
++            "matched_cells": [],
++            "cleared_cells": [{"row": target_row, "col": target_col} for target_row, target_col in sorted(visual_clear_cells)],
++            "created_specials": [],
++            "activated_specials": activated_specials,
++            "obstacle_changes": obstacle_changes,
++            "board_before_clear": board_before_clear,
++            "board_after_clear": board_after_clear,
++            "board_after_collapse": _bonus_match_clone_board(board),
++            "spawned": spawned,
++        })
++        board, cascade_steps, cascade_score, cascade_coins, extra_cascades = _bonus_match_followup_cascades(board, 2)
++        steps.extend(cascade_steps)
++        score_gain += cascade_score
++        coins_gain += cascade_coins
++        cascade_count = 1 + extra_cascades
++        if not _bonus_match_has_move(board):
++            board = _bonus_match_make_board(int(session["level"]), config)
++            reshuffled = True
++
++    consumed = await db.bonus_match_profiles.update_one(
++        {"user_id": user["id"], f"boosters.{booster}": {"$gte": 1}},
++        {"$inc": {f"boosters.{booster}": -1}, "$set": {"updated_at": now_iso()}},
++    )
++    if not consumed.modified_count:
++        raise HTTPException(status_code=409, detail="Бонус уже використано на іншому пристрої")
++
++    score = int(session.get("score", 0)) + score_gain
++    coins_collected = int(session.get("coins_collected", 0)) + coins_gain
++    won = score >= int(config["target_score"]) and coins_collected >= int(config["target_coins"])
++    status_value = "won" if won else "active"
++    updates = {
++        "board": board,
++        "score": score,
++        "coins_collected": coins_collected,
++        "cascades": int(session.get("cascades", 0)) + cascade_count,
++        "status": status_value,
++        "updated_at": now_iso(),
++    }
++    if won:
++        updates["completed_at"] = now_iso()
++    await db.bonus_match_sessions.update_one({"id": session["id"]}, {"$set": updates})
++    session = {**session, **updates}
++
++    result = None
++    if won:
++        thresholds = config["star_thresholds"]
++        stars = 3 if score >= thresholds[2] else 2 if score >= thresholds[1] else 1
++        result = await _bonus_match_reward_win(user, session, stars)
++
++    fresh_profile = await _bonus_match_profile(user["id"])
++    frames = []
++    if booster == "shuffle":
++        frames = [{"phase": "reshuffle", "duration_ms": 420, "board": _bonus_match_clone_board(board)}]
++    else:
++        frames = _bonus_match_animation_frames(original_board, steps, board, reshuffled)[1:]
++    return {
++        "valid": True,
++        "message": f"{BONUS_MATCH_BOOSTERS[booster]['label']} використано",
++        "booster": booster,
++        "score_gain": score_gain,
++        "coins_gain": coins_gain,
++        "cascade_count": cascade_count,
++        "session": _bonus_match_session_payload(session),
++        "result": result,
++        "profile": {"boosters": fresh_profile["boosters"]},
++        "animation": {
++            "steps": steps,
++            "frames": frames,
++            "reshuffled": reshuffled,
++        },
++    }
++
++
+ @api.get("/games/bonus-match/status")
+ async def bonus_match_status(
+     user: dict = Depends(get_current_user),
+ ):
+     profile = await _bonus_match_profile(user["id"])
++    levels = await _bonus_match_level_catalog()
++    max_level = max((int(item["level"]) for item in levels), default=1)
+     date_key = kyiv_today_key()
+     daily = await db.bonus_match_daily.find_one(
+         {
+@@ -3516,7 +4172,13 @@
+     ).sort(
+         "level",
+         1,
+-    ).to_list(BONUS_MATCH_MAX_LEVEL)
++    ).to_list(BONUS_MATCH_LEVEL_LIMIT)
++    unlocked_level = await _bonus_match_reconcile_unlocked_level(
++        user["id"],
++        profile,
++        levels,
++        {int(item.get("level", 0)) for item in completions},
++    )
+     active = await db.bonus_match_sessions.find_one(
+         {
+             "user_id": user["id"],
+@@ -3525,35 +4187,28 @@
+         {"_id": 0},
+         sort=[("created_at", -1)],
+     )
++    fresh_user = await db.users.find_one({"id": user["id"]}, {"_id": 0, "balance": 1}) or user
+     return {
+         "profile": {
+-            "current_level": int(
+-                profile.get("current_level", 1)
+-            ),
+-            "total_stars": int(
+-                profile.get("total_stars", 0)
+-            ),
+-            "lives": int(
+-                profile.get(
+-                    "lives",
+-                    BONUS_MATCH_MAX_LIVES,
+-                )
+-            ),
++            "current_level": unlocked_level,
++            "max_level": max_level,
++            "total_stars": int(profile.get("total_stars", 0)),
++            "lives": int(profile.get("lives", BONUS_MATCH_MAX_LIVES)),
+             "max_lives": BONUS_MATCH_MAX_LIVES,
+             "next_life_at": profile.get("next_life_at"),
+-            "daily_points": int(
+-                daily.get("points_awarded", 0)
+-            ),
+-            "daily_point_cap": (
+-                BONUS_MATCH_DAILY_POINT_CAP
+-            ),
++            "daily_points": int(daily.get("points_awarded", 0)),
++            "daily_point_cap": BONUS_MATCH_DAILY_POINT_CAP,
++            "boosters": profile.get("boosters", {key: 0 for key in BONUS_MATCH_BOOSTERS}),
++            "booster_price": BONUS_MATCH_BOOSTER_PRICE,
++            "balance": int(fresh_user.get("balance", 0)),
+         },
++        "levels": levels,
++        "booster_catalog": [
++            {"id": key, "label": value["label"], "price": BONUS_MATCH_BOOSTER_PRICE}
++            for key, value in BONUS_MATCH_BOOSTERS.items()
++        ],
+         "completions": completions,
+-        "active_session": (
+-            _bonus_match_session_payload(active)
+-            if active
+-            else None
+-        ),
++        "active_session": _bonus_match_session_payload(active) if active else None,
+         "top_today": await _bonus_match_top_today(),
+     }
+ 
+@@ -3564,20 +4219,14 @@
+     user: dict = Depends(get_current_user),
+ ):
+     profile = await _bonus_match_profile(user["id"])
+-    requested_level = max(
+-        1,
+-        min(
+-            BONUS_MATCH_MAX_LEVEL,
+-            int(body.level or 1),
+-        ),
+-    )
+-    if requested_level > int(
+-        profile.get("current_level", 1)
+-    ):
+-        raise HTTPException(
+-            status_code=400,
+-            detail="Цей рівень ще не відкрито",
+-        )
++    levels = await _bonus_match_level_catalog()
++    unlocked_level = await _bonus_match_reconcile_unlocked_level(user["id"], profile, levels)
++    requested_level = max(1, min(BONUS_MATCH_LEVEL_LIMIT, int(body.level or 1)))
++    config = next((item for item in levels if int(item["level"]) == requested_level), None)
++    if not config:
++        raise HTTPException(status_code=404, detail="Рівень не знайдено або вимкнено")
++    if requested_level > unlocked_level:
++        raise HTTPException(status_code=400, detail="Цей рівень ще не відкрито")
+ 
+     existing = await db.bonus_match_sessions.find_one(
+         {
+@@ -3600,9 +4249,8 @@
+                     )
+                 ),
+                 "max_lives": BONUS_MATCH_MAX_LIVES,
+-                "next_life_at": profile.get(
+-                    "next_life_at"
+-                ),
++                "next_life_at": profile.get("next_life_at"),
++                "boosters": profile.get("boosters", {key: 0 for key in BONUS_MATCH_BOOSTERS}),
+             },
+             "resumed": True,
+         }
+@@ -3630,12 +4278,11 @@
+         }},
+     )
+ 
+-    config = _bonus_match_level_config(requested_level)
+     session = {
+         "id": str(uuid.uuid4()),
+         "user_id": user["id"],
+         "level": requested_level,
+-        "board": _bonus_match_make_board(requested_level),
++        "board": _bonus_match_make_board(requested_level, config),
+         "moves_left": config["moves"],
+         "score": 0,
+         "coins_collected": 0,
+@@ -3656,9 +4303,8 @@
+                 refreshed.get("lives", lives - 1)
+             ),
+             "max_lives": BONUS_MATCH_MAX_LIVES,
+-            "next_life_at": refreshed.get(
+-                "next_life_at"
+-            ),
++            "next_life_at": refreshed.get("next_life_at"),
++            "boosters": refreshed.get("boosters", {key: 0 for key in BONUS_MATCH_BOOSTERS}),
+         },
+         "resumed": False,
+     }
+@@ -4022,7 +4668,8 @@
+ 
+     if not _bonus_match_has_move(board):
+         board = _bonus_match_make_board(
+-            int(session["level"])
++            int(session["level"]),
++            session.get("config") or _bonus_match_level_config(session["level"]),
+         )
+         reshuffled = True
+     else:
+@@ -4875,6 +5522,7 @@
+     await db.bonus_match_sessions.create_index([("status", 1), ("completed_at", -1)])
+     await db.bonus_match_completions.create_index([("user_id", 1), ("level", 1)], unique=True)
+     await db.bonus_match_daily.create_index([("user_id", 1), ("date", 1)], unique=True)
++    await db.bonus_match_levels.create_index("level", unique=True)
+     await db.daily_task_sets.create_index([("user_id", 1), ("date", 1)], unique=True)
+     await db.daily_task_reviews.create_index([("user_id", 1), ("date", 1), ("task_id", 1)], unique=True)
+     await db.teams.create_index("name", unique=True)
+diff --git a/frontend/src/pages/Admin.jsx b/frontend/src/pages/Admin.jsx
+--- a/frontend/src/pages/Admin.jsx
++++ b/frontend/src/pages/Admin.jsx
+@@ -4,7 +4,7 @@
+   Users, Swords, Gift, ShoppingBag, BarChart3, Plus, Pencil, Trash2, X, Minus, Check, Coins, Trophy, ChevronRight,
+   UserCog, ShieldCheck, Crown, UsersRound, Inbox, UserCheck, ClipboardList, CheckCircle2, XCircle,
+   ArrowUp, ArrowDown, FileText, BrainCircuit, Clock3, TrendingUp, Search, CalendarDays, Target, Save, ChevronDown,
+-  KeyRound, Award, Medal, Star, Sparkles, Send,
++  KeyRound, Award, Medal, Star, Sparkles, Send, Gamepad2, RotateCcw,
+ } from "lucide-react";
+ import api, { extractError, API_BASE, getToken } from "@/lib/api";
+ import { useApp } from "@/context/AppContext";
+@@ -19,6 +19,7 @@
+   { id: "users", label: "Юзери", icon: Users },
+   { id: "teams", label: "Команди", icon: UsersRound },
+   { id: "achievements", label: "Досягнення", icon: Award },
++  { id: "bonus-match", label: "Bonus Match", icon: Gamepad2 },
+   { id: "prizes", label: "Призи", icon: Gift },
+   { id: "orders", label: "Замовлення", icon: ShoppingBag },
+ ];
+@@ -2059,6 +2060,248 @@
+   </div>;
+ };
+ 
++
++// ─────────────── Bonus Match level editor ───────────────
++const BONUS_MATCH_OBSTACLE_STYLE = {
++  ice: { label: "Крига", color: "#7DD3FC" },
++  chain: { label: "Ланцюг", color: "#A1A1AA" },
++  crate: { label: "Ящик", color: "#FDBA74" },
++  stone: { label: "Камінь", color: "#D4D4D8" },
++  crystal: { label: "Кристал", color: "#C084FC" },
++  web: { label: "Павутина", color: "#E4E4E7" },
++  shield: { label: "Щит", color: "#60A5FA" },
++  slime: { label: "Слиз", color: "#4ADE80" },
++  metal: { label: "Метал", color: "#CBD5E1" },
++  core: { label: "Ядро", color: "#FF4D55" },
++};
++
++const BonusMatchLevelEditor = ({ level, obstacleCatalog, onClose, onSaved }) => {
++  const isNew = Boolean(level?._new);
++  const [f, setF] = useState({
++    level: Number(level?.level || 1),
++    title: level?.title || `Рівень ${level?.level || 1}`,
++    moves: Number(level?.moves || 20),
++    target_score: Number(level?.target_score || 2500),
++    target_coins: Number(level?.target_coins || 10),
++    star_thresholds: Array.isArray(level?.star_thresholds) && level.star_thresholds.length === 3
++      ? level.star_thresholds.map(Number)
++      : [2500, 3400, 4300],
++    is_milestone: Boolean(level?.is_milestone),
++    is_boss: Boolean(level?.is_boss),
++    reward_multiplier: Number(level?.reward_multiplier || 1),
++    obstacles: Array.isArray(level?.obstacles) ? level.obstacles : [],
++    new_obstacle: level?.new_obstacle || "",
++    obstacle_count: Number(level?.obstacle_count || 0),
++    obstacle_layout: Array.isArray(level?.obstacle_layout) ? level.obstacle_layout : [],
++    active: level?.active !== false,
++  });
++  const [paint, setPaint] = useState(obstacleCatalog?.[0]?.id || "ice");
++  const [busy, setBusy] = useState(false);
++
++  const setNumber = (key, value, min = 0) => setF((current) => ({
++    ...current,
++    [key]: Math.max(min, Number(value || 0)),
++  }));
++
++  const toggleAllowedObstacle = (id) => {
++    setF((current) => ({
++      ...current,
++      obstacles: current.obstacles.includes(id)
++        ? current.obstacles.filter((item) => item !== id)
++        : [...current.obstacles, id],
++    }));
++  };
++
++  const paintCell = (row, col) => {
++    setF((current) => {
++      const without = current.obstacle_layout.filter((item) => !(item.row === row && item.col === col));
++      if (paint === "erase") return { ...current, obstacle_layout: without };
++      const obstacle = obstacleCatalog.find((item) => item.id === paint);
++      return {
++        ...current,
++        obstacle_layout: [
++          ...without,
++          { row, col, obstacle: paint, hits: Number(obstacle?.hits || 1) },
++        ],
++      };
++    });
++  };
++
++  const layoutMap = new Map(f.obstacle_layout.map((item) => [`${item.row}:${item.col}`, item]));
++
++  const save = async () => {
++    if (!f.title.trim()) return toast.error("Вкажіть назву рівня");
++    if (f.star_thresholds.some((value) => Number(value) < Number(f.target_score))) {
++      return toast.error("Пороги зірок не можуть бути нижчими за цільовий рахунок");
++    }
++    setBusy(true);
++    try {
++      const payload = {
++        ...f,
++        star_thresholds: f.star_thresholds.map(Number),
++        new_obstacle: f.new_obstacle || null,
++      };
++      if (isNew) await api.post("/admin/bonus-match/levels", payload);
++      else await api.patch(`/admin/bonus-match/levels/${f.level}`, payload);
++      toast.success(isNew ? "Рівень створено" : "Рівень оновлено");
++      onSaved();
++    } catch (error) {
++      toast.error(extractError(error, "Не вдалося зберегти рівень"));
++    } finally {
++      setBusy(false);
++    }
++  };
++
++  return <BottomSheet onClose={onClose} title={isNew ? "НОВИЙ РІВЕНЬ" : `РІВЕНЬ ${f.level}`}>
++    <div className="space-y-5">
++      <div className="grid grid-cols-2 gap-3">
++        <label className="text-[9px] font-black uppercase text-zinc-600">Номер рівня
++          <input type="number" min="1" max="200" disabled={!isNew} value={f.level} onChange={(e) => setNumber("level", e.target.value, 1)} className="mt-1 h-11 w-full rounded-xl border border-white/10 bg-[#121318] px-3 text-white outline-none disabled:opacity-50" />
++        </label>
++        <label className="text-[9px] font-black uppercase text-zinc-600">Кількість ходів
++          <input type="number" min="5" max="80" value={f.moves} onChange={(e) => setNumber("moves", e.target.value, 5)} className="mt-1 h-11 w-full rounded-xl border border-white/10 bg-[#121318] px-3 text-white outline-none focus:border-[#B78CFF]" />
++        </label>
++      </div>
++
++      <label className="block text-[9px] font-black uppercase text-zinc-600">Назва
++        <input value={f.title} onChange={(e) => setF((current) => ({ ...current, title: e.target.value }))} className="mt-1 h-11 w-full rounded-xl border border-white/10 bg-[#121318] px-3 text-white outline-none focus:border-[#B78CFF]" />
++      </label>
++
++      <div className="grid grid-cols-2 gap-3">
++        <label className="text-[9px] font-black uppercase text-zinc-600">Цільовий рахунок
++          <input type="number" min="100" value={f.target_score} onChange={(e) => setNumber("target_score", e.target.value, 100)} className="mt-1 h-11 w-full rounded-xl border border-white/10 bg-[#121318] px-3 text-white outline-none focus:border-[#B78CFF]" />
++        </label>
++        <label className="text-[9px] font-black uppercase text-zinc-600">Ціль монет
++          <input type="number" min="0" value={f.target_coins} onChange={(e) => setNumber("target_coins", e.target.value, 0)} className="mt-1 h-11 w-full rounded-xl border border-white/10 bg-[#121318] px-3 text-white outline-none focus:border-[#B78CFF]" />
++        </label>
++      </div>
++
++      <div>
++        <div className="text-[9px] font-black uppercase tracking-wider text-zinc-600">Пороги зірок</div>
++        <div className="mt-2 grid grid-cols-3 gap-2">
++          {f.star_thresholds.map((value, index) => <label key={index} className="text-[9px] font-black text-zinc-500">{index + 1} ★
++            <input type="number" min={f.target_score} value={value} onChange={(e) => setF((current) => ({ ...current, star_thresholds: current.star_thresholds.map((item, itemIndex) => itemIndex === index ? Number(e.target.value || 0) : item) }))} className="mt-1 h-10 w-full rounded-xl border border-white/10 bg-[#121318] px-2 text-xs text-white outline-none" />
++          </label>)}
++        </div>
++      </div>
++
++      <div className="grid grid-cols-2 gap-2">
++        <button type="button" onClick={() => setF((current) => ({ ...current, is_milestone: !current.is_milestone }))} className={`h-11 rounded-xl border text-[10px] font-black uppercase ${f.is_milestone ? "border-[#B78CFF] bg-[#B78CFF]/15 text-[#C9A7FF]" : "border-white/10 bg-black/20 text-zinc-500"}`}>РІВЕНЬ-ВИКЛИК</button>
++        <button type="button" onClick={() => setF((current) => ({ ...current, is_boss: !current.is_boss }))} className={`h-11 rounded-xl border text-[10px] font-black uppercase ${f.is_boss ? "border-[#FF5C00] bg-[#FF5C00]/15 text-[#FF8A4C]" : "border-white/10 bg-black/20 text-zinc-500"}`}>БОС-РІВЕНЬ</button>
++      </div>
++
++      <div className="grid grid-cols-2 gap-3">
++        <label className="text-[9px] font-black uppercase text-zinc-600">Множник нагороди
++          <input type="number" min="1" max="10" value={f.reward_multiplier} onChange={(e) => setNumber("reward_multiplier", e.target.value, 1)} className="mt-1 h-11 w-full rounded-xl border border-white/10 bg-[#121318] px-3 text-white outline-none" />
++        </label>
++        <label className="text-[9px] font-black uppercase text-zinc-600">Автоперешкод
++          <input type="number" min="0" max="35" value={f.obstacle_count} onChange={(e) => setNumber("obstacle_count", e.target.value, 0)} className="mt-1 h-11 w-full rounded-xl border border-white/10 bg-[#121318] px-3 text-white outline-none" />
++        </label>
++      </div>
++
++      <div>
++        <div className="flex items-center justify-between gap-3">
++          <div><div className="text-[10px] font-black uppercase text-white">ДОЗВОЛЕНІ ПЕРЕШКОДИ</div><div className="text-[9px] text-zinc-600">Використовуються для випадкового заповнення</div></div>
++          <select value={f.new_obstacle} onChange={(e) => setF((current) => ({ ...current, new_obstacle: e.target.value }))} className="h-10 max-w-[150px] rounded-xl border border-white/10 bg-[#121318] px-2 text-[10px] font-black text-white">
++            <option value="">Без нової</option>
++            {obstacleCatalog.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
++          </select>
++        </div>
++        <div className="mt-2 flex flex-wrap gap-2">
++          {obstacleCatalog.map((item) => <button key={item.id} type="button" onClick={() => toggleAllowedObstacle(item.id)} className={`rounded-full border px-3 py-2 text-[9px] font-black uppercase ${f.obstacles.includes(item.id) ? "border-[#B78CFF] bg-[#B78CFF]/15 text-[#D8C1FF]" : "border-white/10 bg-black/20 text-zinc-500"}`}>{item.label}</button>)}
++        </div>
++      </div>
++
++      <div className="rounded-2xl border border-white/10 bg-black/25 p-3">
++        <div className="flex items-start justify-between gap-3">
++          <div><div className="text-[10px] font-black uppercase text-white">СХЕМА ПЕРЕШКОД 7×7</div><div className="mt-1 text-[9px] text-zinc-600">Якщо схема заповнена, вона має пріоритет над випадковою генерацією.</div></div>
++          <div className="text-[10px] font-black text-[#B78CFF]">{f.obstacle_layout.length}/35</div>
++        </div>
++        <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
++          <button type="button" onClick={() => setPaint("erase")} className={`h-9 shrink-0 rounded-xl border px-3 text-[9px] font-black uppercase ${paint === "erase" ? "border-[#FF4D55] bg-[#FF4D55]/15 text-[#FF767C]" : "border-white/10 text-zinc-500"}`}>Гумка</button>
++          {obstacleCatalog.map((item) => <button key={item.id} type="button" onClick={() => setPaint(item.id)} className={`h-9 shrink-0 rounded-xl border px-3 text-[9px] font-black uppercase ${paint === item.id ? "border-[#B78CFF] bg-[#B78CFF]/15 text-white" : "border-white/10 text-zinc-500"}`}>{item.label}</button>)}
++        </div>
++        <div className="mt-3 grid grid-cols-7 gap-1">
++          {Array.from({ length: 49 }, (_, index) => {
++            const row = Math.floor(index / 7);
++            const col = index % 7;
++            const item = layoutMap.get(`${row}:${col}`);
++            const style = item ? BONUS_MATCH_OBSTACLE_STYLE[item.obstacle] : null;
++            return <button key={index} type="button" onClick={() => paintCell(row, col)} className="relative aspect-square rounded-lg border border-white/10 bg-[#11101A] text-[8px] font-black" style={{ color: style?.color || "#3F3F46", background: item ? `${style?.color || "#B78CFF"}18` : undefined }} title={item ? `${style?.label}: ${item.hits} уд.` : "Порожньо"}>{item ? item.hits : "·"}</button>;
++          })}
++        </div>
++      </div>
++
++      <button type="button" onClick={() => setF((current) => ({ ...current, active: !current.active }))} className={`flex h-12 w-full items-center justify-center rounded-2xl border text-xs font-black uppercase ${f.active ? "border-[#39FF14]/40 bg-[#39FF14]/10 text-[#39FF14]" : "border-[#FF4D55]/40 bg-[#FF4D55]/10 text-[#FF686F]"}`}>{f.active ? "РІВЕНЬ АКТИВНИЙ" : "РІВЕНЬ ВИМКНЕНО"}</button>
++      <button type="button" onClick={save} disabled={busy} className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[#FFB800] text-xs font-black uppercase text-[#0A0A0A] disabled:opacity-50"><Save size={17} />{busy ? "ЗБЕРЕЖЕННЯ..." : "ЗБЕРЕГТИ РІВЕНЬ"}</button>
++    </div>
++  </BottomSheet>;
++};
++
++const BonusMatchLevelsView = () => {
++  const [data, setData] = useState(null);
++  const [editing, setEditing] = useState(null);
++  const [loading, setLoading] = useState(true);
++
++  const load = async () => {
++    setLoading(true);
++    try {
++      const response = await api.get("/admin/bonus-match/levels");
++      setData(response.data);
++    } catch (error) {
++      toast.error(extractError(error, "Не вдалося завантажити рівні"));
++    } finally {
++      setLoading(false);
++    }
++  };
++  useEffect(() => { load(); }, []);
++
++  const resetOrDelete = async (level) => {
++    const isDefault = Number(level.level) <= Number(data?.default_level_count || 50);
++    const message = isDefault
++      ? `Скинути рівень ${level.level} до стандартних параметрів?`
++      : `Видалити рівень ${level.level}?`;
++    if (!window.confirm(message)) return;
++    try {
++      await api.delete(`/admin/bonus-match/levels/${level.level}`);
++      toast.success(isDefault ? "Стандартні параметри відновлено" : "Рівень видалено");
++      load();
++    } catch (error) {
++      toast.error(extractError(error));
++    }
++  };
++
++  if (loading) return <div className="py-10 text-center text-sm font-black text-zinc-500">Завантаження рівнів…</div>;
++  if (!data) return <div className="py-10 text-center text-sm font-black text-zinc-500">Немає даних</div>;
++  const nextLevel = Math.min(data.level_limit, Math.max(...data.levels.map((item) => Number(item.level)), 0) + 1);
++
++  return <div className="space-y-3" data-testid="bonus-match-levels-admin">
++    <div className="rounded-2xl border border-[#B78CFF]/30 bg-[#B78CFF]/10 p-4">
++      <div className="flex items-center gap-3"><Gamepad2 size={22} className="text-[#B78CFF]" /><div><div className="text-sm font-black uppercase text-white">РЕДАКТОР BONUS MATCH</div><div className="mt-1 text-[10px] text-zinc-500">Змінюй складність, цілі, ходи та точне розташування перешкод.</div></div></div>
++    </div>
++    <button type="button" onClick={() => setEditing({ _new: true, level: nextLevel, title: `Рівень ${nextLevel}`, moves: 18, target_score: 5000, target_coins: 15, star_thresholds: [5000, 6750, 8600], reward_multiplier: 1, obstacles: [], obstacle_layout: [], active: true })} className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[#FFB800] text-xs font-black uppercase text-[#0A0A0A]"><Plus size={17} />СТВОРИТИ НОВИЙ РІВЕНЬ</button>
++
++    <div className="space-y-2">
++      {data.levels.map((level) => <div key={level.level} className={`rounded-2xl border p-3 ${level.active ? "border-white/10 bg-[#1A1A1E]" : "border-[#FF4D55]/20 bg-[#FF4D55]/[.04] opacity-70"}`}>
++        <div className="flex items-start gap-3">
++          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-[#B78CFF]/30 bg-[#B78CFF]/10 font-display text-xl text-[#C9A7FF]">{level.level}</div>
++          <div className="min-w-0 flex-1">
++            <div className="flex flex-wrap items-center gap-1.5"><div className="truncate text-sm font-black text-white">{level.title || `Рівень ${level.level}`}</div>{level.is_boss && <span className="rounded-full bg-[#FF5C00]/15 px-2 py-0.5 text-[8px] font-black text-[#FF7D36]">БОС</span>}{level.custom && <span className="rounded-full bg-[#00F0FF]/10 px-2 py-0.5 text-[8px] font-black text-[#00F0FF]">ЗМІНЕНО</span>}</div>
++            <div className="mt-1 text-[10px] font-bold text-zinc-500">{level.moves} ходів · {Number(level.target_score).toLocaleString("uk-UA")} очок · {level.target_coins} монет</div>
++            <div className="mt-1 text-[9px] text-zinc-600">Перешкоди: {level.obstacle_layout?.length ? `схема ${level.obstacle_layout.length}` : level.obstacle_count ? `${level.obstacle_count} випадково` : "немає"} · нагорода ×{level.reward_multiplier}</div>
++          </div>
++          <div className="flex shrink-0 gap-1.5">
++            <button type="button" onClick={() => setEditing(level)} className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-black/30 text-white"><Pencil size={14} /></button>
++            <button type="button" onClick={() => resetOrDelete(level)} className="flex h-9 w-9 items-center justify-center rounded-xl border border-[#FF4D55]/30 bg-[#FF4D55]/10 text-[#FF5B63]">{Number(level.level) <= data.default_level_count ? <RotateCcw size={14} /> : <Trash2 size={14} />}</button>
++          </div>
++        </div>
++      </div>)}
++    </div>
++
++    {editing && <BonusMatchLevelEditor level={editing} obstacleCatalog={data.obstacles || []} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />}
++  </div>;
++};
++
+ // ─────────────── Admin page shell ───────────────
+ export default function Admin() {
+   const { user, mode } = useApp();
+@@ -2084,7 +2327,7 @@
+     );
+   }
+ 
+-  const V = { analytics: AnalyticsView, "ai-team": AITeamDashboard, "daily-tasks": DailyTasksManager, points: PointsManager, goals: GoalsManager, moderation: ModerationView, applications: ApplicationsView, users: UsersView, teams: TeamsView, achievements: AchievementsView, prizes: PrizesView, orders: OrdersView }[tab];
++  const V = { analytics: AnalyticsView, "ai-team": AITeamDashboard, "daily-tasks": DailyTasksManager, points: PointsManager, goals: GoalsManager, moderation: ModerationView, applications: ApplicationsView, users: UsersView, teams: TeamsView, achievements: AchievementsView, "bonus-match": BonusMatchLevelsView, prizes: PrizesView, orders: OrdersView }[tab];
+ 
+   return (
+     <div className="px-5 pt-2 pb-8 lg:px-7 lg:pt-6" data-testid="admin-page">
+diff --git a/frontend/src/pages/BonusMatch.jsx b/frontend/src/pages/BonusMatch.jsx
+--- a/frontend/src/pages/BonusMatch.jsx
++++ b/frontend/src/pages/BonusMatch.jsx
+@@ -12,8 +12,10 @@
+   Gamepad2,
+   Gem,
+   Gift,
++  Hammer,
+   Heart,
+   Lock,
++  Plus,
+   Rocket,
+   RotateCcw,
+   Shield,
+@@ -33,7 +35,7 @@
+ 
+ const ROWS = 7;
+ const COLS = 7;
+-const MAX_LEVEL = 50;
++const MAX_LEVEL = 200;
+ const SYMBOLS = ["coin", "star", "gift", "cube", "zap", "trophy"];
+ const BOSS_LEVELS = { 25: 2, 40: 2, 50: 3 };
+ const OBSTACLE_ORDER = ["ice", "chain", "crate", "stone", "crystal", "web", "shield", "slime", "metal", "core"];
+@@ -75,6 +77,13 @@
+   rocket_col: "Ракета створена!",
+   bomb: "Бомба готова!",
+   color_bomb: "Джокер зібрано!",
++};
++
++const BOOSTERS = {
++  hammer: { Icon: Hammer, label: "Молоток", short: "Прибрати одну фішку або перешкоду", color: "#B78CFF" },
++  rocket: { Icon: Rocket, label: "Ракета", short: "Очистити рядок і колонку", color: "#FF5C00" },
++  color_bomb: { Icon: CircleDot, label: "Райдужний джокер", short: "Прибрати всі фішки одного типу", color: "#F64CFF" },
++  shuffle: { Icon: RotateCcw, label: "Перемішати", short: "Повністю перемішати поле", color: "#00F0FF" },
+ };
+ 
+ const OBSTACLE_NAMES = {
+@@ -376,6 +385,7 @@
+   cell,
+   selected,
+   disabled,
++  targetable = false,
+   removing,
+   shaking,
+   spawned,
+@@ -402,7 +412,7 @@
+       layoutId={`bonus-piece-${cell.id}`}
+       type="button"
+       onClick={onClick}
+-      disabled={disabled || Boolean(obstacle)}
++      disabled={disabled || (Boolean(obstacle) && !targetable)}
+       aria-label={`${label}, рядок ${row + 1}, колонка ${col + 1}`}
+       className="relative flex aspect-square min-w-0 touch-manipulation items-center justify-center overflow-hidden rounded-[10px] border border-white/10"
+       style={{
+@@ -426,7 +436,7 @@
+           rotate: 30,
+           transition: { duration: 0.28, delay: removeDelay, ease: "easeIn" },
+         }}
+-      whileTap={disabled || obstacle ? undefined : { scale: 0.86 }}
++      whileTap={disabled || (obstacle && !targetable) ? undefined : { scale: 0.86 }}
+       transition={
+         shaking
+           ? { duration: reducedMotion ? 0.01 : 0.32, ease: "easeInOut" }
+@@ -547,6 +557,38 @@
+             />
+           );
+         }
++        if (effect.special === "booster_rocket") {
++          return (
++            <motion.div key={`booster-rocket-${effectIndex}`} className="pointer-events-none absolute inset-0">
++              <motion.div
++                className="absolute left-0 right-0 h-[8px] rounded-full bg-gradient-to-r from-transparent via-[#FF5C00] to-transparent"
++                style={{ top: `${((effect.row + 0.5) / ROWS) * 100}%` }}
++                initial={{ scaleX: 0, opacity: 0 }} animate={{ scaleX: 1, opacity: [0, 1, 0] }} transition={{ duration: 0.34 }}
++              />
++              <motion.div
++                className="absolute bottom-0 top-0 w-[8px] rounded-full bg-gradient-to-b from-transparent via-[#FFB800] to-transparent"
++                style={{ left: `${((effect.col + 0.5) / COLS) * 100}%` }}
++                initial={{ scaleY: 0, opacity: 0 }} animate={{ scaleY: 1, opacity: [0, 1, 0] }} transition={{ duration: 0.34 }}
++              />
++            </motion.div>
++          );
++        }
++        if (effect.special === "booster_hammer") {
++          return (
++            <motion.div
++              key={`booster-hammer-${effectIndex}`}
++              className="pointer-events-none absolute aspect-square rounded-full border-4 border-[#B78CFF]"
++              style={{
++                width: `${(1.6 / COLS) * 100}%`,
++                left: `${((effect.col - 0.3) / COLS) * 100}%`,
++                top: `${((effect.row - 0.3) / ROWS) * 100}%`,
++              }}
++              initial={{ scale: 0.2, opacity: 1 }}
++              animate={{ scale: 1.5, opacity: 0 }}
++              transition={{ duration: 0.32, ease: "easeOut" }}
++            />
++          );
++        }
+         return (effect.targets || []).slice(0, 24).map((target, targetIndex) => (
+           <motion.div
+             key={`joker-${effectIndex}-${targetIndex}`}
+@@ -593,11 +635,14 @@
+   const [scoreFlights, setScoreFlights] = useState([]);
+   const [boardFx, setBoardFx] = useState("");
+   const [bossPrompt, setBossPrompt] = useState(null);
++  const [activeBooster, setActiveBooster] = useState(null);
++  const [buyingBooster, setBuyingBooster] = useState(null);
+ 
+   const loadStatus = async () => {
+     if (mode === "mock") {
+       const mockStatus = {
+-        profile: { current_level: 12, total_stars: 26, lives: 5, max_lives: 5, next_life_at: null, daily_points: 17, daily_point_cap: 40 },
++        profile: { current_level: 12, max_level: 50, total_stars: 26, lives: 5, max_lives: 5, next_life_at: null, daily_points: 17, daily_point_cap: 40, balance: 24500, booster_price: 50, boosters: { hammer: 2, rocket: 1, color_bomb: 1, shuffle: 2 } },
++        levels: Array.from({ length: 50 }, (_, index) => levelConfig(index + 1)),
+         completions: Array.from({ length: 11 }, (_, index) => ({ level: index + 1, stars: index % 3 === 0 ? 3 : 2, best_score: 1600 + index * 300 })),
+         active_session: null,
+         top_today: [
+@@ -639,19 +684,24 @@
+     [status?.completions],
+   );
+   const chosenCompletion = completionsByLevel.get(selectedLevel);
+-  const selectedConfig = levelConfig(selectedLevel);
++  const levelCatalog = useMemo(() => (status?.levels || []).slice().sort((a, b) => Number(a.level) - Number(b.level)), [status?.levels]);
++  const levelCatalogMap = useMemo(() => new Map(levelCatalog.map((item) => [Number(item.level), item])), [levelCatalog]);
++  const selectedConfig = levelCatalogMap.get(Number(selectedLevel)) || levelConfig(selectedLevel);
+   const config = game?.config || selectedConfig;
++  const boosterInventory = status?.profile?.boosters || {};
++  const boosterPrice = Number(status?.profile?.booster_price || 50);
+   const scoreProgress = Math.min(100, Math.round(((animatedScore || 0) / Math.max(1, config.target_score)) * 100));
+   const coinProgress = Math.min(100, Math.round(((game?.coins_collected || 0) / Math.max(1, config.target_coins)) * 100));
+ 
+   const startGame = async (level = selectedLevel, confirmed = false) => {
+-    const preview = levelConfig(level);
++    const preview = levelCatalogMap.get(Number(level)) || levelConfig(level);
+     if (preview.is_boss && !confirmed) {
+       setBossPrompt(preview);
+       return;
+     }
+     setBossPrompt(null);
+     setSelected(null);
++    setActiveBooster(null);
+     setResult(null);
+     setFlash("");
+     setBoardFx("");
+@@ -890,6 +940,121 @@
+     setGame({ ...data.session, board: normalizeBoard(data.session.board) });
+   };
+ 
++  const patchBoosterProfile = (boosters, balance) => {
++    setStatus((current) => current ? {
++      ...current,
++      profile: {
++        ...current.profile,
++        boosters: boosters || current.profile.boosters || {},
++        balance: balance === undefined ? current.profile.balance : Number(balance),
++      },
++    } : current);
++  };
++
++  const purchaseBooster = async (booster) => {
++    if (buyingBooster || moving) return;
++    const meta = BOOSTERS[booster];
++    if (!window.confirm(`Придбати «${meta.label}» за ${boosterPrice} Point?`)) return;
++    if (mode === "mock") {
++      const balance = Number(status?.profile?.balance || 0);
++      if (balance < boosterPrice) return toast.error("Недостатньо Point для покупки");
++      patchBoosterProfile({ ...boosterInventory, [booster]: Number(boosterInventory[booster] || 0) + 1 }, balance - boosterPrice);
++      toast.success(`${meta.label} придбано`);
++      return;
++    }
++    setBuyingBooster(booster);
++    try {
++      const { data } = await api.post("/games/bonus-match/boosters/purchase", { booster });
++      patchBoosterProfile(data.boosters, data.balance);
++      await refreshMe().catch(() => {});
++      toast.success(`${meta.label} придбано`, { description: `−${data.price || boosterPrice} Point` });
++    } catch (error) {
++      toast.error(extractError(error, "Не вдалося придбати бонус"));
++    } finally {
++      setBuyingBooster(null);
++    }
++  };
++
++  const useBooster = async (booster, row = null, col = null) => {
++    if (!game || moving || game.status !== "active") return;
++    if (Number(boosterInventory[booster] || 0) <= 0) {
++      toast.info("Спочатку придбай цей бонус");
++      return;
++    }
++    setMoving(true);
++    setSelected(null);
++    setActiveBooster(null);
++    const startingBoard = normalizeBoard(displayBoard.length ? displayBoard : game.board);
++    try {
++      if (mode === "mock") {
++        let nextBoard = cloneBoard(startingBoard);
++        if (booster === "shuffle") {
++          nextBoard = makeMockBoard(game.level);
++        } else if (row !== null && col !== null) {
++          if (booster === "hammer") nextBoard[row][col] = null;
++          if (booster === "rocket") {
++            for (let index = 0; index < COLS; index += 1) nextBoard[row][index] = null;
++            for (let index = 0; index < ROWS; index += 1) nextBoard[index][col] = null;
++          }
++          if (booster === "color_bomb") {
++            const symbol = matchSymbol(nextBoard[row]?.[col]);
++            if (!symbol) throw new Error("Джокер потрібно застосувати до звичайної фішки");
++            for (let currentRow = 0; currentRow < ROWS; currentRow += 1) {
++              for (let currentCol = 0; currentCol < COLS; currentCol += 1) {
++                if (matchSymbol(nextBoard[currentRow][currentCol]) === symbol) nextBoard[currentRow][currentCol] = null;
++              }
++            }
++          }
++          nextBoard = collapseMockBoard(nextBoard).board;
++        }
++        const nextScore = Number(game.score || 0) + (booster === "shuffle" ? 0 : 500);
++        setDisplayBoard(normalizeBoard(nextBoard));
++        setGame((current) => ({ ...current, board: normalizeBoard(nextBoard), score: nextScore }));
++        setAnimatedScore(nextScore);
++        patchBoosterProfile({ ...boosterInventory, [booster]: Math.max(0, Number(boosterInventory[booster] || 0) - 1) });
++        toast.success(`${BOOSTERS[booster].label} використано`);
++        return;
++      }
++      const { data } = await api.post("/games/bonus-match/boosters/use", {
++        session_id: game.id,
++        booster,
++        row,
++        col,
++      });
++      await animateServerMove(data, game.score);
++      patchBoosterProfile(data.profile?.boosters);
++      toast.success(data.message || `${BOOSTERS[booster].label} використано`);
++      if (data.result) {
++        setResult(data.result);
++        setBoardFx("won");
++        if (!reducedMotion) fireConfetti();
++        await refreshMe().catch(() => {});
++        await loadStatus();
++      }
++    } catch (error) {
++      setDisplayBoard(startingBoard);
++      toast.error(extractError(error, "Не вдалося використати бонус"));
++    } finally {
++      setMoving(false);
++    }
++  };
++
++  const selectBooster = (booster) => {
++    if (!game || game.status !== "active" || moving) return;
++    if (Number(boosterInventory[booster] || 0) <= 0) {
++      toast.info(`Натисни «+», щоб придбати за ${boosterPrice} Point`);
++      return;
++    }
++    if (booster === "shuffle") {
++      useBooster(booster);
++      return;
++    }
++    const next = activeBooster === booster ? null : booster;
++    setActiveBooster(next);
++    setSelected(null);
++    if (next) toast.info(BOOSTERS[booster].short);
++  };
++
+   const makeMove = async (from, to) => {
+     if (!game || moving || game.status !== "active") return;
+     setMoving(true);
+@@ -942,6 +1107,11 @@
+   const handlePiece = (row, col) => {
+     if (moving || game?.status !== "active") return;
+     const cell = displayBoard?.[row]?.[col];
++    if (activeBooster) {
++      if (!cell) return;
++      useBooster(activeBooster, row, col);
++      return;
++    }
+     if (!cell || cell.obstacle) {
+       if (cell?.obstacle) toast.info(`${OBSTACLE_NAMES[cell.obstacle] || "Перешкода"}: зруйнуй її збігами поруч`);
+       return;
+@@ -962,9 +1132,17 @@
+     makeMove(selected, { row, col });
+   };
+ 
++  const unlockedLevels = levelCatalog
++    .map((item) => Number(item.level))
++    .filter((level) => level <= Number(status?.profile?.current_level || 1));
++
++  const selectedUnlockedIndex = unlockedLevels.indexOf(Number(selectedLevel));
++
+   const chooseLevel = (delta) => {
+-    const maxLevel = Number(status?.profile?.current_level || 1);
+-    setSelectedLevel((current) => Math.max(1, Math.min(maxLevel, current + delta)));
++    if (!unlockedLevels.length) return;
++    const currentIndex = Math.max(0, unlockedLevels.indexOf(Number(selectedLevel)));
++    const nextIndex = Math.max(0, Math.min(unlockedLevels.length - 1, currentIndex + delta));
++    setSelectedLevel(unlockedLevels[nextIndex]);
+   };
+ 
+   const leaveBoard = () => {
+@@ -973,6 +1151,7 @@
+     setDisplayBoard([]);
+     setResult(null);
+     setBoardFx("");
++    setActiveBooster(null);
+     loadStatus();
+   };
+ 
+@@ -1000,7 +1179,7 @@
+         </div>
+         <div className="flex items-center gap-1 rounded-2xl border border-[#FFB800]/25 bg-[#FFB800]/10 px-2.5 py-2 text-[#FFB800]">
+           <Coins size={15} />
+-          <span className="text-sm font-black tabular-nums">{formatNumber(user?.balance)}</span>
++          <span className="text-sm font-black tabular-nums">{formatNumber(status?.profile?.balance ?? user?.balance)}</span>
+         </div>
+       </section>
+ 
+@@ -1049,12 +1228,13 @@
+             )}
+ 
+             <div className="mt-5 flex items-center justify-center gap-4">
+-              <button type="button" onClick={() => chooseLevel(-1)} disabled={selectedLevel <= 1} className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-black/25 text-zinc-300 disabled:opacity-30 active:scale-95"><ChevronLeft /></button>
++              <button type="button" onClick={() => chooseLevel(-1)} disabled={selectedUnlockedIndex <= 0} className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-black/25 text-zinc-300 disabled:opacity-30 active:scale-95"><ChevronLeft /></button>
+               <div className="min-w-[140px] text-center">
+                 <div className="font-display text-[52px] leading-none text-white">{selectedLevel}</div>
++                <div className="mt-1 truncate text-[10px] font-black uppercase tracking-wider text-zinc-500">{selectedConfig.title || `Рівень ${selectedLevel}`}</div>
+                 <div className="mt-2 flex justify-center"><Stars count={chosenCompletion?.stars || 0} size={21} reducedMotion={reducedMotion} /></div>
+               </div>
+-              <button type="button" onClick={() => chooseLevel(1)} disabled={selectedLevel >= (status?.profile?.current_level || 1)} className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-black/25 text-zinc-300 disabled:opacity-30 active:scale-95"><ChevronRight /></button>
++              <button type="button" onClick={() => chooseLevel(1)} disabled={selectedUnlockedIndex < 0 || selectedUnlockedIndex >= unlockedLevels.length - 1} className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-black/25 text-zinc-300 disabled:opacity-30 active:scale-95"><ChevronRight /></button>
+             </div>
+ 
+             <div className="mt-5 grid grid-cols-3 gap-2">
+@@ -1175,6 +1355,7 @@
+                           col={col}
+                           selected={selected?.row === row && selected?.col === col}
+                           disabled={moving || game.status !== "active"}
++                          targetable={Boolean(activeBooster && activeBooster !== "shuffle")}
+                           removing={removingIds.has(cell.id)}
+                           shaking={shakingIds.has(cell.id)}
+                           spawned={spawnedIds.has(cell.id)}
+@@ -1234,7 +1415,37 @@
+               )}
+             </motion.div>
+ 
+-            <div className="mt-3 flex items-center justify-between px-1 text-[10px] font-bold text-zinc-600"><span>Натисни фішку, потім сусідню</span><span>{coinProgress}% монет</span></div>
++            <div className="mt-3 rounded-2xl border border-white/[.08] bg-black/25 p-2.5">
++              <div className="mb-2 flex items-center justify-between gap-2 px-1">
++                <div>
++                  <div className="text-[9px] font-black uppercase tracking-[.16em] text-zinc-500">БОНУСИ</div>
++                  <div className="mt-0.5 text-[8px] font-bold text-zinc-700">Кожен бонус коштує {boosterPrice} Point</div>
++                </div>
++                {activeBooster && <button type="button" onClick={() => setActiveBooster(null)} className="rounded-full border border-[#FF4D55]/30 bg-[#FF4D55]/10 px-2 py-1 text-[8px] font-black uppercase text-[#FF686F]">СКАСУВАТИ</button>}
++              </div>
++              <div className="grid grid-cols-4 gap-2">
++                {Object.entries(BOOSTERS).map(([id, item]) => {
++                  const Icon = item.Icon;
++                  const count = Number(boosterInventory[id] || 0);
++                  const active = activeBooster === id;
++                  return <div key={id} className={`relative rounded-xl border p-1.5 text-center transition-colors ${active ? "border-[#B78CFF] bg-[#B78CFF]/15" : "border-white/10 bg-[#11101A]"}`}>
++                    <button type="button" disabled={moving || game.status !== "active"} onClick={() => selectBooster(id)} className="flex w-full flex-col items-center gap-1 py-1 disabled:opacity-40" aria-label={item.label}>
++                      <motion.div animate={active && !reducedMotion ? { scale: [1, 1.12, 1] } : { scale: 1 }} transition={{ duration: 0.8, repeat: active ? Infinity : 0 }} className="flex h-9 w-9 items-center justify-center rounded-xl border" style={{ borderColor: `${item.color}66`, background: `${item.color}18` }}>
++                        <Icon size={20} color={item.color} strokeWidth={2.8} />
++                      </motion.div>
++                      <span className="max-w-full truncate text-[7px] font-black uppercase text-zinc-400">{item.label}</span>
++                    </button>
++                    <div className="absolute -right-1.5 -top-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#7C3AED] px-1 text-[9px] font-black text-white">{count}</div>
++                    <button type="button" disabled={buyingBooster === id || moving} onClick={(event) => { event.stopPropagation(); purchaseBooster(id); }} className="absolute -bottom-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full border border-[#FFB800]/50 bg-[#2C2100] text-[#FFB800] disabled:opacity-50" aria-label={`Придбати ${item.label}`}>
++                      {buyingBooster === id ? <span className="text-[8px]">…</span> : <Plus size={12} strokeWidth={3} />}
++                    </button>
++                  </div>;
++                })}
++              </div>
++              {activeBooster && <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} className="mt-2 rounded-xl border border-[#B78CFF]/25 bg-[#B78CFF]/10 px-3 py-2 text-center text-[9px] font-black text-[#D8C1FF]">ОБЕРИ КЛІТИНКУ: {BOOSTERS[activeBooster].short}</motion.div>}
++            </div>
++
++            <div className="mt-3 flex items-center justify-between px-1 text-[10px] font-bold text-zinc-600"><span>{activeBooster ? "Торкнися цільової клітинки" : "Натисни фішку, потім сусідню"}</span><span>{coinProgress}% монет</span></div>
+           </motion.section>
+ 
+           <AnimatePresence>
+@@ -1257,7 +1468,7 @@
+                 )}
+                 <div className="mt-4 grid grid-cols-2 gap-2">
+                   <button type="button" onClick={() => { setGame(null); setDisplayBoard([]); setResult(null); setBoardFx(""); loadStatus(); }} className="flex h-12 items-center justify-center rounded-2xl border border-white/10 bg-[#1A1A1E] text-sm font-black text-zinc-300 active:scale-95"><RotateCcw size={17} className="mr-2" />РІВНІ</button>
+-                  <button type="button" onClick={() => startGame(game.status === "won" ? Math.min(MAX_LEVEL, result?.current_level || game.level + 1) : game.level)} className="flex h-12 items-center justify-center rounded-2xl bg-[#7C3AED] text-sm font-black text-white active:scale-95">{game.status === "won" ? "ДАЛІ" : "ЩЕ РАЗ"}<ChevronRight size={17} className="ml-1" /></button>
++                  <button type="button" onClick={() => startGame(game.status === "won" ? (result?.current_level || game.level) : game.level)} className="flex h-12 items-center justify-center rounded-2xl bg-[#7C3AED] text-sm font-black text-white active:scale-95">{game.status === "won" ? "ДАЛІ" : "ЩЕ РАЗ"}<ChevronRight size={17} className="ml-1" /></button>
+                 </div>
+               </motion.section>
+             )}
+diff --git a/frontend/public/service-worker.js b/frontend/public/service-worker.js
+--- a/frontend/public/service-worker.js
++++ b/frontend/public/service-worker.js
+@@ -2,7 +2,7 @@
+  * Dynamic data is always network-only.
+  * App shell uses network-first so new deployments replace old PWA files promptly.
+  */
+-const VERSION = "tm6-v67";
++const VERSION = "tm6-v68";
+ const STATIC_CACHE = `${VERSION}-static`;
+ const RUNTIME_CACHE = `${VERSION}-runtime`;
+ 
