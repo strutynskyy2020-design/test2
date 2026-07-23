@@ -2423,8 +2423,21 @@ BONUS_MATCH_MAX_LIVES = 5
 BONUS_MATCH_LIFE_REGEN_MINUTES = 30
 BONUS_MATCH_DAILY_POINT_CAP = 40
 BONUS_MATCH_SYMBOLS = ["coin", "star", "gift", "cube", "zap", "trophy"]
+BONUS_MATCH_SPECIALS = {"rocket_row", "rocket_col", "bomb", "color_bomb"}
 BONUS_MATCH_POINT_REWARD = {1: 2, 2: 4, 3: 7}
 BONUS_MATCH_XP_REWARD = {1: 5, 2: 10, 3: 15}
+BONUS_MATCH_BOSS_LEVELS = {25: 2, 40: 2, 50: 3}
+BONUS_MATCH_OBSTACLE_ORDER = [
+    "ice", "chain", "crate", "stone", "crystal",
+    "web", "shield", "slime", "metal", "core",
+]
+BONUS_MATCH_OBSTACLE_HITS = {
+    "ice": 2, "chain": 2, "crate": 2, "stone": 3, "crystal": 2,
+    "web": 1, "shield": 3, "slime": 2, "metal": 3, "core": 4,
+}
+BONUS_MATCH_SPECIAL_SCORE = {
+    "rocket_row": 450, "rocket_col": 450, "bomb": 700, "color_bomb": 1100,
+}
 
 
 class BonusMatchStartBody(BaseModel):
@@ -2439,51 +2452,309 @@ class BonusMatchMoveBody(BaseModel):
     to_col: int
 
 
+def _bonus_match_new_cell(
+    symbol: Optional[str] = None,
+    special: Optional[str] = None,
+    obstacle: Optional[str] = None,
+    obstacle_hits: Optional[int] = None,
+) -> dict:
+    return {
+        "id": uuid.uuid4().hex[:14],
+        "symbol": symbol if symbol in BONUS_MATCH_SYMBOLS else None,
+        "special": special if special in BONUS_MATCH_SPECIALS else None,
+        "obstacle": obstacle if obstacle in BONUS_MATCH_OBSTACLE_HITS else None,
+        "obstacle_hits": int(
+            obstacle_hits if obstacle_hits is not None
+            else BONUS_MATCH_OBSTACLE_HITS.get(obstacle, 0)
+        ),
+    }
+
+
+def _bonus_match_normalize_cell(value) -> Optional[dict]:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return _bonus_match_new_cell(symbol=value)
+    if not isinstance(value, dict):
+        return None
+    symbol = value.get("symbol")
+    special = value.get("special")
+    obstacle = value.get("obstacle")
+    cell = {
+        "id": str(value.get("id") or uuid.uuid4().hex[:14]),
+        "symbol": symbol if symbol in BONUS_MATCH_SYMBOLS else None,
+        "special": special if special in BONUS_MATCH_SPECIALS else None,
+        "obstacle": obstacle if obstacle in BONUS_MATCH_OBSTACLE_HITS else None,
+        "obstacle_hits": max(
+            0,
+            int(value.get(
+                "obstacle_hits",
+                BONUS_MATCH_OBSTACLE_HITS.get(obstacle, 0),
+            ) or 0),
+        ),
+    }
+    if cell["obstacle"]:
+        cell["symbol"] = None
+        cell["special"] = None
+        if cell["obstacle_hits"] <= 0:
+            cell["obstacle_hits"] = BONUS_MATCH_OBSTACLE_HITS[cell["obstacle"]]
+    return cell
+
+
+def _bonus_match_normalize_board(board) -> list[list[Optional[dict]]]:
+    rows = list(board or [])[:BONUS_MATCH_ROWS]
+    normalized: list[list[Optional[dict]]] = []
+    for row in rows:
+        values = list(row or [])[:BONUS_MATCH_COLS]
+        normalized.append([_bonus_match_normalize_cell(value) for value in values])
+        while len(normalized[-1]) < BONUS_MATCH_COLS:
+            normalized[-1].append(_bonus_match_new_cell(
+                symbol=BONUS_MATCH_SYMBOLS[
+                    (len(normalized) + len(normalized[-1])) % len(BONUS_MATCH_SYMBOLS)
+                ]
+            ))
+    while len(normalized) < BONUS_MATCH_ROWS:
+        normalized.append([
+            _bonus_match_new_cell(
+                symbol=BONUS_MATCH_SYMBOLS[
+                    (len(normalized) * 2 + col * 3) % len(BONUS_MATCH_SYMBOLS)
+                ]
+            )
+            for col in range(BONUS_MATCH_COLS)
+        ])
+    return normalized
+
+
+def _bonus_match_clone_board(board) -> list[list[Optional[dict]]]:
+    return [
+        [dict(cell) if cell else None for cell in row]
+        for row in _bonus_match_normalize_board(board)
+    ]
+
+
+def _bonus_match_cell_symbol(cell: Optional[dict]) -> Optional[str]:
+    if not cell or cell.get("obstacle") or cell.get("special") == "color_bomb":
+        return None
+    symbol = cell.get("symbol")
+    return symbol if symbol in BONUS_MATCH_SYMBOLS else None
+
+
+def _bonus_match_cell_swappable(cell: Optional[dict]) -> bool:
+    return bool(
+        cell
+        and not cell.get("obstacle")
+        and (cell.get("symbol") or cell.get("special"))
+    )
+
+
 def _bonus_match_level_config(level: int) -> dict:
     level = max(1, min(BONUS_MATCH_MAX_LEVEL, int(level or 1)))
-    target_score = 900 + level * 260
-    target_coins = 6 + ((level + 1) // 2)
-    moves = max(17, 23 - ((level - 1) // 6))
+    milestone = level % 5 == 0
+    stage = level // 5
+    base_target = 900 + level * 260
+    ordinary_stage = (level - 1) // 5
+    target_score = int(base_target * (1 + ordinary_stage * 0.10))
+
+    if milestone:
+        previous_base = 900 + (level - 1) * 260
+        previous_target = previous_base * (1 + max(0, stage - 1) * 0.10)
+        challenge_multiplier = min(2.5, 1.8 + max(0, stage - 1) * 0.08)
+        target_score = max(target_score, int(previous_target * challenge_multiplier))
+
+    boss_multiplier = BONUS_MATCH_BOSS_LEVELS.get(level, 1)
+    if boss_multiplier > 1:
+        target_score = int(target_score * 1.12)
+
+    moves = max(15, 24 - ((level - 1) // 7))
+    if milestone:
+        moves = max(12, moves - 2)
+    if boss_multiplier > 1:
+        moves = max(11, moves - 1)
+
+    target_coins = 6 + ((level + 1) // 2) + ordinary_stage
+    if milestone:
+        target_coins = int(target_coins * 1.3) + 2
+
+    unlocked_obstacles = BONUS_MATCH_OBSTACLE_ORDER[:stage]
+    obstacle_count = 0
+    if unlocked_obstacles:
+        obstacle_count = min(
+            14,
+            2 + stage + (2 if milestone else 0) + (2 if boss_multiplier > 1 else 0),
+        )
+
+    newest_obstacle = unlocked_obstacles[-1] if unlocked_obstacles else None
     return {
         "level": level,
         "moves": moves,
         "target_score": target_score,
         "target_coins": target_coins,
-        "star_thresholds": [target_score, int(target_score * 1.35), int(target_score * 1.72)],
+        "star_thresholds": [
+            target_score,
+            int(target_score * 1.35),
+            int(target_score * 1.72),
+        ],
+        "is_milestone": milestone,
+        "is_boss": boss_multiplier > 1,
+        "reward_multiplier": boss_multiplier,
+        "challenge_title": "РІВЕНЬ-ВИКЛИК!" if milestone else None,
+        "boss_title": "БОС-РІВЕНЬ" if boss_multiplier > 1 else None,
+        "obstacles": unlocked_obstacles,
+        "new_obstacle": newest_obstacle if milestone else None,
+        "obstacle_count": obstacle_count,
     }
 
 
-def _bonus_match_find_matches(board: list[list[str]]) -> set[tuple[int, int]]:
-    matched: set[tuple[int, int]] = set()
+def _bonus_match_find_runs(board: list[list[Optional[dict]]]) -> list[dict]:
+    runs: list[dict] = []
     rows = len(board)
     cols = len(board[0]) if rows else 0
 
     for row in range(rows):
         start = 0
         while start < cols:
-            symbol = board[row][start]
+            symbol = _bonus_match_cell_symbol(board[row][start])
             end = start + 1
-            while end < cols and board[row][end] == symbol:
+            while (
+                end < cols
+                and symbol is not None
+                and _bonus_match_cell_symbol(board[row][end]) == symbol
+            ):
                 end += 1
             if symbol is not None and end - start >= 3:
-                matched.update((row, col) for col in range(start, end))
+                runs.append({
+                    "symbol": symbol,
+                    "orientation": "row",
+                    "cells": {(row, col) for col in range(start, end)},
+                })
             start = end
 
     for col in range(cols):
         start = 0
         while start < rows:
-            symbol = board[start][col]
+            symbol = _bonus_match_cell_symbol(board[start][col])
             end = start + 1
-            while end < rows and board[end][col] == symbol:
+            while (
+                end < rows
+                and symbol is not None
+                and _bonus_match_cell_symbol(board[end][col]) == symbol
+            ):
                 end += 1
             if symbol is not None and end - start >= 3:
-                matched.update((row, col) for row in range(start, end))
+                runs.append({
+                    "symbol": symbol,
+                    "orientation": "col",
+                    "cells": {(row, col) for row in range(start, end)},
+                })
             start = end
+    return runs
 
+
+def _bonus_match_find_match_groups(
+    board: list[list[Optional[dict]]],
+) -> list[dict]:
+    runs = _bonus_match_find_runs(board)
+    groups: list[dict] = []
+    for run in runs:
+        touching = [
+            index
+            for index, group in enumerate(groups)
+            if group["symbol"] == run["symbol"]
+            and group["cells"] & run["cells"]
+        ]
+        if not touching:
+            groups.append({
+                "symbol": run["symbol"],
+                "cells": set(run["cells"]),
+                "runs": [run],
+            })
+            continue
+        first = touching[0]
+        groups[first]["cells"].update(run["cells"])
+        groups[first]["runs"].append(run)
+        for index in reversed(touching[1:]):
+            groups[first]["cells"].update(groups[index]["cells"])
+            groups[first]["runs"].extend(groups[index]["runs"])
+            groups.pop(index)
+    return groups
+
+
+def _bonus_match_find_matches(
+    board: list[list[Optional[dict]]],
+) -> set[tuple[int, int]]:
+    matched: set[tuple[int, int]] = set()
+    for group in _bonus_match_find_match_groups(board):
+        matched.update(group["cells"])
     return matched
 
 
-def _bonus_match_has_move(board: list[list[str]]) -> bool:
+def _bonus_match_group_special(group: dict) -> Optional[str]:
+    max_row = max(
+        (len(run["cells"]) for run in group["runs"] if run["orientation"] == "row"),
+        default=0,
+    )
+    max_col = max(
+        (len(run["cells"]) for run in group["runs"] if run["orientation"] == "col"),
+        default=0,
+    )
+    if max(max_row, max_col) >= 5:
+        return "color_bomb"
+    if max_row >= 3 and max_col >= 3:
+        return "bomb"
+    if max_row >= 4:
+        return "rocket_row"
+    if max_col >= 4:
+        return "rocket_col"
+    return None
+
+
+def _bonus_match_pick_special_anchor(
+    board,
+    group: dict,
+    preferred: list[tuple[int, int]],
+) -> Optional[tuple[int, int]]:
+    candidates = [
+        coord
+        for coord in group["cells"]
+        if _bonus_match_cell_swappable(board[coord[0]][coord[1]])
+        and not board[coord[0]][coord[1]].get("special")
+    ]
+    if not candidates:
+        candidates = [
+            coord
+            for coord in group["cells"]
+            if _bonus_match_cell_swappable(board[coord[0]][coord[1]])
+        ]
+    if not candidates:
+        return None
+
+    special = _bonus_match_group_special(group)
+    if special == "bomb":
+        row_cells = set().union(*(
+            run["cells"]
+            for run in group["runs"]
+            if run["orientation"] == "row"
+        ))
+        col_cells = set().union(*(
+            run["cells"]
+            for run in group["runs"]
+            if run["orientation"] == "col"
+        ))
+        intersections = list(row_cells & col_cells)
+        for coord in preferred:
+            if coord in intersections:
+                return coord
+        if intersections:
+            return intersections[0]
+
+    for coord in preferred:
+        if coord in candidates:
+            return coord
+    return sorted(candidates)[len(candidates) // 2]
+
+
+def _bonus_match_has_move(board: list[list[Optional[dict]]]) -> bool:
+    board = _bonus_match_clone_board(board)
     rows = len(board)
     cols = len(board[0]) if rows else 0
     for row in range(rows):
@@ -2492,61 +2763,311 @@ def _bonus_match_has_move(board: list[list[str]]) -> bool:
                 next_row, next_col = row + dr, col + dc
                 if next_row >= rows or next_col >= cols:
                     continue
-                board[row][col], board[next_row][next_col] = board[next_row][next_col], board[row][col]
-                valid = bool(_bonus_match_find_matches(board))
-                board[row][col], board[next_row][next_col] = board[next_row][next_col], board[row][col]
+                first, second = board[row][col], board[next_row][next_col]
+                if (
+                    not _bonus_match_cell_swappable(first)
+                    or not _bonus_match_cell_swappable(second)
+                ):
+                    continue
+                if first.get("special") or second.get("special"):
+                    return True
+                board[row][col], board[next_row][next_col] = second, first
+                valid = bool(_bonus_match_find_match_groups(board))
+                board[row][col], board[next_row][next_col] = first, second
                 if valid:
                     return True
     return False
 
 
-def _bonus_match_make_board() -> list[list[str]]:
+def _bonus_match_make_plain_board() -> list[list[Optional[dict]]]:
     import random as _random
 
-    for _ in range(120):
-        board: list[list[str]] = []
-        for row in range(BONUS_MATCH_ROWS):
-            board.append([])
-            for col in range(BONUS_MATCH_COLS):
-                blocked: set[str] = set()
-                if col >= 2 and board[row][col - 1] == board[row][col - 2]:
-                    blocked.add(board[row][col - 1])
-                if row >= 2 and board[row - 1][col] == board[row - 2][col]:
-                    blocked.add(board[row - 1][col])
-                choices = [symbol for symbol in BONUS_MATCH_SYMBOLS if symbol not in blocked]
-                board[row].append(_random.choice(choices))
-        if _bonus_match_has_move(board):
+    board: list[list[Optional[dict]]] = []
+    for row in range(BONUS_MATCH_ROWS):
+        board.append([])
+        for col in range(BONUS_MATCH_COLS):
+            blocked: set[str] = set()
+            if col >= 2:
+                left = _bonus_match_cell_symbol(board[row][col - 1])
+                if left and left == _bonus_match_cell_symbol(board[row][col - 2]):
+                    blocked.add(left)
+            if row >= 2:
+                above = _bonus_match_cell_symbol(board[row - 1][col])
+                if above and above == _bonus_match_cell_symbol(board[row - 2][col]):
+                    blocked.add(above)
+            choices = [
+                symbol for symbol in BONUS_MATCH_SYMBOLS
+                if symbol not in blocked
+            ]
+            board[row].append(
+                _bonus_match_new_cell(symbol=_random.choice(choices))
+            )
+    return board
+
+
+def _bonus_match_make_board(
+    level: int = 1,
+) -> list[list[Optional[dict]]]:
+    import random as _random
+
+    config = _bonus_match_level_config(level)
+    for _ in range(160):
+        board = _bonus_match_make_plain_board()
+        obstacle_types = list(config.get("obstacles") or [])
+        obstacle_count = int(config.get("obstacle_count", 0))
+        if obstacle_types and obstacle_count:
+            positions = [
+                (row, col)
+                for row in range(BONUS_MATCH_ROWS)
+                for col in range(BONUS_MATCH_COLS)
+            ]
+            _random.shuffle(positions)
+            newest = config.get("new_obstacle")
+            for index, (row, col) in enumerate(
+                positions[:obstacle_count]
+            ):
+                if newest and index < max(2, obstacle_count // 3):
+                    obstacle = newest
+                else:
+                    obstacle = _random.choice(obstacle_types)
+                board[row][col] = _bonus_match_new_cell(
+                    obstacle=obstacle
+                )
+        if (
+            not _bonus_match_find_matches(board)
+            and _bonus_match_has_move(board)
+        ):
             return board
-    return [[BONUS_MATCH_SYMBOLS[(row * 2 + col * 3) % len(BONUS_MATCH_SYMBOLS)] for col in range(BONUS_MATCH_COLS)] for row in range(BONUS_MATCH_ROWS)]
+    return _bonus_match_make_plain_board()
 
 
-def _bonus_match_collapse(board: list[list[Optional[str]]]) -> list[list[str]]:
+def _bonus_match_collapse(
+    board: list[list[Optional[dict]]],
+) -> tuple[list[list[Optional[dict]]], list[dict]]:
     import random as _random
 
+    board = _bonus_match_clone_board(board)
     rows = len(board)
     cols = len(board[0]) if rows else 0
+    spawned: list[dict] = []
+
     for col in range(cols):
-        values = [board[row][col] for row in range(rows) if board[row][col] is not None]
-        missing = rows - len(values)
-        new_values = [_random.choice(BONUS_MATCH_SYMBOLS) for _ in range(missing)] + values
-        for row in range(rows):
-            board[row][col] = new_values[row]
-    return board  # type: ignore[return-value]
+        fixed_rows = [
+            row
+            for row in range(rows)
+            if board[row][col]
+            and board[row][col].get("obstacle")
+        ]
+        boundaries = [-1] + fixed_rows + [rows]
+        for boundary_index in range(len(boundaries) - 1):
+            start = boundaries[boundary_index] + 1
+            end = boundaries[boundary_index + 1] - 1
+            if start > end:
+                continue
+            values = [
+                board[row][col]
+                for row in range(start, end + 1)
+                if board[row][col] is not None
+            ]
+            write_row = end
+            for cell in reversed(values):
+                board[write_row][col] = cell
+                write_row -= 1
+            while write_row >= start:
+                fresh = _bonus_match_new_cell(
+                    symbol=_random.choice(BONUS_MATCH_SYMBOLS)
+                )
+                board[write_row][col] = fresh
+                spawned.append({
+                    "row": write_row,
+                    "col": col,
+                    "id": fresh["id"],
+                })
+                write_row -= 1
+    return board, spawned
+
+
+def _bonus_match_special_targets(
+    board,
+    row: int,
+    col: int,
+    special: str,
+    color_symbol: Optional[str] = None,
+) -> set[tuple[int, int]]:
+    rows = len(board)
+    cols = len(board[0]) if rows else 0
+    if special == "rocket_row":
+        return {(row, current_col) for current_col in range(cols)}
+    if special == "rocket_col":
+        return {(current_row, col) for current_row in range(rows)}
+    if special == "bomb":
+        return {
+            (current_row, current_col)
+            for current_row in range(
+                max(0, row - 1),
+                min(rows, row + 2),
+            )
+            for current_col in range(
+                max(0, col - 1),
+                min(cols, col + 2),
+            )
+        }
+    if special == "color_bomb":
+        target = color_symbol
+        if not target:
+            counts = {symbol: 0 for symbol in BONUS_MATCH_SYMBOLS}
+            for board_row in board:
+                for cell in board_row:
+                    symbol = _bonus_match_cell_symbol(cell)
+                    if symbol:
+                        counts[symbol] += 1
+            target = max(counts, key=counts.get)
+        return {
+            (current_row, current_col)
+            for current_row, board_row in enumerate(board)
+            for current_col, cell in enumerate(board_row)
+            if _bonus_match_cell_symbol(cell) == target
+        } | {(row, col)}
+    return {(row, col)}
+
+
+def _bonus_match_expand_specials(
+    board,
+    clear_cells: set[tuple[int, int]],
+    initial_triggers: set[tuple[int, int]],
+    protected: set[tuple[int, int]],
+    color_symbol: Optional[str] = None,
+) -> tuple[set[tuple[int, int]], list[dict]]:
+    rows = len(board)
+    cols = len(board[0]) if rows else 0
+    queue: list[tuple[int, int]] = list(initial_triggers)
+
+    for row, col in list(clear_cells):
+        for current_row, current_col in (
+            (row, col),
+            (row - 1, col),
+            (row + 1, col),
+            (row, col - 1),
+            (row, col + 1),
+        ):
+            if (
+                0 <= current_row < rows
+                and 0 <= current_col < cols
+                and (current_row, current_col) not in protected
+            ):
+                cell = board[current_row][current_col]
+                if cell and cell.get("special"):
+                    queue.append((current_row, current_col))
+
+    activated: list[dict] = []
+    seen: set[tuple[int, int]] = set()
+    while queue:
+        row, col = queue.pop(0)
+        if (row, col) in seen or (row, col) in protected:
+            continue
+        cell = board[row][col]
+        special = cell.get("special") if cell else None
+        if special not in BONUS_MATCH_SPECIALS:
+            continue
+        seen.add((row, col))
+        targets = _bonus_match_special_targets(
+            board,
+            row,
+            col,
+            special,
+            color_symbol,
+        )
+        activated.append({
+            "row": row,
+            "col": col,
+            "special": special,
+            "targets": [
+                {"row": target_row, "col": target_col}
+                for target_row, target_col in sorted(targets)
+            ],
+        })
+        for target in targets:
+            if target not in protected:
+                clear_cells.add(target)
+            target_cell = board[target[0]][target[1]]
+            if (
+                target_cell
+                and target_cell.get("special")
+                and target not in seen
+                and target not in protected
+            ):
+                queue.append(target)
+    return clear_cells, activated
+
+
+def _bonus_match_damage_obstacles(
+    board,
+    impact_cells: set[tuple[int, int]],
+) -> list[dict]:
+    rows = len(board)
+    cols = len(board[0]) if rows else 0
+    affected: set[tuple[int, int]] = set()
+
+    for row, col in impact_cells:
+        for current_row, current_col in (
+            (row, col),
+            (row - 1, col),
+            (row + 1, col),
+            (row, col - 1),
+            (row, col + 1),
+        ):
+            if (
+                0 <= current_row < rows
+                and 0 <= current_col < cols
+            ):
+                affected.add((current_row, current_col))
+
+    changes: list[dict] = []
+    for row, col in affected:
+        cell = board[row][col]
+        if not cell or not cell.get("obstacle"):
+            continue
+        previous = int(cell.get("obstacle_hits", 1))
+        remaining = max(0, previous - 1)
+        obstacle = cell.get("obstacle")
+        destroyed = remaining <= 0
+        changes.append({
+            "row": row,
+            "col": col,
+            "obstacle": obstacle,
+            "before": previous,
+            "after": remaining,
+            "destroyed": destroyed,
+        })
+        if destroyed:
+            board[row][col] = None
+        else:
+            cell["obstacle_hits"] = remaining
+    return changes
 
 
 def _bonus_match_parse_iso(value: Optional[str]) -> datetime:
     if not value:
         return datetime.now(timezone.utc)
     try:
-        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-        return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+        parsed = datetime.fromisoformat(
+            str(value).replace("Z", "+00:00")
+        )
+        return (
+            parsed
+            if parsed.tzinfo
+            else parsed.replace(tzinfo=timezone.utc)
+        )
     except (ValueError, TypeError):
         return datetime.now(timezone.utc)
 
 
 async def _bonus_match_profile(user_id: str) -> dict:
     now = datetime.now(timezone.utc)
-    profile = await db.bonus_match_profiles.find_one({"user_id": user_id}, {"_id": 0})
+    profile = await db.bonus_match_profiles.find_one(
+        {"user_id": user_id},
+        {"_id": 0},
+    )
     if not profile:
         profile = {
             "user_id": user_id,
@@ -2560,22 +3081,45 @@ async def _bonus_match_profile(user_id: str) -> dict:
         try:
             await db.bonus_match_profiles.insert_one(profile.copy())
         except Exception:
-            profile = await db.bonus_match_profiles.find_one({"user_id": user_id}, {"_id": 0}) or profile
+            profile = await db.bonus_match_profiles.find_one(
+                {"user_id": user_id},
+                {"_id": 0},
+            ) or profile
 
-    lives = max(0, min(BONUS_MATCH_MAX_LIVES, int(profile.get("lives", BONUS_MATCH_MAX_LIVES))))
+    lives = max(
+        0,
+        min(
+            BONUS_MATCH_MAX_LIVES,
+            int(profile.get("lives", BONUS_MATCH_MAX_LIVES)),
+        ),
+    )
     anchor = _bonus_match_parse_iso(profile.get("lives_updated_at"))
     if lives < BONUS_MATCH_MAX_LIVES:
-        elapsed_seconds = max(0, (now - anchor).total_seconds())
-        gained = int(elapsed_seconds // (BONUS_MATCH_LIFE_REGEN_MINUTES * 60))
+        elapsed_seconds = max(
+            0,
+            (now - anchor).total_seconds(),
+        )
+        gained = int(
+            elapsed_seconds
+            // (BONUS_MATCH_LIFE_REGEN_MINUTES * 60)
+        )
         if gained > 0:
             lives = min(BONUS_MATCH_MAX_LIVES, lives + gained)
             if lives >= BONUS_MATCH_MAX_LIVES:
                 anchor = now
             else:
-                anchor = anchor + timedelta(minutes=BONUS_MATCH_LIFE_REGEN_MINUTES * gained)
+                anchor = anchor + timedelta(
+                    minutes=(
+                        BONUS_MATCH_LIFE_REGEN_MINUTES * gained
+                    )
+                )
             await db.bonus_match_profiles.update_one(
                 {"user_id": user_id},
-                {"$set": {"lives": lives, "lives_updated_at": anchor.isoformat(), "updated_at": now.isoformat()}},
+                {"$set": {
+                    "lives": lives,
+                    "lives_updated_at": anchor.isoformat(),
+                    "updated_at": now.isoformat(),
+                }},
             )
             profile["lives"] = lives
             profile["lives_updated_at"] = anchor.isoformat()
@@ -2583,7 +3127,14 @@ async def _bonus_match_profile(user_id: str) -> dict:
     profile.setdefault("current_level", 1)
     profile.setdefault("total_stars", 0)
     profile["lives"] = lives
-    profile["next_life_at"] = None if lives >= BONUS_MATCH_MAX_LIVES else (anchor + timedelta(minutes=BONUS_MATCH_LIFE_REGEN_MINUTES)).isoformat()
+    profile["next_life_at"] = (
+        None
+        if lives >= BONUS_MATCH_MAX_LIVES
+        else (
+            anchor
+            + timedelta(minutes=BONUS_MATCH_LIFE_REGEN_MINUTES)
+        ).isoformat()
+    )
     return profile
 
 
@@ -2591,33 +3142,62 @@ def _bonus_match_session_payload(session: dict) -> dict:
     return {
         "id": session["id"],
         "level": int(session["level"]),
-        "board": session["board"],
+        "board": _bonus_match_normalize_board(session["board"]),
         "moves_left": int(session["moves_left"]),
         "score": int(session.get("score", 0)),
-        "coins_collected": int(session.get("coins_collected", 0)),
+        "coins_collected": int(
+            session.get("coins_collected", 0)
+        ),
         "status": session.get("status", "active"),
-        "config": session.get("config") or _bonus_match_level_config(session["level"]),
+        "config": (
+            session.get("config")
+            or _bonus_match_level_config(session["level"])
+        ),
         "cascades": int(session.get("cascades", 0)),
         "created_at": session.get("created_at"),
         "completed_at": session.get("completed_at"),
     }
 
 
-async def _bonus_match_top_today(limit: int = 5) -> list[dict]:
-    start_iso, end_iso = kyiv_day_bounds_utc(kyiv_today_key())
+async def _bonus_match_top_today(
+    limit: int = 5,
+) -> list[dict]:
+    start_iso, end_iso = kyiv_day_bounds_utc(
+        kyiv_today_key()
+    )
     rows = await db.bonus_match_sessions.aggregate([
-        {"$match": {"status": "won", "completed_at": {"$gte": start_iso, "$lt": end_iso}}},
-        {"$group": {"_id": "$user_id", "score": {"$max": "$score"}, "level": {"$max": "$level"}}},
+        {"$match": {
+            "status": "won",
+            "completed_at": {
+                "$gte": start_iso,
+                "$lt": end_iso,
+            },
+        }},
+        {"$group": {
+            "_id": "$user_id",
+            "score": {"$max": "$score"},
+            "level": {"$max": "$level"},
+        }},
         {"$sort": {"score": -1, "level": -1}},
         {"$limit": limit},
     ]).to_list(limit)
     if not rows:
         return []
+
     users = await db.users.find(
         {"id": {"$in": [row["_id"] for row in rows]}},
-        {"_id": 0, "id": 1, "name": 1, "avatar_initials": 1, "avatar_color": 1, "avatar_url": 1, "avatar_rarity": 1},
+        {
+            "_id": 0,
+            "id": 1,
+            "name": 1,
+            "avatar_initials": 1,
+            "avatar_color": 1,
+            "avatar_url": 1,
+            "avatar_rarity": 1,
+        },
     ).to_list(limit)
     user_map = {item["id"]: item for item in users}
+
     result = []
     for index, row in enumerate(rows, start=1):
         player = user_map.get(row["_id"], {})
@@ -2625,24 +3205,41 @@ async def _bonus_match_top_today(limit: int = 5) -> list[dict]:
             "rank": index,
             "user_id": row["_id"],
             "name": player.get("name", "Працівник"),
-            "avatar_initials": player.get("avatar_initials", "TM"),
-            "avatar_color": player.get("avatar_color", "#7C3AED"),
+            "avatar_initials": player.get(
+                "avatar_initials",
+                "TM",
+            ),
+            "avatar_color": player.get(
+                "avatar_color",
+                "#7C3AED",
+            ),
             "avatar_url": player.get("avatar_url"),
-            "avatar_rarity": player.get("avatar_rarity", "basic"),
+            "avatar_rarity": player.get(
+                "avatar_rarity",
+                "basic",
+            ),
             "score": int(row.get("score", 0)),
             "level": int(row.get("level", 1)),
         })
     return result
 
 
-async def _bonus_match_reward_win(user: dict, session: dict, stars: int) -> dict:
+async def _bonus_match_reward_win(
+    user: dict,
+    session: dict,
+    stars: int,
+) -> dict:
     level = int(session["level"])
     now = now_iso()
     existing = await db.bonus_match_completions.find_one(
         {"user_id": user["id"], "level": level},
         {"_id": 0},
     )
-    previous_stars = int(existing.get("stars", 0)) if existing else 0
+    previous_stars = (
+        int(existing.get("stars", 0))
+        if existing
+        else 0
+    )
     first_completion = existing is None
     best_stars = max(previous_stars, stars)
     star_delta = max(0, best_stars - previous_stars)
@@ -2652,7 +3249,12 @@ async def _bonus_match_reward_win(user: dict, session: dict, stars: int) -> dict
         {
             "$set": {
                 "stars": best_stars,
-                "best_score": max(int(existing.get("best_score", 0)) if existing else 0, int(session.get("score", 0))),
+                "best_score": max(
+                    int(existing.get("best_score", 0))
+                    if existing
+                    else 0,
+                    int(session.get("score", 0)),
+                ),
                 "updated_at": now,
             },
             "$setOnInsert": {
@@ -2666,33 +3268,88 @@ async def _bonus_match_reward_win(user: dict, session: dict, stars: int) -> dict
     )
 
     profile = await _bonus_match_profile(user["id"])
-    refunded_lives = min(BONUS_MATCH_MAX_LIVES, int(profile.get("lives", 0)) + 1)
+    refunded_lives = min(
+        BONUS_MATCH_MAX_LIVES,
+        int(profile.get("lives", 0)) + 1,
+    )
     profile_updates: dict = {
-        "$max": {"current_level": min(BONUS_MATCH_MAX_LEVEL, level + 1)},
-        "$set": {"lives": refunded_lives, "updated_at": now},
+        "$max": {
+            "current_level": min(
+                BONUS_MATCH_MAX_LEVEL,
+                level + 1,
+            )
+        },
+        "$set": {
+            "lives": refunded_lives,
+            "updated_at": now,
+        },
     }
     if refunded_lives >= BONUS_MATCH_MAX_LIVES:
         profile_updates["$set"]["lives_updated_at"] = now
     if star_delta:
-        profile_updates["$inc"] = {"total_stars": star_delta}
-    await db.bonus_match_profiles.update_one({"user_id": user["id"]}, profile_updates)
+        profile_updates["$inc"] = {
+            "total_stars": star_delta
+        }
+    await db.bonus_match_profiles.update_one(
+        {"user_id": user["id"]},
+        profile_updates,
+    )
 
     points_awarded = 0
     xp_awarded = 0
     first_win_bonus = 0
+    reward_multiplier = int(
+        (session.get("config") or {}).get(
+            "reward_multiplier",
+            BONUS_MATCH_BOSS_LEVELS.get(level, 1),
+        ) or 1
+    )
+
     if first_completion:
         date_key = kyiv_today_key()
-        daily = await db.bonus_match_daily.find_one({"user_id": user["id"], "date": date_key}, {"_id": 0}) or {}
-        points_today = int(daily.get("points_awarded", 0))
-        first_win_bonus = 5 if int(daily.get("wins", 0)) == 0 else 0
-        raw_points = BONUS_MATCH_POINT_REWARD.get(stars, 0) + first_win_bonus
-        points_awarded = max(0, min(raw_points, BONUS_MATCH_DAILY_POINT_CAP - points_today))
-        xp_awarded = BONUS_MATCH_XP_REWARD.get(stars, 0)
+        daily = await db.bonus_match_daily.find_one(
+            {
+                "user_id": user["id"],
+                "date": date_key,
+            },
+            {"_id": 0},
+        ) or {}
+        points_today = int(
+            daily.get("points_awarded", 0)
+        )
+        first_win_bonus = (
+            5
+            if int(daily.get("wins", 0)) == 0
+            else 0
+        )
+        raw_points = (
+            BONUS_MATCH_POINT_REWARD.get(stars, 0)
+            * reward_multiplier
+            + first_win_bonus
+        )
+        points_awarded = max(
+            0,
+            min(
+                raw_points,
+                BONUS_MATCH_DAILY_POINT_CAP - points_today,
+            ),
+        )
+        xp_awarded = (
+            BONUS_MATCH_XP_REWARD.get(stars, 0)
+            * reward_multiplier
+        )
 
         await db.bonus_match_daily.update_one(
-            {"user_id": user["id"], "date": date_key},
             {
-                "$inc": {"wins": 1, "points_awarded": points_awarded, "xp_awarded": xp_awarded},
+                "user_id": user["id"],
+                "date": date_key,
+            },
+            {
+                "$inc": {
+                    "wins": 1,
+                    "points_awarded": points_awarded,
+                    "xp_awarded": xp_awarded,
+                },
                 "$set": {"updated_at": now},
                 "$setOnInsert": {"created_at": now},
             },
@@ -2701,85 +3358,196 @@ async def _bonus_match_reward_win(user: dict, session: dict, stars: int) -> dict
         if points_awarded or xp_awarded:
             await db.users.update_one(
                 {"id": user["id"]},
-                {"$inc": {"balance": points_awarded, "total_earned": points_awarded, "total_xp": xp_awarded}},
+                {"$inc": {
+                    "balance": points_awarded,
+                    "total_earned": points_awarded,
+                    "total_xp": xp_awarded,
+                }},
             )
             await db.transactions.insert_one({
                 "id": str(uuid.uuid4()),
                 "user_id": user["id"],
                 "kind": "bonus_match",
                 "amount": points_awarded,
-                "description": f"Bonus Match: рівень {level}, {stars} зірки, +{xp_awarded} XP",
+                "description": (
+                    f"Bonus Match: рівень {level}, "
+                    f"{stars} зірки, +{xp_awarded} XP"
+                ),
                 "created_at": now,
-                "meta": {"level": level, "stars": stars, "xp": xp_awarded, "first_win_bonus": first_win_bonus},
+                "meta": {
+                    "level": level,
+                    "stars": stars,
+                    "xp": xp_awarded,
+                    "first_win_bonus": first_win_bonus,
+                    "reward_multiplier": reward_multiplier,
+                },
             })
 
-    fresh_user = await db.users.find_one({"id": user["id"]}, {"_id": 0})
+    fresh_user = await db.users.find_one(
+        {"id": user["id"]},
+        {"_id": 0},
+    )
     fresh_profile = await _bonus_match_profile(user["id"])
     return {
         "first_completion": first_completion,
         "stars": stars,
         "points_awarded": points_awarded,
         "xp_awarded": xp_awarded,
-        "first_win_bonus": first_win_bonus if points_awarded else 0,
-        "new_balance": int(fresh_user.get("balance", 0)) if fresh_user else int(user.get("balance", 0)),
-        "total_xp": int(fresh_user.get("total_xp", 0)) if fresh_user else int(user.get("total_xp", 0)),
-        "current_level": int(fresh_profile.get("current_level", level + 1)),
-        "total_stars": int(fresh_profile.get("total_stars", 0)),
-        "lives": int(fresh_profile.get("lives", BONUS_MATCH_MAX_LIVES)),
+        "first_win_bonus": (
+            first_win_bonus
+            if points_awarded
+            else 0
+        ),
+        "reward_multiplier": reward_multiplier,
+        "new_balance": (
+            int(fresh_user.get("balance", 0))
+            if fresh_user
+            else int(user.get("balance", 0))
+        ),
+        "total_xp": (
+            int(fresh_user.get("total_xp", 0))
+            if fresh_user
+            else int(user.get("total_xp", 0))
+        ),
+        "current_level": int(
+            fresh_profile.get("current_level", level + 1)
+        ),
+        "total_stars": int(
+            fresh_profile.get("total_stars", 0)
+        ),
+        "lives": int(
+            fresh_profile.get(
+                "lives",
+                BONUS_MATCH_MAX_LIVES,
+            )
+        ),
     }
 
 
 @api.get("/games/bonus-match/status")
-async def bonus_match_status(user: dict = Depends(get_current_user)):
+async def bonus_match_status(
+    user: dict = Depends(get_current_user),
+):
     profile = await _bonus_match_profile(user["id"])
     date_key = kyiv_today_key()
-    daily = await db.bonus_match_daily.find_one({"user_id": user["id"], "date": date_key}, {"_id": 0}) or {}
+    daily = await db.bonus_match_daily.find_one(
+        {
+            "user_id": user["id"],
+            "date": date_key,
+        },
+        {"_id": 0},
+    ) or {}
     completions = await db.bonus_match_completions.find(
-        {"user_id": user["id"]}, {"_id": 0, "level": 1, "stars": 1, "best_score": 1}
-    ).sort("level", 1).to_list(BONUS_MATCH_MAX_LEVEL)
+        {"user_id": user["id"]},
+        {
+            "_id": 0,
+            "level": 1,
+            "stars": 1,
+            "best_score": 1,
+        },
+    ).sort(
+        "level",
+        1,
+    ).to_list(BONUS_MATCH_MAX_LEVEL)
     active = await db.bonus_match_sessions.find_one(
-        {"user_id": user["id"], "status": "active"}, {"_id": 0}, sort=[("created_at", -1)]
+        {
+            "user_id": user["id"],
+            "status": "active",
+        },
+        {"_id": 0},
+        sort=[("created_at", -1)],
     )
     return {
         "profile": {
-            "current_level": int(profile.get("current_level", 1)),
-            "total_stars": int(profile.get("total_stars", 0)),
-            "lives": int(profile.get("lives", BONUS_MATCH_MAX_LIVES)),
+            "current_level": int(
+                profile.get("current_level", 1)
+            ),
+            "total_stars": int(
+                profile.get("total_stars", 0)
+            ),
+            "lives": int(
+                profile.get(
+                    "lives",
+                    BONUS_MATCH_MAX_LIVES,
+                )
+            ),
             "max_lives": BONUS_MATCH_MAX_LIVES,
             "next_life_at": profile.get("next_life_at"),
-            "daily_points": int(daily.get("points_awarded", 0)),
-            "daily_point_cap": BONUS_MATCH_DAILY_POINT_CAP,
+            "daily_points": int(
+                daily.get("points_awarded", 0)
+            ),
+            "daily_point_cap": (
+                BONUS_MATCH_DAILY_POINT_CAP
+            ),
         },
         "completions": completions,
-        "active_session": _bonus_match_session_payload(active) if active else None,
+        "active_session": (
+            _bonus_match_session_payload(active)
+            if active
+            else None
+        ),
         "top_today": await _bonus_match_top_today(),
     }
 
 
 @api.post("/games/bonus-match/start")
-async def bonus_match_start(body: BonusMatchStartBody, user: dict = Depends(get_current_user)):
+async def bonus_match_start(
+    body: BonusMatchStartBody,
+    user: dict = Depends(get_current_user),
+):
     profile = await _bonus_match_profile(user["id"])
-    requested_level = max(1, min(BONUS_MATCH_MAX_LEVEL, int(body.level or 1)))
-    if requested_level > int(profile.get("current_level", 1)):
-        raise HTTPException(status_code=400, detail="Цей рівень ще не відкрито")
+    requested_level = max(
+        1,
+        min(
+            BONUS_MATCH_MAX_LEVEL,
+            int(body.level or 1),
+        ),
+    )
+    if requested_level > int(
+        profile.get("current_level", 1)
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Цей рівень ще не відкрито",
+        )
 
     existing = await db.bonus_match_sessions.find_one(
-        {"user_id": user["id"], "status": "active"}, {"_id": 0}, sort=[("created_at", -1)]
+        {
+            "user_id": user["id"],
+            "status": "active",
+        },
+        {"_id": 0},
+        sort=[("created_at", -1)],
     )
     if existing:
         return {
-            "session": _bonus_match_session_payload(existing),
+            "session": _bonus_match_session_payload(
+                existing
+            ),
             "profile": {
-                "lives": int(profile.get("lives", BONUS_MATCH_MAX_LIVES)),
+                "lives": int(
+                    profile.get(
+                        "lives",
+                        BONUS_MATCH_MAX_LIVES,
+                    )
+                ),
                 "max_lives": BONUS_MATCH_MAX_LIVES,
-                "next_life_at": profile.get("next_life_at"),
+                "next_life_at": profile.get(
+                    "next_life_at"
+                ),
             },
             "resumed": True,
         }
 
     lives = int(profile.get("lives", 0))
     if lives <= 0:
-        raise HTTPException(status_code=400, detail="Життя закінчилися. Наступне відновиться через 30 хвилин")
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Життя закінчилися. "
+                "Наступне відновиться через 30 хвилин"
+            ),
+        )
 
     now = now_iso()
     lives_anchor = profile.get("lives_updated_at")
@@ -2787,7 +3555,11 @@ async def bonus_match_start(body: BonusMatchStartBody, user: dict = Depends(get_
         lives_anchor = now
     await db.bonus_match_profiles.update_one(
         {"user_id": user["id"]},
-        {"$set": {"lives": lives - 1, "lives_updated_at": lives_anchor or now, "updated_at": now}},
+        {"$set": {
+            "lives": lives - 1,
+            "lives_updated_at": lives_anchor or now,
+            "updated_at": now,
+        }},
     )
 
     config = _bonus_match_level_config(requested_level)
@@ -2795,7 +3567,7 @@ async def bonus_match_start(body: BonusMatchStartBody, user: dict = Depends(get_
         "id": str(uuid.uuid4()),
         "user_id": user["id"],
         "level": requested_level,
-        "board": _bonus_match_make_board(),
+        "board": _bonus_match_make_board(requested_level),
         "moves_left": config["moves"],
         "score": 0,
         "coins_collected": 0,
@@ -2805,66 +3577,389 @@ async def bonus_match_start(body: BonusMatchStartBody, user: dict = Depends(get_
         "created_at": now,
         "updated_at": now,
     }
-    await db.bonus_match_sessions.insert_one(session.copy())
+    await db.bonus_match_sessions.insert_one(
+        session.copy()
+    )
     refreshed = await _bonus_match_profile(user["id"])
     return {
         "session": _bonus_match_session_payload(session),
         "profile": {
-            "lives": int(refreshed.get("lives", lives - 1)),
+            "lives": int(
+                refreshed.get("lives", lives - 1)
+            ),
             "max_lives": BONUS_MATCH_MAX_LIVES,
-            "next_life_at": refreshed.get("next_life_at"),
+            "next_life_at": refreshed.get(
+                "next_life_at"
+            ),
         },
         "resumed": False,
     }
 
 
 @api.post("/games/bonus-match/move")
-async def bonus_match_move(body: BonusMatchMoveBody, user: dict = Depends(get_current_user)):
+async def bonus_match_move(
+    body: BonusMatchMoveBody,
+    user: dict = Depends(get_current_user),
+):
     session = await db.bonus_match_sessions.find_one(
-        {"id": body.session_id, "user_id": user["id"]}, {"_id": 0}
+        {
+            "id": body.session_id,
+            "user_id": user["id"],
+        },
+        {"_id": 0},
     )
     if not session:
-        raise HTTPException(status_code=404, detail="Ігрову сесію не знайдено")
+        raise HTTPException(
+            status_code=404,
+            detail="Ігрову сесію не знайдено",
+        )
     if session.get("status") != "active":
-        return {"valid": False, "message": "Цей рівень уже завершено", "session": _bonus_match_session_payload(session)}
+        return {
+            "valid": False,
+            "message": "Цей рівень уже завершено",
+            "session": _bonus_match_session_payload(
+                session
+            ),
+        }
 
-    coordinates = [body.from_row, body.from_col, body.to_row, body.to_col]
+    coordinates = [
+        body.from_row,
+        body.from_col,
+        body.to_row,
+        body.to_col,
+    ]
     if any(value < 0 for value in coordinates):
-        raise HTTPException(status_code=400, detail="Некоректні координати ходу")
-    if body.from_row >= BONUS_MATCH_ROWS or body.to_row >= BONUS_MATCH_ROWS or body.from_col >= BONUS_MATCH_COLS or body.to_col >= BONUS_MATCH_COLS:
-        raise HTTPException(status_code=400, detail="Некоректні координати ходу")
-    if abs(body.from_row - body.to_row) + abs(body.from_col - body.to_col) != 1:
-        return {"valid": False, "message": "Обери сусідню фішку", "session": _bonus_match_session_payload(session)}
+        raise HTTPException(
+            status_code=400,
+            detail="Некоректні координати ходу",
+        )
+    if (
+        body.from_row >= BONUS_MATCH_ROWS
+        or body.to_row >= BONUS_MATCH_ROWS
+        or body.from_col >= BONUS_MATCH_COLS
+        or body.to_col >= BONUS_MATCH_COLS
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Некоректні координати ходу",
+        )
+    if (
+        abs(body.from_row - body.to_row)
+        + abs(body.from_col - body.to_col)
+        != 1
+    ):
+        return {
+            "valid": False,
+            "message": "Обери сусідню фішку",
+            "session": _bonus_match_session_payload(
+                session
+            ),
+        }
 
-    board = [list(row) for row in session["board"]]
-    board[body.from_row][body.from_col], board[body.to_row][body.to_col] = board[body.to_row][body.to_col], board[body.from_row][body.from_col]
-    matches = _bonus_match_find_matches(board)
-    if not matches:
-        return {"valid": False, "message": "Цей хід не створює комбінацію", "session": _bonus_match_session_payload(session)}
+    original_board = _bonus_match_clone_board(
+        session["board"]
+    )
+    board = _bonus_match_clone_board(
+        session["board"]
+    )
+    first_coord = (
+        body.from_row,
+        body.from_col,
+    )
+    second_coord = (
+        body.to_row,
+        body.to_col,
+    )
+    first_cell = board[first_coord[0]][first_coord[1]]
+    second_cell = board[second_coord[0]][second_coord[1]]
+
+    if (
+        not _bonus_match_cell_swappable(first_cell)
+        or not _bonus_match_cell_swappable(second_cell)
+    ):
+        return {
+            "valid": False,
+            "message": "Ця клітинка заблокована",
+            "session": _bonus_match_session_payload(
+                session
+            ),
+            "animation": {
+                "swap": {
+                    "from": {
+                        "row": first_coord[0],
+                        "col": first_coord[1],
+                    },
+                    "to": {
+                        "row": second_coord[0],
+                        "col": second_coord[1],
+                    },
+                },
+                "swapped_board": original_board,
+                "reverted_board": original_board,
+                "steps": [],
+            },
+        }
+
+    board[first_coord[0]][first_coord[1]], board[
+        second_coord[0]
+    ][second_coord[1]] = (
+        second_cell,
+        first_cell,
+    )
+    swapped_board = _bonus_match_clone_board(board)
+
+    direct_triggers: set[tuple[int, int]] = set()
+    color_symbol: Optional[str] = None
+    for coord, other_coord in (
+        (first_coord, second_coord),
+        (second_coord, first_coord),
+    ):
+        cell = board[coord[0]][coord[1]]
+        other = board[other_coord[0]][other_coord[1]]
+        if cell and cell.get("special"):
+            direct_triggers.add(coord)
+            if (
+                cell.get("special") == "color_bomb"
+                and other
+            ):
+                color_symbol = (
+                    _bonus_match_cell_symbol(other)
+                    or other.get("symbol")
+                )
+
+    groups = _bonus_match_find_match_groups(board)
+    if not groups and not direct_triggers:
+        return {
+            "valid": False,
+            "message": (
+                "Цей хід не створює комбінацію"
+            ),
+            "session": _bonus_match_session_payload(
+                session
+            ),
+            "animation": {
+                "swap": {
+                    "from": {
+                        "row": first_coord[0],
+                        "col": first_coord[1],
+                    },
+                    "to": {
+                        "row": second_coord[0],
+                        "col": second_coord[1],
+                    },
+                },
+                "swapped_board": swapped_board,
+                "reverted_board": original_board,
+                "steps": [],
+            },
+        }
 
     score_gain = 0
     coins_gain = 0
     cascade_count = 0
-    while matches and cascade_count < 12:
+    animation_steps: list[dict] = []
+    preferred = [second_coord, first_coord]
+
+    while (
+        groups or direct_triggers
+    ) and cascade_count < 12:
         cascade_count += 1
-        match_count = len(matches)
-        coins_gain += sum(1 for row, col in matches if board[row][col] == "coin")
-        score_gain += match_count * 100 + max(0, match_count - 3) * 70 + (cascade_count - 1) * 90
-        nullable_board: list[list[Optional[str]]] = [list(row) for row in board]
-        for row, col in matches:
-            nullable_board[row][col] = None
-        board = _bonus_match_collapse(nullable_board)
-        matches = _bonus_match_find_matches(board)
+        matched_cells: set[tuple[int, int]] = set()
+        protected: set[tuple[int, int]] = set()
+        created_specials: list[dict] = []
+
+        for group in groups:
+            matched_cells.update(group["cells"])
+            special = _bonus_match_group_special(group)
+            if not special:
+                continue
+            anchor = _bonus_match_pick_special_anchor(
+                board,
+                group,
+                (
+                    preferred
+                    if cascade_count == 1
+                    else []
+                ),
+            )
+            if anchor:
+                cell = board[anchor[0]][anchor[1]]
+                if cell:
+                    cell["special"] = special
+                    protected.add(anchor)
+                    created_specials.append({
+                        "row": anchor[0],
+                        "col": anchor[1],
+                        "special": special,
+                        "symbol": cell.get("symbol"),
+                        "id": cell.get("id"),
+                    })
+
+        clear_cells = set(matched_cells) - protected
+        (
+            clear_cells,
+            activated_specials,
+        ) = _bonus_match_expand_specials(
+            board,
+            clear_cells,
+            (
+                direct_triggers
+                if cascade_count == 1
+                else set()
+            ),
+            protected,
+            (
+                color_symbol
+                if cascade_count == 1
+                else None
+            ),
+        )
+        direct_triggers = set()
+
+        if not clear_cells and not created_specials:
+            break
+
+        board_before_clear = _bonus_match_clone_board(
+            board
+        )
+        coins_this_step = 0
+        symbol_cells_cleared = 0
+
+        for row, col in clear_cells:
+            cell = board[row][col]
+            if cell and not cell.get("obstacle"):
+                if cell.get("symbol") == "coin":
+                    coins_this_step += 1
+                if (
+                    cell.get("symbol")
+                    or cell.get("special")
+                ):
+                    symbol_cells_cleared += 1
+
+        obstacle_changes = (
+            _bonus_match_damage_obstacles(
+                board,
+                clear_cells,
+            )
+        )
+        for row, col in clear_cells:
+            if (row, col) in protected:
+                continue
+            cell = board[row][col]
+            if cell and not cell.get("obstacle"):
+                board[row][col] = None
+
+        special_bonus = sum(
+            BONUS_MATCH_SPECIAL_SCORE.get(
+                item["special"],
+                0,
+            )
+            for item in activated_specials
+        )
+        long_match_bonus = sum(
+            max(0, len(run["cells"]) - 3) * 120
+            for group in groups
+            for run in group["runs"]
+        )
+        obstacle_bonus = sum(
+            180 if item["destroyed"] else 70
+            for item in obstacle_changes
+        )
+        base_step_score = (
+            symbol_cells_cleared * 100
+            + special_bonus
+            + long_match_bonus
+            + obstacle_bonus
+        )
+        combo_multiplier = (
+            1 + (cascade_count - 1) * 0.25
+        )
+        step_score = int(
+            base_step_score * combo_multiplier
+        )
+        score_gain += step_score
+        coins_gain += coins_this_step
+
+        board_after_clear = (
+            _bonus_match_clone_board(board)
+        )
+        board, spawned = _bonus_match_collapse(board)
+        board_after_collapse = (
+            _bonus_match_clone_board(board)
+        )
+        animation_steps.append({
+            "combo": cascade_count,
+            "score_gain": step_score,
+            "coins_gain": coins_this_step,
+            "matched_cells": [
+                {"row": row, "col": col}
+                for row, col in sorted(matched_cells)
+            ],
+            "cleared_cells": [
+                {"row": row, "col": col}
+                for row, col in sorted(clear_cells)
+            ],
+            "created_specials": created_specials,
+            "activated_specials": (
+                activated_specials
+            ),
+            "obstacle_changes": obstacle_changes,
+            "board_before_clear": (
+                board_before_clear
+            ),
+            "board_after_clear": (
+                board_after_clear
+            ),
+            "board_after_collapse": (
+                board_after_collapse
+            ),
+            "spawned": spawned,
+        })
+        groups = _bonus_match_find_match_groups(
+            board
+        )
+        preferred = []
 
     if not _bonus_match_has_move(board):
-        board = _bonus_match_make_board()
+        board = _bonus_match_make_board(
+            int(session["level"])
+        )
+        reshuffled = True
+    else:
+        reshuffled = False
 
-    moves_left = max(0, int(session.get("moves_left", 0)) - 1)
-    score = int(session.get("score", 0)) + score_gain
-    coins_collected = int(session.get("coins_collected", 0)) + coins_gain
-    config = session.get("config") or _bonus_match_level_config(session["level"])
-    won = score >= int(config["target_score"]) and coins_collected >= int(config["target_coins"])
-    status_value = "won" if won else ("lost" if moves_left <= 0 else "active")
+    moves_left = max(
+        0,
+        int(session.get("moves_left", 0)) - 1,
+    )
+    score = (
+        int(session.get("score", 0))
+        + score_gain
+    )
+    coins_collected = (
+        int(session.get("coins_collected", 0))
+        + coins_gain
+    )
+    config = (
+        session.get("config")
+        or _bonus_match_level_config(
+            session["level"]
+        )
+    )
+    won = (
+        score >= int(config["target_score"])
+        and coins_collected
+        >= int(config["target_coins"])
+    )
+    status_value = (
+        "won"
+        if won
+        else (
+            "lost"
+            if moves_left <= 0
+            else "active"
+        )
+    )
     now = now_iso()
 
     updates = {
@@ -2872,39 +3967,84 @@ async def bonus_match_move(body: BonusMatchMoveBody, user: dict = Depends(get_cu
         "moves_left": moves_left,
         "score": score,
         "coins_collected": coins_collected,
-        "cascades": int(session.get("cascades", 0)) + cascade_count,
+        "cascades": (
+            int(session.get("cascades", 0))
+            + cascade_count
+        ),
         "status": status_value,
         "updated_at": now,
     }
     if status_value != "active":
         updates["completed_at"] = now
-    await db.bonus_match_sessions.update_one({"id": session["id"]}, {"$set": updates})
+    await db.bonus_match_sessions.update_one(
+        {"id": session["id"]},
+        {"$set": updates},
+    )
     session = {**session, **updates}
 
     result = None
     if won:
         thresholds = config["star_thresholds"]
-        stars = 3 if score >= thresholds[2] else 2 if score >= thresholds[1] else 1
-        result = await _bonus_match_reward_win(user, session, stars)
+        stars = (
+            3
+            if score >= thresholds[2]
+            else (
+                2
+                if score >= thresholds[1]
+                else 1
+            )
+        )
+        result = await _bonus_match_reward_win(
+            user,
+            session,
+            stars,
+        )
     elif status_value == "lost":
         profile = await _bonus_match_profile(user["id"])
         result = {
             "stars": 0,
             "points_awarded": 0,
             "xp_awarded": 0,
-            "lives": int(profile.get("lives", 0)),
-            "current_level": int(profile.get("current_level", 1)),
-            "total_stars": int(profile.get("total_stars", 0)),
+            "lives": int(
+                profile.get("lives", 0)
+            ),
+            "current_level": int(
+                profile.get("current_level", 1)
+            ),
+            "total_stars": int(
+                profile.get("total_stars", 0)
+            ),
         }
 
     return {
         "valid": True,
-        "message": f"+{score_gain} очок" if score_gain else "Хід зараховано",
+        "message": (
+            f"+{score_gain} очок"
+            if score_gain
+            else "Хід зараховано"
+        ),
         "score_gain": score_gain,
         "coins_gain": coins_gain,
         "cascade_count": cascade_count,
-        "session": _bonus_match_session_payload(session),
+        "session": _bonus_match_session_payload(
+            session
+        ),
         "result": result,
+        "animation": {
+            "swap": {
+                "from": {
+                    "row": first_coord[0],
+                    "col": first_coord[1],
+                },
+                "to": {
+                    "row": second_coord[0],
+                    "col": second_coord[1],
+                },
+            },
+            "swapped_board": swapped_board,
+            "steps": animation_steps,
+            "reshuffled": reshuffled,
+        },
     }
 
 

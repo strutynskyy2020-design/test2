@@ -1,0 +1,3066 @@
+--- tm6v65-original/backend/server.py	2026-07-23 20:51:41.000000000 +0000
++++ tm6v66-work/backend/server.py	2026-07-23 21:39:04.535448948 +0000
+@@ -2423,8 +2423,21 @@
+ BONUS_MATCH_LIFE_REGEN_MINUTES = 30
+ BONUS_MATCH_DAILY_POINT_CAP = 40
+ BONUS_MATCH_SYMBOLS = ["coin", "star", "gift", "cube", "zap", "trophy"]
++BONUS_MATCH_SPECIALS = {"rocket_row", "rocket_col", "bomb", "color_bomb"}
+ BONUS_MATCH_POINT_REWARD = {1: 2, 2: 4, 3: 7}
+ BONUS_MATCH_XP_REWARD = {1: 5, 2: 10, 3: 15}
++BONUS_MATCH_BOSS_LEVELS = {25: 2, 40: 2, 50: 3}
++BONUS_MATCH_OBSTACLE_ORDER = [
++    "ice", "chain", "crate", "stone", "crystal",
++    "web", "shield", "slime", "metal", "core",
++]
++BONUS_MATCH_OBSTACLE_HITS = {
++    "ice": 2, "chain": 2, "crate": 2, "stone": 3, "crystal": 2,
++    "web": 1, "shield": 3, "slime": 2, "metal": 3, "core": 4,
++}
++BONUS_MATCH_SPECIAL_SCORE = {
++    "rocket_row": 450, "rocket_col": 450, "bomb": 700, "color_bomb": 1100,
++}
+ 
+ 
+ class BonusMatchStartBody(BaseModel):
+@@ -2439,51 +2452,309 @@
+     to_col: int
+ 
+ 
++def _bonus_match_new_cell(
++    symbol: Optional[str] = None,
++    special: Optional[str] = None,
++    obstacle: Optional[str] = None,
++    obstacle_hits: Optional[int] = None,
++) -> dict:
++    return {
++        "id": uuid.uuid4().hex[:14],
++        "symbol": symbol if symbol in BONUS_MATCH_SYMBOLS else None,
++        "special": special if special in BONUS_MATCH_SPECIALS else None,
++        "obstacle": obstacle if obstacle in BONUS_MATCH_OBSTACLE_HITS else None,
++        "obstacle_hits": int(
++            obstacle_hits if obstacle_hits is not None
++            else BONUS_MATCH_OBSTACLE_HITS.get(obstacle, 0)
++        ),
++    }
++
++
++def _bonus_match_normalize_cell(value) -> Optional[dict]:
++    if value is None:
++        return None
++    if isinstance(value, str):
++        return _bonus_match_new_cell(symbol=value)
++    if not isinstance(value, dict):
++        return None
++    symbol = value.get("symbol")
++    special = value.get("special")
++    obstacle = value.get("obstacle")
++    cell = {
++        "id": str(value.get("id") or uuid.uuid4().hex[:14]),
++        "symbol": symbol if symbol in BONUS_MATCH_SYMBOLS else None,
++        "special": special if special in BONUS_MATCH_SPECIALS else None,
++        "obstacle": obstacle if obstacle in BONUS_MATCH_OBSTACLE_HITS else None,
++        "obstacle_hits": max(
++            0,
++            int(value.get(
++                "obstacle_hits",
++                BONUS_MATCH_OBSTACLE_HITS.get(obstacle, 0),
++            ) or 0),
++        ),
++    }
++    if cell["obstacle"]:
++        cell["symbol"] = None
++        cell["special"] = None
++        if cell["obstacle_hits"] <= 0:
++            cell["obstacle_hits"] = BONUS_MATCH_OBSTACLE_HITS[cell["obstacle"]]
++    return cell
++
++
++def _bonus_match_normalize_board(board) -> list[list[Optional[dict]]]:
++    rows = list(board or [])[:BONUS_MATCH_ROWS]
++    normalized: list[list[Optional[dict]]] = []
++    for row in rows:
++        values = list(row or [])[:BONUS_MATCH_COLS]
++        normalized.append([_bonus_match_normalize_cell(value) for value in values])
++        while len(normalized[-1]) < BONUS_MATCH_COLS:
++            normalized[-1].append(_bonus_match_new_cell(
++                symbol=BONUS_MATCH_SYMBOLS[
++                    (len(normalized) + len(normalized[-1])) % len(BONUS_MATCH_SYMBOLS)
++                ]
++            ))
++    while len(normalized) < BONUS_MATCH_ROWS:
++        normalized.append([
++            _bonus_match_new_cell(
++                symbol=BONUS_MATCH_SYMBOLS[
++                    (len(normalized) * 2 + col * 3) % len(BONUS_MATCH_SYMBOLS)
++                ]
++            )
++            for col in range(BONUS_MATCH_COLS)
++        ])
++    return normalized
++
++
++def _bonus_match_clone_board(board) -> list[list[Optional[dict]]]:
++    return [
++        [dict(cell) if cell else None for cell in row]
++        for row in _bonus_match_normalize_board(board)
++    ]
++
++
++def _bonus_match_cell_symbol(cell: Optional[dict]) -> Optional[str]:
++    if not cell or cell.get("obstacle") or cell.get("special") == "color_bomb":
++        return None
++    symbol = cell.get("symbol")
++    return symbol if symbol in BONUS_MATCH_SYMBOLS else None
++
++
++def _bonus_match_cell_swappable(cell: Optional[dict]) -> bool:
++    return bool(
++        cell
++        and not cell.get("obstacle")
++        and (cell.get("symbol") or cell.get("special"))
++    )
++
++
+ def _bonus_match_level_config(level: int) -> dict:
+     level = max(1, min(BONUS_MATCH_MAX_LEVEL, int(level or 1)))
+-    target_score = 900 + level * 260
+-    target_coins = 6 + ((level + 1) // 2)
+-    moves = max(17, 23 - ((level - 1) // 6))
++    milestone = level % 5 == 0
++    stage = level // 5
++    base_target = 900 + level * 260
++    ordinary_stage = (level - 1) // 5
++    target_score = int(base_target * (1 + ordinary_stage * 0.10))
++
++    if milestone:
++        previous_base = 900 + (level - 1) * 260
++        previous_target = previous_base * (1 + max(0, stage - 1) * 0.10)
++        challenge_multiplier = min(2.5, 1.8 + max(0, stage - 1) * 0.08)
++        target_score = max(target_score, int(previous_target * challenge_multiplier))
++
++    boss_multiplier = BONUS_MATCH_BOSS_LEVELS.get(level, 1)
++    if boss_multiplier > 1:
++        target_score = int(target_score * 1.12)
++
++    moves = max(15, 24 - ((level - 1) // 7))
++    if milestone:
++        moves = max(12, moves - 2)
++    if boss_multiplier > 1:
++        moves = max(11, moves - 1)
++
++    target_coins = 6 + ((level + 1) // 2) + ordinary_stage
++    if milestone:
++        target_coins = int(target_coins * 1.3) + 2
++
++    unlocked_obstacles = BONUS_MATCH_OBSTACLE_ORDER[:stage]
++    obstacle_count = 0
++    if unlocked_obstacles:
++        obstacle_count = min(
++            14,
++            2 + stage + (2 if milestone else 0) + (2 if boss_multiplier > 1 else 0),
++        )
++
++    newest_obstacle = unlocked_obstacles[-1] if unlocked_obstacles else None
+     return {
+         "level": level,
+         "moves": moves,
+         "target_score": target_score,
+         "target_coins": target_coins,
+-        "star_thresholds": [target_score, int(target_score * 1.35), int(target_score * 1.72)],
++        "star_thresholds": [
++            target_score,
++            int(target_score * 1.35),
++            int(target_score * 1.72),
++        ],
++        "is_milestone": milestone,
++        "is_boss": boss_multiplier > 1,
++        "reward_multiplier": boss_multiplier,
++        "challenge_title": "РІВЕНЬ-ВИКЛИК!" if milestone else None,
++        "boss_title": "БОС-РІВЕНЬ" if boss_multiplier > 1 else None,
++        "obstacles": unlocked_obstacles,
++        "new_obstacle": newest_obstacle if milestone else None,
++        "obstacle_count": obstacle_count,
+     }
+ 
+ 
+-def _bonus_match_find_matches(board: list[list[str]]) -> set[tuple[int, int]]:
+-    matched: set[tuple[int, int]] = set()
++def _bonus_match_find_runs(board: list[list[Optional[dict]]]) -> list[dict]:
++    runs: list[dict] = []
+     rows = len(board)
+     cols = len(board[0]) if rows else 0
+ 
+     for row in range(rows):
+         start = 0
+         while start < cols:
+-            symbol = board[row][start]
++            symbol = _bonus_match_cell_symbol(board[row][start])
+             end = start + 1
+-            while end < cols and board[row][end] == symbol:
++            while (
++                end < cols
++                and symbol is not None
++                and _bonus_match_cell_symbol(board[row][end]) == symbol
++            ):
+                 end += 1
+             if symbol is not None and end - start >= 3:
+-                matched.update((row, col) for col in range(start, end))
++                runs.append({
++                    "symbol": symbol,
++                    "orientation": "row",
++                    "cells": {(row, col) for col in range(start, end)},
++                })
+             start = end
+ 
+     for col in range(cols):
+         start = 0
+         while start < rows:
+-            symbol = board[start][col]
++            symbol = _bonus_match_cell_symbol(board[start][col])
+             end = start + 1
+-            while end < rows and board[end][col] == symbol:
++            while (
++                end < rows
++                and symbol is not None
++                and _bonus_match_cell_symbol(board[end][col]) == symbol
++            ):
+                 end += 1
+             if symbol is not None and end - start >= 3:
+-                matched.update((row, col) for row in range(start, end))
++                runs.append({
++                    "symbol": symbol,
++                    "orientation": "col",
++                    "cells": {(row, col) for row in range(start, end)},
++                })
+             start = end
++    return runs
++
++
++def _bonus_match_find_match_groups(
++    board: list[list[Optional[dict]]],
++) -> list[dict]:
++    runs = _bonus_match_find_runs(board)
++    groups: list[dict] = []
++    for run in runs:
++        touching = [
++            index
++            for index, group in enumerate(groups)
++            if group["symbol"] == run["symbol"]
++            and group["cells"] & run["cells"]
++        ]
++        if not touching:
++            groups.append({
++                "symbol": run["symbol"],
++                "cells": set(run["cells"]),
++                "runs": [run],
++            })
++            continue
++        first = touching[0]
++        groups[first]["cells"].update(run["cells"])
++        groups[first]["runs"].append(run)
++        for index in reversed(touching[1:]):
++            groups[first]["cells"].update(groups[index]["cells"])
++            groups[first]["runs"].extend(groups[index]["runs"])
++            groups.pop(index)
++    return groups
++
+ 
++def _bonus_match_find_matches(
++    board: list[list[Optional[dict]]],
++) -> set[tuple[int, int]]:
++    matched: set[tuple[int, int]] = set()
++    for group in _bonus_match_find_match_groups(board):
++        matched.update(group["cells"])
+     return matched
+ 
+ 
+-def _bonus_match_has_move(board: list[list[str]]) -> bool:
++def _bonus_match_group_special(group: dict) -> Optional[str]:
++    max_row = max(
++        (len(run["cells"]) for run in group["runs"] if run["orientation"] == "row"),
++        default=0,
++    )
++    max_col = max(
++        (len(run["cells"]) for run in group["runs"] if run["orientation"] == "col"),
++        default=0,
++    )
++    if max(max_row, max_col) >= 5:
++        return "color_bomb"
++    if max_row >= 3 and max_col >= 3:
++        return "bomb"
++    if max_row >= 4:
++        return "rocket_row"
++    if max_col >= 4:
++        return "rocket_col"
++    return None
++
++
++def _bonus_match_pick_special_anchor(
++    board,
++    group: dict,
++    preferred: list[tuple[int, int]],
++) -> Optional[tuple[int, int]]:
++    candidates = [
++        coord
++        for coord in group["cells"]
++        if _bonus_match_cell_swappable(board[coord[0]][coord[1]])
++        and not board[coord[0]][coord[1]].get("special")
++    ]
++    if not candidates:
++        candidates = [
++            coord
++            for coord in group["cells"]
++            if _bonus_match_cell_swappable(board[coord[0]][coord[1]])
++        ]
++    if not candidates:
++        return None
++
++    special = _bonus_match_group_special(group)
++    if special == "bomb":
++        row_cells = set().union(*(
++            run["cells"]
++            for run in group["runs"]
++            if run["orientation"] == "row"
++        ))
++        col_cells = set().union(*(
++            run["cells"]
++            for run in group["runs"]
++            if run["orientation"] == "col"
++        ))
++        intersections = list(row_cells & col_cells)
++        for coord in preferred:
++            if coord in intersections:
++                return coord
++        if intersections:
++            return intersections[0]
++
++    for coord in preferred:
++        if coord in candidates:
++            return coord
++    return sorted(candidates)[len(candidates) // 2]
++
++
++def _bonus_match_has_move(board: list[list[Optional[dict]]]) -> bool:
++    board = _bonus_match_clone_board(board)
+     rows = len(board)
+     cols = len(board[0]) if rows else 0
+     for row in range(rows):
+@@ -2492,61 +2763,311 @@
+                 next_row, next_col = row + dr, col + dc
+                 if next_row >= rows or next_col >= cols:
+                     continue
+-                board[row][col], board[next_row][next_col] = board[next_row][next_col], board[row][col]
+-                valid = bool(_bonus_match_find_matches(board))
+-                board[row][col], board[next_row][next_col] = board[next_row][next_col], board[row][col]
++                first, second = board[row][col], board[next_row][next_col]
++                if (
++                    not _bonus_match_cell_swappable(first)
++                    or not _bonus_match_cell_swappable(second)
++                ):
++                    continue
++                if first.get("special") or second.get("special"):
++                    return True
++                board[row][col], board[next_row][next_col] = second, first
++                valid = bool(_bonus_match_find_match_groups(board))
++                board[row][col], board[next_row][next_col] = first, second
+                 if valid:
+                     return True
+     return False
+ 
+ 
+-def _bonus_match_make_board() -> list[list[str]]:
++def _bonus_match_make_plain_board() -> list[list[Optional[dict]]]:
+     import random as _random
+ 
+-    for _ in range(120):
+-        board: list[list[str]] = []
+-        for row in range(BONUS_MATCH_ROWS):
+-            board.append([])
+-            for col in range(BONUS_MATCH_COLS):
+-                blocked: set[str] = set()
+-                if col >= 2 and board[row][col - 1] == board[row][col - 2]:
+-                    blocked.add(board[row][col - 1])
+-                if row >= 2 and board[row - 1][col] == board[row - 2][col]:
+-                    blocked.add(board[row - 1][col])
+-                choices = [symbol for symbol in BONUS_MATCH_SYMBOLS if symbol not in blocked]
+-                board[row].append(_random.choice(choices))
+-        if _bonus_match_has_move(board):
++    board: list[list[Optional[dict]]] = []
++    for row in range(BONUS_MATCH_ROWS):
++        board.append([])
++        for col in range(BONUS_MATCH_COLS):
++            blocked: set[str] = set()
++            if col >= 2:
++                left = _bonus_match_cell_symbol(board[row][col - 1])
++                if left and left == _bonus_match_cell_symbol(board[row][col - 2]):
++                    blocked.add(left)
++            if row >= 2:
++                above = _bonus_match_cell_symbol(board[row - 1][col])
++                if above and above == _bonus_match_cell_symbol(board[row - 2][col]):
++                    blocked.add(above)
++            choices = [
++                symbol for symbol in BONUS_MATCH_SYMBOLS
++                if symbol not in blocked
++            ]
++            board[row].append(
++                _bonus_match_new_cell(symbol=_random.choice(choices))
++            )
++    return board
++
++
++def _bonus_match_make_board(
++    level: int = 1,
++) -> list[list[Optional[dict]]]:
++    import random as _random
++
++    config = _bonus_match_level_config(level)
++    for _ in range(160):
++        board = _bonus_match_make_plain_board()
++        obstacle_types = list(config.get("obstacles") or [])
++        obstacle_count = int(config.get("obstacle_count", 0))
++        if obstacle_types and obstacle_count:
++            positions = [
++                (row, col)
++                for row in range(BONUS_MATCH_ROWS)
++                for col in range(BONUS_MATCH_COLS)
++            ]
++            _random.shuffle(positions)
++            newest = config.get("new_obstacle")
++            for index, (row, col) in enumerate(
++                positions[:obstacle_count]
++            ):
++                if newest and index < max(2, obstacle_count // 3):
++                    obstacle = newest
++                else:
++                    obstacle = _random.choice(obstacle_types)
++                board[row][col] = _bonus_match_new_cell(
++                    obstacle=obstacle
++                )
++        if (
++            not _bonus_match_find_matches(board)
++            and _bonus_match_has_move(board)
++        ):
+             return board
+-    return [[BONUS_MATCH_SYMBOLS[(row * 2 + col * 3) % len(BONUS_MATCH_SYMBOLS)] for col in range(BONUS_MATCH_COLS)] for row in range(BONUS_MATCH_ROWS)]
++    return _bonus_match_make_plain_board()
+ 
+ 
+-def _bonus_match_collapse(board: list[list[Optional[str]]]) -> list[list[str]]:
++def _bonus_match_collapse(
++    board: list[list[Optional[dict]]],
++) -> tuple[list[list[Optional[dict]]], list[dict]]:
+     import random as _random
+ 
++    board = _bonus_match_clone_board(board)
+     rows = len(board)
+     cols = len(board[0]) if rows else 0
++    spawned: list[dict] = []
++
+     for col in range(cols):
+-        values = [board[row][col] for row in range(rows) if board[row][col] is not None]
+-        missing = rows - len(values)
+-        new_values = [_random.choice(BONUS_MATCH_SYMBOLS) for _ in range(missing)] + values
+-        for row in range(rows):
+-            board[row][col] = new_values[row]
+-    return board  # type: ignore[return-value]
++        fixed_rows = [
++            row
++            for row in range(rows)
++            if board[row][col]
++            and board[row][col].get("obstacle")
++        ]
++        boundaries = [-1] + fixed_rows + [rows]
++        for boundary_index in range(len(boundaries) - 1):
++            start = boundaries[boundary_index] + 1
++            end = boundaries[boundary_index + 1] - 1
++            if start > end:
++                continue
++            values = [
++                board[row][col]
++                for row in range(start, end + 1)
++                if board[row][col] is not None
++            ]
++            write_row = end
++            for cell in reversed(values):
++                board[write_row][col] = cell
++                write_row -= 1
++            while write_row >= start:
++                fresh = _bonus_match_new_cell(
++                    symbol=_random.choice(BONUS_MATCH_SYMBOLS)
++                )
++                board[write_row][col] = fresh
++                spawned.append({
++                    "row": write_row,
++                    "col": col,
++                    "id": fresh["id"],
++                })
++                write_row -= 1
++    return board, spawned
++
++
++def _bonus_match_special_targets(
++    board,
++    row: int,
++    col: int,
++    special: str,
++    color_symbol: Optional[str] = None,
++) -> set[tuple[int, int]]:
++    rows = len(board)
++    cols = len(board[0]) if rows else 0
++    if special == "rocket_row":
++        return {(row, current_col) for current_col in range(cols)}
++    if special == "rocket_col":
++        return {(current_row, col) for current_row in range(rows)}
++    if special == "bomb":
++        return {
++            (current_row, current_col)
++            for current_row in range(
++                max(0, row - 1),
++                min(rows, row + 2),
++            )
++            for current_col in range(
++                max(0, col - 1),
++                min(cols, col + 2),
++            )
++        }
++    if special == "color_bomb":
++        target = color_symbol
++        if not target:
++            counts = {symbol: 0 for symbol in BONUS_MATCH_SYMBOLS}
++            for board_row in board:
++                for cell in board_row:
++                    symbol = _bonus_match_cell_symbol(cell)
++                    if symbol:
++                        counts[symbol] += 1
++            target = max(counts, key=counts.get)
++        return {
++            (current_row, current_col)
++            for current_row, board_row in enumerate(board)
++            for current_col, cell in enumerate(board_row)
++            if _bonus_match_cell_symbol(cell) == target
++        } | {(row, col)}
++    return {(row, col)}
++
++
++def _bonus_match_expand_specials(
++    board,
++    clear_cells: set[tuple[int, int]],
++    initial_triggers: set[tuple[int, int]],
++    protected: set[tuple[int, int]],
++    color_symbol: Optional[str] = None,
++) -> tuple[set[tuple[int, int]], list[dict]]:
++    rows = len(board)
++    cols = len(board[0]) if rows else 0
++    queue: list[tuple[int, int]] = list(initial_triggers)
++
++    for row, col in list(clear_cells):
++        for current_row, current_col in (
++            (row, col),
++            (row - 1, col),
++            (row + 1, col),
++            (row, col - 1),
++            (row, col + 1),
++        ):
++            if (
++                0 <= current_row < rows
++                and 0 <= current_col < cols
++                and (current_row, current_col) not in protected
++            ):
++                cell = board[current_row][current_col]
++                if cell and cell.get("special"):
++                    queue.append((current_row, current_col))
++
++    activated: list[dict] = []
++    seen: set[tuple[int, int]] = set()
++    while queue:
++        row, col = queue.pop(0)
++        if (row, col) in seen or (row, col) in protected:
++            continue
++        cell = board[row][col]
++        special = cell.get("special") if cell else None
++        if special not in BONUS_MATCH_SPECIALS:
++            continue
++        seen.add((row, col))
++        targets = _bonus_match_special_targets(
++            board,
++            row,
++            col,
++            special,
++            color_symbol,
++        )
++        activated.append({
++            "row": row,
++            "col": col,
++            "special": special,
++            "targets": [
++                {"row": target_row, "col": target_col}
++                for target_row, target_col in sorted(targets)
++            ],
++        })
++        for target in targets:
++            if target not in protected:
++                clear_cells.add(target)
++            target_cell = board[target[0]][target[1]]
++            if (
++                target_cell
++                and target_cell.get("special")
++                and target not in seen
++                and target not in protected
++            ):
++                queue.append(target)
++    return clear_cells, activated
++
++
++def _bonus_match_damage_obstacles(
++    board,
++    impact_cells: set[tuple[int, int]],
++) -> list[dict]:
++    rows = len(board)
++    cols = len(board[0]) if rows else 0
++    affected: set[tuple[int, int]] = set()
++
++    for row, col in impact_cells:
++        for current_row, current_col in (
++            (row, col),
++            (row - 1, col),
++            (row + 1, col),
++            (row, col - 1),
++            (row, col + 1),
++        ):
++            if (
++                0 <= current_row < rows
++                and 0 <= current_col < cols
++            ):
++                affected.add((current_row, current_col))
++
++    changes: list[dict] = []
++    for row, col in affected:
++        cell = board[row][col]
++        if not cell or not cell.get("obstacle"):
++            continue
++        previous = int(cell.get("obstacle_hits", 1))
++        remaining = max(0, previous - 1)
++        obstacle = cell.get("obstacle")
++        destroyed = remaining <= 0
++        changes.append({
++            "row": row,
++            "col": col,
++            "obstacle": obstacle,
++            "before": previous,
++            "after": remaining,
++            "destroyed": destroyed,
++        })
++        if destroyed:
++            board[row][col] = None
++        else:
++            cell["obstacle_hits"] = remaining
++    return changes
+ 
+ 
+ def _bonus_match_parse_iso(value: Optional[str]) -> datetime:
+     if not value:
+         return datetime.now(timezone.utc)
+     try:
+-        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+-        return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
++        parsed = datetime.fromisoformat(
++            str(value).replace("Z", "+00:00")
++        )
++        return (
++            parsed
++            if parsed.tzinfo
++            else parsed.replace(tzinfo=timezone.utc)
++        )
+     except (ValueError, TypeError):
+         return datetime.now(timezone.utc)
+ 
+ 
+ async def _bonus_match_profile(user_id: str) -> dict:
+     now = datetime.now(timezone.utc)
+-    profile = await db.bonus_match_profiles.find_one({"user_id": user_id}, {"_id": 0})
++    profile = await db.bonus_match_profiles.find_one(
++        {"user_id": user_id},
++        {"_id": 0},
++    )
+     if not profile:
+         profile = {
+             "user_id": user_id,
+@@ -2560,22 +3081,45 @@
+         try:
+             await db.bonus_match_profiles.insert_one(profile.copy())
+         except Exception:
+-            profile = await db.bonus_match_profiles.find_one({"user_id": user_id}, {"_id": 0}) or profile
++            profile = await db.bonus_match_profiles.find_one(
++                {"user_id": user_id},
++                {"_id": 0},
++            ) or profile
+ 
+-    lives = max(0, min(BONUS_MATCH_MAX_LIVES, int(profile.get("lives", BONUS_MATCH_MAX_LIVES))))
++    lives = max(
++        0,
++        min(
++            BONUS_MATCH_MAX_LIVES,
++            int(profile.get("lives", BONUS_MATCH_MAX_LIVES)),
++        ),
++    )
+     anchor = _bonus_match_parse_iso(profile.get("lives_updated_at"))
+     if lives < BONUS_MATCH_MAX_LIVES:
+-        elapsed_seconds = max(0, (now - anchor).total_seconds())
+-        gained = int(elapsed_seconds // (BONUS_MATCH_LIFE_REGEN_MINUTES * 60))
++        elapsed_seconds = max(
++            0,
++            (now - anchor).total_seconds(),
++        )
++        gained = int(
++            elapsed_seconds
++            // (BONUS_MATCH_LIFE_REGEN_MINUTES * 60)
++        )
+         if gained > 0:
+             lives = min(BONUS_MATCH_MAX_LIVES, lives + gained)
+             if lives >= BONUS_MATCH_MAX_LIVES:
+                 anchor = now
+             else:
+-                anchor = anchor + timedelta(minutes=BONUS_MATCH_LIFE_REGEN_MINUTES * gained)
++                anchor = anchor + timedelta(
++                    minutes=(
++                        BONUS_MATCH_LIFE_REGEN_MINUTES * gained
++                    )
++                )
+             await db.bonus_match_profiles.update_one(
+                 {"user_id": user_id},
+-                {"$set": {"lives": lives, "lives_updated_at": anchor.isoformat(), "updated_at": now.isoformat()}},
++                {"$set": {
++                    "lives": lives,
++                    "lives_updated_at": anchor.isoformat(),
++                    "updated_at": now.isoformat(),
++                }},
+             )
+             profile["lives"] = lives
+             profile["lives_updated_at"] = anchor.isoformat()
+@@ -2583,7 +3127,14 @@
+     profile.setdefault("current_level", 1)
+     profile.setdefault("total_stars", 0)
+     profile["lives"] = lives
+-    profile["next_life_at"] = None if lives >= BONUS_MATCH_MAX_LIVES else (anchor + timedelta(minutes=BONUS_MATCH_LIFE_REGEN_MINUTES)).isoformat()
++    profile["next_life_at"] = (
++        None
++        if lives >= BONUS_MATCH_MAX_LIVES
++        else (
++            anchor
++            + timedelta(minutes=BONUS_MATCH_LIFE_REGEN_MINUTES)
++        ).isoformat()
++    )
+     return profile
+ 
+ 
+@@ -2591,33 +3142,62 @@
+     return {
+         "id": session["id"],
+         "level": int(session["level"]),
+-        "board": session["board"],
++        "board": _bonus_match_normalize_board(session["board"]),
+         "moves_left": int(session["moves_left"]),
+         "score": int(session.get("score", 0)),
+-        "coins_collected": int(session.get("coins_collected", 0)),
++        "coins_collected": int(
++            session.get("coins_collected", 0)
++        ),
+         "status": session.get("status", "active"),
+-        "config": session.get("config") or _bonus_match_level_config(session["level"]),
++        "config": (
++            session.get("config")
++            or _bonus_match_level_config(session["level"])
++        ),
+         "cascades": int(session.get("cascades", 0)),
+         "created_at": session.get("created_at"),
+         "completed_at": session.get("completed_at"),
+     }
+ 
+ 
+-async def _bonus_match_top_today(limit: int = 5) -> list[dict]:
+-    start_iso, end_iso = kyiv_day_bounds_utc(kyiv_today_key())
++async def _bonus_match_top_today(
++    limit: int = 5,
++) -> list[dict]:
++    start_iso, end_iso = kyiv_day_bounds_utc(
++        kyiv_today_key()
++    )
+     rows = await db.bonus_match_sessions.aggregate([
+-        {"$match": {"status": "won", "completed_at": {"$gte": start_iso, "$lt": end_iso}}},
+-        {"$group": {"_id": "$user_id", "score": {"$max": "$score"}, "level": {"$max": "$level"}}},
++        {"$match": {
++            "status": "won",
++            "completed_at": {
++                "$gte": start_iso,
++                "$lt": end_iso,
++            },
++        }},
++        {"$group": {
++            "_id": "$user_id",
++            "score": {"$max": "$score"},
++            "level": {"$max": "$level"},
++        }},
+         {"$sort": {"score": -1, "level": -1}},
+         {"$limit": limit},
+     ]).to_list(limit)
+     if not rows:
+         return []
++
+     users = await db.users.find(
+         {"id": {"$in": [row["_id"] for row in rows]}},
+-        {"_id": 0, "id": 1, "name": 1, "avatar_initials": 1, "avatar_color": 1, "avatar_url": 1, "avatar_rarity": 1},
++        {
++            "_id": 0,
++            "id": 1,
++            "name": 1,
++            "avatar_initials": 1,
++            "avatar_color": 1,
++            "avatar_url": 1,
++            "avatar_rarity": 1,
++        },
+     ).to_list(limit)
+     user_map = {item["id"]: item for item in users}
++
+     result = []
+     for index, row in enumerate(rows, start=1):
+         player = user_map.get(row["_id"], {})
+@@ -2625,24 +3205,41 @@
+             "rank": index,
+             "user_id": row["_id"],
+             "name": player.get("name", "Працівник"),
+-            "avatar_initials": player.get("avatar_initials", "TM"),
+-            "avatar_color": player.get("avatar_color", "#7C3AED"),
++            "avatar_initials": player.get(
++                "avatar_initials",
++                "TM",
++            ),
++            "avatar_color": player.get(
++                "avatar_color",
++                "#7C3AED",
++            ),
+             "avatar_url": player.get("avatar_url"),
+-            "avatar_rarity": player.get("avatar_rarity", "basic"),
++            "avatar_rarity": player.get(
++                "avatar_rarity",
++                "basic",
++            ),
+             "score": int(row.get("score", 0)),
+             "level": int(row.get("level", 1)),
+         })
+     return result
+ 
+ 
+-async def _bonus_match_reward_win(user: dict, session: dict, stars: int) -> dict:
++async def _bonus_match_reward_win(
++    user: dict,
++    session: dict,
++    stars: int,
++) -> dict:
+     level = int(session["level"])
+     now = now_iso()
+     existing = await db.bonus_match_completions.find_one(
+         {"user_id": user["id"], "level": level},
+         {"_id": 0},
+     )
+-    previous_stars = int(existing.get("stars", 0)) if existing else 0
++    previous_stars = (
++        int(existing.get("stars", 0))
++        if existing
++        else 0
++    )
+     first_completion = existing is None
+     best_stars = max(previous_stars, stars)
+     star_delta = max(0, best_stars - previous_stars)
+@@ -2652,7 +3249,12 @@
+         {
+             "$set": {
+                 "stars": best_stars,
+-                "best_score": max(int(existing.get("best_score", 0)) if existing else 0, int(session.get("score", 0))),
++                "best_score": max(
++                    int(existing.get("best_score", 0))
++                    if existing
++                    else 0,
++                    int(session.get("score", 0)),
++                ),
+                 "updated_at": now,
+             },
+             "$setOnInsert": {
+@@ -2666,33 +3268,88 @@
+     )
+ 
+     profile = await _bonus_match_profile(user["id"])
+-    refunded_lives = min(BONUS_MATCH_MAX_LIVES, int(profile.get("lives", 0)) + 1)
++    refunded_lives = min(
++        BONUS_MATCH_MAX_LIVES,
++        int(profile.get("lives", 0)) + 1,
++    )
+     profile_updates: dict = {
+-        "$max": {"current_level": min(BONUS_MATCH_MAX_LEVEL, level + 1)},
+-        "$set": {"lives": refunded_lives, "updated_at": now},
++        "$max": {
++            "current_level": min(
++                BONUS_MATCH_MAX_LEVEL,
++                level + 1,
++            )
++        },
++        "$set": {
++            "lives": refunded_lives,
++            "updated_at": now,
++        },
+     }
+     if refunded_lives >= BONUS_MATCH_MAX_LIVES:
+         profile_updates["$set"]["lives_updated_at"] = now
+     if star_delta:
+-        profile_updates["$inc"] = {"total_stars": star_delta}
+-    await db.bonus_match_profiles.update_one({"user_id": user["id"]}, profile_updates)
++        profile_updates["$inc"] = {
++            "total_stars": star_delta
++        }
++    await db.bonus_match_profiles.update_one(
++        {"user_id": user["id"]},
++        profile_updates,
++    )
+ 
+     points_awarded = 0
+     xp_awarded = 0
+     first_win_bonus = 0
++    reward_multiplier = int(
++        (session.get("config") or {}).get(
++            "reward_multiplier",
++            BONUS_MATCH_BOSS_LEVELS.get(level, 1),
++        ) or 1
++    )
++
+     if first_completion:
+         date_key = kyiv_today_key()
+-        daily = await db.bonus_match_daily.find_one({"user_id": user["id"], "date": date_key}, {"_id": 0}) or {}
+-        points_today = int(daily.get("points_awarded", 0))
+-        first_win_bonus = 5 if int(daily.get("wins", 0)) == 0 else 0
+-        raw_points = BONUS_MATCH_POINT_REWARD.get(stars, 0) + first_win_bonus
+-        points_awarded = max(0, min(raw_points, BONUS_MATCH_DAILY_POINT_CAP - points_today))
+-        xp_awarded = BONUS_MATCH_XP_REWARD.get(stars, 0)
++        daily = await db.bonus_match_daily.find_one(
++            {
++                "user_id": user["id"],
++                "date": date_key,
++            },
++            {"_id": 0},
++        ) or {}
++        points_today = int(
++            daily.get("points_awarded", 0)
++        )
++        first_win_bonus = (
++            5
++            if int(daily.get("wins", 0)) == 0
++            else 0
++        )
++        raw_points = (
++            BONUS_MATCH_POINT_REWARD.get(stars, 0)
++            * reward_multiplier
++            + first_win_bonus
++        )
++        points_awarded = max(
++            0,
++            min(
++                raw_points,
++                BONUS_MATCH_DAILY_POINT_CAP - points_today,
++            ),
++        )
++        xp_awarded = (
++            BONUS_MATCH_XP_REWARD.get(stars, 0)
++            * reward_multiplier
++        )
+ 
+         await db.bonus_match_daily.update_one(
+-            {"user_id": user["id"], "date": date_key},
+             {
+-                "$inc": {"wins": 1, "points_awarded": points_awarded, "xp_awarded": xp_awarded},
++                "user_id": user["id"],
++                "date": date_key,
++            },
++            {
++                "$inc": {
++                    "wins": 1,
++                    "points_awarded": points_awarded,
++                    "xp_awarded": xp_awarded,
++                },
+                 "$set": {"updated_at": now},
+                 "$setOnInsert": {"created_at": now},
+             },
+@@ -2701,85 +3358,196 @@
+         if points_awarded or xp_awarded:
+             await db.users.update_one(
+                 {"id": user["id"]},
+-                {"$inc": {"balance": points_awarded, "total_earned": points_awarded, "total_xp": xp_awarded}},
++                {"$inc": {
++                    "balance": points_awarded,
++                    "total_earned": points_awarded,
++                    "total_xp": xp_awarded,
++                }},
+             )
+             await db.transactions.insert_one({
+                 "id": str(uuid.uuid4()),
+                 "user_id": user["id"],
+                 "kind": "bonus_match",
+                 "amount": points_awarded,
+-                "description": f"Bonus Match: рівень {level}, {stars} зірки, +{xp_awarded} XP",
++                "description": (
++                    f"Bonus Match: рівень {level}, "
++                    f"{stars} зірки, +{xp_awarded} XP"
++                ),
+                 "created_at": now,
+-                "meta": {"level": level, "stars": stars, "xp": xp_awarded, "first_win_bonus": first_win_bonus},
++                "meta": {
++                    "level": level,
++                    "stars": stars,
++                    "xp": xp_awarded,
++                    "first_win_bonus": first_win_bonus,
++                    "reward_multiplier": reward_multiplier,
++                },
+             })
+ 
+-    fresh_user = await db.users.find_one({"id": user["id"]}, {"_id": 0})
++    fresh_user = await db.users.find_one(
++        {"id": user["id"]},
++        {"_id": 0},
++    )
+     fresh_profile = await _bonus_match_profile(user["id"])
+     return {
+         "first_completion": first_completion,
+         "stars": stars,
+         "points_awarded": points_awarded,
+         "xp_awarded": xp_awarded,
+-        "first_win_bonus": first_win_bonus if points_awarded else 0,
+-        "new_balance": int(fresh_user.get("balance", 0)) if fresh_user else int(user.get("balance", 0)),
+-        "total_xp": int(fresh_user.get("total_xp", 0)) if fresh_user else int(user.get("total_xp", 0)),
+-        "current_level": int(fresh_profile.get("current_level", level + 1)),
+-        "total_stars": int(fresh_profile.get("total_stars", 0)),
+-        "lives": int(fresh_profile.get("lives", BONUS_MATCH_MAX_LIVES)),
++        "first_win_bonus": (
++            first_win_bonus
++            if points_awarded
++            else 0
++        ),
++        "reward_multiplier": reward_multiplier,
++        "new_balance": (
++            int(fresh_user.get("balance", 0))
++            if fresh_user
++            else int(user.get("balance", 0))
++        ),
++        "total_xp": (
++            int(fresh_user.get("total_xp", 0))
++            if fresh_user
++            else int(user.get("total_xp", 0))
++        ),
++        "current_level": int(
++            fresh_profile.get("current_level", level + 1)
++        ),
++        "total_stars": int(
++            fresh_profile.get("total_stars", 0)
++        ),
++        "lives": int(
++            fresh_profile.get(
++                "lives",
++                BONUS_MATCH_MAX_LIVES,
++            )
++        ),
+     }
+ 
+ 
+ @api.get("/games/bonus-match/status")
+-async def bonus_match_status(user: dict = Depends(get_current_user)):
++async def bonus_match_status(
++    user: dict = Depends(get_current_user),
++):
+     profile = await _bonus_match_profile(user["id"])
+     date_key = kyiv_today_key()
+-    daily = await db.bonus_match_daily.find_one({"user_id": user["id"], "date": date_key}, {"_id": 0}) or {}
++    daily = await db.bonus_match_daily.find_one(
++        {
++            "user_id": user["id"],
++            "date": date_key,
++        },
++        {"_id": 0},
++    ) or {}
+     completions = await db.bonus_match_completions.find(
+-        {"user_id": user["id"]}, {"_id": 0, "level": 1, "stars": 1, "best_score": 1}
+-    ).sort("level", 1).to_list(BONUS_MATCH_MAX_LEVEL)
++        {"user_id": user["id"]},
++        {
++            "_id": 0,
++            "level": 1,
++            "stars": 1,
++            "best_score": 1,
++        },
++    ).sort(
++        "level",
++        1,
++    ).to_list(BONUS_MATCH_MAX_LEVEL)
+     active = await db.bonus_match_sessions.find_one(
+-        {"user_id": user["id"], "status": "active"}, {"_id": 0}, sort=[("created_at", -1)]
++        {
++            "user_id": user["id"],
++            "status": "active",
++        },
++        {"_id": 0},
++        sort=[("created_at", -1)],
+     )
+     return {
+         "profile": {
+-            "current_level": int(profile.get("current_level", 1)),
+-            "total_stars": int(profile.get("total_stars", 0)),
+-            "lives": int(profile.get("lives", BONUS_MATCH_MAX_LIVES)),
++            "current_level": int(
++                profile.get("current_level", 1)
++            ),
++            "total_stars": int(
++                profile.get("total_stars", 0)
++            ),
++            "lives": int(
++                profile.get(
++                    "lives",
++                    BONUS_MATCH_MAX_LIVES,
++                )
++            ),
+             "max_lives": BONUS_MATCH_MAX_LIVES,
+             "next_life_at": profile.get("next_life_at"),
+-            "daily_points": int(daily.get("points_awarded", 0)),
+-            "daily_point_cap": BONUS_MATCH_DAILY_POINT_CAP,
++            "daily_points": int(
++                daily.get("points_awarded", 0)
++            ),
++            "daily_point_cap": (
++                BONUS_MATCH_DAILY_POINT_CAP
++            ),
+         },
+         "completions": completions,
+-        "active_session": _bonus_match_session_payload(active) if active else None,
++        "active_session": (
++            _bonus_match_session_payload(active)
++            if active
++            else None
++        ),
+         "top_today": await _bonus_match_top_today(),
+     }
+ 
+ 
+ @api.post("/games/bonus-match/start")
+-async def bonus_match_start(body: BonusMatchStartBody, user: dict = Depends(get_current_user)):
++async def bonus_match_start(
++    body: BonusMatchStartBody,
++    user: dict = Depends(get_current_user),
++):
+     profile = await _bonus_match_profile(user["id"])
+-    requested_level = max(1, min(BONUS_MATCH_MAX_LEVEL, int(body.level or 1)))
+-    if requested_level > int(profile.get("current_level", 1)):
+-        raise HTTPException(status_code=400, detail="Цей рівень ще не відкрито")
++    requested_level = max(
++        1,
++        min(
++            BONUS_MATCH_MAX_LEVEL,
++            int(body.level or 1),
++        ),
++    )
++    if requested_level > int(
++        profile.get("current_level", 1)
++    ):
++        raise HTTPException(
++            status_code=400,
++            detail="Цей рівень ще не відкрито",
++        )
+ 
+     existing = await db.bonus_match_sessions.find_one(
+-        {"user_id": user["id"], "status": "active"}, {"_id": 0}, sort=[("created_at", -1)]
++        {
++            "user_id": user["id"],
++            "status": "active",
++        },
++        {"_id": 0},
++        sort=[("created_at", -1)],
+     )
+     if existing:
+         return {
+-            "session": _bonus_match_session_payload(existing),
++            "session": _bonus_match_session_payload(
++                existing
++            ),
+             "profile": {
+-                "lives": int(profile.get("lives", BONUS_MATCH_MAX_LIVES)),
++                "lives": int(
++                    profile.get(
++                        "lives",
++                        BONUS_MATCH_MAX_LIVES,
++                    )
++                ),
+                 "max_lives": BONUS_MATCH_MAX_LIVES,
+-                "next_life_at": profile.get("next_life_at"),
++                "next_life_at": profile.get(
++                    "next_life_at"
++                ),
+             },
+             "resumed": True,
+         }
+ 
+     lives = int(profile.get("lives", 0))
+     if lives <= 0:
+-        raise HTTPException(status_code=400, detail="Життя закінчилися. Наступне відновиться через 30 хвилин")
++        raise HTTPException(
++            status_code=400,
++            detail=(
++                "Життя закінчилися. "
++                "Наступне відновиться через 30 хвилин"
++            ),
++        )
+ 
+     now = now_iso()
+     lives_anchor = profile.get("lives_updated_at")
+@@ -2787,7 +3555,11 @@
+         lives_anchor = now
+     await db.bonus_match_profiles.update_one(
+         {"user_id": user["id"]},
+-        {"$set": {"lives": lives - 1, "lives_updated_at": lives_anchor or now, "updated_at": now}},
++        {"$set": {
++            "lives": lives - 1,
++            "lives_updated_at": lives_anchor or now,
++            "updated_at": now,
++        }},
+     )
+ 
+     config = _bonus_match_level_config(requested_level)
+@@ -2795,7 +3567,7 @@
+         "id": str(uuid.uuid4()),
+         "user_id": user["id"],
+         "level": requested_level,
+-        "board": _bonus_match_make_board(),
++        "board": _bonus_match_make_board(requested_level),
+         "moves_left": config["moves"],
+         "score": 0,
+         "coins_collected": 0,
+@@ -2805,66 +3577,389 @@
+         "created_at": now,
+         "updated_at": now,
+     }
+-    await db.bonus_match_sessions.insert_one(session.copy())
++    await db.bonus_match_sessions.insert_one(
++        session.copy()
++    )
+     refreshed = await _bonus_match_profile(user["id"])
+     return {
+         "session": _bonus_match_session_payload(session),
+         "profile": {
+-            "lives": int(refreshed.get("lives", lives - 1)),
++            "lives": int(
++                refreshed.get("lives", lives - 1)
++            ),
+             "max_lives": BONUS_MATCH_MAX_LIVES,
+-            "next_life_at": refreshed.get("next_life_at"),
++            "next_life_at": refreshed.get(
++                "next_life_at"
++            ),
+         },
+         "resumed": False,
+     }
+ 
+ 
+ @api.post("/games/bonus-match/move")
+-async def bonus_match_move(body: BonusMatchMoveBody, user: dict = Depends(get_current_user)):
++async def bonus_match_move(
++    body: BonusMatchMoveBody,
++    user: dict = Depends(get_current_user),
++):
+     session = await db.bonus_match_sessions.find_one(
+-        {"id": body.session_id, "user_id": user["id"]}, {"_id": 0}
++        {
++            "id": body.session_id,
++            "user_id": user["id"],
++        },
++        {"_id": 0},
+     )
+     if not session:
+-        raise HTTPException(status_code=404, detail="Ігрову сесію не знайдено")
++        raise HTTPException(
++            status_code=404,
++            detail="Ігрову сесію не знайдено",
++        )
+     if session.get("status") != "active":
+-        return {"valid": False, "message": "Цей рівень уже завершено", "session": _bonus_match_session_payload(session)}
++        return {
++            "valid": False,
++            "message": "Цей рівень уже завершено",
++            "session": _bonus_match_session_payload(
++                session
++            ),
++        }
+ 
+-    coordinates = [body.from_row, body.from_col, body.to_row, body.to_col]
++    coordinates = [
++        body.from_row,
++        body.from_col,
++        body.to_row,
++        body.to_col,
++    ]
+     if any(value < 0 for value in coordinates):
+-        raise HTTPException(status_code=400, detail="Некоректні координати ходу")
+-    if body.from_row >= BONUS_MATCH_ROWS or body.to_row >= BONUS_MATCH_ROWS or body.from_col >= BONUS_MATCH_COLS or body.to_col >= BONUS_MATCH_COLS:
+-        raise HTTPException(status_code=400, detail="Некоректні координати ходу")
+-    if abs(body.from_row - body.to_row) + abs(body.from_col - body.to_col) != 1:
+-        return {"valid": False, "message": "Обери сусідню фішку", "session": _bonus_match_session_payload(session)}
+-
+-    board = [list(row) for row in session["board"]]
+-    board[body.from_row][body.from_col], board[body.to_row][body.to_col] = board[body.to_row][body.to_col], board[body.from_row][body.from_col]
+-    matches = _bonus_match_find_matches(board)
+-    if not matches:
+-        return {"valid": False, "message": "Цей хід не створює комбінацію", "session": _bonus_match_session_payload(session)}
++        raise HTTPException(
++            status_code=400,
++            detail="Некоректні координати ходу",
++        )
++    if (
++        body.from_row >= BONUS_MATCH_ROWS
++        or body.to_row >= BONUS_MATCH_ROWS
++        or body.from_col >= BONUS_MATCH_COLS
++        or body.to_col >= BONUS_MATCH_COLS
++    ):
++        raise HTTPException(
++            status_code=400,
++            detail="Некоректні координати ходу",
++        )
++    if (
++        abs(body.from_row - body.to_row)
++        + abs(body.from_col - body.to_col)
++        != 1
++    ):
++        return {
++            "valid": False,
++            "message": "Обери сусідню фішку",
++            "session": _bonus_match_session_payload(
++                session
++            ),
++        }
++
++    original_board = _bonus_match_clone_board(
++        session["board"]
++    )
++    board = _bonus_match_clone_board(
++        session["board"]
++    )
++    first_coord = (
++        body.from_row,
++        body.from_col,
++    )
++    second_coord = (
++        body.to_row,
++        body.to_col,
++    )
++    first_cell = board[first_coord[0]][first_coord[1]]
++    second_cell = board[second_coord[0]][second_coord[1]]
++
++    if (
++        not _bonus_match_cell_swappable(first_cell)
++        or not _bonus_match_cell_swappable(second_cell)
++    ):
++        return {
++            "valid": False,
++            "message": "Ця клітинка заблокована",
++            "session": _bonus_match_session_payload(
++                session
++            ),
++            "animation": {
++                "swap": {
++                    "from": {
++                        "row": first_coord[0],
++                        "col": first_coord[1],
++                    },
++                    "to": {
++                        "row": second_coord[0],
++                        "col": second_coord[1],
++                    },
++                },
++                "swapped_board": original_board,
++                "reverted_board": original_board,
++                "steps": [],
++            },
++        }
++
++    board[first_coord[0]][first_coord[1]], board[
++        second_coord[0]
++    ][second_coord[1]] = (
++        second_cell,
++        first_cell,
++    )
++    swapped_board = _bonus_match_clone_board(board)
++
++    direct_triggers: set[tuple[int, int]] = set()
++    color_symbol: Optional[str] = None
++    for coord, other_coord in (
++        (first_coord, second_coord),
++        (second_coord, first_coord),
++    ):
++        cell = board[coord[0]][coord[1]]
++        other = board[other_coord[0]][other_coord[1]]
++        if cell and cell.get("special"):
++            direct_triggers.add(coord)
++            if (
++                cell.get("special") == "color_bomb"
++                and other
++            ):
++                color_symbol = (
++                    _bonus_match_cell_symbol(other)
++                    or other.get("symbol")
++                )
++
++    groups = _bonus_match_find_match_groups(board)
++    if not groups and not direct_triggers:
++        return {
++            "valid": False,
++            "message": (
++                "Цей хід не створює комбінацію"
++            ),
++            "session": _bonus_match_session_payload(
++                session
++            ),
++            "animation": {
++                "swap": {
++                    "from": {
++                        "row": first_coord[0],
++                        "col": first_coord[1],
++                    },
++                    "to": {
++                        "row": second_coord[0],
++                        "col": second_coord[1],
++                    },
++                },
++                "swapped_board": swapped_board,
++                "reverted_board": original_board,
++                "steps": [],
++            },
++        }
+ 
+     score_gain = 0
+     coins_gain = 0
+     cascade_count = 0
+-    while matches and cascade_count < 12:
++    animation_steps: list[dict] = []
++    preferred = [second_coord, first_coord]
++
++    while (
++        groups or direct_triggers
++    ) and cascade_count < 12:
+         cascade_count += 1
+-        match_count = len(matches)
+-        coins_gain += sum(1 for row, col in matches if board[row][col] == "coin")
+-        score_gain += match_count * 100 + max(0, match_count - 3) * 70 + (cascade_count - 1) * 90
+-        nullable_board: list[list[Optional[str]]] = [list(row) for row in board]
+-        for row, col in matches:
+-            nullable_board[row][col] = None
+-        board = _bonus_match_collapse(nullable_board)
+-        matches = _bonus_match_find_matches(board)
++        matched_cells: set[tuple[int, int]] = set()
++        protected: set[tuple[int, int]] = set()
++        created_specials: list[dict] = []
++
++        for group in groups:
++            matched_cells.update(group["cells"])
++            special = _bonus_match_group_special(group)
++            if not special:
++                continue
++            anchor = _bonus_match_pick_special_anchor(
++                board,
++                group,
++                (
++                    preferred
++                    if cascade_count == 1
++                    else []
++                ),
++            )
++            if anchor:
++                cell = board[anchor[0]][anchor[1]]
++                if cell:
++                    cell["special"] = special
++                    protected.add(anchor)
++                    created_specials.append({
++                        "row": anchor[0],
++                        "col": anchor[1],
++                        "special": special,
++                        "symbol": cell.get("symbol"),
++                        "id": cell.get("id"),
++                    })
++
++        clear_cells = set(matched_cells) - protected
++        (
++            clear_cells,
++            activated_specials,
++        ) = _bonus_match_expand_specials(
++            board,
++            clear_cells,
++            (
++                direct_triggers
++                if cascade_count == 1
++                else set()
++            ),
++            protected,
++            (
++                color_symbol
++                if cascade_count == 1
++                else None
++            ),
++        )
++        direct_triggers = set()
+ 
+-    if not _bonus_match_has_move(board):
+-        board = _bonus_match_make_board()
++        if not clear_cells and not created_specials:
++            break
++
++        board_before_clear = _bonus_match_clone_board(
++            board
++        )
++        coins_this_step = 0
++        symbol_cells_cleared = 0
+ 
+-    moves_left = max(0, int(session.get("moves_left", 0)) - 1)
+-    score = int(session.get("score", 0)) + score_gain
+-    coins_collected = int(session.get("coins_collected", 0)) + coins_gain
+-    config = session.get("config") or _bonus_match_level_config(session["level"])
+-    won = score >= int(config["target_score"]) and coins_collected >= int(config["target_coins"])
+-    status_value = "won" if won else ("lost" if moves_left <= 0 else "active")
++        for row, col in clear_cells:
++            cell = board[row][col]
++            if cell and not cell.get("obstacle"):
++                if cell.get("symbol") == "coin":
++                    coins_this_step += 1
++                if (
++                    cell.get("symbol")
++                    or cell.get("special")
++                ):
++                    symbol_cells_cleared += 1
++
++        obstacle_changes = (
++            _bonus_match_damage_obstacles(
++                board,
++                clear_cells,
++            )
++        )
++        for row, col in clear_cells:
++            if (row, col) in protected:
++                continue
++            cell = board[row][col]
++            if cell and not cell.get("obstacle"):
++                board[row][col] = None
++
++        special_bonus = sum(
++            BONUS_MATCH_SPECIAL_SCORE.get(
++                item["special"],
++                0,
++            )
++            for item in activated_specials
++        )
++        long_match_bonus = sum(
++            max(0, len(run["cells"]) - 3) * 120
++            for group in groups
++            for run in group["runs"]
++        )
++        obstacle_bonus = sum(
++            180 if item["destroyed"] else 70
++            for item in obstacle_changes
++        )
++        base_step_score = (
++            symbol_cells_cleared * 100
++            + special_bonus
++            + long_match_bonus
++            + obstacle_bonus
++        )
++        combo_multiplier = (
++            1 + (cascade_count - 1) * 0.25
++        )
++        step_score = int(
++            base_step_score * combo_multiplier
++        )
++        score_gain += step_score
++        coins_gain += coins_this_step
++
++        board_after_clear = (
++            _bonus_match_clone_board(board)
++        )
++        board, spawned = _bonus_match_collapse(board)
++        board_after_collapse = (
++            _bonus_match_clone_board(board)
++        )
++        animation_steps.append({
++            "combo": cascade_count,
++            "score_gain": step_score,
++            "coins_gain": coins_this_step,
++            "matched_cells": [
++                {"row": row, "col": col}
++                for row, col in sorted(matched_cells)
++            ],
++            "cleared_cells": [
++                {"row": row, "col": col}
++                for row, col in sorted(clear_cells)
++            ],
++            "created_specials": created_specials,
++            "activated_specials": (
++                activated_specials
++            ),
++            "obstacle_changes": obstacle_changes,
++            "board_before_clear": (
++                board_before_clear
++            ),
++            "board_after_clear": (
++                board_after_clear
++            ),
++            "board_after_collapse": (
++                board_after_collapse
++            ),
++            "spawned": spawned,
++        })
++        groups = _bonus_match_find_match_groups(
++            board
++        )
++        preferred = []
++
++    if not _bonus_match_has_move(board):
++        board = _bonus_match_make_board(
++            int(session["level"])
++        )
++        reshuffled = True
++    else:
++        reshuffled = False
++
++    moves_left = max(
++        0,
++        int(session.get("moves_left", 0)) - 1,
++    )
++    score = (
++        int(session.get("score", 0))
++        + score_gain
++    )
++    coins_collected = (
++        int(session.get("coins_collected", 0))
++        + coins_gain
++    )
++    config = (
++        session.get("config")
++        or _bonus_match_level_config(
++            session["level"]
++        )
++    )
++    won = (
++        score >= int(config["target_score"])
++        and coins_collected
++        >= int(config["target_coins"])
++    )
++    status_value = (
++        "won"
++        if won
++        else (
++            "lost"
++            if moves_left <= 0
++            else "active"
++        )
++    )
+     now = now_iso()
+ 
+     updates = {
+@@ -2872,39 +3967,84 @@
+         "moves_left": moves_left,
+         "score": score,
+         "coins_collected": coins_collected,
+-        "cascades": int(session.get("cascades", 0)) + cascade_count,
++        "cascades": (
++            int(session.get("cascades", 0))
++            + cascade_count
++        ),
+         "status": status_value,
+         "updated_at": now,
+     }
+     if status_value != "active":
+         updates["completed_at"] = now
+-    await db.bonus_match_sessions.update_one({"id": session["id"]}, {"$set": updates})
++    await db.bonus_match_sessions.update_one(
++        {"id": session["id"]},
++        {"$set": updates},
++    )
+     session = {**session, **updates}
+ 
+     result = None
+     if won:
+         thresholds = config["star_thresholds"]
+-        stars = 3 if score >= thresholds[2] else 2 if score >= thresholds[1] else 1
+-        result = await _bonus_match_reward_win(user, session, stars)
++        stars = (
++            3
++            if score >= thresholds[2]
++            else (
++                2
++                if score >= thresholds[1]
++                else 1
++            )
++        )
++        result = await _bonus_match_reward_win(
++            user,
++            session,
++            stars,
++        )
+     elif status_value == "lost":
+         profile = await _bonus_match_profile(user["id"])
+         result = {
+             "stars": 0,
+             "points_awarded": 0,
+             "xp_awarded": 0,
+-            "lives": int(profile.get("lives", 0)),
+-            "current_level": int(profile.get("current_level", 1)),
+-            "total_stars": int(profile.get("total_stars", 0)),
++            "lives": int(
++                profile.get("lives", 0)
++            ),
++            "current_level": int(
++                profile.get("current_level", 1)
++            ),
++            "total_stars": int(
++                profile.get("total_stars", 0)
++            ),
+         }
+ 
+     return {
+         "valid": True,
+-        "message": f"+{score_gain} очок" if score_gain else "Хід зараховано",
++        "message": (
++            f"+{score_gain} очок"
++            if score_gain
++            else "Хід зараховано"
++        ),
+         "score_gain": score_gain,
+         "coins_gain": coins_gain,
+         "cascade_count": cascade_count,
+-        "session": _bonus_match_session_payload(session),
++        "session": _bonus_match_session_payload(
++            session
++        ),
+         "result": result,
++        "animation": {
++            "swap": {
++                "from": {
++                    "row": first_coord[0],
++                    "col": first_coord[1],
++                },
++                "to": {
++                    "row": second_coord[0],
++                    "col": second_coord[1],
++                },
++            },
++            "swapped_board": swapped_board,
++            "steps": animation_steps,
++            "reshuffled": reshuffled,
++        },
+     }
+ 
+ 
+--- tm6v65-original/frontend/src/pages/BonusMatch.jsx	2026-07-23 20:54:05.000000000 +0000
++++ tm6v66-work/frontend/src/pages/BonusMatch.jsx	2026-07-23 21:38:04.955450439 +0000
+@@ -1,28 +1,45 @@
+-import { useEffect, useMemo, useState } from "react";
++import { useEffect, useMemo, useRef, useState } from "react";
+ import { useNavigate } from "react-router-dom";
+ import {
+   ArrowLeft,
++  Bomb,
++  Box,
+   ChevronLeft,
+   ChevronRight,
++  CircleDot,
+   Coins,
+   Dice5,
+   Gamepad2,
++  Gem,
+   Gift,
+   Heart,
++  Lock,
++  Rocket,
+   RotateCcw,
++  Shield,
++  Snowflake,
+   Sparkles,
+   Star,
+   Trophy,
+   Zap,
+ } from "lucide-react";
++import { AnimatePresence, LayoutGroup, motion, useReducedMotion } from "framer-motion";
++import confetti from "canvas-confetti";
+ import { toast } from "sonner";
+ import api, { extractError } from "@/lib/api";
++import { fireConfetti } from "@/lib/confetti";
+ import { useApp } from "@/context/AppContext";
+ import AvatarFrame from "@/components/AvatarFrame";
+ 
+ const ROWS = 7;
+ const COLS = 7;
++const MAX_LEVEL = 50;
+ const SYMBOLS = ["coin", "star", "gift", "cube", "zap", "trophy"];
++const BOSS_LEVELS = { 25: 2, 40: 2, 50: 3 };
++const OBSTACLE_ORDER = ["ice", "chain", "crate", "stone", "crystal", "web", "shield", "slime", "metal", "core"];
++const wait = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms));
++const coordKey = (row, col) => `${row}:${col}`;
++const cloneBoard = (board) => (board || []).map((row) => row.map((cell) => (cell ? { ...cell } : null)));
+ 
+ const PIECES = {
+   coin: { Icon: Coins, label: "Монета", color: "#FFB800", background: "linear-gradient(145deg,#5B3A00,#231700)" },
+@@ -33,38 +50,130 @@
+   trophy: { Icon: Trophy, label: "Трофей", color: "#B78CFF", background: "linear-gradient(145deg,#442878,#170C2B)" },
+ };
+ 
+-const mockConfig = (level) => {
+-  const safeLevel = Math.max(1, Math.min(50, Number(level || 1)));
+-  const targetScore = 900 + safeLevel * 260;
++const SPECIALS = {
++  rocket_row: { Icon: Rocket, label: "Ракета по рядку", color: "#FFB800", rotate: 45 },
++  rocket_col: { Icon: Rocket, label: "Ракета по колонці", color: "#00F0FF", rotate: -45 },
++  bomb: { Icon: Bomb, label: "Бомба", color: "#FF5C00", rotate: 0 },
++  color_bomb: { Icon: CircleDot, label: "Блискавка-джокер", color: "#F64CFF", rotate: 0 },
++};
++
++const OBSTACLES = {
++  ice: { Icon: Snowflake, label: "Крига", color: "#7DD3FC", background: "linear-gradient(145deg,#164E63,#082F49)" },
++  chain: { Icon: Lock, label: "Ланцюг", color: "#A1A1AA", background: "linear-gradient(145deg,#3F3F46,#18181B)" },
++  crate: { Icon: Box, label: "Ящик", color: "#FDBA74", background: "linear-gradient(145deg,#78350F,#2A1205)" },
++  stone: { Icon: Shield, label: "Камінь", color: "#D4D4D8", background: "linear-gradient(145deg,#52525B,#18181B)" },
++  crystal: { Icon: Gem, label: "Кристал", color: "#C084FC", background: "linear-gradient(145deg,#581C87,#1E0B2E)" },
++  web: { Icon: Sparkles, label: "Павутина", color: "#E4E4E7", background: "linear-gradient(145deg,#3F3F46,#09090B)" },
++  shield: { Icon: Shield, label: "Щит", color: "#60A5FA", background: "linear-gradient(145deg,#1E3A8A,#0A163D)" },
++  slime: { Icon: CircleDot, label: "Слиз", color: "#4ADE80", background: "linear-gradient(145deg,#166534,#052E16)" },
++  metal: { Icon: Shield, label: "Метал", color: "#CBD5E1", background: "linear-gradient(145deg,#475569,#111827)" },
++  core: { Icon: Zap, label: "Ядро", color: "#FF4D55", background: "linear-gradient(145deg,#7F1D1D,#2A0808)" },
++};
++
++const SPECIAL_TOASTS = {
++  rocket_row: "Ракета створена!",
++  rocket_col: "Ракета створена!",
++  bomb: "Бомба готова!",
++  color_bomb: "Джокер зібрано!",
++};
++
++const OBSTACLE_NAMES = {
++  ice: "Крига",
++  chain: "Ланцюг",
++  crate: "Ящик",
++  stone: "Камінь",
++  crystal: "Кристал",
++  web: "Павутина",
++  shield: "Щит",
++  slime: "Слиз",
++  metal: "Метал",
++  core: "Ядро",
++};
++
++const makeCell = (symbol = null, extras = {}) => ({
++  id: extras.id || `mock-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
++  symbol,
++  special: extras.special || null,
++  obstacle: extras.obstacle || null,
++  obstacle_hits: extras.obstacle_hits || 0,
++});
++
++const normalizeCell = (cell) => {
++  if (!cell) return null;
++  if (typeof cell === "string") return makeCell(cell);
++  return {
++    id: cell.id || `cell-${Math.random().toString(36).slice(2, 10)}`,
++    symbol: cell.symbol || null,
++    special: cell.special || null,
++    obstacle: cell.obstacle || null,
++    obstacle_hits: Number(cell.obstacle_hits || 0),
++  };
++};
++
++const normalizeBoard = (board) => (board || []).map((row) => row.map(normalizeCell));
++
++const levelConfig = (level) => {
++  const safeLevel = Math.max(1, Math.min(MAX_LEVEL, Number(level || 1)));
++  const milestone = safeLevel % 5 === 0;
++  const stage = Math.floor(safeLevel / 5);
++  const ordinaryStage = Math.floor((safeLevel - 1) / 5);
++  const baseTarget = 900 + safeLevel * 260;
++  let targetScore = Math.floor(baseTarget * (1 + ordinaryStage * 0.1));
++  if (milestone) {
++    const previousBase = 900 + (safeLevel - 1) * 260;
++    const previousTarget = previousBase * (1 + Math.max(0, stage - 1) * 0.1);
++    const challengeMultiplier = Math.min(2.5, 1.8 + Math.max(0, stage - 1) * 0.08);
++    targetScore = Math.max(targetScore, Math.floor(previousTarget * challengeMultiplier));
++  }
++  const rewardMultiplier = BOSS_LEVELS[safeLevel] || 1;
++  if (rewardMultiplier > 1) targetScore = Math.floor(targetScore * 1.12);
++  let moves = Math.max(15, 24 - Math.floor((safeLevel - 1) / 7));
++  if (milestone) moves = Math.max(12, moves - 2);
++  if (rewardMultiplier > 1) moves = Math.max(11, moves - 1);
++  let targetCoins = 6 + Math.floor((safeLevel + 1) / 2) + ordinaryStage;
++  if (milestone) targetCoins = Math.floor(targetCoins * 1.3) + 2;
++  const obstacles = OBSTACLE_ORDER.slice(0, stage);
+   return {
+     level: safeLevel,
+-    moves: Math.max(17, 23 - Math.floor((safeLevel - 1) / 6)),
++    moves,
+     target_score: targetScore,
+-    target_coins: 6 + Math.floor((safeLevel + 1) / 2),
++    target_coins: targetCoins,
+     star_thresholds: [targetScore, Math.floor(targetScore * 1.35), Math.floor(targetScore * 1.72)],
++    is_milestone: milestone,
++    is_boss: rewardMultiplier > 1,
++    reward_multiplier: rewardMultiplier,
++    new_obstacle: milestone ? obstacles.at(-1) : null,
++    obstacles,
+   };
+ };
+ 
++const matchSymbol = (cell) => {
++  if (!cell || cell.obstacle || cell.special === "color_bomb") return null;
++  return cell.symbol;
++};
++
+ const findMatches = (board) => {
+   const matched = new Set();
+-  for (let row = 0; row < board.length; row += 1) {
++  for (let row = 0; row < ROWS; row += 1) {
+     let start = 0;
+-    while (start < board[row].length) {
++    while (start < COLS) {
++      const symbol = matchSymbol(board[row]?.[start]);
+       let end = start + 1;
+-      while (end < board[row].length && board[row][end] === board[row][start]) end += 1;
+-      if (board[row][start] && end - start >= 3) {
+-        for (let col = start; col < end; col += 1) matched.add(`${row}:${col}`);
++      while (end < COLS && symbol && matchSymbol(board[row]?.[end]) === symbol) end += 1;
++      if (symbol && end - start >= 3) {
++        for (let col = start; col < end; col += 1) matched.add(coordKey(row, col));
+       }
+       start = end;
+     }
+   }
+   for (let col = 0; col < COLS; col += 1) {
+     let start = 0;
+-    while (start < board.length) {
++    while (start < ROWS) {
++      const symbol = matchSymbol(board[start]?.[col]);
+       let end = start + 1;
+-      while (end < board.length && board[end][col] === board[start][col]) end += 1;
+-      if (board[start][col] && end - start >= 3) {
+-        for (let row = start; row < end; row += 1) matched.add(`${row}:${col}`);
++      while (end < ROWS && symbol && matchSymbol(board[end]?.[col]) === symbol) end += 1;
++      if (symbol && end - start >= 3) {
++        for (let row = start; row < end; row += 1) matched.add(coordKey(row, col));
+       }
+       start = end;
+     }
+@@ -73,16 +182,20 @@
+ };
+ 
+ const hasPossibleMove = (board) => {
+-  const copy = board.map((row) => [...row]);
++  const copy = cloneBoard(board);
+   for (let row = 0; row < ROWS; row += 1) {
+     for (let col = 0; col < COLS; col += 1) {
+       for (const [dr, dc] of [[0, 1], [1, 0]]) {
+         const nextRow = row + dr;
+         const nextCol = col + dc;
+         if (nextRow >= ROWS || nextCol >= COLS) continue;
+-        [copy[row][col], copy[nextRow][nextCol]] = [copy[nextRow][nextCol], copy[row][col]];
++        const a = copy[row][col];
++        const b = copy[nextRow][nextCol];
++        if (!a || !b || a.obstacle || b.obstacle) continue;
++        if (a.special || b.special) return true;
++        [copy[row][col], copy[nextRow][nextCol]] = [b, a];
+         const valid = findMatches(copy).size > 0;
+-        [copy[row][col], copy[nextRow][nextCol]] = [copy[nextRow][nextCol], copy[row][col]];
++        [copy[row][col], copy[nextRow][nextCol]] = [a, b];
+         if (valid) return true;
+       }
+     }
+@@ -90,57 +203,143 @@
+   return false;
+ };
+ 
+-const makeMockBoard = () => {
++const makeMockBoard = (level = 1) => {
++  const config = levelConfig(level);
+   for (let attempt = 0; attempt < 100; attempt += 1) {
+     const board = [];
+     for (let row = 0; row < ROWS; row += 1) {
+       board.push([]);
+       for (let col = 0; col < COLS; col += 1) {
+         const blocked = new Set();
+-        if (col >= 2 && board[row][col - 1] === board[row][col - 2]) blocked.add(board[row][col - 1]);
+-        if (row >= 2 && board[row - 1][col] === board[row - 2][col]) blocked.add(board[row - 1][col]);
++        if (col >= 2 && matchSymbol(board[row][col - 1]) === matchSymbol(board[row][col - 2])) blocked.add(matchSymbol(board[row][col - 1]));
++        if (row >= 2 && matchSymbol(board[row - 1][col]) === matchSymbol(board[row - 2][col])) blocked.add(matchSymbol(board[row - 1][col]));
+         const options = SYMBOLS.filter((symbol) => !blocked.has(symbol));
+-        board[row].push(options[Math.floor(Math.random() * options.length)]);
++        board[row].push(makeCell(options[Math.floor(Math.random() * options.length)]));
+       }
+     }
+-    if (hasPossibleMove(board)) return board;
++    if (config.obstacles.length) {
++      const count = Math.min(10, 2 + Math.floor(level / 5));
++      for (let index = 0; index < count; index += 1) {
++        const row = Math.floor(Math.random() * ROWS);
++        const col = Math.floor(Math.random() * COLS);
++        const obstacle = config.obstacles[Math.floor(Math.random() * config.obstacles.length)];
++        board[row][col] = makeCell(null, { obstacle, obstacle_hits: obstacle === "core" ? 4 : obstacle === "stone" || obstacle === "metal" ? 3 : 2 });
++      }
++    }
++    if (!findMatches(board).size && hasPossibleMove(board)) return board;
+   }
+-  return Array.from({ length: ROWS }, (_, row) => Array.from({ length: COLS }, (_, col) => SYMBOLS[(row * 2 + col * 3) % SYMBOLS.length]));
++  return Array.from({ length: ROWS }, (_, row) => Array.from({ length: COLS }, (_, col) => makeCell(SYMBOLS[(row * 2 + col * 3) % SYMBOLS.length])));
+ };
+ 
+ const collapseMockBoard = (board) => {
+-  const result = board.map((row) => [...row]);
++  const result = cloneBoard(board);
++  const spawned = [];
+   for (let col = 0; col < COLS; col += 1) {
+-    const values = [];
+-    for (let row = 0; row < ROWS; row += 1) {
+-      if (result[row][col]) values.push(result[row][col]);
++    const fixedRows = [];
++    for (let row = 0; row < ROWS; row += 1) if (result[row][col]?.obstacle) fixedRows.push(row);
++    const boundaries = [-1, ...fixedRows, ROWS];
++    for (let segment = 0; segment < boundaries.length - 1; segment += 1) {
++      const start = boundaries[segment] + 1;
++      const end = boundaries[segment + 1] - 1;
++      if (start > end) continue;
++      const values = [];
++      for (let row = start; row <= end; row += 1) if (result[row][col]) values.push(result[row][col]);
++      let writeRow = end;
++      for (let index = values.length - 1; index >= 0; index -= 1) {
++        result[writeRow][col] = values[index];
++        writeRow -= 1;
++      }
++      while (writeRow >= start) {
++        const fresh = makeCell(SYMBOLS[Math.floor(Math.random() * SYMBOLS.length)]);
++        result[writeRow][col] = fresh;
++        spawned.push({ row: writeRow, col, id: fresh.id });
++        writeRow -= 1;
++      }
+     }
+-    const missing = ROWS - values.length;
+-    const fresh = Array.from({ length: missing }, () => SYMBOLS[Math.floor(Math.random() * SYMBOLS.length)]);
+-    [...fresh, ...values].forEach((value, row) => { result[row][col] = value; });
+   }
+-  return result;
++  return { board: result, spawned };
+ };
+ 
++
+ const runMockMove = (game, from, to) => {
+-  let board = game.board.map((row) => [...row]);
+-  [board[from.row][from.col], board[to.row][to.col]] = [board[to.row][to.col], board[from.row][from.col]];
++  const original = cloneBoard(game.board);
++  const board = cloneBoard(game.board);
++  const first = board[from.row][from.col];
++  const second = board[to.row][to.col];
++  if (!first || !second || first.obstacle || second.obstacle) {
++    return {
++      valid: false,
++      message: "Ця клітинка заблокована",
++      session: game,
++      animation: { swapped_board: original, reverted_board: original, steps: [] },
++    };
++  }
++
++  [board[from.row][from.col], board[to.row][to.col]] = [second, first];
++  const swapped = cloneBoard(board);
+   let matches = findMatches(board);
+-  if (!matches.size) return { valid: false, message: "Цей хід не створює комбінацію", session: game };
++  if (!matches.size && !first.special && !second.special) {
++    return {
++      valid: false,
++      message: "Цей хід не створює комбінацію",
++      session: game,
++      animation: { swapped_board: swapped, reverted_board: original, steps: [] },
++    };
++  }
+ 
++  const steps = [];
+   let scoreGain = 0;
+   let coinsGain = 0;
+-  let cascades = 0;
+-  while (matches.size && cascades < 12) {
+-    cascades += 1;
++  let combo = 0;
++  while (matches.size && combo < 8) {
++    combo += 1;
+     const cells = [...matches].map((key) => key.split(":").map(Number));
+-    coinsGain += cells.filter(([row, col]) => board[row][col] === "coin").length;
+-    scoreGain += matches.size * 100 + Math.max(0, matches.size - 3) * 70 + (cascades - 1) * 90;
+-    cells.forEach(([row, col]) => { board[row][col] = null; });
+-    board = collapseMockBoard(board);
++    const boardBeforeClear = cloneBoard(board);
++    const createdSpecials = [];
++    const anchor = cells.find(([row, col]) => row === to.row && col === to.col) || cells[Math.floor(cells.length / 2)];
++    let protectedKey = null;
++    if (cells.length >= 5 && anchor) {
++      board[anchor[0]][anchor[1]].special = "color_bomb";
++      protectedKey = coordKey(anchor[0], anchor[1]);
++      createdSpecials.push({ row: anchor[0], col: anchor[1], special: "color_bomb", id: board[anchor[0]][anchor[1]].id });
++    } else if (cells.length === 4 && anchor) {
++      const sameRow = cells.every(([row]) => row === cells[0][0]);
++      const special = sameRow ? "rocket_row" : "rocket_col";
++      board[anchor[0]][anchor[1]].special = special;
++      protectedKey = coordKey(anchor[0], anchor[1]);
++      createdSpecials.push({ row: anchor[0], col: anchor[1], special, id: board[anchor[0]][anchor[1]].id });
++    }
++
++    const clearedCells = cells.filter(([row, col]) => coordKey(row, col) !== protectedKey);
++    const coinsThisStep = clearedCells.filter(([row, col]) => board[row][col]?.symbol === "coin").length;
++    const stepScore = Math.floor((clearedCells.length * 100 + Math.max(0, cells.length - 3) * 120) * (1 + (combo - 1) * 0.25));
++    scoreGain += stepScore;
++    coinsGain += coinsThisStep;
++    clearedCells.forEach(([row, col]) => { board[row][col] = null; });
++    const boardAfterClear = cloneBoard(board);
++    const collapsed = collapseMockBoard(board);
++    collapsed.board.forEach((row, rowIndex) => row.forEach((cell, colIndex) => { board[rowIndex][colIndex] = cell; }));
++    steps.push({
++      combo,
++      score_gain: stepScore,
++      coins_gain: coinsThisStep,
++      matched_cells: cells.map(([row, col]) => ({ row, col })),
++      cleared_cells: clearedCells.map(([row, col]) => ({ row, col })),
++      created_specials: createdSpecials,
++      activated_specials: [],
++      obstacle_changes: [],
++      board_before_clear: boardBeforeClear,
++      board_after_clear: boardAfterClear,
++      board_after_collapse: cloneBoard(board),
++      spawned: collapsed.spawned,
++    });
+     matches = findMatches(board);
+   }
+-  if (!hasPossibleMove(board)) board = makeMockBoard();
++
++  if (!hasPossibleMove(board)) {
++    const fresh = makeMockBoard(game.level);
++    fresh.forEach((row, rowIndex) => row.forEach((cell, colIndex) => { board[rowIndex][colIndex] = cell; }));
++  }
+ 
+   const score = game.score + scoreGain;
+   const coins = game.coins_collected + coinsGain;
+@@ -148,73 +347,241 @@
+   const won = score >= game.config.target_score && coins >= game.config.target_coins;
+   const status = won ? "won" : moves === 0 ? "lost" : "active";
+   const stars = won ? (score >= game.config.star_thresholds[2] ? 3 : score >= game.config.star_thresholds[1] ? 2 : 1) : 0;
++  const session = { ...game, board, score, coins_collected: coins, moves_left: moves, status };
+   return {
+     valid: true,
+     message: `+${scoreGain} очок`,
+     score_gain: scoreGain,
+     coins_gain: coinsGain,
+-    cascade_count: cascades,
+-    session: { ...game, board, score, coins_collected: coins, moves_left: moves, status },
++    cascade_count: steps.length,
++    session,
++    animation: { swapped_board: swapped, steps, reshuffled: false },
+     result: status === "active" ? null : {
+       stars,
+       points_awarded: won ? [0, 2, 4, 7][stars] + 5 : 0,
+       xp_awarded: won ? [0, 5, 10, 15][stars] : 0,
+       first_win_bonus: won ? 5 : 0,
+       lives: won ? 5 : 4,
+-      current_level: won ? game.level + 1 : game.level,
++      current_level: won ? Math.min(MAX_LEVEL, game.level + 1) : game.level,
+       total_stars: won ? stars : 0,
+       first_completion: won,
++      reward_multiplier: game.config.reward_multiplier || 1,
+     },
+   };
+ };
+ 
+ const formatNumber = (value) => Number(value || 0).toLocaleString("uk-UA");
+ 
+-function Piece({ type, selected, disabled, onClick, row, col }) {
+-  const config = PIECES[type] || PIECES.star;
+-  const Icon = config.Icon;
++function Piece({
++  cell,
++  selected,
++  disabled,
++  removing,
++  shaking,
++  spawned,
++  activated,
++  removeDelay = 0,
++  onClick,
++  row,
++  col,
++  reducedMotion,
++}) {
++  if (!cell) return null;
++  const obstacle = cell.obstacle ? OBSTACLES[cell.obstacle] || OBSTACLES.stone : null;
++  const special = cell.special ? SPECIALS[cell.special] || SPECIALS.bomb : null;
++  const piece = PIECES[cell.symbol] || PIECES.star;
++  const Icon = obstacle?.Icon || special?.Icon || piece.Icon;
++  const color = obstacle?.color || special?.color || piece.color;
++  const background = obstacle?.background || piece.background;
++  const label = obstacle?.label || special?.label || piece.label;
++  const shakeAnimation = shaking && !reducedMotion ? [0, -7, 7, -6, 6, -3, 3, 0] : 0;
++
+   return (
+-    <button
++    <motion.button
++      layout
++      layoutId={`bonus-piece-${cell.id}`}
+       type="button"
+       onClick={onClick}
+-      disabled={disabled}
+-      aria-label={`${config.label}, рядок ${row + 1}, колонка ${col + 1}`}
+-      className={`relative flex aspect-square min-w-0 touch-manipulation items-center justify-center overflow-hidden rounded-[11px] border transition-all duration-150 active:scale-90 ${selected ? "z-10 scale-110 border-white shadow-[0_0_20px_rgba(183,140,255,.8)]" : "border-white/10 shadow-[inset_0_1px_0_rgba(255,255,255,.08)]"}`}
+-      style={{ background: config.background }}
++      disabled={disabled || Boolean(obstacle)}
++      aria-label={`${label}, рядок ${row + 1}, колонка ${col + 1}`}
++      className="relative flex h-full w-full touch-manipulation items-center justify-center overflow-hidden rounded-[10px] border border-white/10"
++      style={{ background }}
++      initial={spawned && !reducedMotion ? { y: -70, opacity: 0, scale: 0.72 } : { opacity: 1, scale: 1 }}
++      animate={{
++        x: shakeAnimation,
++        y: 0,
++        opacity: removing ? 0 : 1,
++        scale: removing ? 0 : selected ? 1.12 : activated ? 1.16 : 1,
++        rotate: removing ? 24 : activated ? [0, 8, -8, 0] : 0,
++      }}
++      exit={{ opacity: 0, scale: 0, rotate: 30 }}
++      whileTap={disabled || obstacle ? undefined : { scale: 0.86 }}
++      transition={
++        shaking
++          ? { duration: reducedMotion ? 0.01 : 0.32, ease: "easeInOut" }
++          : {
++            layout: { duration: reducedMotion ? 0.05 : 0.23, ease: [0.22, 1, 0.36, 1] },
++            y: { type: "spring", stiffness: 480, damping: 20, bounce: 0.24 },
++            scale: { type: "spring", stiffness: 420, damping: 24, delay: removing ? removeDelay : 0 },
++            opacity: { duration: reducedMotion ? 0.05 : 0.22, delay: removing ? removeDelay : 0 },
++            rotate: { duration: reducedMotion ? 0.05 : 0.28, delay: removing ? removeDelay : 0 },
++          }
++      }
+     >
+       <div className="absolute inset-0 bg-gradient-to-br from-white/10 to-transparent" />
++      <AnimatePresence>
++        {selected && (
++          <motion.div
++            className="pointer-events-none absolute inset-[2px] rounded-[8px] border-2 border-white"
++            initial={{ opacity: 0, scale: 0.85 }}
++            animate={{ opacity: 0.95, scale: 1 }}
++            exit={{ opacity: 0, scale: 0.9 }}
++          />
++        )}
++      </AnimatePresence>
++      {special && (
++        <motion.div
++          className="pointer-events-none absolute inset-0 rounded-[10px] border-2"
++          style={{ borderColor: special.color }}
++          animate={reducedMotion ? { opacity: 0.45 } : { opacity: [0.28, 0.72, 0.28], scale: [0.92, 1.06, 0.92] }}
++          transition={{ duration: 1.25, repeat: Infinity, ease: "easeInOut" }}
++        />
++      )}
+       <Icon
+-        className="relative drop-shadow-[0_3px_3px_rgba(0,0,0,.7)]"
+-        size={24}
+-        strokeWidth={type === "coin" ? 2.6 : 2.9}
+-        color={config.color}
+-        fill={type === "star" ? config.color : "none"}
++        className="relative drop-shadow-[0_3px_3px_rgba(0,0,0,.72)]"
++        size={special ? 25 : obstacle ? 23 : 24}
++        strokeWidth={special ? 3.1 : 2.8}
++        color={color}
++        fill={!special && cell.symbol === "star" ? color : "none"}
++        style={{ transform: special?.rotate ? `rotate(${special.rotate}deg)` : undefined }}
+       />
+-    </button>
++      {cell.special === "color_bomb" && (
++        <div className="pointer-events-none absolute inset-[7px] rounded-full border-2 border-white/70 bg-[conic-gradient(#FFB800,#F64CFF,#00F0FF,#39FF14,#FF5C00,#FFB800)] opacity-65" />
++      )}
++      {obstacle && (
++        <div className="absolute bottom-0.5 right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-black/75 px-1 text-[8px] font-black text-white">
++          {cell.obstacle_hits}
++        </div>
++      )}
++    </motion.button>
+   );
+ }
+ 
+-function Stars({ count = 0, size = 19 }) {
++function Stars({ count = 0, size = 19, animated = false, reducedMotion = false }) {
+   return (
+     <div className="flex items-center gap-1">
+       {[1, 2, 3].map((star) => (
+-        <Star key={star} size={size} strokeWidth={2.6} color={star <= count ? "#FFB800" : "#3F3F46"} fill={star <= count ? "#FFB800" : "transparent"} />
++        <motion.div
++          key={star}
++          initial={animated && star <= count && !reducedMotion ? { scale: 0, rotate: -35, opacity: 0 } : false}
++          animate={{ scale: 1, rotate: 0, opacity: 1 }}
++          transition={{ type: "spring", stiffness: 420, damping: 18, delay: animated ? (star - 1) * 0.15 : 0 }}
++        >
++          <Star
++            size={size}
++            strokeWidth={2.6}
++            color={star <= count ? "#FFB800" : "#3F3F46"}
++            fill={star <= count ? "#FFB800" : "transparent"}
++          />
++        </motion.div>
+       ))}
+     </div>
+   );
+ }
+ 
++function SpecialEffects({ effects = [] }) {
++  return (
++    <AnimatePresence>
++      {effects.flatMap((effect, effectIndex) => {
++        if (effect.special === "rocket_row") {
++          return (
++            <motion.div
++              key={`row-${effectIndex}`}
++              className="pointer-events-none absolute left-0 right-0 h-[7px] rounded-full bg-gradient-to-r from-transparent via-[#FFB800] to-transparent"
++              style={{ top: `${((effect.row + 0.5) / ROWS) * 100}%` }}
++              initial={{ scaleX: 0, opacity: 0 }}
++              animate={{ scaleX: 1, opacity: [0, 1, 0] }}
++              exit={{ opacity: 0 }}
++              transition={{ duration: 0.28 }}
++            />
++          );
++        }
++        if (effect.special === "rocket_col") {
++          return (
++            <motion.div
++              key={`col-${effectIndex}`}
++              className="pointer-events-none absolute bottom-0 top-0 w-[7px] rounded-full bg-gradient-to-b from-transparent via-[#00F0FF] to-transparent"
++              style={{ left: `${((effect.col + 0.5) / COLS) * 100}%` }}
++              initial={{ scaleY: 0, opacity: 0 }}
++              animate={{ scaleY: 1, opacity: [0, 1, 0] }}
++              exit={{ opacity: 0 }}
++              transition={{ duration: 0.28 }}
++            />
++          );
++        }
++        if (effect.special === "bomb") {
++          return (
++            <motion.div
++              key={`bomb-${effectIndex}`}
++              className="pointer-events-none absolute aspect-square rounded-full border-4 border-[#FF5C00]"
++              style={{
++                width: `${(3 / COLS) * 100}%`,
++                left: `${((effect.col - 1) / COLS) * 100}%`,
++                top: `${((effect.row - 1) / ROWS) * 100}%`,
++              }}
++              initial={{ scale: 0.1, opacity: 1 }}
++              animate={{ scale: 1.35, opacity: 0 }}
++              exit={{ opacity: 0 }}
++              transition={{ duration: 0.35, ease: "easeOut" }}
++            />
++          );
++        }
++        return (effect.targets || []).slice(0, 24).map((target, targetIndex) => (
++          <motion.div
++            key={`joker-${effectIndex}-${targetIndex}`}
++            className="pointer-events-none absolute h-2 w-2 rounded-full bg-[#F64CFF]"
++            style={{
++              left: `${((target.col + 0.5) / COLS) * 100}%`,
++              top: `${((target.row + 0.5) / ROWS) * 100}%`,
++            }}
++            initial={{ scale: 0, opacity: 0 }}
++            animate={{ scale: [0, 1.8, 0], opacity: [0, 1, 0] }}
++            exit={{ opacity: 0 }}
++            transition={{ duration: 0.32, delay: targetIndex * 0.008 }}
++          />
++        ));
++      })}
++    </AnimatePresence>
++  );
++}
++
++
+ export default function BonusMatch() {
+   const navigate = useNavigate();
++  const reducedMotion = useReducedMotion();
+   const { user, mode, refreshMe } = useApp();
++  const boardRef = useRef(null);
++  const scoreRef = useRef(null);
+   const [status, setStatus] = useState(null);
+   const [game, setGame] = useState(null);
++  const [displayBoard, setDisplayBoard] = useState([]);
+   const [selected, setSelected] = useState(null);
+   const [selectedLevel, setSelectedLevel] = useState(1);
+   const [result, setResult] = useState(null);
+   const [loading, setLoading] = useState(true);
+   const [moving, setMoving] = useState(false);
++  const [shakingIds, setShakingIds] = useState(new Set());
++  const [removingIds, setRemovingIds] = useState(new Set());
++  const [spawnedIds, setSpawnedIds] = useState(new Set());
++  const [activatedIds, setActivatedIds] = useState(new Set());
++  const [specialEffects, setSpecialEffects] = useState([]);
++  const [combo, setCombo] = useState(0);
+   const [flash, setFlash] = useState("");
++  const [animatedScore, setAnimatedScore] = useState(0);
++  const [scorePulse, setScorePulse] = useState(false);
++  const [scoreFlights, setScoreFlights] = useState([]);
++  const [boardFx, setBoardFx] = useState("");
++  const [bossPrompt, setBossPrompt] = useState(null);
+ 
+   const loadStatus = async () => {
+     if (mode === "mock") {
+@@ -238,7 +605,12 @@
+       const { data } = await api.get("/games/bonus-match/status");
+       setStatus(data);
+       setSelectedLevel(Number(data.profile.current_level || 1));
+-      if (data.active_session) setGame(data.active_session);
++      if (data.active_session) {
++        const session = { ...data.active_session, board: normalizeBoard(data.active_session.board) };
++        setGame(session);
++        setDisplayBoard(session.board);
++        setAnimatedScore(session.score || 0);
++      }
+     } catch (error) {
+       toast.error(extractError(error, "Не вдалося завантажити Bonus Match"));
+     } finally {
+@@ -246,39 +618,60 @@
+     }
+   };
+ 
+-  useEffect(() => { loadStatus(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [mode]);
++  useEffect(() => {
++    loadStatus();
++    // eslint-disable-next-line react-hooks/exhaustive-deps
++  }, [mode]);
+ 
+-  const completionsByLevel = useMemo(() => new Map((status?.completions || []).map((item) => [Number(item.level), item])), [status?.completions]);
++  const completionsByLevel = useMemo(
++    () => new Map((status?.completions || []).map((item) => [Number(item.level), item])),
++    [status?.completions],
++  );
+   const chosenCompletion = completionsByLevel.get(selectedLevel);
+-  const config = game?.config || mockConfig(selectedLevel);
+-  const scoreProgress = Math.min(100, Math.round(((game?.score || 0) / Math.max(1, config.target_score)) * 100));
++  const selectedConfig = levelConfig(selectedLevel);
++  const config = game?.config || selectedConfig;
++  const scoreProgress = Math.min(100, Math.round(((animatedScore || 0) / Math.max(1, config.target_score)) * 100));
+   const coinProgress = Math.min(100, Math.round(((game?.coins_collected || 0) / Math.max(1, config.target_coins)) * 100));
+ 
+-  const startGame = async (level = selectedLevel) => {
++  const startGame = async (level = selectedLevel, confirmed = false) => {
++    const preview = levelConfig(level);
++    if (preview.is_boss && !confirmed) {
++      setBossPrompt(preview);
++      return;
++    }
++    setBossPrompt(null);
+     setSelected(null);
+     setResult(null);
+     setFlash("");
++    setBoardFx("");
++    setCombo(0);
+     if (mode === "mock") {
+-      const levelConfig = mockConfig(level);
+-      setGame({
++      const levelBoard = makeMockBoard(level);
++      const session = {
+         id: `mock-${Date.now()}`,
+         level,
+-        board: makeMockBoard(),
+-        moves_left: levelConfig.moves,
++        board: levelBoard,
++        moves_left: preview.moves,
+         score: 0,
+         coins_collected: 0,
+         status: "active",
+-        config: levelConfig,
++        config: preview,
+         cascades: 0,
+-      });
++      };
++      setGame(session);
++      setDisplayBoard(levelBoard);
++      setAnimatedScore(0);
+       setStatus((current) => ({ ...current, profile: { ...current.profile, lives: Math.max(0, current.profile.lives - 1) } }));
+       return;
+     }
+     try {
+       setLoading(true);
+       const { data } = await api.post("/games/bonus-match/start", { level });
+-      setGame(data.session);
+-      setStatus((current) => current ? { ...current, profile: { ...current.profile, ...data.profile } } : current);
++      const session = { ...data.session, board: normalizeBoard(data.session.board) };
++      setGame(session);
++      setDisplayBoard(session.board);
++      setAnimatedScore(session.score || 0);
++      setStatus((current) => (current ? { ...current, profile: { ...current.profile, ...data.profile } } : current));
+       if (data.resumed) toast.info("Продовжуємо незавершений рівень");
+     } catch (error) {
+       toast.error(extractError(error, "Не вдалося почати рівень"));
+@@ -287,37 +680,194 @@
+     }
+   };
+ 
++  const burstAtCells = (cells = [], color = "#B78CFF") => {
++    if (reducedMotion || !boardRef.current || !cells.length) return;
++    const rect = boardRef.current.getBoundingClientRect();
++    const averageRow = cells.reduce((sum, item) => sum + item.row, 0) / cells.length;
++    const averageCol = cells.reduce((sum, item) => sum + item.col, 0) / cells.length;
++    const originX = (rect.left + ((averageCol + 0.5) / COLS) * rect.width) / window.innerWidth;
++    const originY = (rect.top + ((averageRow + 0.5) / ROWS) * rect.height) / window.innerHeight;
++    confetti({
++      particleCount: Math.min(18, 7 + cells.length),
++      spread: 28,
++      startVelocity: 13,
++      gravity: 0.8,
++      ticks: 45,
++      scalar: 0.42,
++      colors: [color, "#FFB800", "#FFFFFF"],
++      origin: { x: originX, y: originY },
++      disableForReducedMotion: true,
++    });
++  };
++
++  const launchScoreFlight = (cells, amount) => {
++    if (!boardRef.current || !scoreRef.current || !cells?.length || amount <= 0) return;
++    const boardRect = boardRef.current.getBoundingClientRect();
++    const scoreRect = scoreRef.current.getBoundingClientRect();
++    const averageRow = cells.reduce((sum, item) => sum + item.row, 0) / cells.length;
++    const averageCol = cells.reduce((sum, item) => sum + item.col, 0) / cells.length;
++    const x = ((averageCol + 0.5) / COLS) * boardRect.width;
++    const y = ((averageRow + 0.5) / ROWS) * boardRect.height;
++    const targetX = scoreRect.left + scoreRect.width / 2 - boardRect.left;
++    const targetY = scoreRect.top + scoreRect.height / 2 - boardRect.top;
++    const id = `${Date.now()}-${Math.random()}`;
++    setScoreFlights((current) => [...current, { id, x, y, targetX, targetY, amount }]);
++    window.setTimeout(() => setScoreFlights((current) => current.filter((item) => item.id !== id)), reducedMotion ? 150 : 720);
++  };
++
++  const tickScore = async (start, end) => {
++    if (reducedMotion) {
++      setAnimatedScore(end);
++      return;
++    }
++    const ticks = 5;
++    for (let index = 1; index <= ticks; index += 1) {
++      setAnimatedScore(Math.round(start + ((end - start) * index) / ticks));
++      setScorePulse(true);
++      await wait(38);
++      setScorePulse(false);
++    }
++  };
++
++  const animateServerMove = async (data, baseScore) => {
++    const animation = data.animation || {};
++    if (animation.swapped_board) {
++      setDisplayBoard(normalizeBoard(animation.swapped_board));
++      await wait(reducedMotion ? 40 : 220);
++    }
++
++    if (!data.valid) {
++      const pair = animation.swap;
++      const boardForIds = animation.swapped_board || displayBoard;
++      const ids = new Set();
++      if (pair) {
++        const firstId = boardForIds?.[pair.from.row]?.[pair.from.col]?.id;
++        const secondId = boardForIds?.[pair.to.row]?.[pair.to.col]?.id;
++        if (firstId) ids.add(firstId);
++        if (secondId) ids.add(secondId);
++      }
++      setShakingIds(ids);
++      await wait(reducedMotion ? 60 : 330);
++      setShakingIds(new Set());
++      setDisplayBoard(normalizeBoard(animation.reverted_board || data.session?.board || game.board));
++      toast.info(data.message || "Спробуй інший хід");
++      return;
++    }
++
++    let runningScore = Number(baseScore || 0);
++    for (const step of animation.steps || []) {
++      const before = normalizeBoard(step.board_before_clear || displayBoard);
++      setDisplayBoard(before);
++      const removed = new Set();
++      (step.cleared_cells || []).forEach(({ row, col }) => {
++        const id = before?.[row]?.[col]?.id;
++        if (id) removed.add(id);
++      });
++      const active = new Set();
++      (step.activated_specials || []).forEach(({ row, col }) => {
++        const id = before?.[row]?.[col]?.id;
++        if (id) active.add(id);
++      });
++      setActivatedIds(active);
++      setSpecialEffects(step.activated_specials || []);
++      setRemovingIds(removed);
++      setCombo(step.combo || 1);
++      setFlash(step.combo > 1 ? `КОМБО ×${step.combo}` : "");
++
++      for (const created of step.created_specials || []) {
++        toast.success(SPECIAL_TOASTS[created.special] || "Бонусна фішка створена!");
++      }
++
++      const burstColor = (step.activated_specials || []).some((item) => item.special === "bomb")
++        ? "#FF5C00"
++        : (step.activated_specials || []).some((item) => item.special === "color_bomb")
++          ? "#F64CFF"
++          : "#B78CFF";
++      burstAtCells(step.cleared_cells || [], burstColor);
++      launchScoreFlight(step.cleared_cells || [], step.score_gain || 0);
++      await wait(reducedMotion ? 70 : 300);
++
++      setDisplayBoard(normalizeBoard(step.board_after_clear || before));
++      setRemovingIds(new Set());
++      setActivatedIds(new Set());
++      setSpecialEffects([]);
++      await wait(reducedMotion ? 20 : 45);
++
++      const nextBoard = normalizeBoard(step.board_after_collapse || step.board_after_clear || before);
++      setSpawnedIds(new Set((step.spawned || []).map((item) => item.id)));
++      setDisplayBoard(nextBoard);
++      const nextScore = runningScore + Number(step.score_gain || 0);
++      await Promise.all([
++        tickScore(runningScore, nextScore),
++        wait(reducedMotion ? 60 : 420),
++      ]);
++      runningScore = nextScore;
++      setSpawnedIds(new Set());
++      setFlash("");
++    }
++
++    if (animation.reshuffled) toast.info("На полі не залишилося ходів. Фішки перемішано");
++    setAnimatedScore(data.session.score || runningScore);
++    setDisplayBoard(normalizeBoard(data.session.board));
++    setGame({ ...data.session, board: normalizeBoard(data.session.board) });
++  };
++
+   const makeMove = async (from, to) => {
+     if (!game || moving || game.status !== "active") return;
+     setMoving(true);
++    setSelected(null);
++    setFlash("");
++    const startingBoard = normalizeBoard(displayBoard.length ? displayBoard : game.board);
++    const optimistic = cloneBoard(startingBoard);
++    [optimistic[from.row][from.col], optimistic[to.row][to.col]] = [optimistic[to.row][to.col], optimistic[from.row][from.col]];
++    setDisplayBoard(optimistic);
++
+     try {
+-      const data = mode === "mock"
+-        ? runMockMove(game, from, to)
+-        : (await api.post("/games/bonus-match/move", {
++      const request = mode === "mock"
++        ? Promise.resolve(runMockMove(game, from, to))
++        : api.post("/games/bonus-match/move", {
+           session_id: game.id,
+           from_row: from.row,
+           from_col: from.col,
+           to_row: to.row,
+           to_col: to.col,
+-        })).data;
+-      setGame(data.session);
+-      setFlash(data.valid ? data.message : "");
+-      if (!data.valid) toast.info(data.message || "Спробуй інший хід");
++        }).then((response) => response.data);
++
++      const [data] = await Promise.all([
++        request,
++        wait(reducedMotion ? 20 : 210),
++      ]);
++      await animateServerMove(data, game.score);
++
+       if (data.result) {
+         setResult(data.result);
+-        if (mode !== "mock" && data.session.status === "won") await refreshMe().catch(() => {});
++        if (data.session.status === "won") {
++          setBoardFx("won");
++          if (!reducedMotion) fireConfetti();
++          if (mode !== "mock") await refreshMe().catch(() => {});
++        } else {
++          setBoardFx("lost");
++          await wait(reducedMotion ? 30 : 420);
++        }
+         if (mode !== "mock") await loadStatus();
+       }
+     } catch (error) {
++      setDisplayBoard(startingBoard);
+       toast.error(extractError(error, "Не вдалося виконати хід"));
+     } finally {
+-      setSelected(null);
+       setMoving(false);
+-      window.setTimeout(() => setFlash(""), 900);
++      setCombo(0);
++      window.setTimeout(() => setFlash(""), 600);
+     }
+   };
+ 
+   const handlePiece = (row, col) => {
++    if (moving || game?.status !== "active") return;
++    const cell = displayBoard?.[row]?.[col];
++    if (!cell || cell.obstacle) {
++      if (cell?.obstacle) toast.info(`${OBSTACLE_NAMES[cell.obstacle] || "Перешкода"}: зруйнуй її збігами поруч`);
++      return;
++    }
+     if (!selected) {
+       setSelected({ row, col });
+       return;
+@@ -340,11 +890,11 @@
+   };
+ 
+   const leaveBoard = () => {
+-    if (game?.status === "active") {
+-      toast.info("Рівень збережено. Ти зможеш продовжити пізніше");
+-    }
++    if (game?.status === "active") toast.info("Рівень збережено. Ти зможеш продовжити пізніше");
+     setGame(null);
++    setDisplayBoard([]);
+     setResult(null);
++    setBoardFx("");
+     loadStatus();
+   };
+ 
+@@ -355,7 +905,12 @@
+   return (
+     <div className="space-y-4 px-4 pb-8 pt-2" data-testid="bonus-match-page">
+       <section className="flex items-center gap-3">
+-        <button type="button" onClick={() => game?.status === "active" ? navigate("/") : game ? leaveBoard() : navigate("/")} className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-[#1A1A1E] text-zinc-300 active:scale-95" aria-label="Назад">
++        <button
++          type="button"
++          onClick={() => (game?.status === "active" ? navigate("/") : game ? leaveBoard() : navigate("/"))}
++          className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-[#1A1A1E] text-zinc-300 active:scale-95"
++          aria-label="Назад"
++        >
+           <ArrowLeft size={21} strokeWidth={2.8} />
+         </button>
+         <div className="min-w-0 flex-1">
+@@ -371,37 +926,71 @@
+         </div>
+       </section>
+ 
++
+       {!game ? (
+         <>
+           <section className="overflow-hidden rounded-3xl border border-[#7C3AED]/45 bg-gradient-to-br from-[#24103F] via-[#17131F] to-[#111114] p-5 shadow-[0_18px_50px_rgba(124,58,237,.18)]">
+             <div className="flex items-center justify-between">
+               <div>
+-                <div className="text-[10px] font-black uppercase tracking-[.18em] text-[#B78CFF]">Обери рівень</div>
++                <div className="text-[10px] font-black uppercase tracking-[.18em] text-[#B78CFF]">ОБЕРИ РІВЕНЬ</div>
+                 <div className="mt-1 text-xs font-bold text-zinc-500">Відкрито до {status?.profile?.current_level || 1} рівня</div>
+               </div>
+               <div className="flex items-center gap-1 text-[#FF4D55]">
+                 {Array.from({ length: status?.profile?.max_lives || 5 }, (_, index) => (
+-                  <Heart key={index} size={16} strokeWidth={2.5} fill={index < (status?.profile?.lives || 0) ? "#FF4D55" : "transparent"} color={index < (status?.profile?.lives || 0) ? "#FF4D55" : "#3F3F46"} />
++                  <Heart
++                    key={index}
++                    size={16}
++                    strokeWidth={2.5}
++                    fill={index < (status?.profile?.lives || 0) ? "#FF4D55" : "transparent"}
++                    color={index < (status?.profile?.lives || 0) ? "#FF4D55" : "#3F3F46"}
++                  />
+                 ))}
+               </div>
+             </div>
+ 
++            {(selectedConfig.is_milestone || selectedConfig.is_boss) && (
++              <motion.div
++                className={`mt-4 rounded-2xl border px-3 py-2.5 ${
++                  selectedConfig.is_boss
++                    ? "border-[#FF5C00]/45 bg-[#FF5C00]/10"
++                    : "border-[#B78CFF]/40 bg-[#B78CFF]/10"
++                }`}
++                initial={{ opacity: 0, y: -8 }}
++                animate={{ opacity: 1, y: 0 }}
++              >
++                <div className={`text-[10px] font-black uppercase tracking-[.16em] ${selectedConfig.is_boss ? "text-[#FF8A3D]" : "text-[#C9A7FF]"}`}>
++                  {selectedConfig.is_boss ? "БОС-РІВЕНЬ" : "РІВЕНЬ-ВИКЛИК"}
++                </div>
++                <div className="mt-1 text-xs font-bold text-zinc-400">
++                  {selectedConfig.new_obstacle
++                    ? `Нова перешкода: ${OBSTACLE_NAMES[selectedConfig.new_obstacle]}.`
++                    : "Підвищена складність."}
++                  {selectedConfig.reward_multiplier > 1 ? ` Нагорода ×${selectedConfig.reward_multiplier}.` : ""}
++                </div>
++              </motion.div>
++            )}
++
+             <div className="mt-5 flex items-center justify-center gap-4">
+               <button type="button" onClick={() => chooseLevel(-1)} disabled={selectedLevel <= 1} className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-black/25 text-zinc-300 disabled:opacity-30 active:scale-95"><ChevronLeft /></button>
+               <div className="min-w-[140px] text-center">
+                 <div className="font-display text-[52px] leading-none text-white">{selectedLevel}</div>
+-                <div className="mt-2 flex justify-center"><Stars count={chosenCompletion?.stars || 0} size={21} /></div>
++                <div className="mt-2 flex justify-center"><Stars count={chosenCompletion?.stars || 0} size={21} reducedMotion={reducedMotion} /></div>
+               </div>
+               <button type="button" onClick={() => chooseLevel(1)} disabled={selectedLevel >= (status?.profile?.current_level || 1)} className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-black/25 text-zinc-300 disabled:opacity-30 active:scale-95"><ChevronRight /></button>
+             </div>
+ 
+             <div className="mt-5 grid grid-cols-3 gap-2">
+-              <div className="rounded-2xl border border-white/10 bg-black/25 px-2 py-3 text-center"><div className="text-[9px] font-black uppercase text-zinc-600">Ходи</div><div className="mt-1 text-lg font-black text-white">{mockConfig(selectedLevel).moves}</div></div>
+-              <div className="rounded-2xl border border-[#FFB800]/20 bg-[#FFB800]/[.06] px-2 py-3 text-center"><div className="text-[9px] font-black uppercase text-zinc-600">Монети</div><div className="mt-1 text-lg font-black text-[#FFB800]">{mockConfig(selectedLevel).target_coins}</div></div>
+-              <div className="rounded-2xl border border-[#B78CFF]/20 bg-[#B78CFF]/[.06] px-2 py-3 text-center"><div className="text-[9px] font-black uppercase text-zinc-600">Ціль</div><div className="mt-1 text-lg font-black text-[#B78CFF]">{formatNumber(mockConfig(selectedLevel).target_score)}</div></div>
++              <div className="rounded-2xl border border-white/10 bg-black/25 px-2 py-3 text-center"><div className="text-[9px] font-black uppercase text-zinc-600">ХОДИ</div><div className="mt-1 text-lg font-black text-white">{selectedConfig.moves}</div></div>
++              <div className="rounded-2xl border border-[#FFB800]/20 bg-[#FFB800]/[.06] px-2 py-3 text-center"><div className="text-[9px] font-black uppercase text-zinc-600">МОНЕТИ</div><div className="mt-1 text-lg font-black text-[#FFB800]">{selectedConfig.target_coins}</div></div>
++              <div className="rounded-2xl border border-[#B78CFF]/20 bg-[#B78CFF]/[.06] px-2 py-3 text-center"><div className="text-[9px] font-black uppercase text-zinc-600">ЦІЛЬ</div><div className="mt-1 text-lg font-black text-[#B78CFF]">{formatNumber(selectedConfig.target_score)}</div></div>
+             </div>
+ 
+-            <button type="button" onClick={() => startGame()} disabled={loading || (status?.profile?.lives || 0) <= 0} className="mt-5 flex h-14 w-full items-center justify-center gap-3 rounded-2xl border-b-4 border-[#6A3A00] bg-gradient-to-r from-[#FFB800] to-[#FF7A00] font-display text-xl text-[#14100A] shadow-[0_12px_30px_rgba(255,184,0,.2)] active:translate-y-0.5 active:border-b-2 disabled:cursor-not-allowed disabled:grayscale disabled:opacity-50">
++            <button
++              type="button"
++              onClick={() => startGame()}
++              disabled={loading || (status?.profile?.lives || 0) <= 0}
++              className="mt-5 flex h-14 w-full items-center justify-center gap-3 rounded-2xl border-b-4 border-[#6A3A00] bg-gradient-to-r from-[#FFB800] to-[#FF7A00] font-display text-xl text-[#14100A] shadow-[0_12px_30px_rgba(255,184,0,.2)] active:translate-y-0.5 active:border-b-2 disabled:cursor-not-allowed disabled:grayscale disabled:opacity-50"
++            >
+               <Gamepad2 size={23} strokeWidth={2.8} />
+               ГРАТИ
+               <span className="flex items-center gap-1 border-l border-black/20 pl-3 text-sm font-black"><Heart size={15} fill="#14100A" />1</span>
+@@ -411,12 +1000,12 @@
+ 
+           <section className="grid grid-cols-2 gap-3">
+             <div className="rounded-3xl border border-[#FFB800]/25 bg-[#1A1A1E] p-4">
+-              <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-wider text-[#FFB800]"><Star size={15} fill="#FFB800" />Щоденна нагорода</div>
++              <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-wider text-[#FFB800]"><Star size={15} fill="#FFB800" />ЩОДЕННА НАГОРОДА</div>
+               <div className="mt-3 h-3 overflow-hidden rounded-full bg-black/40"><div className="h-full rounded-full bg-gradient-to-r from-[#FFB800] to-[#FF5C00]" style={{ width: `${Math.min(100, ((status?.profile?.daily_points || 0) / Math.max(1, status?.profile?.daily_point_cap || 40)) * 100)}%` }} /></div>
+               <div className="mt-2 flex justify-between text-xs font-black"><span className="text-white">{status?.profile?.daily_points || 0}</span><span className="text-zinc-600">/ {status?.profile?.daily_point_cap || 40} Point</span></div>
+             </div>
+             <div className="rounded-3xl border border-[#B78CFF]/25 bg-[#1A1A1E] p-4">
+-              <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-wider text-[#B78CFF]"><Sparkles size={15} />Мій прогрес</div>
++              <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-wider text-[#B78CFF]"><Sparkles size={15} />МІЙ ПРОГРЕС</div>
+               <div className="mt-3 font-display text-3xl text-white">{status?.profile?.total_stars || 0}</div>
+               <div className="text-xs font-bold text-zinc-500">зібрано зірок</div>
+             </div>
+@@ -440,61 +1029,194 @@
+         </>
+       ) : (
+         <>
+-          <section className="rounded-3xl border border-[#7C3AED]/40 bg-gradient-to-br from-[#201139] to-[#111114] p-3 shadow-[0_18px_45px_rgba(124,58,237,.18)]">
++          <motion.section
++            className="rounded-3xl border border-[#7C3AED]/40 bg-gradient-to-br from-[#201139] to-[#111114] p-3 shadow-[0_18px_45px_rgba(124,58,237,.18)]"
++            animate={
++              boardFx === "lost" && !reducedMotion
++                ? { x: [0, -8, 8, -6, 6, 0], opacity: 0.58 }
++                : { x: 0, opacity: 1 }
++            }
++            transition={{ duration: boardFx === "lost" ? 0.48 : 0.2 }}
++          >
++            {(config.is_milestone || config.is_boss) && (
++              <div className="mb-3 flex items-center justify-between rounded-2xl border border-[#FF5C00]/25 bg-[#FF5C00]/[.07] px-3 py-2">
++                <div className="text-[9px] font-black uppercase tracking-[.16em] text-[#FF8A3D]">{config.is_boss ? "БОС-РІВЕНЬ" : "РІВЕНЬ-ВИКЛИК"}</div>
++                {config.reward_multiplier > 1 && <div className="rounded-full bg-[#FFB800]/15 px-2 py-1 text-[9px] font-black text-[#FFB800]">НАГОРОДА ×{config.reward_multiplier}</div>}
++              </div>
++            )}
++
+             <div className="grid grid-cols-3 gap-2">
+-              <div className="rounded-2xl border border-white/10 bg-black/25 px-2 py-2.5 text-center"><div className="text-[8px] font-black uppercase tracking-wider text-zinc-600">Рівень</div><div className="mt-0.5 text-lg font-black text-white">{game.level}</div></div>
+-              <div className="rounded-2xl border border-[#FFB800]/20 bg-[#FFB800]/[.06] px-2 py-2.5 text-center"><div className="text-[8px] font-black uppercase tracking-wider text-zinc-600">Ходи</div><div className="mt-0.5 text-lg font-black text-[#FFB800]">{game.moves_left}</div></div>
+-              <div className="rounded-2xl border border-[#B78CFF]/20 bg-[#B78CFF]/[.06] px-2 py-2.5 text-center"><div className="text-[8px] font-black uppercase tracking-wider text-zinc-600">Рахунок</div><div className="mt-0.5 text-lg font-black text-[#B78CFF]">{formatNumber(game.score)}</div></div>
++              <div className="rounded-2xl border border-white/10 bg-black/25 px-2 py-2.5 text-center"><div className="text-[8px] font-black uppercase tracking-wider text-zinc-600">РІВЕНЬ</div><div className="mt-0.5 text-lg font-black text-white">{game.level}</div></div>
++              <div className="rounded-2xl border border-[#FFB800]/20 bg-[#FFB800]/[.06] px-2 py-2.5 text-center"><div className="text-[8px] font-black uppercase tracking-wider text-zinc-600">ХОДИ</div><div className="mt-0.5 text-lg font-black text-[#FFB800]">{game.moves_left}</div></div>
++              <motion.div
++                ref={scoreRef}
++                className="rounded-2xl border border-[#B78CFF]/20 bg-[#B78CFF]/[.06] px-2 py-2.5 text-center"
++                animate={{ scale: scorePulse ? 1.08 : 1 }}
++                transition={{ type: "spring", stiffness: 420, damping: 22 }}
++              >
++                <div className="text-[8px] font-black uppercase tracking-wider text-zinc-600">РАХУНОК</div>
++                <div className="mt-0.5 text-lg font-black text-[#B78CFF]">{formatNumber(animatedScore)}</div>
++              </motion.div>
+             </div>
+ 
+             <div className="mt-3 grid grid-cols-[1fr_auto] items-center gap-3 rounded-2xl border border-white/[.08] bg-black/25 p-3">
+               <div>
+                 <div className="flex items-center justify-between text-[10px] font-black"><span className="text-zinc-500">Ціль: {formatNumber(config.target_score)}</span><span className="text-[#B78CFF]">{scoreProgress}%</span></div>
+-                <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-[#0A0A0A]"><div className="h-full rounded-full bg-gradient-to-r from-[#7C3AED] to-[#B78CFF]" style={{ width: `${scoreProgress}%` }} /></div>
++                <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-[#0A0A0A]"><motion.div className="h-full rounded-full bg-gradient-to-r from-[#7C3AED] to-[#B78CFF]" animate={{ width: `${scoreProgress}%` }} transition={{ duration: reducedMotion ? 0.05 : 0.25 }} /></div>
+               </div>
+               <div className="flex min-w-[72px] items-center justify-center gap-1.5 rounded-xl border border-[#FFB800]/25 bg-[#FFB800]/10 px-2 py-2 text-[#FFB800]"><Coins size={15} /><span className="text-sm font-black">{game.coins_collected}/{config.target_coins}</span></div>
+             </div>
+ 
+-            <div className="relative mt-3 rounded-[22px] border border-[#7C3AED]/55 bg-[#090711] p-1.5 shadow-[inset_0_0_30px_rgba(124,58,237,.12)]">
+-              <div className="grid grid-cols-7 gap-1">
+-                {game.board.map((rowValues, row) => rowValues.map((type, col) => (
+-                  <Piece
+-                    key={`${row}-${col}`}
+-                    type={type}
+-                    row={row}
+-                    col={col}
+-                    selected={selected?.row === row && selected?.col === col}
+-                    disabled={moving || game.status !== "active"}
+-                    onClick={() => handlePiece(row, col)}
+-                  />
+-                )))}
+-              </div>
+-              {moving && <div className="absolute inset-0 flex items-center justify-center rounded-[22px] bg-black/20 backdrop-blur-[1px]"><div className="h-10 w-10 animate-spin rounded-full border-4 border-[#B78CFF]/25 border-t-[#B78CFF]" /></div>}
+-              {flash && <div className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full border border-[#39FF14]/30 bg-black/80 px-4 py-2 text-sm font-black text-[#39FF14] shadow-[0_0_24px_rgba(57,255,20,.3)]">{flash}</div>}
+-            </div>
++            <motion.div
++              ref={boardRef}
++              className="relative mt-3 rounded-[22px] border border-[#7C3AED]/55 bg-[#090711] p-1.5 shadow-[inset_0_0_30px_rgba(124,58,237,.12)]"
++              animate={boardFx === "won" && !reducedMotion ? { scale: [1, 1.025, 1] } : { scale: 1 }}
++              transition={{ duration: 0.45 }}
++            >
++              <LayoutGroup id={`bonus-board-${game.id}`}>
++                <div className="grid grid-cols-7 gap-1">
++                  {Array.from({ length: ROWS }, (_, row) => Array.from({ length: COLS }, (_, col) => {
++                    const cell = displayBoard?.[row]?.[col] || null;
++                    return (
++                      <div key={`${row}-${col}`} className="relative aspect-square min-w-0">
++                        <AnimatePresence mode="popLayout">
++                          {cell && (
++                            <Piece
++                              key={cell.id}
++                              cell={cell}
++                              row={row}
++                              col={col}
++                              selected={selected?.row === row && selected?.col === col}
++                              disabled={moving || game.status !== "active"}
++                              removing={removingIds.has(cell.id)}
++                              shaking={shakingIds.has(cell.id)}
++                              spawned={spawnedIds.has(cell.id)}
++                              activated={activatedIds.has(cell.id)}
++                              removeDelay={(row + col) * 0.012}
++                              reducedMotion={reducedMotion}
++                              onClick={() => handlePiece(row, col)}
++                            />
++                          )}
++                        </AnimatePresence>
++                      </div>
++                    );
++                  }))}
++                </div>
++              </LayoutGroup>
++
++              <SpecialEffects effects={specialEffects} />
++
++              <AnimatePresence>
++                {flash && (
++                  <motion.div
++                    className="pointer-events-none absolute left-1/2 top-[44%] -translate-x-1/2 -translate-y-1/2 rounded-full border border-[#39FF14]/30 bg-black/80 px-4 py-2 font-display text-lg text-[#39FF14]"
++                    initial={{ opacity: 0, scale: 0.5, y: 8 }}
++                    animate={{ opacity: 1, scale: 1, y: 0 }}
++                    exit={{ opacity: 0, scale: 1.25, y: -12 }}
++                  >
++                    {flash || (combo > 1 ? `КОМБО ×${combo}` : "")}
++                  </motion.div>
++                )}
++              </AnimatePresence>
++
++              <AnimatePresence>
++                {scoreFlights.map((flight) => (
++                  <motion.div
++                    key={flight.id}
++                    className="pointer-events-none absolute z-30 text-sm font-black text-[#FFB800]"
++                    style={{ left: 0, top: 0 }}
++                    initial={{ x: flight.x, y: flight.y, opacity: 0, scale: 0.55 }}
++                    animate={{ x: flight.targetX, y: flight.targetY, opacity: [0, 1, 1, 0], scale: [0.55, 1.2, 0.9, 0.55] }}
++                    exit={{ opacity: 0 }}
++                    transition={{ duration: reducedMotion ? 0.12 : 0.68, ease: [0.22, 1, 0.36, 1] }}
++                  >
++                    +{flight.amount}
++                  </motion.div>
++                ))}
++              </AnimatePresence>
++
++              {moving && (
++                <div className="pointer-events-none absolute right-3 top-3 flex items-center gap-1 rounded-full bg-black/60 px-2 py-1">
++                  {[0, 1, 2].map((dot) => (
++                    <motion.span
++                      key={dot}
++                      className="h-1.5 w-1.5 rounded-full bg-[#B78CFF]"
++                      animate={{ opacity: [0.25, 1, 0.25], y: [0, -2, 0] }}
++                      transition={{ duration: 0.6, repeat: Infinity, delay: dot * 0.1 }}
++                    />
++                  ))}
++                </div>
++              )}
++            </motion.div>
+ 
+             <div className="mt-3 flex items-center justify-between px-1 text-[10px] font-bold text-zinc-600"><span>Натисни фішку, потім сусідню</span><span>{coinProgress}% монет</span></div>
+-          </section>
++          </motion.section>
+ 
+-          {game.status !== "active" && (
+-            <section className={`rounded-3xl border p-5 text-center ${game.status === "won" ? "border-[#39FF14]/35 bg-[#39FF14]/[.07]" : "border-[#FF4D55]/35 bg-[#FF4D55]/[.07]"}`}>
+-              <div className={`font-display text-[27px] ${game.status === "won" ? "text-[#39FF14]" : "text-[#FF4D55]"}`}>{game.status === "won" ? "РІВЕНЬ ПРОЙДЕНО!" : "ХОДИ ЗАКІНЧИЛИСЯ"}</div>
+-              <div className="mt-3 flex justify-center"><Stars count={result?.stars || 0} size={28} /></div>
+-              <div className="mt-3 text-sm font-bold text-zinc-400">Рахунок: <span className="font-black text-white">{formatNumber(game.score)}</span></div>
+-              {game.status === "won" && (
++          <AnimatePresence>
++            {game.status !== "active" && (
++              <motion.section
++                className={`rounded-3xl border p-5 text-center ${game.status === "won" ? "border-[#39FF14]/35 bg-[#39FF14]/[.07]" : "border-[#FF4D55]/35 bg-[#FF4D55]/[.07]"}`}
++                initial={{ opacity: 0, y: 18, scale: 0.94 }}
++                animate={{ opacity: 1, y: 0, scale: 1 }}
++                exit={{ opacity: 0, scale: 0.94 }}
++                transition={{ type: "spring", stiffness: 320, damping: 24 }}
++              >
++                <div className={`font-display text-[27px] ${game.status === "won" ? "text-[#39FF14]" : "text-[#FF4D55]"}`}>{game.status === "won" ? "РІВЕНЬ ПРОЙДЕНО!" : "ХОДИ ЗАКІНЧИЛИСЯ"}</div>
++                <div className="mt-3 flex justify-center"><Stars count={result?.stars || 0} size={30} animated={game.status === "won"} reducedMotion={reducedMotion} /></div>
++                <div className="mt-3 text-sm font-bold text-zinc-400">Рахунок: <span className="font-black text-white">{formatNumber(game.score)}</span></div>
++                {game.status === "won" && (
++                  <div className="mt-4 grid grid-cols-2 gap-2">
++                    <div className="rounded-2xl border border-[#FFB800]/25 bg-[#FFB800]/10 p-3"><div className="text-[9px] font-black uppercase text-zinc-600">НАГОРОДА</div><div className="mt-1 text-xl font-black text-[#FFB800]">+{result?.points_awarded || 0} Point</div></div>
++                    <div className="rounded-2xl border border-[#00F0FF]/25 bg-[#00F0FF]/10 p-3"><div className="text-[9px] font-black uppercase text-zinc-600">ДОСВІД</div><div className="mt-1 text-xl font-black text-[#00F0FF]">+{result?.xp_awarded || 0} XP</div></div>
++                  </div>
++                )}
+                 <div className="mt-4 grid grid-cols-2 gap-2">
+-                  <div className="rounded-2xl border border-[#FFB800]/25 bg-[#FFB800]/10 p-3"><div className="text-[9px] font-black uppercase text-zinc-600">Нагорода</div><div className="mt-1 text-xl font-black text-[#FFB800]">+{result?.points_awarded || 0} Point</div></div>
+-                  <div className="rounded-2xl border border-[#00F0FF]/25 bg-[#00F0FF]/10 p-3"><div className="text-[9px] font-black uppercase text-zinc-600">Досвід</div><div className="mt-1 text-xl font-black text-[#00F0FF]">+{result?.xp_awarded || 0} XP</div></div>
++                  <button type="button" onClick={() => { setGame(null); setDisplayBoard([]); setResult(null); setBoardFx(""); loadStatus(); }} className="flex h-12 items-center justify-center rounded-2xl border border-white/10 bg-[#1A1A1E] text-sm font-black text-zinc-300 active:scale-95"><RotateCcw size={17} className="mr-2" />РІВНІ</button>
++                  <button type="button" onClick={() => startGame(game.status === "won" ? Math.min(MAX_LEVEL, result?.current_level || game.level + 1) : game.level)} className="flex h-12 items-center justify-center rounded-2xl bg-[#7C3AED] text-sm font-black text-white active:scale-95">{game.status === "won" ? "ДАЛІ" : "ЩЕ РАЗ"}<ChevronRight size={17} className="ml-1" /></button>
+                 </div>
+-              )}
+-              <div className="mt-4 grid grid-cols-2 gap-2">
+-                <button type="button" onClick={() => { setGame(null); setResult(null); loadStatus(); }} className="flex h-12 items-center justify-center rounded-2xl border border-white/10 bg-[#1A1A1E] text-sm font-black text-zinc-300 active:scale-95"><RotateCcw size={17} className="mr-2" />Рівні</button>
+-                <button type="button" onClick={() => startGame(game.status === "won" ? Math.min(50, result?.current_level || game.level + 1) : game.level)} className="flex h-12 items-center justify-center rounded-2xl bg-[#7C3AED] text-sm font-black text-white active:scale-95">{game.status === "won" ? "Далі" : "Ще раз"}<ChevronRight size={17} className="ml-1" /></button>
+-              </div>
+-            </section>
+-          )}
++              </motion.section>
++            )}
++          </AnimatePresence>
+         </>
+       )}
++
++      <AnimatePresence>
++        {bossPrompt && (
++          <motion.div
++            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/75 px-5 backdrop-blur-sm"
++            initial={{ opacity: 0 }}
++            animate={{ opacity: 1 }}
++            exit={{ opacity: 0 }}
++          >
++            <motion.div
++              className="w-full max-w-sm rounded-[28px] border border-[#FF5C00]/45 bg-gradient-to-br from-[#2A0F09] via-[#181216] to-[#0B0B0E] p-5 text-center"
++              initial={{ opacity: 0, scale: 0.82, y: 24 }}
++              animate={{ opacity: 1, scale: 1, y: 0 }}
++              exit={{ opacity: 0, scale: 0.9, y: 12 }}
++              transition={{ type: "spring", stiffness: 330, damping: 24 }}
++            >
++              <motion.div
++                className="mx-auto flex h-20 w-20 items-center justify-center rounded-3xl border border-[#FF5C00]/50 bg-[#FF5C00]/15"
++                animate={reducedMotion ? undefined : { rotate: [0, -5, 5, 0], scale: [1, 1.06, 1] }}
++                transition={{ duration: 1.2, repeat: Infinity }}
++              >
++                <Trophy size={42} color="#FFB800" />
++              </motion.div>
++              <div className="mt-4 font-display text-3xl text-[#FFB800]">БОС-РІВЕНЬ</div>
++              <div className="mt-2 text-sm font-bold leading-relaxed text-zinc-400">Рівень {bossPrompt.level} має посилену ціль, менше ходів і складні перешкоди.</div>
++              <div className="mt-4 grid grid-cols-3 gap-2">
++                <div className="rounded-xl bg-black/30 p-2"><div className="text-[8px] font-black uppercase text-zinc-600">ХОДИ</div><div className="mt-1 font-black text-white">{bossPrompt.moves}</div></div>
++                <div className="rounded-xl bg-black/30 p-2"><div className="text-[8px] font-black uppercase text-zinc-600">ЦІЛЬ</div><div className="mt-1 font-black text-[#B78CFF]">{formatNumber(bossPrompt.target_score)}</div></div>
++                <div className="rounded-xl bg-black/30 p-2"><div className="text-[8px] font-black uppercase text-zinc-600">БОНУС</div><div className="mt-1 font-black text-[#FFB800]">×{bossPrompt.reward_multiplier}</div></div>
++              </div>
++              <div className="mt-5 grid grid-cols-2 gap-2">
++                <button type="button" onClick={() => setBossPrompt(null)} className="h-12 rounded-2xl border border-white/10 bg-[#1A1A1E] text-sm font-black text-zinc-300">НАЗАД</button>
++                <button type="button" onClick={() => startGame(bossPrompt.level, true)} className="h-12 rounded-2xl bg-gradient-to-r from-[#FFB800] to-[#FF5C00] text-sm font-black text-[#17100A]">ПРИЙНЯТИ ВИКЛИК</button>
++              </div>
++            </motion.div>
++          </motion.div>
++        )}
++      </AnimatePresence>
+     </div>
+   );
+ }
+--- tm6v65-original/frontend/public/service-worker.js	2026-07-23 20:50:35.000000000 +0000
++++ tm6v66-work/frontend/public/service-worker.js	2026-07-23 21:36:56.647452148 +0000
+@@ -2,7 +2,7 @@
+  * Dynamic data is always network-only.
+  * App shell uses network-first so new deployments replace old PWA files promptly.
+  */
+-const VERSION = "tm6-v65";
++const VERSION = "tm6-v66";
+ const STATIC_CACHE = `${VERSION}-static`;
+ const RUNTIME_CACHE = `${VERSION}-runtime`;
+ 
