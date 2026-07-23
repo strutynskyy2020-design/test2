@@ -1203,6 +1203,28 @@ async def get_my_goals(user: dict = Depends(get_current_user)):
     return result
 
 
+@api.get("/goals/participants")
+async def get_goal_participants(user: dict = Depends(get_current_user)):
+    """Public profile fields used to decorate internal goal rankings."""
+    return await db.users.find(
+        {
+            "role": "employee",
+            "approved": {"$ne": False},
+            "goals_login": {"$nin": [None, ""]},
+        },
+        {
+            "_id": 0,
+            "id": 1,
+            "name": 1,
+            "goals_login": 1,
+            "avatar_initials": 1,
+            "avatar_color": 1,
+            "avatar_url": 1,
+            "avatar_rarity": 1,
+        },
+    ).sort("name", 1).to_list(2000)
+
+
 @api.get("/admin/goals-dashboard")
 async def admin_goals_dashboard(admin: dict = Depends(get_current_admin)):
     users = await db.users.find(

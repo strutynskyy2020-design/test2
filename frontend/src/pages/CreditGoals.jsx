@@ -67,7 +67,7 @@ const METRICS = [
   },
   {
     id: "callback",
-    label: "CallBack к обработанным",
+    label: "Рівень колбеків",
     aliases: ["callback_rate", "callback", "callback_to_processed"],
     unit: "percent",
     rule: "lower",
@@ -75,7 +75,7 @@ const METRICS = [
   },
   {
     id: "aht",
-    label: "AHT",
+    label: "Довжина розмови",
     aliases: ["aht", "aht_seconds", "average_handle_time"],
     unit: "time",
     rule: "aht15",
@@ -83,7 +83,7 @@ const METRICS = [
   },
   {
     id: "reject",
-    label: "Reject rate",
+    label: "Відмови банку",
     aliases: ["reject_rate", "reject", "decline_rate"],
     unit: "percent",
     rule: "lower",
@@ -667,7 +667,7 @@ export default function CreditGoals() {
                 <div className="mt-1 text-xl font-black text-[#B78CFF]">{Number(activeData.processed || 0)}</div>
               </div>
               <div className="px-3">
-                <div className="text-[9px] font-black uppercase tracking-wider text-zinc-600">Reject rate</div>
+                <div className="text-[9px] font-black uppercase tracking-wider text-zinc-600">Відмови банку</div>
                 <div className="mt-1 text-xl font-black text-[#39FF14]">{formatValue(activeData.metrics.reject?.mine || 0, "percent")}</div>
               </div>
               <div className="px-3 pr-0">

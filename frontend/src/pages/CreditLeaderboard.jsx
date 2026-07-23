@@ -3,7 +3,6 @@ import { useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
   Eye,
-  Medal,
   RefreshCcw,
   Target,
   Trophy,
@@ -11,8 +10,9 @@ import {
   UsersRound,
 } from "lucide-react";
 import { toast } from "sonner";
-import { getToken } from "@/lib/api";
+import api, { getToken } from "@/lib/api";
 import { useApp } from "@/context/AppContext";
+import { resolveAvatarUrl } from "@/lib/avatar";
 
 const DEMO_GROUP_SUMMARY = {
   login: "tm6",
@@ -83,7 +83,27 @@ const normalizeRow = (row) => ({
   web_apps: parsePercent(row?.web_apps ?? row?.webapps ?? row?.["Web apps"]),
   inb: parsePercent(row?.inb ?? row?.INB),
   overall: parsePercent(row?.overall ?? row?.general ?? row?.summary ?? row?.["Загальний"]),
+  name: String(row?.name || "").trim(),
+  avatar_url: row?.avatar_url || null,
+  avatar_initials: String(row?.avatar_initials || "").trim(),
+  avatar_color: row?.avatar_color || "#27272A",
+  avatar_rarity: row?.avatar_rarity || "basic",
 });
+
+const profileMapFromRows = (profiles = []) => new Map(
+  (Array.isArray(profiles) ? profiles : [])
+    .map((profile) => [normalizeLogin(profile?.goals_login), profile])
+    .filter(([login]) => login)
+);
+
+const enrichRowsWithProfiles = (rows = [], profiles = []) => {
+  const profilesByLogin = profileMapFromRows(profiles);
+  return (Array.isArray(rows) ? rows : []).map((row) => {
+    const login = normalizeLogin(row?.login || row?.goals_login || row?.operator || row?.credit);
+    const profile = profilesByLogin.get(login);
+    return profile ? { ...row, ...profile, login } : row;
+  });
+};
 
 const normalizeLeaderboard = (rows) => {
   if (!Array.isArray(rows)) return [];
@@ -107,15 +127,34 @@ const normalizeGroupSummary = (summary, rows = []) => {
 const findBestByDirection = (rows, field) => rows.reduce((best, row) => {
   const value = row[field];
   if (value === null || value === undefined) return best;
-  if (!best || value > best.value) return { login: row.login, value };
+  if (!best || value > best.value) return { ...row, value };
   return best;
 }, null);
 
-function TableMetricValue({ value }) {
+function TableMetricValue({ label, value }) {
   const theme = getStatus(value);
   return (
-    <div className="text-center text-[11px] font-black tabular-nums" style={{ color: theme.color }}>
-      {formatPercent(value)}
+    <div className="min-w-0 rounded-xl bg-black/20 px-1.5 py-2 text-center">
+      <div className="truncate text-[7px] font-black uppercase tracking-wide text-zinc-600">{label}</div>
+      <div className="mt-1 text-[10px] font-black tabular-nums" style={{ color: theme.color }}>
+        {formatPercent(value)}
+      </div>
+    </div>
+  );
+}
+
+function ProfileAvatar({ profile, size = "md" }) {
+  const avatar = resolveAvatarUrl(profile?.avatar_url);
+  const fallback = String(profile?.avatar_initials || profile?.login || "?").slice(0, 2).toUpperCase();
+  const sizeClass = size === "lg" ? "h-12 w-12 text-xs" : "h-9 w-9 text-[10px]";
+  return (
+    <div
+      className={`flex shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/[.12] font-black text-white ${sizeClass}`}
+      style={{ backgroundColor: profile?.avatar_color || "#27272A" }}
+    >
+      {avatar ? (
+        <img src={avatar} alt={profile?.login || "Аватар"} className="h-full w-full object-cover" loading="lazy" />
+      ) : fallback}
     </div>
   );
 }
@@ -123,9 +162,19 @@ function TableMetricValue({ value }) {
 function GroupDirectionValue({ label, value }) {
   const theme = getStatus(value);
   return (
-    <div className="rounded-2xl border p-3" style={{ borderColor: theme.border, background: theme.bg }}>
+    <div className="rounded-2xl border p-3 text-center" style={{ borderColor: theme.border, background: theme.bg }}>
       <div className="text-[9px] font-black uppercase tracking-wider text-zinc-500">{label}</div>
       <div className="mt-1 text-lg font-black" style={{ color: theme.color }}>{formatPercent(value)}</div>
+    </div>
+  );
+}
+
+function GroupOverallValue({ value }) {
+  const theme = getStatus(value);
+  return (
+    <div className="rounded-2xl border px-4 py-4 text-center" style={{ borderColor: theme.border, background: "linear-gradient(135deg, rgba(124,58,237,.2), rgba(26,26,30,.94))" }}>
+      <div className="text-[10px] font-black uppercase tracking-[.16em] text-[#B78CFF]">TM6 · Загальний</div>
+      <div className="mt-1 font-display text-[32px] leading-none" style={{ color: theme.color }}>{formatPercent(value)}</div>
     </div>
   );
 }
@@ -137,56 +186,48 @@ function BestDirectionCard({ label, result }) {
         <Trophy size={12} strokeWidth={2.8} />
         {label}
       </div>
-      <div className="mt-2 truncate text-sm font-black text-white">{result?.login || "—"}</div>
-      <div className="mt-0.5 text-lg font-black text-[#39FF14]">{formatPercent(result?.value)}</div>
-    </div>
-  );
-}
-
-function RankBadge({ rank }) {
-  const topThemes = {
-    1: { color: "#FFB800", bg: "rgba(255,184,0,.14)", border: "rgba(255,184,0,.4)" },
-    2: { color: "#D4D4D8", bg: "rgba(212,212,216,.1)", border: "rgba(212,212,216,.32)" },
-    3: { color: "#F59E5B", bg: "rgba(245,158,91,.11)", border: "rgba(245,158,91,.34)" },
-  };
-  const theme = topThemes[rank] || { color: "#A1A1AA", bg: "rgba(255,255,255,.04)", border: "rgba(255,255,255,.1)" };
-  return (
-    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border text-sm font-black" style={{ color: theme.color, background: theme.bg, borderColor: theme.border }}>
-      {rank <= 3 ? <Medal size={18} strokeWidth={2.7} /> : rank}
+      <div className="mt-2 flex items-center gap-2">
+        <ProfileAvatar profile={result} />
+        <div className="min-w-0 flex-1">
+          <div className="break-words text-[11px] font-black leading-tight text-white">{result?.login || "—"}</div>
+          <div className="mt-0.5 text-base font-black text-[#39FF14]">{formatPercent(result?.value)}</div>
+        </div>
+      </div>
     </div>
   );
 }
 
 function OperatorRow({ operator, rank, isCurrent }) {
   const overallTheme = getStatus(operator.overall);
-  const initials = operator.login.slice(0, 2).toUpperCase();
   return (
     <article
-      className="grid min-w-[336px] grid-cols-[minmax(112px,1.45fr)_repeat(4,minmax(52px,.82fr))] items-center gap-1 border-t px-2 py-3"
+      className="border-t px-3 py-3"
       style={{
         borderColor: "rgba(255,255,255,.075)",
         background: isCurrent ? "linear-gradient(90deg, rgba(124,58,237,.22), rgba(26,26,30,.94))" : "transparent",
       }}
     >
-      <div className="flex min-w-0 items-center gap-2">
-        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-black/30 text-[10px] font-black text-zinc-300">
-          {rank}
-        </div>
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-white/10 bg-black/35 text-[9px] font-black text-white">
-          {initials}
-        </div>
-        <div className="min-w-0">
-          <div className="flex items-center gap-1.5">
-            <h3 className="truncate text-[11px] font-black text-white">{operator.login}</h3>
+      <div className="flex items-center gap-2.5">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-black/30 text-[11px] font-black text-zinc-300">{rank}</div>
+        <ProfileAvatar profile={operator} />
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <h3 className="break-all text-[13px] font-black leading-tight text-white">{operator.login}</h3>
             {isCurrent && <span className="rounded-full bg-[#B78CFF]/16 px-1.5 py-0.5 text-[7px] font-black uppercase text-[#C9A7FF]">Ви</span>}
           </div>
-          <div className="mt-0.5 text-[7px] font-black uppercase tracking-wider" style={{ color: overallTheme.color }}>{overallTheme.label}</div>
+          <div className="mt-0.5 text-[8px] font-black uppercase tracking-wider" style={{ color: overallTheme.color }}>{overallTheme.label}</div>
+        </div>
+        <div className="shrink-0 text-right">
+          <div className="text-[8px] font-black uppercase tracking-wide text-zinc-600">Загальний</div>
+          <div className="mt-0.5 text-[12px] font-black tabular-nums" style={{ color: overallTheme.color }}>{formatPercent(operator.overall)}</div>
         </div>
       </div>
-      <TableMetricValue value={operator.xsell} />
-      <TableMetricValue value={operator.web_apps} />
-      <TableMetricValue value={operator.inb} />
-      <TableMetricValue value={operator.overall} />
+      <div className="mt-2.5 grid grid-cols-4 gap-1.5">
+        <TableMetricValue label="X-Sell" value={operator.xsell} />
+        <TableMetricValue label="Web Apps" value={operator.web_apps} />
+        <TableMetricValue label="INB" value={operator.inb} />
+        <TableMetricValue label="Загальний" value={operator.overall} />
+      </div>
     </article>
   );
 }
@@ -216,21 +257,25 @@ export default function CreditLeaderboard() {
         setEmptyMessage("");
         const token = getToken();
         if (!token) throw new Error("Потрібна авторизація");
-        const response = await fetch(`/.netlify/functions/google-goals?_ts=${Date.now()}`, {
-          method: "GET",
-          headers: {
-            accept: "application/json",
-            authorization: `Bearer ${token}`,
-            "cache-control": "no-cache",
-          },
-          cache: "no-store",
-        });
+        const [response, participantsResponse] = await Promise.all([
+          fetch(`/.netlify/functions/google-goals?_ts=${Date.now()}`, {
+            method: "GET",
+            headers: {
+              accept: "application/json",
+              authorization: `Bearer ${token}`,
+              "cache-control": "no-cache",
+            },
+            cache: "no-store",
+          }),
+          api.get("/goals/participants").catch(() => ({ data: [] })),
+        ]);
         const result = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(result.error || "Не вдалося завантажити рейтинг");
         if (cancelled) return;
 
         const rawRows = Array.isArray(result.credit_leaderboard) ? result.credit_leaderboard : [];
-        const leaderboard = normalizeLeaderboard(rawRows);
+        const enrichedRows = enrichRowsWithProfiles(rawRows, participantsResponse?.data);
+        const leaderboard = normalizeLeaderboard(enrichedRows);
         const summary = normalizeGroupSummary(result.credit_group_summary, rawRows);
         setRows(leaderboard);
         setGroupSummary(summary);
@@ -295,21 +340,23 @@ export default function CreditLeaderboard() {
       {leaderboard.length ? (
         <>
           <section className="rounded-3xl border border-[#B78CFF]/35 bg-gradient-to-br from-[#B78CFF]/15 to-[#1A1A1E] p-5">
-            <div className="flex items-start justify-between gap-3">
+            <div className="flex items-center justify-between gap-3">
               <div>
                 <div className="text-[10px] font-black uppercase tracking-widest text-[#B78CFF]">Підсумок групи TM6</div>
-                <div className="mt-1 font-display text-3xl text-white">{leaderboard.length} операторів</div>
+                <div className="mt-1 text-xs font-bold text-zinc-500">{leaderboard.length} операторів</div>
               </div>
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-[#FFB800]/40 bg-[#FFB800]/15">
-                <Trophy size={27} strokeWidth={2.8} color="#FFB800" />
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-[#FFB800]/40 bg-[#FFB800]/15">
+                <Trophy size={24} strokeWidth={2.8} color="#FFB800" />
               </div>
             </div>
 
-            <div className="mt-4 grid grid-cols-2 gap-2">
-              <GroupDirectionValue label="TM6 · X-Sell" value={groupSummary?.xsell} />
-              <GroupDirectionValue label="TM6 · Web Apps" value={groupSummary?.web_apps} />
-              <GroupDirectionValue label="TM6 · INB" value={groupSummary?.inb} />
-              <GroupDirectionValue label="TM6 · Загальний" value={groupSummary?.overall} />
+            <div className="mt-4">
+              <GroupOverallValue value={groupSummary?.overall} />
+              <div className="mt-2 grid grid-cols-3 gap-2">
+                <GroupDirectionValue label="X-Sell" value={groupSummary?.xsell} />
+                <GroupDirectionValue label="Web Apps" value={groupSummary?.web_apps} />
+                <GroupDirectionValue label="INB" value={groupSummary?.inb} />
+              </div>
             </div>
 
             <div className="mt-4 text-[10px] font-black uppercase tracking-widest text-zinc-500">Кращий результат за напрямком</div>
@@ -337,14 +384,7 @@ export default function CreditLeaderboard() {
                 <div className="mt-0.5 text-xs font-black text-[#B78CFF]">{leaderboard.length}</div>
               </div>
             </div>
-            <div className="overflow-x-auto rounded-3xl border border-white/10 bg-[#1A1A1E]">
-              <div className="grid min-w-[336px] grid-cols-[minmax(112px,1.45fr)_repeat(4,minmax(52px,.82fr))] items-center gap-1 px-2 py-3 text-center text-[8px] font-black uppercase tracking-wider text-zinc-500">
-                <div className="text-left">Оператор</div>
-                <div>X-Sell</div>
-                <div>Web Apps</div>
-                <div>INB</div>
-                <div>Загальний</div>
-              </div>
+            <div className="overflow-hidden rounded-3xl border border-white/10 bg-[#1A1A1E]">
               {leaderboard.map((operator, index) => (
                 <OperatorRow key={operator.login} operator={operator} rank={index + 1} isCurrent={operator.login === currentLogin} />
               ))}
