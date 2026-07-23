@@ -398,14 +398,18 @@ function Piece({
 
   return (
     <motion.button
-      layout
+      layout="position"
       layoutId={`bonus-piece-${cell.id}`}
       type="button"
       onClick={onClick}
       disabled={disabled || Boolean(obstacle)}
       aria-label={`${label}, рядок ${row + 1}, колонка ${col + 1}`}
-      className="relative flex h-full w-full touch-manipulation items-center justify-center overflow-hidden rounded-[10px] border border-white/10"
-      style={{ background }}
+      className="relative flex aspect-square min-w-0 touch-manipulation items-center justify-center overflow-hidden rounded-[10px] border border-white/10"
+      style={{
+        background,
+        gridRowStart: row + 1,
+        gridColumnStart: col + 1,
+      }}
       initial={spawned && !reducedMotion ? { y: -70, opacity: 0, scale: 0.72 } : { opacity: 1, scale: 1 }}
       animate={{
         x: shakeAnimation,
@@ -414,7 +418,14 @@ function Piece({
         scale: removing ? 0 : selected ? 1.12 : activated ? 1.16 : 1,
         rotate: removing ? 24 : activated ? [0, 8, -8, 0] : 0,
       }}
-      exit={{ opacity: 0, scale: 0, rotate: 30 }}
+      exit={reducedMotion
+        ? { opacity: 0, transition: { duration: 0.05 } }
+        : {
+          opacity: 0,
+          scale: 0,
+          rotate: 30,
+          transition: { duration: 0.28, delay: removeDelay, ease: "easeIn" },
+        }}
       whileTap={disabled || obstacle ? undefined : { scale: 0.86 }}
       transition={
         shaking
@@ -731,79 +742,146 @@ export default function BonusMatch() {
 
   const animateServerMove = async (data, baseScore) => {
     const animation = data.animation || {};
-    if (animation.swapped_board) {
-      setDisplayBoard(normalizeBoard(animation.swapped_board));
-      await wait(reducedMotion ? 40 : 220);
+    const frames = Array.isArray(animation.frames) && animation.frames.length
+      ? animation.frames
+      : [
+        ...(animation.swapped_board ? [{ phase: "swap", board: animation.swapped_board, duration_ms: 220 }] : []),
+        ...(animation.steps || []).flatMap((step) => [
+          {
+            phase: "match",
+            duration_ms: 290,
+            combo: step.combo,
+            score_gain: step.score_gain,
+            coins_gain: step.coins_gain,
+            board: step.board_before_clear,
+            matched_cells: step.matched_cells,
+            cleared_cells: step.cleared_cells,
+            cleared_ids: (step.cleared_cells || []).map(({ row, col }) => step.board_before_clear?.[row]?.[col]?.id).filter(Boolean),
+            created_specials: step.created_specials,
+            activated_specials: step.activated_specials,
+            obstacle_changes: step.obstacle_changes,
+          },
+          {
+            phase: "collapse",
+            duration_ms: 430,
+            combo: step.combo,
+            board: step.board_after_collapse,
+            spawned: step.spawned,
+            spawned_ids: (step.spawned || []).map((item) => item.id).filter(Boolean),
+          },
+        ]),
+      ];
+
+    const swapFrame = frames.find((frame) => frame.phase === "swap");
+    if (swapFrame?.board) {
+      setDisplayBoard(normalizeBoard(swapFrame.board));
+      await wait(reducedMotion ? 35 : Number(swapFrame.duration_ms || 220));
     }
 
     if (!data.valid) {
+      const invalidFrame = frames.find((frame) => frame.phase === "invalid");
       const pair = animation.swap;
-      const boardForIds = animation.swapped_board || displayBoard;
-      const ids = new Set();
-      if (pair) {
+      const boardForIds = normalizeBoard(animation.swapped_board || displayBoard);
+      const ids = new Set((invalidFrame?.shake_ids || []).filter(Boolean));
+      if (!ids.size && pair) {
         const firstId = boardForIds?.[pair.from.row]?.[pair.from.col]?.id;
         const secondId = boardForIds?.[pair.to.row]?.[pair.to.col]?.id;
         if (firstId) ids.add(firstId);
         if (secondId) ids.add(secondId);
       }
       setShakingIds(ids);
-      await wait(reducedMotion ? 60 : 330);
+      await wait(reducedMotion ? 60 : Number(invalidFrame?.duration_ms || 320));
       setShakingIds(new Set());
-      setDisplayBoard(normalizeBoard(animation.reverted_board || data.session?.board || game.board));
+      setDisplayBoard(normalizeBoard(invalidFrame?.board || animation.reverted_board || data.session?.board || game.board));
+      await wait(reducedMotion ? 30 : 220);
       toast.info(data.message || "Спробуй інший хід");
       return;
     }
 
     let runningScore = Number(baseScore || 0);
-    for (const step of animation.steps || []) {
-      const before = normalizeBoard(step.board_before_clear || displayBoard);
-      setDisplayBoard(before);
-      const removed = new Set();
-      (step.cleared_cells || []).forEach(({ row, col }) => {
-        const id = before?.[row]?.[col]?.id;
-        if (id) removed.add(id);
-      });
-      const active = new Set();
-      (step.activated_specials || []).forEach(({ row, col }) => {
-        const id = before?.[row]?.[col]?.id;
-        if (id) active.add(id);
-      });
-      setActivatedIds(active);
-      setSpecialEffects(step.activated_specials || []);
-      setRemovingIds(removed);
-      setCombo(step.combo || 1);
-      setFlash(step.combo > 1 ? `КОМБО ×${step.combo}` : "");
+    for (let index = 0; index < frames.length; index += 1) {
+      const frame = frames[index];
+      if (frame.phase === "swap") continue;
 
-      for (const created of step.created_specials || []) {
-        toast.success(SPECIAL_TOASTS[created.special] || "Бонусна фішка створена!");
+      if (frame.phase === "match") {
+        const before = normalizeBoard(frame.board || displayBoard);
+        setDisplayBoard(before);
+
+        const removed = new Set(
+          (frame.cleared_ids || []).filter(Boolean),
+        );
+        if (!removed.size) {
+          (frame.cleared_cells || []).forEach(({ row, col }) => {
+            const id = before?.[row]?.[col]?.id;
+            if (id) removed.add(id);
+          });
+        }
+
+        const active = new Set();
+        (frame.activated_specials || []).forEach(({ row, col, id }) => {
+          const pieceId = id || before?.[row]?.[col]?.id;
+          if (pieceId) active.add(pieceId);
+        });
+        setActivatedIds(active);
+        setSpecialEffects(frame.activated_specials || []);
+        setRemovingIds(removed);
+        setCombo(frame.combo || 1);
+        setFlash(frame.combo > 1 ? `КОМБО ×${frame.combo}` : "");
+
+        for (const created of frame.created_specials || []) {
+          toast.success(SPECIAL_TOASTS[created.special] || "Бонусна фішка створена!");
+        }
+
+        const burstColor = (frame.activated_specials || []).some((item) => item.special === "bomb")
+          ? "#FF5C00"
+          : (frame.activated_specials || []).some((item) => item.special === "color_bomb")
+            ? "#F64CFF"
+            : "#B78CFF";
+        burstAtCells(frame.cleared_cells || [], burstColor);
+        launchScoreFlight(frame.cleared_cells || [], frame.score_gain || 0);
+
+        // Let the exiting pieces receive their removal state before the board
+        // advances. The next frame then starts falling pieces immediately,
+        // while AnimatePresence keeps removed pieces visible until exit ends.
+        await new Promise((resolve) => window.requestAnimationFrame(() => window.requestAnimationFrame(resolve)));
+
+        const collapseFrame = frames[index + 1]?.phase === "collapse" ? frames[index + 1] : null;
+        if (collapseFrame?.board) {
+          setSpawnedIds(new Set(
+            (collapseFrame.spawned_ids || collapseFrame.spawned?.map((item) => item.id) || []).filter(Boolean),
+          ));
+          setDisplayBoard(normalizeBoard(collapseFrame.board));
+          const nextScore = runningScore + Number(frame.score_gain || 0);
+          await Promise.all([
+            tickScore(runningScore, nextScore),
+            wait(reducedMotion ? 70 : Number(collapseFrame.duration_ms || 430)),
+          ]);
+          runningScore = nextScore;
+          index += 1;
+        } else {
+          await wait(reducedMotion ? 70 : Number(frame.duration_ms || 290));
+        }
+
+        setRemovingIds(new Set());
+        setSpawnedIds(new Set());
+        setActivatedIds(new Set());
+        setSpecialEffects([]);
+        setFlash("");
+        continue;
       }
 
-      const burstColor = (step.activated_specials || []).some((item) => item.special === "bomb")
-        ? "#FF5C00"
-        : (step.activated_specials || []).some((item) => item.special === "color_bomb")
-          ? "#F64CFF"
-          : "#B78CFF";
-      burstAtCells(step.cleared_cells || [], burstColor);
-      launchScoreFlight(step.cleared_cells || [], step.score_gain || 0);
-      await wait(reducedMotion ? 70 : 300);
+      if (frame.phase === "collapse" && frame.board) {
+        setSpawnedIds(new Set((frame.spawned_ids || []).filter(Boolean)));
+        setDisplayBoard(normalizeBoard(frame.board));
+        await wait(reducedMotion ? 60 : Number(frame.duration_ms || 430));
+        setSpawnedIds(new Set());
+        continue;
+      }
 
-      setDisplayBoard(normalizeBoard(step.board_after_clear || before));
-      setRemovingIds(new Set());
-      setActivatedIds(new Set());
-      setSpecialEffects([]);
-      await wait(reducedMotion ? 20 : 45);
-
-      const nextBoard = normalizeBoard(step.board_after_collapse || step.board_after_clear || before);
-      setSpawnedIds(new Set((step.spawned || []).map((item) => item.id)));
-      setDisplayBoard(nextBoard);
-      const nextScore = runningScore + Number(step.score_gain || 0);
-      await Promise.all([
-        tickScore(runningScore, nextScore),
-        wait(reducedMotion ? 60 : 420),
-      ]);
-      runningScore = nextScore;
-      setSpawnedIds(new Set());
-      setFlash("");
+      if (frame.phase === "reshuffle" && frame.board) {
+        setDisplayBoard(normalizeBoard(frame.board));
+        await wait(reducedMotion ? 60 : Number(frame.duration_ms || 360));
+      }
     }
 
     if (animation.reshuffled) toast.info("На полі не залишилося ходів. Фішки перемішано");
@@ -1073,34 +1151,41 @@ export default function BonusMatch() {
               animate={boardFx === "won" && !reducedMotion ? { scale: [1, 1.025, 1] } : { scale: 1 }}
               transition={{ duration: 0.45 }}
             >
+              <div className="grid grid-cols-7 gap-1" aria-hidden="true">
+                {Array.from({ length: ROWS * COLS }, (_, index) => (
+                  <div
+                    key={`slot-${index}`}
+                    className="aspect-square min-w-0 rounded-[10px] border border-white/[.055] bg-[#11101A]"
+                  />
+                ))}
+              </div>
+
               <LayoutGroup id={`bonus-board-${game.id}`}>
-                <div className="grid grid-cols-7 gap-1">
-                  {Array.from({ length: ROWS }, (_, row) => Array.from({ length: COLS }, (_, col) => {
-                    const cell = displayBoard?.[row]?.[col] || null;
-                    return (
-                      <div key={`${row}-${col}`} className="relative aspect-square min-w-0">
-                        <AnimatePresence mode="popLayout">
-                          {cell && (
-                            <Piece
-                              key={cell.id}
-                              cell={cell}
-                              row={row}
-                              col={col}
-                              selected={selected?.row === row && selected?.col === col}
-                              disabled={moving || game.status !== "active"}
-                              removing={removingIds.has(cell.id)}
-                              shaking={shakingIds.has(cell.id)}
-                              spawned={spawnedIds.has(cell.id)}
-                              activated={activatedIds.has(cell.id)}
-                              removeDelay={(row + col) * 0.012}
-                              reducedMotion={reducedMotion}
-                              onClick={() => handlePiece(row, col)}
-                            />
-                          )}
-                        </AnimatePresence>
-                      </div>
-                    );
-                  }))}
+                <div
+                  className="absolute inset-1.5 grid grid-cols-7 gap-1"
+                  style={{ gridTemplateRows: `repeat(${ROWS}, minmax(0, 1fr))` }}
+                >
+                  <AnimatePresence initial={false}>
+                    {(displayBoard || []).flatMap((boardRow, row) =>
+                      (boardRow || []).map((cell, col) => (cell ? (
+                        <Piece
+                          key={cell.id}
+                          cell={cell}
+                          row={row}
+                          col={col}
+                          selected={selected?.row === row && selected?.col === col}
+                          disabled={moving || game.status !== "active"}
+                          removing={removingIds.has(cell.id)}
+                          shaking={shakingIds.has(cell.id)}
+                          spawned={spawnedIds.has(cell.id)}
+                          activated={activatedIds.has(cell.id)}
+                          removeDelay={(row + col) * 0.012}
+                          reducedMotion={reducedMotion}
+                          onClick={() => handlePiece(row, col)}
+                        />
+                      ) : null)),
+                    )}
+                  </AnimatePresence>
                 </div>
               </LayoutGroup>
 

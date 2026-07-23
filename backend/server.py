@@ -2887,6 +2887,74 @@ def _bonus_match_collapse(
     return board, spawned
 
 
+
+def _bonus_match_animation_frames(
+    swapped_board: list[list[Optional[dict]]],
+    steps: list[dict],
+    final_board: list[list[Optional[dict]]],
+    reshuffled: bool = False,
+) -> list[dict]:
+    """Build deterministic animation frames from the authoritative server state.
+
+    The frontend never recomputes cascades. It receives stable piece ids and
+    replays: swap -> match/clear metadata -> collapse. Removed pieces can exit
+    while surviving pieces with the same ids move to their next grid positions.
+    """
+    frames: list[dict] = [{
+        "phase": "swap",
+        "duration_ms": 220,
+        "board": _bonus_match_clone_board(swapped_board),
+    }]
+
+    for step in steps:
+        before = _bonus_match_clone_board(step.get("board_before_clear") or [])
+        cleared_ids: list[str] = []
+        for item in step.get("cleared_cells", []):
+            row = int(item.get("row", -1))
+            col = int(item.get("col", -1))
+            if 0 <= row < BONUS_MATCH_ROWS and 0 <= col < BONUS_MATCH_COLS:
+                cell = before[row][col]
+                if cell and cell.get("id"):
+                    cleared_ids.append(str(cell["id"]))
+
+        frames.append({
+            "phase": "match",
+            "duration_ms": 290,
+            "combo": int(step.get("combo", 1)),
+            "score_gain": int(step.get("score_gain", 0)),
+            "coins_gain": int(step.get("coins_gain", 0)),
+            "board": before,
+            "matched_cells": step.get("matched_cells", []),
+            "cleared_cells": step.get("cleared_cells", []),
+            "cleared_ids": cleared_ids,
+            "created_specials": step.get("created_specials", []),
+            "activated_specials": step.get("activated_specials", []),
+            "obstacle_changes": step.get("obstacle_changes", []),
+        })
+        frames.append({
+            "phase": "collapse",
+            "duration_ms": 430,
+            "combo": int(step.get("combo", 1)),
+            "board": _bonus_match_clone_board(
+                step.get("board_after_collapse") or []
+            ),
+            "spawned": step.get("spawned", []),
+            "spawned_ids": [
+                str(item.get("id"))
+                for item in step.get("spawned", [])
+                if item.get("id")
+            ],
+        })
+
+    if reshuffled:
+        frames.append({
+            "phase": "reshuffle",
+            "duration_ms": 360,
+            "board": _bonus_match_clone_board(final_board),
+        })
+
+    return frames
+
 def _bonus_match_special_targets(
     board,
     row: int,
@@ -3697,6 +3765,22 @@ async def bonus_match_move(
                 "swapped_board": original_board,
                 "reverted_board": original_board,
                 "steps": [],
+                "frames": [
+                    {
+                        "phase": "swap",
+                        "duration_ms": 120,
+                        "board": original_board,
+                    },
+                    {
+                        "phase": "invalid",
+                        "duration_ms": 320,
+                        "board": original_board,
+                        "shake_ids": [
+                            str(first_cell.get("id")) if first_cell else "",
+                            str(second_cell.get("id")) if second_cell else "",
+                        ],
+                    },
+                ],
             },
         }
 
@@ -3751,6 +3835,22 @@ async def bonus_match_move(
                 "swapped_board": swapped_board,
                 "reverted_board": original_board,
                 "steps": [],
+                "frames": [
+                    {
+                        "phase": "swap",
+                        "duration_ms": 220,
+                        "board": swapped_board,
+                    },
+                    {
+                        "phase": "invalid",
+                        "duration_ms": 320,
+                        "board": original_board,
+                        "shake_ids": [
+                            str(first_cell.get("id")) if first_cell else "",
+                            str(second_cell.get("id")) if second_cell else "",
+                        ],
+                    },
+                ],
             },
         }
 
@@ -4043,6 +4143,12 @@ async def bonus_match_move(
             },
             "swapped_board": swapped_board,
             "steps": animation_steps,
+            "frames": _bonus_match_animation_frames(
+                swapped_board,
+                animation_steps,
+                board,
+                reshuffled,
+            ),
             "reshuffled": reshuffled,
         },
     }
