@@ -6,39 +6,9 @@ export const PRODUCT_CATEGORIES = {
   general: { label: "Загальні продажі", icon: "🎯", color: "#FF5C00", description: "Універсальна практика продажів" },
 };
 
-export const AI_TRAINER_REWARD_TABLE = {
-  easy: [
-    { min: 9, points: 200 },
-    { min: 8, points: 150 },
-    { min: 7, points: 100 },
-    { min: 6, points: 50 },
-    { min: 5, points: 25 },
-  ],
-  medium: [
-    { min: 9, points: 300 },
-    { min: 8, points: 200 },
-    { min: 7, points: 150 },
-    { min: 6, points: 80 },
-    { min: 5, points: 35 },
-  ],
-  hard: [
-    { min: 9, points: 500 },
-    { min: 8, points: 400 },
-    { min: 7, points: 250 },
-    { min: 6, points: 125 },
-    { min: 5, points: 50 },
-  ],
-};
-
-export const calculateAITrainerPoints = (difficultyKey, averageScore) => {
-  const score = Math.max(0, Math.min(10, Number(averageScore) || 0));
-  const tiers = AI_TRAINER_REWARD_TABLE[difficultyKey] || AI_TRAINER_REWARD_TABLE.easy;
-  return tiers.find((tier) => score >= tier.min)?.points || 0;
-};
-
 const difficulty = {
   easy: { label: "ЛЕГКИЙ", points: 200, patience: 90, target: 70, color: "#39FF14" },
-  medium: { label: "СЕРЕДНІЙ", points: 300, patience: 72, target: 80, color: "#FFB800" },
+  medium: { label: "СЕРЕДНІЙ", points: 350, patience: 72, target: 80, color: "#FFB800" },
   hard: { label: "ВАЖКИЙ", points: 500, patience: 52, target: 90, color: "#FF5C00" },
 };
 

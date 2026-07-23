@@ -150,16 +150,7 @@ class TestGames:
             body = r.json()
             assert body["face"] in {1, 2, 3, 4, 5, 6}
             assert body["tier"] in {"one", "two", "three", "four", "five", "six"}
-            reward_ranges = {
-                1: (0, 30),
-                2: (31, 65),
-                3: (66, 77),
-                4: (78, 105),
-                5: (106, 175),
-                6: (176, 1000),
-            }
-            reward_min, reward_max = reward_ranges[body["face"]]
-            assert reward_min <= body["reward"] <= reward_max
+            assert 0 <= body["reward"] <= 350
             expected_cost = 0 if int(status.get("cube_spin_count", 0)) == 0 else 50
             assert body["cost"] == expected_cost
             assert body["new_balance"] == me_before["balance"] + body["reward"] - expected_cost

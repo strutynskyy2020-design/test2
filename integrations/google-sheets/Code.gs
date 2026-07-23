@@ -3,51 +3,24 @@ const SHEET_NAME = "Goals";
 const CREDIT_METRICS_SHEET_NAME = "CreditMetrics";
 const CREDIT_LEADERBOARD_SHEET_NAME = "Аркуш2";
 const TRANSFORMATION_SHEET_NAME = "Transformation";
-
-// The app reads only these published snapshots. Source sheets may continue to
-// recalculate, but users will not see new values until updateResultsSnapshot()
-// is run from Google Sheets.
-const SNAPSHOT_PREFIX = "_TM6_PUBLISHED_";
-const RESULTS_PUBLISHED_AT_PROPERTY = "TM6_RESULTS_PUBLISHED_AT";
-const RESULTS_PUBLISHED_VERSION_PROPERTY = "TM6_RESULTS_PUBLISHED_VERSION";
+const DEBIT_LEADERBOARD_SHEET_NAME = "Аркуш2";
+const DEBIT_ISSUANCES_SHEET_NAME = "Transformation Deb";
 
 function normalizeKey(value) {
   return String(value || "").trim().toLowerCase();
 }
 
-function getSpreadsheet() {
+function openGoalsSheet() {
   if (!SPREADSHEET_ID || SPREADSHEET_ID.includes("ВСТАВТЕ_ID")) {
     throw new Error("SPREADSHEET_ID is not configured");
   }
-  return SpreadsheetApp.openById(SPREADSHEET_ID);
-}
-
-function snapshotSheetName(sourceSheetName) {
-  return `${SNAPSHOT_PREFIX}${sourceSheetName}`.slice(0, 100);
-}
-
-function getSourceSheet(sourceSheetName, required) {
-  const sheet = getSpreadsheet().getSheetByName(sourceSheetName);
-  if (!sheet && required !== false) throw new Error(`Аркуш "${sourceSheetName}" не знайдено`);
+  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_NAME);
+  if (!sheet) throw new Error(`Аркуш "${SHEET_NAME}" не знайдено`);
   return sheet;
 }
 
-function getPublishedSheet(sourceSheetName, required) {
-  const sheet = getSpreadsheet().getSheetByName(snapshotSheetName(sourceSheetName));
-  if (!sheet && required !== false) {
-    throw new Error('Результати ще не опубліковано. Натисніть "Оновити результати" в Google Таблиці.');
-  }
-  return sheet;
-}
-
-function openGoalsSheet(usePublished) {
-  return usePublished === false
-    ? getSourceSheet(SHEET_NAME, true)
-    : getPublishedSheet(SHEET_NAME, true);
-}
-
-function getSheetContext(usePublished) {
-  const sheet = openGoalsSheet(usePublished);
+function getSheetContext() {
+  const sheet = openGoalsSheet();
   const values = sheet.getDataRange().getDisplayValues();
   if (!values.length) return { sheet, headers: [], normalizedHeaders: [], rows: [] };
   const [headerRow, ...rows] = values;
@@ -68,95 +41,7 @@ function rowToObject(headers, row) {
   return Object.fromEntries(headers.map((header, index) => [header, row[index] ?? ""]));
 }
 
-function getPublishedResultsAt() {
-  return PropertiesService.getScriptProperties().getProperty(RESULTS_PUBLISHED_AT_PROPERTY) || "";
-}
 
-function getPublishedResultsVersion() {
-  return PropertiesService.getScriptProperties().getProperty(RESULTS_PUBLISHED_VERSION_PROPERTY) || "";
-}
-
-function ensureSheetSize(sheet, rows, columns) {
-  const requiredRows = Math.max(1, rows);
-  const requiredColumns = Math.max(1, columns);
-  if (sheet.getMaxRows() < requiredRows) {
-    sheet.insertRowsAfter(sheet.getMaxRows(), requiredRows - sheet.getMaxRows());
-  }
-  if (sheet.getMaxColumns() < requiredColumns) {
-    sheet.insertColumnsAfter(sheet.getMaxColumns(), requiredColumns - sheet.getMaxColumns());
-  }
-}
-
-function publishSheetSnapshot(sourceSheetName, required) {
-  const spreadsheet = getSpreadsheet();
-  const source = spreadsheet.getSheetByName(sourceSheetName);
-  if (!source) {
-    if (required !== false) throw new Error(`Аркуш "${sourceSheetName}" не знайдено`);
-    return false;
-  }
-
-  const values = source.getDataRange().getDisplayValues();
-  const rowCount = Math.max(1, values.length);
-  const columnCount = Math.max(1, values.reduce((max, row) => Math.max(max, row.length), 0));
-  const targetName = snapshotSheetName(sourceSheetName);
-  let target = spreadsheet.getSheetByName(targetName);
-  if (!target) target = spreadsheet.insertSheet(targetName);
-
-  ensureSheetSize(target, rowCount, columnCount);
-  target.clear();
-  if (values.length && columnCount) {
-    const normalizedValues = values.map((row) => {
-      const output = row.slice(0, columnCount);
-      while (output.length < columnCount) output.push("");
-      return output;
-    });
-    target.getRange(1, 1, normalizedValues.length, columnCount).setValues(normalizedValues);
-  }
-  target.hideSheet();
-  return true;
-}
-
-/**
- * Run this from the TM6 Bonus menu or assign this function to a drawing/button
- * named "Оновити результати" in Google Sheets.
- */
-function updateResultsSnapshot() {
-  const lock = LockService.getScriptLock();
-  lock.waitLock(30000);
-  try {
-    publishSheetSnapshot(SHEET_NAME, true);
-    publishSheetSnapshot(CREDIT_LEADERBOARD_SHEET_NAME, true);
-    publishSheetSnapshot(TRANSFORMATION_SHEET_NAME, false);
-    publishSheetSnapshot(CREDIT_METRICS_SHEET_NAME, false);
-
-    const timezone = Session.getScriptTimeZone() || "Europe/Kyiv";
-    const publishedAt = Utilities.formatDate(new Date(), timezone, "dd.MM.yyyy HH:mm");
-    const properties = PropertiesService.getScriptProperties();
-    properties.setProperty(RESULTS_PUBLISHED_AT_PROPERTY, publishedAt);
-    properties.setProperty(RESULTS_PUBLISHED_VERSION_PROPERTY, String(Date.now()));
-
-    SpreadsheetApp.flush();
-    try {
-      SpreadsheetApp.getActive().toast(
-        `Опубліковано: ${publishedAt}`,
-        "TM6 Bonus · результати оновлено",
-        6
-      );
-    } catch (toastError) {
-      // The function can also run outside an active spreadsheet UI.
-    }
-    return publishedAt;
-  } finally {
-    lock.releaseLock();
-  }
-}
-
-function onOpen() {
-  SpreadsheetApp.getUi()
-    .createMenu("TM6 Bonus")
-    .addItem("Оновити результати", "updateResultsSnapshot")
-    .addToUi();
-}
 
 function normalizeHeaderKey(value) {
   return String(value || "")
@@ -173,7 +58,8 @@ function headerMatches(value, aliases) {
 }
 
 function getCreditLeaderboard() {
-  const sheet = getPublishedSheet(CREDIT_LEADERBOARD_SHEET_NAME, false);
+  const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sheet = spreadsheet.getSheetByName(CREDIT_LEADERBOARD_SHEET_NAME);
   if (!sheet) return { rows: [], group_summary: null, updated_at: "" };
 
   const values = sheet.getDataRange().getDisplayValues();
@@ -250,8 +136,162 @@ function getCreditLeaderboard() {
   return {
     rows,
     group_summary: groupSummary,
-    updated_at: getPublishedResultsAt(),
+    updated_at: Utilities.formatDate(new Date(), Session.getScriptTimeZone() || "Europe/Kyiv", "dd.MM.yyyy HH:mm"),
   };
+}
+
+
+function getDebitLeaderboard() {
+  const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sheet = spreadsheet.getSheetByName(DEBIT_LEADERBOARD_SHEET_NAME);
+  if (!sheet) return { rows: [], group_summary: null, updated_at: "" };
+
+  const values = sheet.getDataRange().getDisplayValues();
+  if (!values.length) return { rows: [], group_summary: null, updated_at: "" };
+
+  const loginHeaders = ["debit", "debet", "дебет", "operator", "оператор", "login", "goals_login"];
+  const inbDebitHeaders = ["inb_deb", "inb deb", "inb debit"];
+  const vseCardHeaders = ["vse_card", "vse card", "все card"];
+  const webFuibHeaders = ["web_fuib", "web fuib"];
+  const webAppsHeaders = ["web_apps", "web apps", "webapps"];
+  const xSellHeaders = ["x_sell", "x-sell", "xsell"];
+  const overallHeaders = ["загальний deb", "загальний debit", "загальний", "overall", "total", "summary"];
+  const groupAliases = ["tm6", "tm_6", "тм6", "група tm6", "group tm6"];
+
+  let headerRowIndex = -1;
+  let startColumnIndex = -1;
+
+  for (let rowIndex = 0; rowIndex < values.length; rowIndex += 1) {
+    const row = values[rowIndex];
+    for (let columnIndex = 0; columnIndex <= row.length - 7; columnIndex += 1) {
+      if (
+        headerMatches(row[columnIndex], loginHeaders) &&
+        headerMatches(row[columnIndex + 1], inbDebitHeaders) &&
+        headerMatches(row[columnIndex + 2], vseCardHeaders) &&
+        headerMatches(row[columnIndex + 3], webFuibHeaders) &&
+        headerMatches(row[columnIndex + 4], webAppsHeaders) &&
+        headerMatches(row[columnIndex + 5], xSellHeaders) &&
+        headerMatches(row[columnIndex + 6], overallHeaders)
+      ) {
+        headerRowIndex = rowIndex;
+        startColumnIndex = columnIndex;
+        break;
+      }
+    }
+    if (headerRowIndex !== -1) break;
+  }
+
+  if (headerRowIndex === -1 || startColumnIndex === -1) {
+    return { rows: [], group_summary: null, updated_at: "" };
+  }
+
+  const rows = [];
+  let groupSummary = null;
+  let foundData = false;
+  let emptyRowsAfterData = 0;
+
+  for (let rowIndex = headerRowIndex + 1; rowIndex < values.length; rowIndex += 1) {
+    const row = values[rowIndex];
+    const login = normalizeKey(row[startColumnIndex]);
+    if (!login) {
+      if (foundData) {
+        emptyRowsAfterData += 1;
+        if (emptyRowsAfterData >= 3) break;
+      }
+      continue;
+    }
+
+    const overall = String(row[startColumnIndex + 6] || "").trim();
+    if (!overall) continue;
+    foundData = true;
+    emptyRowsAfterData = 0;
+
+    const entry = {
+      login,
+      inb_deb: String(row[startColumnIndex + 1] || "").trim(),
+      vse_card: String(row[startColumnIndex + 2] || "").trim(),
+      web_fuib: String(row[startColumnIndex + 3] || "").trim(),
+      web_apps: String(row[startColumnIndex + 4] || "").trim(),
+      x_sell: String(row[startColumnIndex + 5] || "").trim(),
+      overall,
+    };
+
+    if (groupAliases.some((alias) => normalizeKey(alias) === login)) groupSummary = entry;
+    else rows.push(entry);
+  }
+
+  return {
+    rows,
+    group_summary: groupSummary,
+    updated_at: Utilities.formatDate(new Date(), Session.getScriptTimeZone() || "Europe/Kyiv", "dd.MM.yyyy HH:mm"),
+  };
+}
+
+function detectDebitIssuancePeriod(value) {
+  const key = normalizeHeaderKey(value);
+  if (!key.includes("giving")) return "";
+  if (key.includes("yesterday") || key.includes("вчора")) return "yesterday";
+  if (key.includes("month") || key.includes("місяць")) return "month";
+  return "";
+}
+
+function headerStartsWithAlias(value, aliases) {
+  const normalized = normalizeHeaderKey(value);
+  return aliases.some((alias) => normalized.indexOf(normalizeHeaderKey(alias)) === 0);
+}
+
+function getDebitIssuanceRows(goalsLogin) {
+  const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sheet = spreadsheet.getSheetByName(DEBIT_ISSUANCES_SHEET_NAME);
+  if (!sheet) return [];
+
+  const values = sheet.getDataRange().getDisplayValues();
+  if (!values.length) return [];
+
+  const rows = [];
+  const seen = {};
+  const updatedAt = Utilities.formatDate(new Date(), Session.getScriptTimeZone() || "Europe/Kyiv", "dd.MM.yyyy HH:mm");
+
+  for (let headerRowIndex = 0; headerRowIndex < values.length; headerRowIndex += 1) {
+    const headerRow = values[headerRowIndex];
+    for (let startColumnIndex = 0; startColumnIndex <= headerRow.length - 7; startColumnIndex += 1) {
+      const period = detectDebitIssuancePeriod(headerRow[startColumnIndex]);
+      if (!period || seen[period]) continue;
+
+      const validHeaders =
+        headerStartsWithAlias(headerRow[startColumnIndex + 1], ["inb_deb", "inb deb"]) &&
+        headerStartsWithAlias(headerRow[startColumnIndex + 2], ["vse_card", "vse card"]) &&
+        headerStartsWithAlias(headerRow[startColumnIndex + 3], ["web_fuib", "web fuib"]) &&
+        headerStartsWithAlias(headerRow[startColumnIndex + 4], ["web_apps", "web apps"]) &&
+        headerStartsWithAlias(headerRow[startColumnIndex + 5], ["x_sell", "x-sell", "xsell"]) &&
+        headerStartsWithAlias(headerRow[startColumnIndex + 6], ["загальний", "overall", "total"]);
+      if (!validHeaders) continue;
+
+      for (let rowIndex = headerRowIndex + 1; rowIndex < values.length; rowIndex += 1) {
+        const row = values[rowIndex];
+        if (detectDebitIssuancePeriod(row[startColumnIndex])) break;
+        const login = normalizeKey(row[startColumnIndex]);
+        if (!login) continue;
+        if (login !== goalsLogin) continue;
+
+        rows.push({
+          goals_login: goalsLogin,
+          period,
+          inb_deb: String(row[startColumnIndex + 1] || "").trim(),
+          vse_card: String(row[startColumnIndex + 2] || "").trim(),
+          web_fuib: String(row[startColumnIndex + 3] || "").trim(),
+          web_apps: String(row[startColumnIndex + 4] || "").trim(),
+          x_sell: String(row[startColumnIndex + 5] || "").trim(),
+          overall: String(row[startColumnIndex + 6] || "").trim(),
+          updated_at: updatedAt,
+        });
+        seen[period] = true;
+        break;
+      }
+    }
+  }
+
+  return rows;
 }
 
 
@@ -300,7 +340,8 @@ function findSummaryColumn(values, blockRowIndex, headerRowIndex) {
 }
 
 function getTransformationMetricRows(goalsLogin) {
-  const sheet = getPublishedSheet(TRANSFORMATION_SHEET_NAME, false);
+  const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sheet = spreadsheet.getSheetByName(TRANSFORMATION_SHEET_NAME);
   if (!sheet) return [];
 
   const values = sheet.getDataRange().getDisplayValues();
@@ -343,7 +384,7 @@ function getTransformationMetricRows(goalsLogin) {
       goals_login: goalsLogin,
       channel: block.channel,
       period: block.period,
-      updated_at: getPublishedResultsAt(),
+      updated_at: Utilities.formatDate(new Date(), Session.getScriptTimeZone() || "Europe/Kyiv", "dd.MM.yyyy HH:mm"),
     };
     let foundMetric = false;
     const metricSearchEnd = Math.min(values.length - 1, headerRowIndex + 14);
@@ -388,7 +429,8 @@ function getCreditMetricRows(goalsLogin) {
   const transformationRows = getTransformationMetricRows(goalsLogin);
   if (transformationRows.length) return transformationRows;
 
-  const sheet = getPublishedSheet(CREDIT_METRICS_SHEET_NAME, false);
+  const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sheet = spreadsheet.getSheetByName(CREDIT_METRICS_SHEET_NAME);
   if (!sheet) return [];
 
   const values = sheet.getDataRange().getDisplayValues();
@@ -409,39 +451,30 @@ function doGet(e) {
     const goalsLogin = normalizeKey(e && e.parameter && e.parameter.goals_login);
     if (!goalsLogin) return jsonResponse({ success: false, error: "goals_login is required" });
 
-    const publishedAt = getPublishedResultsAt();
-    const publishedVersion = getPublishedResultsVersion();
-    if (!publishedAt) {
-      return jsonResponse({
-        success: true,
-        found: false,
-        reason: "results_not_published",
-        goals_login: goalsLogin,
-        goals: null,
-        credit_metrics: [],
-        credit_leaderboard: [],
-        credit_group_summary: null,
-        credit_leaderboard_updated_at: "",
-        results_published_at: "",
-        results_version: "",
-      });
-    }
-
     const leaderboard = getCreditLeaderboard();
-    const context = getSheetContext(true);
+    const debitLeaderboard = getDebitLeaderboard();
+    const debitIssuances = getDebitIssuanceRows(goalsLogin);
+    const context = getSheetContext();
+
+    const sharedPayload = {
+      goals_login: goalsLogin,
+      credit_leaderboard: leaderboard.rows,
+      credit_group_summary: leaderboard.group_summary,
+      credit_leaderboard_updated_at: leaderboard.updated_at,
+      debit_leaderboard: debitLeaderboard.rows,
+      debit_group_summary: debitLeaderboard.group_summary,
+      debit_leaderboard_updated_at: debitLeaderboard.updated_at,
+      debit_issuances: debitIssuances,
+    };
+
     if (context.rows.length === 0) {
       return jsonResponse({
         success: true,
         found: false,
         reason: "sheet_is_empty",
-        goals_login: goalsLogin,
         goals: null,
         credit_metrics: [],
-        credit_leaderboard: leaderboard.rows,
-        credit_group_summary: leaderboard.group_summary,
-        credit_leaderboard_updated_at: leaderboard.updated_at,
-        results_published_at: publishedAt,
-        results_version: publishedVersion,
+        ...sharedPayload,
       });
     }
 
@@ -451,28 +484,18 @@ function doGet(e) {
         success: true,
         found: false,
         reason: "key_not_found",
-        goals_login: goalsLogin,
         goals: null,
         credit_metrics: [],
-        credit_leaderboard: leaderboard.rows,
-        credit_group_summary: leaderboard.group_summary,
-        credit_leaderboard_updated_at: leaderboard.updated_at,
-        results_published_at: publishedAt,
-        results_version: publishedVersion,
+        ...sharedPayload,
       });
     }
 
     return jsonResponse({
       success: true,
       found: true,
-      goals_login: goalsLogin,
       goals: rowToObject(context.headers, context.rows[found.rowOffset]),
       credit_metrics: getCreditMetricRows(goalsLogin),
-      credit_leaderboard: leaderboard.rows,
-      credit_group_summary: leaderboard.group_summary,
-      credit_leaderboard_updated_at: leaderboard.updated_at,
-      results_published_at: publishedAt,
-      results_version: publishedVersion,
+      ...sharedPayload,
     });
   } catch (error) {
     return jsonResponse({ success: false, error: error && error.message ? error.message : "Помилка читання таблиці" });
@@ -491,7 +514,7 @@ function doPost(e) {
     const goals = body.goals || {};
     if (!goalsLogin) return jsonResponse({ success: false, error: "goals_login is required" });
 
-    const context = getSheetContext(false);
+    const context = getSheetContext();
     const found = findGoalRow(context, goalsLogin);
     if (found.sheetRow === -1) {
       return jsonResponse({ success: false, error: `Рядок для ключа ${goalsLogin} не знайдено` });

@@ -34,8 +34,6 @@ JWT_TTL_HOURS = int(os.environ.get("JWT_ACCESS_TTL_HOURS", "24"))
 ADMIN_EMAIL = os.environ["ADMIN_EMAIL"].lower()
 ADMIN_PASSWORD = os.environ["ADMIN_PASSWORD"]
 BOT_API_TOKEN = os.environ["BOT_API_TOKEN"]
-SEED_DEMO_USERS_ENABLED = os.environ.get("SEED_DEMO_USERS", "false").strip().lower() in {"1", "true", "yes", "on"}
-PLAYER_ROLES = ["employee", "editor"]
 
 mongo_url = os.environ["MONGO_URL"]
 client = AsyncIOMotorClient(mongo_url)
@@ -124,12 +122,11 @@ def verify_password(pw: str, hashed: str) -> bool:
         return False
 
 
-def create_token(user_id: str, email: str, role: str, auth_version: int = 0) -> str:
+def create_token(user_id: str, email: str, role: str) -> str:
     payload = {
         "sub": user_id,
         "email": email,
         "role": role,
-        "ver": int(auth_version or 0),
         "exp": datetime.now(timezone.utc) + timedelta(hours=JWT_TTL_HOURS),
         "iat": datetime.now(timezone.utc),
     }
@@ -214,41 +211,6 @@ class AITrainingResultBody(BaseModel):
     outcome_text: str = ""
     client_mood: str = ""
 
-
-AI_TRAINER_REWARD_TABLE = {
-    "easy": ((9.0, 200), (8.0, 150), (7.0, 100), (6.0, 50), (5.0, 25)),
-    "medium": ((9.0, 300), (8.0, 200), (7.0, 150), (6.0, 80), (5.0, 35)),
-    "hard": ((9.0, 500), (8.0, 400), (7.0, 250), (6.0, 125), (5.0, 50)),
-}
-
-AI_SCENARIO_DIFFICULTY = {
-    **{f"cc-{index:02d}": "easy" for index in range(1, 4)},
-    **{f"cc-{index:02d}": "medium" for index in range(4, 8)},
-    **{f"cc-{index:02d}": "hard" for index in range(8, 11)},
-    **{f"dep-{index:02d}": "easy" for index in range(1, 3)},
-    **{f"dep-{index:02d}": "medium" for index in range(3, 5)},
-    "dep-05": "hard",
-    **{f"dc-{index:02d}": "easy" for index in range(1, 3)},
-    **{f"dc-{index:02d}": "medium" for index in range(3, 5)},
-    "dc-05": "hard",
-    **{f"ins-{index:02d}": "easy" for index in range(1, 3)},
-    **{f"ins-{index:02d}": "medium" for index in range(3, 5)},
-    "ins-05": "hard",
-    **{f"gen-{index:02d}": "easy" for index in range(1, 3)},
-    **{f"gen-{index:02d}": "medium" for index in range(3, 5)},
-    "gen-05": "hard",
-}
-
-
-def ai_trainer_points_for_score(difficulty: str, average_score: float) -> int:
-    difficulty_key = str(difficulty or "easy").strip().lower()
-    tiers = AI_TRAINER_REWARD_TABLE.get(difficulty_key, AI_TRAINER_REWARD_TABLE["easy"])
-    score = max(0.0, min(10.0, float(average_score or 0)))
-    for minimum_score, reward in tiers:
-        if score >= minimum_score:
-            return reward
-    return 0
-
 class LoginBody(BaseModel):
     email: EmailStr
     password: str
@@ -283,10 +245,6 @@ class SelfRegisterBody(BaseModel):
     avatar_url: Optional[str] = None
     avatar_color: str = "#FFB800"
     team_id: Optional[str] = None
-
-
-class AdminPasswordResetBody(BaseModel):
-    new_password: str = Field(min_length=6, max_length=128)
 
 
 class UserAdminUpdateBody(BaseModel):
@@ -532,10 +490,6 @@ async def get_current_user(
     user = await db.users.find_one({"id": payload["sub"]}, {"_id": 0})
     if not user:
         raise HTTPException(status_code=401, detail="Користувача не знайдено")
-    token_version = int(payload.get("ver", 0) or 0)
-    current_version = int(user.get("auth_version", 0) or 0)
-    if token_version != current_version:
-        raise HTTPException(status_code=401, detail="Сесію завершено. Увійдіть знову")
     return user
 
 
@@ -607,7 +561,7 @@ async def auth_login(body: LoginBody):
         raise HTTPException(status_code=401, detail="Невірний email або пароль")
     if user.get("approved") is False:
         raise HTTPException(status_code=403, detail="Обліковий запис ще не підтверджено адміністратором")
-    token = create_token(user["id"], user["email"], user["role"], user.get("auth_version", 0))
+    token = create_token(user["id"], user["email"], user["role"])
     user = await _touch_daily_streak(user)
     user = await _apply_avatar_daily_bonus(user)
     user = await _hydrate_user_team(user)
@@ -624,7 +578,6 @@ async def auth_register(body: RegisterBody, admin: dict = Depends(get_current_ad
         "id": str(uuid.uuid4()),
         "email": email,
         "password_hash": hash_password(body.password),
-        "auth_version": 0,
         "name": body.name,
         "first_name": body.first_name or body.name.split(" ")[0],
         "last_name": body.last_name or " ".join(body.name.split(" ")[1:]),
@@ -680,7 +633,6 @@ async def auth_register_self(body: SelfRegisterBody):
         "id": str(uuid.uuid4()),
         "email": email,
         "password_hash": hash_password(body.password),
-        "auth_version": 0,
         "name": f"{first} {last}",
         "first_name": first,
         "last_name": last,
@@ -786,32 +738,19 @@ async def save_ai_training_result(
     user: dict = Depends(get_current_user),
 ):
     ts = now_iso()
-    verified_difficulty = AI_SCENARIO_DIFFICULTY.get(
-        body.scenario_id,
-        str(body.difficulty or "easy").strip().lower(),
-    )
-    verified_score = max(0.0, min(10.0, float(body.average_score or 0)))
-    points_reward = ai_trainer_points_for_score(verified_difficulty, verified_score)
-    xp_reward = max(0, int(body.xp_earned or 0))
-
-    result_payload = body.model_dump()
-    result_payload.update({
-        "difficulty": verified_difficulty,
-        "average_score": verified_score,
-        "consultation_quality": verified_score,
-        "points": points_reward,
-    })
     doc = {
         "id": str(uuid.uuid4()),
         "user_id": user["id"],
         "user_name": user.get("name") or user.get("email", "Користувач"),
         "avatar_initials": user.get("avatar_initials", ""),
         "avatar_color": user.get("avatar_color", "#FFB800"),
-        **result_payload,
+        **body.model_dump(),
         "created_at": ts,
     }
-    # The server calculates the reward from the verified scenario difficulty and
-    # average score. Client-provided points are intentionally ignored.
+    # AI rewards are real account rewards, not only local trainer statistics.
+    # Credit them in the same transaction ledger used by quests and admin awards.
+    points_reward = max(0, int(body.points or 0)) if body.won else 0
+    xp_reward = max(0, int(body.xp_earned or 0))
 
     await db.ai_training_results.insert_one(doc)
 
@@ -830,7 +769,7 @@ async def save_ai_training_result(
             "user_id": user["id"],
             "kind": "ai_training",
             "amount": points_reward,
-            "description": f"AI-тренажер: {body.scenario_title} • {verified_score:.1f}/10",
+            "description": f"AI-тренажер: {body.scenario_title}",
             "created_at": ts,
         })
 
@@ -842,7 +781,7 @@ async def save_ai_training_result(
 @api.get("/admin/ai-training-dashboard")
 async def admin_ai_training_dashboard(admin: dict = Depends(get_current_admin)):
     users = await db.users.find(
-        {"role": {"$in": PLAYER_ROLES}, "approved": {"$ne": False}},
+        {"role": "employee", "approved": {"$ne": False}},
         {"_id": 0, "id": 1, "name": 1, "avatar_initials": 1, "avatar_color": 1},
     ).to_list(1000)
     results = await db.ai_training_results.find({}, {"_id": 0}).sort("created_at", -1).to_list(2000)
@@ -936,9 +875,9 @@ async def _team_with_stats(t: dict) -> dict:
     """Attach member_count and total_earned to a team doc."""
     t = {**t}
     t.pop("_id", None)
-    member_count = await db.users.count_documents({"team_id": t["id"], "role": {"$in": PLAYER_ROLES}})
+    member_count = await db.users.count_documents({"team_id": t["id"], "role": "employee"})
     pipeline = [
-        {"$match": {"team_id": t["id"], "role": {"$in": PLAYER_ROLES}}},
+        {"$match": {"team_id": t["id"], "role": "employee"}},
         {"$group": {"_id": None, "sum": {"$sum": "$total_earned"}}},
     ]
     agg = await db.users.aggregate(pipeline).to_list(1)
@@ -1051,45 +990,6 @@ async def admin_update_user(user_id: str, body: UserAdminUpdateBody, admin: dict
     fresh = await db.users.find_one({"id": user_id}, {"_id": 0})
     fresh = await _hydrate_user_team(fresh)
     return _user_with_progress(fresh)
-
-
-@api.patch("/admin/users/{user_id}/password")
-async def admin_reset_user_password(
-    user_id: str,
-    body: AdminPasswordResetBody,
-    admin: dict = Depends(get_current_admin),
-):
-    target = await db.users.find_one({"id": user_id}, {"_id": 0, "id": 1, "name": 1, "email": 1})
-    if not target:
-        raise HTTPException(status_code=404, detail="Користувача не знайдено")
-    new_password = body.new_password.strip()
-    if len(new_password) < 6:
-        raise HTTPException(status_code=400, detail="Пароль повинен містити щонайменше 6 символів")
-    changed_at = now_iso()
-    await db.users.update_one(
-        {"id": user_id},
-        {
-            "$set": {
-                "password_hash": hash_password(new_password),
-                "password_changed_at": changed_at,
-            },
-            "$inc": {"auth_version": 1},
-        },
-    )
-    await db.admin_audit_logs.insert_one({
-        "id": str(uuid.uuid4()),
-        "admin_id": admin["id"],
-        "admin_name": admin.get("name", "Адміністратор"),
-        "action": "password_reset",
-        "target_user_id": user_id,
-        "target_user_name": target.get("name", target.get("email", "Користувач")),
-        "created_at": changed_at,
-    })
-    return {
-        "ok": True,
-        "message": "Пароль змінено. Усі активні сесії користувача завершено.",
-        "sessions_revoked": True,
-    }
 
 
 # ────────────────────────────────────────────────────────────────────────
@@ -1308,7 +1208,7 @@ async def get_goal_participants(user: dict = Depends(get_current_user)):
     """Public profile fields used to decorate internal goal rankings."""
     return await db.users.find(
         {
-            "role": {"$in": PLAYER_ROLES},
+            "role": "employee",
             "approved": {"$ne": False},
             "goals_login": {"$nin": [None, ""]},
         },
@@ -1328,7 +1228,7 @@ async def get_goal_participants(user: dict = Depends(get_current_user)):
 @api.get("/admin/goals-dashboard")
 async def admin_goals_dashboard(admin: dict = Depends(get_current_admin)):
     users = await db.users.find(
-        {"role": {"$in": PLAYER_ROLES}, "approved": {"$ne": False}},
+        {"role": "employee", "approved": {"$ne": False}},
         {"_id": 0, "id": 1, "name": 1, "avatar_initials": 1, "avatar_color": 1, "avatar_url": 1,
          "position": 1, "department": 1, "goals_login": 1},
     ).sort("name", 1).to_list(1000)
@@ -1339,7 +1239,7 @@ async def admin_goals_dashboard(admin: dict = Depends(get_current_admin)):
 
 @api.put("/admin/goals/{user_id}")
 async def update_user_goals(user_id: str, body: UserGoalsUpdateBody, admin: dict = Depends(get_current_admin)):
-    target = await db.users.find_one({"id": user_id, "role": {"$in": PLAYER_ROLES}}, {"_id": 0})
+    target = await db.users.find_one({"id": user_id, "role": "employee"}, {"_id": 0})
     if not target:
         raise HTTPException(status_code=404, detail="Оператора не знайдено")
     old = await db.user_goals.find_one({"user_id": user_id}, {"_id": 0}) or {}
@@ -1448,7 +1348,7 @@ async def _ensure_daily_battles(date_key: str) -> None:
     import hashlib
     import random
     users = await db.users.find(
-        {"role": {"$in": PLAYER_ROLES}, "approved": {"$ne": False}},
+        {"role": "employee", "approved": {"$ne": False}},
         {"_id": 0, "id": 1, "name": 1, "avatar_initials": 1, "avatar_color": 1, "avatar_url": 1, "avatar_rarity": 1, "department": 1},
     ).to_list(2000)
     if not users:
@@ -1595,7 +1495,7 @@ async def get_daily_tasks(user: dict = Depends(get_current_user)):
 async def admin_daily_tasks_dashboard(admin: dict = Depends(get_current_admin_or_editor)):
     date_key = kyiv_today_key()
     users = await db.users.find(
-        {"role": {"$in": PLAYER_ROLES}, "approved": {"$ne": False}},
+        {"role": "employee", "approved": {"$ne": False}},
         {"_id": 0, "id": 1, "name": 1, "avatar_initials": 1, "avatar_color": 1, "avatar_url": 1, "position": 1, "department": 1, "total_xp": 1},
     ).sort("name", 1).to_list(1000)
 
@@ -1660,7 +1560,7 @@ async def admin_review_daily_task(
 ):
     if decision not in ("approve", "reject"):
         raise HTTPException(status_code=400, detail="Невідоме рішення")
-    target = await db.users.find_one({"id": user_id, "role": {"$in": PLAYER_ROLES}}, {"_id": 0})
+    target = await db.users.find_one({"id": user_id, "role": "employee"}, {"_id": 0})
     if not target:
         raise HTTPException(status_code=404, detail="Оператора не знайдено")
     task_set = await _get_or_create_daily_task_set(user_id)
@@ -1862,7 +1762,7 @@ class LeaderboardResponse(BaseModel):
 
 async def _leaderboard_all(current_id: str, limit: int = 10) -> LeaderboardResponse:
     users = await db.users.find(
-        {"role": {"$in": PLAYER_ROLES}},
+        {"role": "employee"},
         {"_id": 0, "id": 1, "name": 1, "avatar_initials": 1, "avatar_color": 1, "avatar_url": 1, "avatar_rarity": 1, "department": 1, "total_earned": 1},
     ).sort("total_earned", -1).to_list(1000)
     top: List[LeaderboardEntry] = []
@@ -1900,7 +1800,7 @@ async def _leaderboard_day(current_id: str, limit: int = 10) -> LeaderboardRespo
     ids = [row["_id"] for row in grouped]
     users_map = {}
     async for item in db.users.find(
-        {"id": {"$in": ids}, "role": {"$in": PLAYER_ROLES}},
+        {"id": {"$in": ids}, "role": "employee"},
         {"_id": 0, "id": 1, "name": 1, "avatar_initials": 1, "avatar_color": 1, "avatar_url": 1, "avatar_rarity": 1, "department": 1},
     ):
         users_map[item["id"]] = item
@@ -1936,7 +1836,7 @@ async def _leaderboard_period(days: int, period_name: str, current_id: str, limi
     ids = [g["_id"] for g in grouped]
     users_map = {}
     async for u in db.users.find(
-        {"id": {"$in": ids}, "role": {"$in": PLAYER_ROLES}},
+        {"id": {"$in": ids}, "role": "employee"},
         {"_id": 0, "id": 1, "name": 1, "avatar_initials": 1, "avatar_color": 1, "avatar_url": 1, "avatar_rarity": 1, "department": 1},
     ):
         users_map[u["id"]] = u
@@ -1996,7 +1896,7 @@ async def team_leaderboard(user: dict = Depends(get_current_user)):
     scored = []
     for t in teams:
         pipeline = [
-            {"$match": {"team_id": t["id"], "role": {"$in": PLAYER_ROLES}}},
+            {"$match": {"team_id": t["id"], "role": "employee"}},
             {"$group": {"_id": None, "sum": {"$sum": "$total_earned"}, "n": {"$sum": 1}}},
         ]
         agg = await db.users.aggregate(pipeline).to_list(1)
@@ -2052,11 +1952,11 @@ PREDICTIONS_UK = [
 CUBE_SPIN_COST = 50
 CUBE_TABLE = [
     (1, 37, 0, 30, "one"),
-    (2, 28, 31, 65, "two"),
-    (3, 20, 66, 77, "three"),
-    (4, 10, 78, 105, "four"),
-    (5, 4, 106, 175, "five"),
-    (6, 1, 176, 1000, "six"),
+    (2, 28, 31, 55, "two"),
+    (3, 20, 56, 70, "three"),
+    (4, 10, 71, 90, "four"),
+    (5, 4, 91, 125, "five"),
+    (6, 1, 126, 350, "six"),
 ]
 
 
@@ -2286,7 +2186,7 @@ async def get_feed(limit: int = 40, user: dict = Depends(get_current_user)):
     user_ids = list({t["user_id"] for t in txs})
     users_map = {}
     async for u in db.users.find(
-        {"id": {"$in": user_ids}, "role": {"$in": PLAYER_ROLES}},
+        {"id": {"$in": user_ids}, "role": "employee"},
         {"_id": 0, "id": 1, "name": 1, "avatar_initials": 1, "avatar_color": 1, "avatar_url": 1, "avatar_rarity": 1, "department": 1},
     ):
         users_map[u["id"]] = u
@@ -2579,10 +2479,6 @@ async def admin_delete_user(user_id: str, admin: dict = Depends(get_current_admi
         raise HTTPException(status_code=404, detail="Користувача не знайдено")
     if target.get("role") == "admin":
         raise HTTPException(status_code=400, detail="Не можна видалити адміністратора")
-
-    # Remove team-leader references before deleting the account, otherwise
-    # the team can retain a pointer to a user who no longer exists.
-    await db.teams.update_many({"leader_id": user_id}, {"$set": {"leader_id": None}})
     await db.users.delete_one({"id": user_id})
     return None
 
@@ -2672,7 +2568,7 @@ async def admin_update_order(order_id: str, body: OrderStatusBody, admin: dict =
 
 @api.get("/admin/analytics")
 async def admin_analytics(admin: dict = Depends(get_current_admin)):
-    total_users = await db.users.count_documents({"role": {"$in": PLAYER_ROLES}})
+    total_users = await db.users.count_documents({"role": "employee"})
     total_quests = await db.quests.count_documents({"active": True})
     total_prizes = await db.prizes.count_documents({"active": True})
     orders_processing = await db.orders.count_documents({"status": "processing"})
@@ -2687,7 +2583,7 @@ async def admin_analytics(admin: dict = Depends(get_current_admin)):
     earned = await db.transactions.aggregate(total_points_earned_pipeline).to_list(1)
     spent = await db.transactions.aggregate(total_points_spent_pipeline).to_list(1)
     top_earners = await db.users.find(
-        {"role": {"$in": PLAYER_ROLES}}, {"_id": 0, "id": 1, "name": 1, "total_earned": 1, "avatar_color": 1, "avatar_initials": 1}
+        {"role": "employee"}, {"_id": 0, "id": 1, "name": 1, "total_earned": 1, "avatar_color": 1, "avatar_initials": 1}
     ).sort("total_earned", -1).limit(5).to_list(5)
 
     # popular quests by claim count in daily_progress
@@ -2780,7 +2676,7 @@ async def bot_user_quests(telegram_id: str):
 @bot_router.get("/leaderboard")
 async def bot_leaderboard(limit: int = 10):
     docs = await db.users.find(
-        {"role": {"$in": PLAYER_ROLES}}, {"_id": 0, "id": 1, "name": 1, "total_earned": 1, "avatar_initials": 1}
+        {"role": "employee"}, {"_id": 0, "id": 1, "name": 1, "total_earned": 1, "avatar_initials": 1}
     ).sort("total_earned", -1).limit(limit).to_list(limit)
     return [{"rank": i + 1, **d} for i, d in enumerate(docs)]
 
@@ -2895,7 +2791,6 @@ async def seed_all():
             "id": str(uuid.uuid4()),
             "email": ADMIN_EMAIL,
             "password_hash": hash_password(ADMIN_PASSWORD),
-            "auth_version": 0,
             "name": "Адміністратор",
             "first_name": "Головний",
             "last_name": "Адмін",
@@ -2912,68 +2807,60 @@ async def seed_all():
         })
         logger.info("Seeded admin user: %s", ADMIN_EMAIL)
     elif not verify_password(ADMIN_PASSWORD, admin_doc["password_hash"]):
-        await db.users.update_one(
-            {"email": ADMIN_EMAIL},
-            {
-                "$set": {"password_hash": hash_password(ADMIN_PASSWORD), "password_changed_at": now_iso()},
-                "$inc": {"auth_version": 1},
-            },
-        )
-        logger.info("Updated admin password and revoked active sessions")
+        await db.users.update_one({"email": ADMIN_EMAIL}, {"$set": {"password_hash": hash_password(ADMIN_PASSWORD)}})
+        logger.info("Updated admin password")
 
-    # Demo users are disabled by default in production.
-    # Set SEED_DEMO_USERS=true only for a disposable demo environment.
-    if SEED_DEMO_USERS_ENABLED:
-        for u in SEED_DEMO_USERS:
-            existing = await db.users.find_one({"email": u["email"]})
+    # Demo users
+    for u in SEED_DEMO_USERS:
+        existing = await db.users.find_one({"email": u["email"]})
+        team_id = team_key_to_id.get(u.get("team_key"))
+        if existing:
+            # ensure legacy demo users have team_id + names set
+            patch = {}
+            if not existing.get("team_id") and team_id:
+                patch["team_id"] = team_id
+            if not existing.get("first_name"):
+                patch["first_name"] = u.get("first_name", "")
+                patch["last_name"] = u.get("last_name", "")
+            if u.get("is_team_leader") and not existing.get("is_team_leader"):
+                patch["is_team_leader"] = True
+            if patch:
+                await db.users.update_one({"id": existing["id"]}, {"$set": patch})
+            continue
+        await db.users.insert_one({
+            "id": str(uuid.uuid4()),
+            "email": u["email"],
+            "password_hash": hash_password(u["password"]),
+            "name": u["name"],
+            "first_name": u.get("first_name", ""),
+            "last_name": u.get("last_name", ""),
+            "role": "employee",
+            "department": u["department"],
+            "position": u["position"],
+            "avatar_initials": u["avatar_initials"],
+            "avatar_color": u["avatar_color"],
+            "avatar_url": None,
+            "balance": u["balance"],
+            "total_earned": u["total_earned"],
+            "total_xp": u["total_xp"],
+            "streak": u["streak"],
+            "last_active_date": None,
+            "phone": None, "telegram": None, "telegram_id": None,
+            "team_id": team_id,
+            "is_team_leader": u.get("is_team_leader", False),
+            "approved": True,
+            "created_at": now_iso(),
+        })
+        logger.info("Seeded demo user: %s", u["email"])
+
+    # Set team leaders from demo users
+    for u in SEED_DEMO_USERS:
+        if u.get("is_team_leader"):
             team_id = team_key_to_id.get(u.get("team_key"))
-            if existing:
-                patch = {}
-                if not existing.get("team_id") and team_id:
-                    patch["team_id"] = team_id
-                if not existing.get("first_name"):
-                    patch["first_name"] = u.get("first_name", "")
-                    patch["last_name"] = u.get("last_name", "")
-                if u.get("is_team_leader") and not existing.get("is_team_leader"):
-                    patch["is_team_leader"] = True
-                if patch:
-                    await db.users.update_one({"id": existing["id"]}, {"$set": patch})
-                continue
-            await db.users.insert_one({
-                "id": str(uuid.uuid4()),
-                "email": u["email"],
-                "password_hash": hash_password(u["password"]),
-                "auth_version": 0,
-                "name": u["name"],
-                "first_name": u.get("first_name", ""),
-                "last_name": u.get("last_name", ""),
-                "role": "employee",
-                "department": u["department"],
-                "position": u["position"],
-                "avatar_initials": u["avatar_initials"],
-                "avatar_color": u["avatar_color"],
-                "avatar_url": None,
-                "balance": u["balance"],
-                "total_earned": u["total_earned"],
-                "total_xp": u["total_xp"],
-                "streak": u["streak"],
-                "last_active_date": None,
-                "phone": None, "telegram": None, "telegram_id": None,
-                "team_id": team_id,
-                "is_team_leader": u.get("is_team_leader", False),
-                "approved": True,
-                "created_at": now_iso(),
-            })
-            logger.info("Seeded demo user: %s", u["email"])
-
-        # Set team leaders only when demo seeding is explicitly enabled.
-        for u in SEED_DEMO_USERS:
-            if u.get("is_team_leader"):
-                team_id = team_key_to_id.get(u.get("team_key"))
-                if team_id:
-                    emp = await db.users.find_one({"email": u["email"]}, {"_id": 0, "id": 1})
-                    if emp:
-                        await db.teams.update_one({"id": team_id}, {"$set": {"leader_id": emp["id"]}})
+            if team_id:
+                emp = await db.users.find_one({"email": u["email"]}, {"_id": 0, "id": 1})
+                if emp:
+                    await db.teams.update_one({"id": team_id}, {"$set": {"leader_id": emp["id"]}})
 
     # Quests
     if await db.quests.count_documents({}) == 0:
@@ -3126,7 +3013,7 @@ async def _notify(user_id: str, kind: str, title: str, body: str = "", link: str
 
 async def _notify_all_employees(kind: str, title: str, body: str = "", link: str = "", icon: str = "bell"):
     docs = []
-    async for u in db.users.find({"role": {"$in": PLAYER_ROLES}, "approved": True}, {"_id": 0, "id": 1}):
+    async for u in db.users.find({"role": "employee", "approved": True}, {"_id": 0, "id": 1}):
         docs.append({
             "id": str(uuid.uuid4()), "user_id": u["id"], "kind": kind,
             "title": title, "body": body, "link": link, "icon": icon,

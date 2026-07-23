@@ -1,5 +1,4 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
-import { toast } from "sonner";
 import api, { clearToken, extractError, getToken, setToken } from "@/lib/api";
 
 const AppContext = createContext(null);
@@ -35,36 +34,6 @@ export const AppProvider = ({ children }) => {
 
     boot();
   }, []);
-
-  useEffect(() => {
-    const invalidate = (event) => {
-      clearToken();
-      localStorage.removeItem(CACHE_KEY);
-      setState({ ...emptyState, mode: "live" });
-      toast.error(event?.detail?.message || "Сесію завершено. Увійдіть знову");
-    };
-    window.addEventListener("tm6-auth-invalidated", invalidate);
-    return () => window.removeEventListener("tm6-auth-invalidated", invalidate);
-  }, []);
-
-  useEffect(() => {
-    if (!state.user || !getToken()) return undefined;
-    const verifySession = () => {
-      api.get("/auth/me").catch(() => {});
-    };
-    const timer = window.setInterval(verifySession, 60_000);
-    const onFocus = () => verifySession();
-    const onVisibility = () => {
-      if (document.visibilityState === "visible") verifySession();
-    };
-    window.addEventListener("focus", onFocus);
-    document.addEventListener("visibilitychange", onVisibility);
-    return () => {
-      window.clearInterval(timer);
-      window.removeEventListener("focus", onFocus);
-      document.removeEventListener("visibilitychange", onVisibility);
-    };
-  }, [state.user?.id]);
 
   const login = async (email, password) => {
     try {

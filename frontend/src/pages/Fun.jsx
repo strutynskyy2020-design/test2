@@ -293,15 +293,15 @@ export default function Fun() {
             <span className="generous-cube-header-icon"><Dice5 size={18} strokeWidth={3} /></span>
             <div>
               <div className="text-[10px] font-black uppercase tracking-[0.22em] text-[#39FF14]">Щедрий куб</div>
-              <div className="mt-0.5 text-xs font-bold text-zinc-500">Кидай і забирай до 1000 Point</div>
+              <div className="mt-0.5 text-xs font-bold text-zinc-500">Кидай і забирай до 350 Point</div>
             </div>
           </div>
           <details className="generous-cube-info">
             <summary><Info size={14} /> Як працює?</summary>
             <div className="generous-cube-prizes">
               {[
-                [1, "0–30"], [2, "31–65"], [3, "66–77"],
-                [4, "78–105"], [5, "106–175"], [6, "176–1000"],
+                [1, "0–30"], [2, "31–55"], [3, "56–70"],
+                [4, "71–90"], [5, "91–125"], [6, "126–350"],
               ].map(([value, range]) => (
                 <div key={value}><span>{faceGlyph(value)}</span><b>{value}</b><em>{range} Point</em></div>
               ))}

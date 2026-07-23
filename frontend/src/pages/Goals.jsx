@@ -6,8 +6,8 @@ import { useApp } from "@/context/AppContext";
 import { useNavigate } from "react-router-dom";
 
 const metricMeta = {
-  credit: { label: "Кредитний напрямок", icon: CreditCard, color: "#FFB800" },
-  debit: { label: "Дебетний напрямок", icon: WalletCards, color: "#00F0FF" },
+  credit: { label: "Кредитний напрямок", icon: CreditCard, color: "#FFB800", openLabel: "Переглянути рейтинг і показники" },
+  debit: { label: "Дебетовий напрямок", icon: WalletCards, color: "#00F0FF", openLabel: "Переглянути рейтинг і видачі" },
   deposit: { label: "Депозитний напрямок", icon: Landmark, color: "#39FF14" },
 };
 
@@ -69,7 +69,7 @@ function MetricCard({ name, metric, onOpen }) {
       <div className="mt-2 h-3 overflow-hidden rounded-full bg-black/45">
         <div className="h-full rounded-full transition-all" style={{ width: `${pct(current, target)}%`, background: meta.color, boxShadow: `0 0 14px ${meta.color}55` }} />
       </div>
-      {onOpen && <div className="mt-3 text-[10px] font-black uppercase tracking-wider text-[#B78CFF]">Переглянути X-Sell, Web Apps та INB</div>}
+      {onOpen && <div className="mt-3 text-[10px] font-black uppercase tracking-wider" style={{ color: meta.color }}>{meta.openLabel}</div>}
     </Wrapper>
   );
 }
@@ -122,11 +122,9 @@ export default function Goals() {
         if (!result.found || !result.goals) {
           setData(null);
           setEmptyMessage(
-            result.reason === "results_not_published"
-              ? 'Результати ще не опубліковано. У Google Таблиці натисніть «TM6 Bonus → Оновити результати».'
-              : result.reason === "goals_login_missing"
-                ? "Керівник ще не прив’язав ваш профіль до Google Таблиці."
-                : "Для вашого ключа ще не додано рядок із цілями в Google Таблиці."
+            result.reason === "goals_login_missing"
+              ? "Керівник ще не прив’язав ваш профіль до Google Таблиці."
+              : "Для вашого ключа ще не додано рядок із цілями в Google Таблиці."
           );
           return;
         }
@@ -155,7 +153,7 @@ export default function Goals() {
           weekly_reward_awarded: String(goals.weekly_reward_awarded || "").toLowerCase() === "true",
           monthly_reward_awarded: String(goals.monthly_reward_awarded || "").toLowerCase() === "true",
           note: goals.note || "",
-          updated_at: result.results_published_at || goals.updated_at || "",
+          updated_at: goals.updated_at || "",
         });
       } catch (error) {
         if (!cancelled) {
@@ -170,8 +168,23 @@ export default function Goals() {
 
     loadGoogleGoals();
 
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") loadGoogleGoals();
+    };
+    const refreshOnFocus = () => loadGoogleGoals();
+    const refreshOnPageShow = () => loadGoogleGoals();
+    const refreshTimer = window.setInterval(loadGoogleGoals, 60_000);
+
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    window.addEventListener("focus", refreshOnFocus);
+    window.addEventListener("pageshow", refreshOnPageShow);
+
     return () => {
       cancelled = true;
+      window.clearInterval(refreshTimer);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+      window.removeEventListener("focus", refreshOnFocus);
+      window.removeEventListener("pageshow", refreshOnPageShow);
     };
   }, [mode]);
 
@@ -208,7 +221,10 @@ export default function Goals() {
         <div className="mt-3 text-xs font-black text-zinc-300">Нагорода за всі три цілі: <span className="text-[#FFB800]">+200 Point</span> <span className="text-[#B78CFF]">• +100 XP</span></div>
       </section>
 
-      {Object.keys(metricMeta).map(name => <MetricCard key={name} name={name} metric={data[name]} onOpen={name === "credit" ? () => navigate("/goals/credit") : undefined} />)}
+      {Object.keys(metricMeta).map((name) => {
+        const route = name === "credit" ? "/goals/credit" : name === "debit" ? "/goals/debit" : null;
+        return <MetricCard key={name} name={name} metric={data[name]} onOpen={route ? () => navigate(route) : undefined} />;
+      })}
 
       <section className="rounded-3xl border border-[#FFB800]/35 bg-[#1A1A1E] p-5">
         <div className="flex items-center gap-3"><div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#FFB800]/15"><Coins size={22} strokeWidth={3} color="#FFB800" /></div><div><div className="font-black text-white">Місячна ціль по бонусу</div><div className="text-xs text-zinc-500">Нагорода за виконання: +1000 Point • +300 XP</div></div></div>

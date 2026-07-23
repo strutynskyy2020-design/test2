@@ -536,11 +536,7 @@ export default function CreditGoals() {
         if (cancelled) return;
         if (!result.found || !result.goals) {
           setDetails(null);
-          setEmptyMessage(
-            result.reason === "results_not_published"
-              ? 'Результати ще не опубліковано. У Google Таблиці натисніть «TM6 Bonus → Оновити результати».'
-              : "Для вашого профілю ще не додано детальні показники кредитного напрямку."
-          );
+          setEmptyMessage("Для вашого профілю ще не додано детальні показники кредитного напрямку.");
           return;
         }
         const parsed = buildDetailsFromMetricRows(result.credit_metrics) || buildDetailsFromSheet(result.goals);
@@ -560,9 +556,19 @@ export default function CreditGoals() {
     };
 
     load();
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") load({ silent: true });
+    };
+    const refreshOnFocus = () => load({ silent: true });
+    const refreshTimer = window.setInterval(() => load({ silent: true }), 60_000);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    window.addEventListener("focus", refreshOnFocus);
 
     return () => {
       cancelled = true;
+      window.clearInterval(refreshTimer);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+      window.removeEventListener("focus", refreshOnFocus);
     };
   }, [mode]);
 

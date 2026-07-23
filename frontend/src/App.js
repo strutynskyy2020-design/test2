@@ -19,6 +19,8 @@ import AITrainer from "@/pages/AITrainer";
 import Goals from "@/pages/Goals";
 import CreditGoals from "@/pages/CreditGoals";
 import CreditLeaderboard from "@/pages/CreditLeaderboard";
+import DebitLeaderboard from "@/pages/DebitLeaderboard";
+import DebitIssuances from "@/pages/DebitIssuances";
 
 const Splash = () => (
   <div className="min-h-screen w-full flex items-center justify-center">
@@ -62,6 +64,8 @@ function App() {
             <Route path="/goals" element={<Goals />} />
             <Route path="/goals/credit" element={<CreditLeaderboard />} />
             <Route path="/goals/credit/me" element={<CreditGoals />} />
+            <Route path="/goals/debit" element={<DebitLeaderboard />} />
+            <Route path="/goals/debit/me" element={<DebitIssuances />} />
             <Route path="/store" element={<Store />} />
             <Route path="/leaderboard" element={<Leaderboard />} />
             <Route path="/fun" element={<Fun />} />
