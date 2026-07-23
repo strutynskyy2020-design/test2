@@ -122,7 +122,7 @@ function publishSheetSnapshot(sourceSheetName, required) {
  */
 function updateResultsSnapshot() {
   const lock = LockService.getScriptLock();
-  lock.waitLock(30_000);
+  lock.waitLock(30000);
   try {
     publishSheetSnapshot(SHEET_NAME, true);
     publishSheetSnapshot(CREDIT_LEADERBOARD_SHEET_NAME, true);

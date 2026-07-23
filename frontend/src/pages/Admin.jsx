@@ -4,6 +4,7 @@ import {
   Users, Swords, Gift, ShoppingBag, BarChart3, Plus, Pencil, Trash2, X, Minus, Check, Coins, Trophy, ChevronRight,
   UserCog, ShieldCheck, Crown, UsersRound, Inbox, UserCheck, ClipboardList, CheckCircle2, XCircle,
   ArrowUp, ArrowDown, FileText, BrainCircuit, Clock3, TrendingUp, Search, CalendarDays, Target, Save, ChevronDown,
+  KeyRound,
 } from "lucide-react";
 import api, { extractError, API_BASE, getToken } from "@/lib/api";
 import { useApp } from "@/context/AppContext";
@@ -413,6 +414,7 @@ const UsersView = () => {
   const [loading, setLoading] = useState(true);
   const [adjustFor, setAdjustFor] = useState(null);
   const [editFor, setEditFor] = useState(null);
+  const [passwordFor, setPasswordFor] = useState(null);
   const [showCreate, setShowCreate] = useState(false);
 
   const load = async () => {
@@ -480,6 +482,14 @@ const UsersView = () => {
               <UserCog size={14} strokeWidth={3} />
             </button>
             <button
+              data-testid={`password-user-${u.id}`}
+              onClick={() => setPasswordFor(u)}
+              className="w-9 h-9 rounded-xl bg-[#0A0A0A] border border-[#B78CFF]/40 text-[#B78CFF] flex items-center justify-center active:scale-95"
+              aria-label="Змінити пароль"
+            >
+              <KeyRound size={14} strokeWidth={3} />
+            </button>
+            <button
               data-testid={`adjust-${u.id}`}
               onClick={() => setAdjustFor(u)}
               className="w-9 h-9 rounded-xl bg-[#0A0A0A] border border-[#FFB800]/40 text-[#FFB800] flex items-center justify-center active:scale-95"
@@ -502,9 +512,76 @@ const UsersView = () => {
       ))}
 
       {adjustFor && <AdjustPointsSheet user={adjustFor} onClose={() => setAdjustFor(null)} onDone={load} />}
+      {passwordFor && <PasswordResetSheet user={passwordFor} onClose={() => setPasswordFor(null)} />}
       {editFor && <UserEditSheet user={editFor} teams={teams} onClose={() => setEditFor(null)} onDone={load} />}
       {showCreate && <CreateUserSheet onClose={() => setShowCreate(false)} onDone={load} />}
     </div>
+  );
+};
+
+const PasswordResetSheet = ({ user, onClose }) => {
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const submit = async () => {
+    if (password.length < 6) {
+      toast.error("Пароль має містити щонайменше 6 символів");
+      return;
+    }
+    if (password !== confirmPassword) {
+      toast.error("Паролі не збігаються");
+      return;
+    }
+    if (!window.confirm(`Змінити пароль для ${user.name}? Усі активні сесії цього акаунта буде завершено.`)) return;
+    setBusy(true);
+    try {
+      const { data } = await api.patch(`/admin/users/${user.id}/password`, { new_password: password });
+      toast.success(data?.message || "Пароль змінено. Усі сесії завершено");
+      onClose();
+    } catch (e) {
+      toast.error(extractError(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <BottomSheet onClose={onClose} title={`Новий пароль: ${user.name}`}>
+      <div className="rounded-2xl border border-[#B78CFF]/25 bg-[#B78CFF]/[.07] p-3 text-xs leading-relaxed text-zinc-300">
+        Після збереження акаунт автоматично вийде з усіх телефонів і браузерів. Для повторного входу потрібен новий пароль.
+      </div>
+      <label className="block text-[11px] font-black uppercase text-zinc-500 mt-4 mb-1">Новий пароль</label>
+      <input
+        data-testid="reset-password-new"
+        type="password"
+        autoComplete="new-password"
+        value={password}
+        onChange={(e) => setPassword(e.target.value)}
+        placeholder="Мінімум 6 символів"
+        className="w-full h-12 px-4 rounded-xl bg-[#0A0A0A] border-2 border-white/10 text-white focus:border-[#B78CFF] outline-none"
+      />
+      <label className="block text-[11px] font-black uppercase text-zinc-500 mt-3 mb-1">Повтори пароль</label>
+      <input
+        data-testid="reset-password-confirm"
+        type="password"
+        autoComplete="new-password"
+        value={confirmPassword}
+        onChange={(e) => setConfirmPassword(e.target.value)}
+        placeholder="Ще раз новий пароль"
+        className="w-full h-12 px-4 rounded-xl bg-[#0A0A0A] border-2 border-white/10 text-white focus:border-[#B78CFF] outline-none"
+      />
+      <button
+        data-testid="reset-password-submit"
+        type="button"
+        onClick={submit}
+        disabled={busy || !password || !confirmPassword}
+        className="arcade-btn w-full h-12 mt-5 bg-[#B78CFF] border-[#5B21B6] text-[#0A0A0A] font-black text-sm uppercase tracking-wider flex items-center justify-center gap-2 disabled:opacity-50"
+      >
+        <KeyRound size={16} strokeWidth={3} />
+        {busy ? "Змінюємо..." : "Змінити пароль"}
+      </button>
+    </BottomSheet>
   );
 };
 
