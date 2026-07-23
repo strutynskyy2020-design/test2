@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { Target, CreditCard, Landmark, WalletCards, Coins, Trophy, CalendarDays } from "lucide-react";
+import { Target, CreditCard, Landmark, WalletCards, Coins, Trophy, CalendarDays, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 import { getToken } from "@/lib/api";
 import { useApp } from "@/context/AppContext";
+import { useNavigate } from "react-router-dom";
 
 const metricMeta = {
   credit: { label: "Кредитний напрямок", icon: CreditCard, color: "#FFB800" },
@@ -33,14 +34,19 @@ const firstDefined = (object, keys) => {
   return 0;
 };
 
-function MetricCard({ name, metric }) {
+function MetricCard({ name, metric, onOpen }) {
   const meta = metricMeta[name];
   const Icon = meta.icon;
   const complete = Boolean(metric?.complete);
   const current = Number(metric?.current || 0);
   const target = Number(metric?.target || 0);
+  const Wrapper = onOpen ? "button" : "section";
   return (
-    <section className="rounded-3xl border border-white/10 bg-[#1A1A1E] p-4">
+    <Wrapper
+      type={onOpen ? "button" : undefined}
+      onClick={onOpen}
+      className={`w-full rounded-3xl border border-white/10 bg-[#1A1A1E] p-4 text-left ${onOpen ? "transition-transform active:scale-[.99]" : ""}`}
+    >
       <div className="flex items-center gap-3">
         <div className="flex h-11 w-11 items-center justify-center rounded-2xl" style={{ background: `${meta.color}18`, border: `1px solid ${meta.color}55` }}>
           <Icon size={20} strokeWidth={3} color={meta.color} />
@@ -49,8 +55,11 @@ function MetricCard({ name, metric }) {
           <div className="text-sm font-black text-white">{meta.label}</div>
           <div className="text-xs text-zinc-500">{metric?.mode === "maintain" ? `Утримати не нижче ${target}%` : `Підняти до ${target}%`}</div>
         </div>
-        <div className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase ${complete ? "bg-[#39FF14]/15 text-[#39FF14]" : "bg-white/5 text-zinc-400"}`}>
-          {complete ? "Виконано" : "В процесі"}
+        <div className="flex items-center gap-1.5">
+          <div className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase ${complete ? "bg-[#39FF14]/15 text-[#39FF14]" : "bg-white/5 text-zinc-400"}`}>
+            {complete ? "Виконано" : "В процесі"}
+          </div>
+          {onOpen && <ChevronRight size={17} className="text-zinc-600" />}
         </div>
       </div>
       <div className="mt-4 flex items-end justify-between">
@@ -60,12 +69,14 @@ function MetricCard({ name, metric }) {
       <div className="mt-2 h-3 overflow-hidden rounded-full bg-black/45">
         <div className="h-full rounded-full transition-all" style={{ width: `${pct(current, target)}%`, background: meta.color, boxShadow: `0 0 14px ${meta.color}55` }} />
       </div>
-    </section>
+      {onOpen && <div className="mt-3 text-[10px] font-black uppercase tracking-wider text-[#B78CFF]">Переглянути X-Sell, Web Apps та INB</div>}
+    </Wrapper>
   );
 }
 
 export default function Goals() {
   const { mode } = useApp();
+  const navigate = useNavigate();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [emptyMessage, setEmptyMessage] = useState("");
@@ -210,7 +221,7 @@ export default function Goals() {
         <div className="mt-3 text-xs font-black text-zinc-300">Нагорода за всі три цілі: <span className="text-[#FFB800]">+200 Point</span> <span className="text-[#B78CFF]">• +100 XP</span></div>
       </section>
 
-      {Object.keys(metricMeta).map(name => <MetricCard key={name} name={name} metric={data[name]} />)}
+      {Object.keys(metricMeta).map(name => <MetricCard key={name} name={name} metric={data[name]} onOpen={name === "credit" ? () => navigate("/goals/credit") : undefined} />)}
 
       <section className="rounded-3xl border border-[#FFB800]/35 bg-[#1A1A1E] p-5">
         <div className="flex items-center gap-3"><div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#FFB800]/15"><Coins size={22} strokeWidth={3} color="#FFB800" /></div><div><div className="font-black text-white">Місячна ціль по бонусу</div><div className="text-xs text-zinc-500">Нагорода за виконання: +1000 Point • +300 XP</div></div></div>

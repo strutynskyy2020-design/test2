@@ -1,5 +1,8 @@
 const SPREADSHEET_ID = "1TV7NHvEmLf6i19yPt7SENl2TOn1Y04ToW1CjSGhtrf0";
 const SHEET_NAME = "Goals";
+const CREDIT_METRICS_SHEET_NAME = "CreditMetrics";
+const CREDIT_LEADERBOARD_SHEET_NAME = "Аркуш2";
+const TRANSFORMATION_SHEET_NAME = "Transformation";
 
 function normalizeKey(value) {
   return String(value || "").trim().toLowerCase();
@@ -36,19 +39,291 @@ function rowToObject(headers, row) {
   return Object.fromEntries(headers.map((header, index) => [header, row[index] ?? ""]));
 }
 
+
+
+function normalizeHeaderKey(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[’'`]/g, "")
+    .replace(/[^a-zа-яіїєґ0-9]+/gi, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+function headerMatches(value, aliases) {
+  const normalized = normalizeHeaderKey(value);
+  return aliases.some((alias) => normalizeHeaderKey(alias) === normalized);
+}
+
+function getCreditLeaderboard() {
+  const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sheet = spreadsheet.getSheetByName(CREDIT_LEADERBOARD_SHEET_NAME);
+  if (!sheet) return { rows: [], group_summary: null, updated_at: "" };
+
+  const values = sheet.getDataRange().getDisplayValues();
+  if (!values.length) return { rows: [], group_summary: null, updated_at: "" };
+
+  const loginHeaders = ["credit", "кредит", "operator", "оператор", "login", "goals_login"];
+  const xsellHeaders = ["x-sell", "xsell", "x_sell"];
+  const webHeaders = ["web apps", "web_apps", "webapps", "web app"];
+  const inbHeaders = ["inb"];
+  const overallHeaders = ["загальний", "загальний підсумок", "overall", "total", "summary"];
+  const groupAliases = ["tm6", "tm_6", "тм6", "група tm6", "group tm6"];
+
+  let headerRowIndex = -1;
+  let startColumnIndex = -1;
+
+  for (let rowIndex = 0; rowIndex < values.length; rowIndex += 1) {
+    const row = values[rowIndex];
+    for (let columnIndex = 0; columnIndex <= row.length - 5; columnIndex += 1) {
+      if (
+        headerMatches(row[columnIndex], loginHeaders) &&
+        headerMatches(row[columnIndex + 1], xsellHeaders) &&
+        headerMatches(row[columnIndex + 2], webHeaders) &&
+        headerMatches(row[columnIndex + 3], inbHeaders) &&
+        headerMatches(row[columnIndex + 4], overallHeaders)
+      ) {
+        headerRowIndex = rowIndex;
+        startColumnIndex = columnIndex;
+        break;
+      }
+    }
+    if (headerRowIndex !== -1) break;
+  }
+
+  if (headerRowIndex === -1 || startColumnIndex === -1) {
+    return { rows: [], group_summary: null, updated_at: "" };
+  }
+
+  const rows = [];
+  let groupSummary = null;
+  let foundData = false;
+  let emptyRowsAfterData = 0;
+
+  for (let rowIndex = headerRowIndex + 1; rowIndex < values.length; rowIndex += 1) {
+    const row = values[rowIndex];
+    const login = normalizeKey(row[startColumnIndex]);
+    if (!login) {
+      if (foundData) {
+        emptyRowsAfterData += 1;
+        if (emptyRowsAfterData >= 3) break;
+      }
+      continue;
+    }
+
+    const overall = String(row[startColumnIndex + 4] || "").trim();
+    if (!overall) continue;
+    foundData = true;
+    emptyRowsAfterData = 0;
+
+    const entry = {
+      login,
+      xsell: String(row[startColumnIndex + 1] || "").trim(),
+      web_apps: String(row[startColumnIndex + 2] || "").trim(),
+      inb: String(row[startColumnIndex + 3] || "").trim(),
+      overall,
+    };
+
+    if (groupAliases.some((alias) => normalizeKey(alias) === login)) {
+      groupSummary = entry;
+    } else {
+      rows.push(entry);
+    }
+  }
+
+  return {
+    rows,
+    group_summary: groupSummary,
+    updated_at: Utilities.formatDate(new Date(), Session.getScriptTimeZone() || "Europe/Kyiv", "dd.MM.yyyy HH:mm"),
+  };
+}
+
+
+function detectTransformationBlock(value) {
+  const key = normalizeHeaderKey(value);
+  let channel = "";
+  let period = "";
+
+  if (key.includes("x_sell") || key.includes("xsell")) channel = "xsell";
+  else if (key.includes("web_apps") || key.includes("webapps") || key.includes("web_app")) channel = "web_apps";
+  else if (key === "inb" || key.startsWith("inb_")) channel = "inb";
+
+  if (key.includes("month") || key.includes("monthly") || key.includes("місяць")) period = "month";
+  else if (key.includes("yesterday") || key.includes("вчора")) period = "yesterday";
+
+  return channel && period ? { channel, period } : null;
+}
+
+function transformationMetricKey(value) {
+  const key = normalizeHeaderKey(value);
+  if (!key) return "";
+  if ((key.includes("обработ") || key.includes("оброблен") || key.includes("processed")) && (key.includes("задач") || key.includes("task"))) return "processed_tasks";
+  if (key.includes("уровень_соглас") || key.includes("рівень_згод") || key.includes("agreement")) return "agreement_rate";
+  if (key.includes("callback")) return "callback_rate";
+  if (key === "aht" || key.includes("average_handle_time")) return "aht";
+  if (key.includes("reject")) return "reject_rate";
+  if ((key.includes("выдач") || key.includes("видач") || key.includes("issuance") || key.includes("issue")) && (key.includes("обработ") || key.includes("оброблен") || key.includes("processed"))) return "issuance_rate";
+  if (key.includes("projective") || key.includes("проекц")) return "projective_rate";
+  return "";
+}
+
+function findSummaryColumn(values, blockRowIndex, headerRowIndex) {
+  let fallback = -1;
+  const endRow = Math.min(values.length - 1, headerRowIndex + 2);
+  for (let rowIndex = blockRowIndex; rowIndex <= endRow; rowIndex += 1) {
+    const row = values[rowIndex];
+    for (let columnIndex = 0; columnIndex < row.length; columnIndex += 1) {
+      const key = normalizeHeaderKey(row[columnIndex]);
+      const isSummary = key.includes("підсумок") || key.includes("итог") || key.includes("summary") || key.includes("total");
+      if (!isSummary) continue;
+      if (key.includes("tm_6") || key.includes("tm6")) return columnIndex;
+      if (fallback === -1 && (key.includes("загальний") || key.includes("general") || key.includes("overall"))) fallback = columnIndex;
+    }
+  }
+  return fallback;
+}
+
+function getTransformationMetricRows(goalsLogin) {
+  const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sheet = spreadsheet.getSheetByName(TRANSFORMATION_SHEET_NAME);
+  if (!sheet) return [];
+
+  const values = sheet.getDataRange().getDisplayValues();
+  if (!values.length) return [];
+
+  const rows = [];
+  const seen = {};
+
+  for (let blockRowIndex = 0; blockRowIndex < values.length; blockRowIndex += 1) {
+    const blockRow = values[blockRowIndex];
+    let block = null;
+    for (let columnIndex = 0; columnIndex < blockRow.length; columnIndex += 1) {
+      block = detectTransformationBlock(blockRow[columnIndex]);
+      if (block) break;
+    }
+    if (!block) continue;
+
+    const blockKey = `${block.channel}:${block.period}`;
+    if (seen[blockKey]) continue;
+
+    let headerRowIndex = -1;
+    let userColumnIndex = -1;
+    const headerSearchEnd = Math.min(values.length - 1, blockRowIndex + 10);
+    for (let rowIndex = blockRowIndex + 1; rowIndex <= headerSearchEnd; rowIndex += 1) {
+      const candidateColumn = values[rowIndex].findIndex(
+        (value) => normalizeKey(value) === goalsLogin
+      );
+      if (candidateColumn !== -1) {
+        headerRowIndex = rowIndex;
+        userColumnIndex = candidateColumn;
+        break;
+      }
+    }
+    if (headerRowIndex === -1 || userColumnIndex === -1) continue;
+
+    const overallColumnIndex = findSummaryColumn(values, blockRowIndex, headerRowIndex);
+    if (overallColumnIndex === -1) continue;
+
+    const output = {
+      goals_login: goalsLogin,
+      channel: block.channel,
+      period: block.period,
+      updated_at: Utilities.formatDate(new Date(), Session.getScriptTimeZone() || "Europe/Kyiv", "dd.MM.yyyy HH:mm"),
+    };
+    let foundMetric = false;
+    const metricSearchEnd = Math.min(values.length - 1, headerRowIndex + 14);
+
+    for (let rowIndex = headerRowIndex + 1; rowIndex <= metricSearchEnd; rowIndex += 1) {
+      const row = values[rowIndex];
+      let label = "";
+      const labelSearchEnd = Math.min(userColumnIndex, 6);
+      for (let columnIndex = 0; columnIndex < labelSearchEnd; columnIndex += 1) {
+        if (String(row[columnIndex] || "").trim()) {
+          label = row[columnIndex];
+          break;
+        }
+      }
+
+      if (detectTransformationBlock(label)) break;
+      const metricKey = transformationMetricKey(label);
+      if (!metricKey) continue;
+
+      const mine = String(row[userColumnIndex] || "").trim();
+      const overall = String(row[overallColumnIndex] || "").trim();
+      if (metricKey === "processed_tasks") {
+        output.processed_tasks = mine;
+        output.processed_tasks_overall = overall;
+      } else {
+        output[metricKey] = mine;
+        output[`${metricKey}_overall`] = overall;
+      }
+      foundMetric = true;
+    }
+
+    if (foundMetric) {
+      rows.push(output);
+      seen[blockKey] = true;
+    }
+  }
+
+  return rows;
+}
+
+function getCreditMetricRows(goalsLogin) {
+  const transformationRows = getTransformationMetricRows(goalsLogin);
+  if (transformationRows.length) return transformationRows;
+
+  const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sheet = spreadsheet.getSheetByName(CREDIT_METRICS_SHEET_NAME);
+  if (!sheet) return [];
+
+  const values = sheet.getDataRange().getDisplayValues();
+  if (values.length < 2) return [];
+  const [headerRow, ...rows] = values;
+  const headers = headerRow.map((header) => String(header).trim());
+  const normalizedHeaders = headers.map(normalizeKey);
+  const keyIndex = normalizedHeaders.indexOf("goals_login");
+  if (keyIndex === -1) throw new Error('В аркуші "CreditMetrics" немає колонки "goals_login"');
+
+  return rows
+    .filter((row) => normalizeKey(row[keyIndex]) === goalsLogin)
+    .map((row) => rowToObject(headers, row));
+}
+
 function doGet(e) {
   try {
     const goalsLogin = normalizeKey(e && e.parameter && e.parameter.goals_login);
     if (!goalsLogin) return jsonResponse({ success: false, error: "goals_login is required" });
 
+    const leaderboard = getCreditLeaderboard();
     const context = getSheetContext();
     if (context.rows.length === 0) {
-      return jsonResponse({ success: true, found: false, reason: "sheet_is_empty", goals: null });
+      return jsonResponse({
+        success: true,
+        found: false,
+        reason: "sheet_is_empty",
+        goals_login: goalsLogin,
+        goals: null,
+        credit_metrics: [],
+        credit_leaderboard: leaderboard.rows,
+        credit_group_summary: leaderboard.group_summary,
+        credit_leaderboard_updated_at: leaderboard.updated_at,
+      });
     }
 
     const found = findGoalRow(context, goalsLogin);
     if (found.rowOffset === -1) {
-      return jsonResponse({ success: true, found: false, reason: "key_not_found", goals_login: goalsLogin, goals: null });
+      return jsonResponse({
+        success: true,
+        found: false,
+        reason: "key_not_found",
+        goals_login: goalsLogin,
+        goals: null,
+        credit_metrics: [],
+        credit_leaderboard: leaderboard.rows,
+        credit_group_summary: leaderboard.group_summary,
+        credit_leaderboard_updated_at: leaderboard.updated_at,
+      });
     }
 
     return jsonResponse({
@@ -56,6 +331,10 @@ function doGet(e) {
       found: true,
       goals_login: goalsLogin,
       goals: rowToObject(context.headers, context.rows[found.rowOffset]),
+      credit_metrics: getCreditMetricRows(goalsLogin),
+      credit_leaderboard: leaderboard.rows,
+      credit_group_summary: leaderboard.group_summary,
+      credit_leaderboard_updated_at: leaderboard.updated_at,
     });
   } catch (error) {
     return jsonResponse({ success: false, error: error && error.message ? error.message : "Помилка читання таблиці" });

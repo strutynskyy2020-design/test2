@@ -31,3 +31,8 @@ A URL containing `/macros/library/` is a library URL and must not be used.
 
 After every Apps Script code change, deploy a new version:
 `Deploy -> Manage deployments -> Edit -> New version -> Deploy`.
+
+## Credit direction details (v49)
+
+Create an optional sheet named `CreditMetrics`. The app reads one row per employee/channel/period.
+See `CreditMetrics-example.csv` and `/GOOGLE_CREDIT_METRICS_V49.md` for the complete schema and status rules.

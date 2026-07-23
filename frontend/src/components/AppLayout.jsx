@@ -5,11 +5,11 @@ import { useApp } from "@/context/AppContext";
 import InstallPrompt from "@/components/InstallPrompt";
 import NotificationBell from "@/components/NotificationBell";
 
-const NavItem = ({ to, icon: Icon, label, testId }) => (
+const NavItem = ({ to, icon: Icon, label, testId, exact = true }) => (
   <NavLink
     to={to}
     data-testid={testId}
-    end
+    end={exact}
     className={({ isActive }) =>
       `flex flex-col items-center justify-center gap-1 flex-1 min-w-0 h-full transition-transform active:scale-95 ${
         isActive ? "text-[#FFB800]" : "text-zinc-500"
@@ -107,7 +107,7 @@ export default function AppLayout() {
         >
           <NavItem to="/" icon={Home} label="Головна" testId="nav-home" />
           <NavItem to="/tasks" icon={ClipboardList} label="Квести" testId="nav-tasks" />
-          <NavItem to="/goals" icon={Target} label="Цілі" testId="nav-goals" />
+          <NavItem to="/goals" icon={Target} label="Цілі" testId="nav-goals" exact={false} />
           <NavItem to="/ai-trainer" icon={Bot} label="AI" testId="nav-ai-trainer" />
           <NavItem to="/store" icon={Gift} label="Магазин" testId="nav-store" />
           <NavItem to="/leaderboard" icon={Trophy} label="Рейтинг" testId="nav-board" />
