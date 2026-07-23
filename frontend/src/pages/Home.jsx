@@ -122,23 +122,8 @@ export default function Home() {
       if (!cancelled) setFeed(r.data.events || []);
     }).catch(() => {});
 
-    const refreshWhenVisible = () => {
-      if (document.visibilityState === "visible") loadGoogleGoals();
-    };
-    const refreshOnFocus = () => loadGoogleGoals();
-    const refreshOnPageShow = () => loadGoogleGoals();
-    const refreshTimer = window.setInterval(loadGoogleGoals, 60_000);
-
-    document.addEventListener("visibilitychange", refreshWhenVisible);
-    window.addEventListener("focus", refreshOnFocus);
-    window.addEventListener("pageshow", refreshOnPageShow);
-
     return () => {
       cancelled = true;
-      window.clearInterval(refreshTimer);
-      document.removeEventListener("visibilitychange", refreshWhenVisible);
-      window.removeEventListener("focus", refreshOnFocus);
-      window.removeEventListener("pageshow", refreshOnPageShow);
     };
   }, [user?.id, mode]);
 

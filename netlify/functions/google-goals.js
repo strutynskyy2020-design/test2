@@ -83,6 +83,8 @@ exports.handler = async (event) => {
       credit_leaderboard: Array.isArray(data.credit_leaderboard) ? data.credit_leaderboard : [],
       credit_group_summary: data.credit_group_summary || null,
       credit_leaderboard_updated_at: data.credit_leaderboard_updated_at || null,
+      results_published_at: data.results_published_at || null,
+      results_version: data.results_version || null,
     });
   } catch (error) {
     console.error("google-goals error", error);

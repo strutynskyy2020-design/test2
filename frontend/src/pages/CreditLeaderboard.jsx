@@ -181,17 +181,15 @@ function GroupOverallValue({ value }) {
 
 function BestDirectionCard({ label, result }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-black/25 p-3">
-      <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wider text-[#B78CFF]">
+    <div className="rounded-2xl border border-white/10 bg-black/25 p-3 text-center">
+      <div className="flex items-center justify-center gap-1.5 text-[9px] font-black uppercase tracking-wider text-[#B78CFF]">
         <Trophy size={12} strokeWidth={2.8} />
         {label}
       </div>
-      <div className="mt-2 flex items-center gap-2">
-        <ProfileAvatar profile={result} />
-        <div className="min-w-0 flex-1">
-          <div className="break-words text-[11px] font-black leading-tight text-white">{result?.login || "—"}</div>
-          <div className="mt-0.5 text-base font-black text-[#39FF14]">{formatPercent(result?.value)}</div>
-        </div>
+      <div className="mt-2 flex flex-col items-center">
+        <ProfileAvatar profile={result} size="lg" />
+        <div className="mt-2 w-full break-words text-[12px] font-black leading-tight text-white">{result?.login || "—"}</div>
+        <div className="mt-1 text-[22px] font-black leading-none text-[#39FF14]">{formatPercent(result?.value)}</div>
       </div>
     </div>
   );
@@ -279,9 +277,13 @@ export default function CreditLeaderboard() {
         const summary = normalizeGroupSummary(result.credit_group_summary, rawRows);
         setRows(leaderboard);
         setGroupSummary(summary);
-        setUpdatedAt(result.credit_leaderboard_updated_at || "з Google Таблиці");
+        setUpdatedAt(result.results_published_at || result.credit_leaderboard_updated_at || "з Google Таблиці");
         if (!leaderboard.length) {
-          setEmptyMessage('На вкладці "Аркуш2" не знайдено таблицю, де Credit є колонкою логінів операторів, а далі йдуть X-sell / Web apps / Inb / Загальний.');
+          setEmptyMessage(
+            result.reason === "results_not_published"
+              ? 'Результати ще не опубліковано. У Google Таблиці натисніть «TM6 Bonus → Оновити результати».'
+              : 'На вкладці "Аркуш2" не знайдено таблицю, де Credit є колонкою логінів операторів, а далі йдуть X-sell / Web apps / Inb / Загальний.'
+          );
         }
       } catch (error) {
         if (!cancelled && !silent) {
@@ -296,19 +298,9 @@ export default function CreditLeaderboard() {
     };
 
     load();
-    const refreshWhenVisible = () => {
-      if (document.visibilityState === "visible") load({ silent: true });
-    };
-    const refreshOnFocus = () => load({ silent: true });
-    const refreshTimer = window.setInterval(() => load({ silent: true }), 60_000);
-    document.addEventListener("visibilitychange", refreshWhenVisible);
-    window.addEventListener("focus", refreshOnFocus);
 
     return () => {
       cancelled = true;
-      window.clearInterval(refreshTimer);
-      document.removeEventListener("visibilitychange", refreshWhenVisible);
-      window.removeEventListener("focus", refreshOnFocus);
     };
   }, [mode]);
 

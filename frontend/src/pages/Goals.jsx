@@ -122,9 +122,11 @@ export default function Goals() {
         if (!result.found || !result.goals) {
           setData(null);
           setEmptyMessage(
-            result.reason === "goals_login_missing"
-              ? "Керівник ще не прив’язав ваш профіль до Google Таблиці."
-              : "Для вашого ключа ще не додано рядок із цілями в Google Таблиці."
+            result.reason === "results_not_published"
+              ? 'Результати ще не опубліковано. У Google Таблиці натисніть «TM6 Bonus → Оновити результати».'
+              : result.reason === "goals_login_missing"
+                ? "Керівник ще не прив’язав ваш профіль до Google Таблиці."
+                : "Для вашого ключа ще не додано рядок із цілями в Google Таблиці."
           );
           return;
         }
@@ -153,7 +155,7 @@ export default function Goals() {
           weekly_reward_awarded: String(goals.weekly_reward_awarded || "").toLowerCase() === "true",
           monthly_reward_awarded: String(goals.monthly_reward_awarded || "").toLowerCase() === "true",
           note: goals.note || "",
-          updated_at: goals.updated_at || "",
+          updated_at: result.results_published_at || goals.updated_at || "",
         });
       } catch (error) {
         if (!cancelled) {
@@ -168,23 +170,8 @@ export default function Goals() {
 
     loadGoogleGoals();
 
-    const refreshWhenVisible = () => {
-      if (document.visibilityState === "visible") loadGoogleGoals();
-    };
-    const refreshOnFocus = () => loadGoogleGoals();
-    const refreshOnPageShow = () => loadGoogleGoals();
-    const refreshTimer = window.setInterval(loadGoogleGoals, 60_000);
-
-    document.addEventListener("visibilitychange", refreshWhenVisible);
-    window.addEventListener("focus", refreshOnFocus);
-    window.addEventListener("pageshow", refreshOnPageShow);
-
     return () => {
       cancelled = true;
-      window.clearInterval(refreshTimer);
-      document.removeEventListener("visibilitychange", refreshWhenVisible);
-      window.removeEventListener("focus", refreshOnFocus);
-      window.removeEventListener("pageshow", refreshOnPageShow);
     };
   }, [mode]);
 

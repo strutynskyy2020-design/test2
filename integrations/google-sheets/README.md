@@ -36,3 +36,13 @@ After every Apps Script code change, deploy a new version:
 
 Create an optional sheet named `CreditMetrics`. The app reads one row per employee/channel/period.
 See `CreditMetrics-example.csv` and `/GOOGLE_CREDIT_METRICS_V49.md` for the complete schema and status rules.
+
+
+## Manual publishing (v56)
+
+The app reads hidden published snapshots instead of live sheet formulas.
+After replacing `Code.gs`, reload the spreadsheet and use:
+`TM6 Bonus → Оновити результати`.
+
+To create a visible sheet button, assign the function `updateResultsSnapshot` to a drawing.
+See `/MANUAL_RESULTS_PUBLISHING_V56.md` for the complete setup.

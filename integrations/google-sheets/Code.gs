@@ -4,21 +4,50 @@ const CREDIT_METRICS_SHEET_NAME = "CreditMetrics";
 const CREDIT_LEADERBOARD_SHEET_NAME = "Аркуш2";
 const TRANSFORMATION_SHEET_NAME = "Transformation";
 
+// The app reads only these published snapshots. Source sheets may continue to
+// recalculate, but users will not see new values until updateResultsSnapshot()
+// is run from Google Sheets.
+const SNAPSHOT_PREFIX = "_TM6_PUBLISHED_";
+const RESULTS_PUBLISHED_AT_PROPERTY = "TM6_RESULTS_PUBLISHED_AT";
+const RESULTS_PUBLISHED_VERSION_PROPERTY = "TM6_RESULTS_PUBLISHED_VERSION";
+
 function normalizeKey(value) {
   return String(value || "").trim().toLowerCase();
 }
 
-function openGoalsSheet() {
+function getSpreadsheet() {
   if (!SPREADSHEET_ID || SPREADSHEET_ID.includes("ВСТАВТЕ_ID")) {
     throw new Error("SPREADSHEET_ID is not configured");
   }
-  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_NAME);
-  if (!sheet) throw new Error(`Аркуш "${SHEET_NAME}" не знайдено`);
+  return SpreadsheetApp.openById(SPREADSHEET_ID);
+}
+
+function snapshotSheetName(sourceSheetName) {
+  return `${SNAPSHOT_PREFIX}${sourceSheetName}`.slice(0, 100);
+}
+
+function getSourceSheet(sourceSheetName, required) {
+  const sheet = getSpreadsheet().getSheetByName(sourceSheetName);
+  if (!sheet && required !== false) throw new Error(`Аркуш "${sourceSheetName}" не знайдено`);
   return sheet;
 }
 
-function getSheetContext() {
-  const sheet = openGoalsSheet();
+function getPublishedSheet(sourceSheetName, required) {
+  const sheet = getSpreadsheet().getSheetByName(snapshotSheetName(sourceSheetName));
+  if (!sheet && required !== false) {
+    throw new Error('Результати ще не опубліковано. Натисніть "Оновити результати" в Google Таблиці.');
+  }
+  return sheet;
+}
+
+function openGoalsSheet(usePublished) {
+  return usePublished === false
+    ? getSourceSheet(SHEET_NAME, true)
+    : getPublishedSheet(SHEET_NAME, true);
+}
+
+function getSheetContext(usePublished) {
+  const sheet = openGoalsSheet(usePublished);
   const values = sheet.getDataRange().getDisplayValues();
   if (!values.length) return { sheet, headers: [], normalizedHeaders: [], rows: [] };
   const [headerRow, ...rows] = values;
@@ -39,7 +68,95 @@ function rowToObject(headers, row) {
   return Object.fromEntries(headers.map((header, index) => [header, row[index] ?? ""]));
 }
 
+function getPublishedResultsAt() {
+  return PropertiesService.getScriptProperties().getProperty(RESULTS_PUBLISHED_AT_PROPERTY) || "";
+}
 
+function getPublishedResultsVersion() {
+  return PropertiesService.getScriptProperties().getProperty(RESULTS_PUBLISHED_VERSION_PROPERTY) || "";
+}
+
+function ensureSheetSize(sheet, rows, columns) {
+  const requiredRows = Math.max(1, rows);
+  const requiredColumns = Math.max(1, columns);
+  if (sheet.getMaxRows() < requiredRows) {
+    sheet.insertRowsAfter(sheet.getMaxRows(), requiredRows - sheet.getMaxRows());
+  }
+  if (sheet.getMaxColumns() < requiredColumns) {
+    sheet.insertColumnsAfter(sheet.getMaxColumns(), requiredColumns - sheet.getMaxColumns());
+  }
+}
+
+function publishSheetSnapshot(sourceSheetName, required) {
+  const spreadsheet = getSpreadsheet();
+  const source = spreadsheet.getSheetByName(sourceSheetName);
+  if (!source) {
+    if (required !== false) throw new Error(`Аркуш "${sourceSheetName}" не знайдено`);
+    return false;
+  }
+
+  const values = source.getDataRange().getDisplayValues();
+  const rowCount = Math.max(1, values.length);
+  const columnCount = Math.max(1, values.reduce((max, row) => Math.max(max, row.length), 0));
+  const targetName = snapshotSheetName(sourceSheetName);
+  let target = spreadsheet.getSheetByName(targetName);
+  if (!target) target = spreadsheet.insertSheet(targetName);
+
+  ensureSheetSize(target, rowCount, columnCount);
+  target.clear();
+  if (values.length && columnCount) {
+    const normalizedValues = values.map((row) => {
+      const output = row.slice(0, columnCount);
+      while (output.length < columnCount) output.push("");
+      return output;
+    });
+    target.getRange(1, 1, normalizedValues.length, columnCount).setValues(normalizedValues);
+  }
+  target.hideSheet();
+  return true;
+}
+
+/**
+ * Run this from the TM6 Bonus menu or assign this function to a drawing/button
+ * named "Оновити результати" in Google Sheets.
+ */
+function updateResultsSnapshot() {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30_000);
+  try {
+    publishSheetSnapshot(SHEET_NAME, true);
+    publishSheetSnapshot(CREDIT_LEADERBOARD_SHEET_NAME, true);
+    publishSheetSnapshot(TRANSFORMATION_SHEET_NAME, false);
+    publishSheetSnapshot(CREDIT_METRICS_SHEET_NAME, false);
+
+    const timezone = Session.getScriptTimeZone() || "Europe/Kyiv";
+    const publishedAt = Utilities.formatDate(new Date(), timezone, "dd.MM.yyyy HH:mm");
+    const properties = PropertiesService.getScriptProperties();
+    properties.setProperty(RESULTS_PUBLISHED_AT_PROPERTY, publishedAt);
+    properties.setProperty(RESULTS_PUBLISHED_VERSION_PROPERTY, String(Date.now()));
+
+    SpreadsheetApp.flush();
+    try {
+      SpreadsheetApp.getActive().toast(
+        `Опубліковано: ${publishedAt}`,
+        "TM6 Bonus · результати оновлено",
+        6
+      );
+    } catch (toastError) {
+      // The function can also run outside an active spreadsheet UI.
+    }
+    return publishedAt;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function onOpen() {
+  SpreadsheetApp.getUi()
+    .createMenu("TM6 Bonus")
+    .addItem("Оновити результати", "updateResultsSnapshot")
+    .addToUi();
+}
 
 function normalizeHeaderKey(value) {
   return String(value || "")
@@ -56,8 +173,7 @@ function headerMatches(value, aliases) {
 }
 
 function getCreditLeaderboard() {
-  const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
-  const sheet = spreadsheet.getSheetByName(CREDIT_LEADERBOARD_SHEET_NAME);
+  const sheet = getPublishedSheet(CREDIT_LEADERBOARD_SHEET_NAME, false);
   if (!sheet) return { rows: [], group_summary: null, updated_at: "" };
 
   const values = sheet.getDataRange().getDisplayValues();
@@ -134,7 +250,7 @@ function getCreditLeaderboard() {
   return {
     rows,
     group_summary: groupSummary,
-    updated_at: Utilities.formatDate(new Date(), Session.getScriptTimeZone() || "Europe/Kyiv", "dd.MM.yyyy HH:mm"),
+    updated_at: getPublishedResultsAt(),
   };
 }
 
@@ -184,8 +300,7 @@ function findSummaryColumn(values, blockRowIndex, headerRowIndex) {
 }
 
 function getTransformationMetricRows(goalsLogin) {
-  const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
-  const sheet = spreadsheet.getSheetByName(TRANSFORMATION_SHEET_NAME);
+  const sheet = getPublishedSheet(TRANSFORMATION_SHEET_NAME, false);
   if (!sheet) return [];
 
   const values = sheet.getDataRange().getDisplayValues();
@@ -228,7 +343,7 @@ function getTransformationMetricRows(goalsLogin) {
       goals_login: goalsLogin,
       channel: block.channel,
       period: block.period,
-      updated_at: Utilities.formatDate(new Date(), Session.getScriptTimeZone() || "Europe/Kyiv", "dd.MM.yyyy HH:mm"),
+      updated_at: getPublishedResultsAt(),
     };
     let foundMetric = false;
     const metricSearchEnd = Math.min(values.length - 1, headerRowIndex + 14);
@@ -273,8 +388,7 @@ function getCreditMetricRows(goalsLogin) {
   const transformationRows = getTransformationMetricRows(goalsLogin);
   if (transformationRows.length) return transformationRows;
 
-  const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
-  const sheet = spreadsheet.getSheetByName(CREDIT_METRICS_SHEET_NAME);
+  const sheet = getPublishedSheet(CREDIT_METRICS_SHEET_NAME, false);
   if (!sheet) return [];
 
   const values = sheet.getDataRange().getDisplayValues();
@@ -295,8 +409,26 @@ function doGet(e) {
     const goalsLogin = normalizeKey(e && e.parameter && e.parameter.goals_login);
     if (!goalsLogin) return jsonResponse({ success: false, error: "goals_login is required" });
 
+    const publishedAt = getPublishedResultsAt();
+    const publishedVersion = getPublishedResultsVersion();
+    if (!publishedAt) {
+      return jsonResponse({
+        success: true,
+        found: false,
+        reason: "results_not_published",
+        goals_login: goalsLogin,
+        goals: null,
+        credit_metrics: [],
+        credit_leaderboard: [],
+        credit_group_summary: null,
+        credit_leaderboard_updated_at: "",
+        results_published_at: "",
+        results_version: "",
+      });
+    }
+
     const leaderboard = getCreditLeaderboard();
-    const context = getSheetContext();
+    const context = getSheetContext(true);
     if (context.rows.length === 0) {
       return jsonResponse({
         success: true,
@@ -308,6 +440,8 @@ function doGet(e) {
         credit_leaderboard: leaderboard.rows,
         credit_group_summary: leaderboard.group_summary,
         credit_leaderboard_updated_at: leaderboard.updated_at,
+        results_published_at: publishedAt,
+        results_version: publishedVersion,
       });
     }
 
@@ -323,6 +457,8 @@ function doGet(e) {
         credit_leaderboard: leaderboard.rows,
         credit_group_summary: leaderboard.group_summary,
         credit_leaderboard_updated_at: leaderboard.updated_at,
+        results_published_at: publishedAt,
+        results_version: publishedVersion,
       });
     }
 
@@ -335,6 +471,8 @@ function doGet(e) {
       credit_leaderboard: leaderboard.rows,
       credit_group_summary: leaderboard.group_summary,
       credit_leaderboard_updated_at: leaderboard.updated_at,
+      results_published_at: publishedAt,
+      results_version: publishedVersion,
     });
   } catch (error) {
     return jsonResponse({ success: false, error: error && error.message ? error.message : "Помилка читання таблиці" });
@@ -353,7 +491,7 @@ function doPost(e) {
     const goals = body.goals || {};
     if (!goalsLogin) return jsonResponse({ success: false, error: "goals_login is required" });
 
-    const context = getSheetContext();
+    const context = getSheetContext(false);
     const found = findGoalRow(context, goalsLogin);
     if (found.sheetRow === -1) {
       return jsonResponse({ success: false, error: `Рядок для ключа ${goalsLogin} не знайдено` });
