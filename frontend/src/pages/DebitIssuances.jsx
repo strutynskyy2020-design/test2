@@ -130,8 +130,21 @@ export default function DebitIssuances() {
         if (!response.ok) throw new Error(result.error || "Не вдалося завантажити видачі");
         if (cancelled) return;
         const normalized = normalizeRows(result.debit_issuances);
-        setRows(normalized);
-        if (!normalized.length) setEmptyMessage('На вкладці "Transformation Deb" не знайдено рядок вашого логіна у блоках giving month або giving yesterday.');
+        const rowsByPeriod = new Map(normalized.map((row) => [row.period, row]));
+        const completedRows = normalized.length
+          ? PERIODS.map(({ id }) => rowsByPeriod.get(id) || {
+              period: id,
+              inb_deb: 0,
+              vse_card: 0,
+              web_fuib: 0,
+              web_apps: 0,
+              x_sell: 0,
+              overall: 0,
+              updated_at: normalized[0]?.updated_at || "з Google Таблиці",
+            })
+          : [];
+        setRows(completedRows);
+        if (!completedRows.length) setEmptyMessage('На вкладці "Transformation Deb" не знайдено блоки giving month або giving yesterday.');
       } catch (error) {
         if (!cancelled && !silent) {
           setRows([]);

@@ -250,6 +250,7 @@ function getDebitIssuanceRows(goalsLogin) {
 
   const rows = [];
   const seen = {};
+  const availablePeriods = {};
   const updatedAt = Utilities.formatDate(new Date(), Session.getScriptTimeZone() || "Europe/Kyiv", "dd.MM.yyyy HH:mm");
 
   for (let headerRowIndex = 0; headerRowIndex < values.length; headerRowIndex += 1) {
@@ -266,6 +267,7 @@ function getDebitIssuanceRows(goalsLogin) {
         headerStartsWithAlias(headerRow[startColumnIndex + 5], ["x_sell", "x-sell", "xsell"]) &&
         headerStartsWithAlias(headerRow[startColumnIndex + 6], ["загальний", "overall", "total"]);
       if (!validHeaders) continue;
+      availablePeriods[period] = true;
 
       for (let rowIndex = headerRowIndex + 1; rowIndex < values.length; rowIndex += 1) {
         const row = values[rowIndex];
@@ -290,6 +292,21 @@ function getDebitIssuanceRows(goalsLogin) {
       }
     }
   }
+
+  ["month", "yesterday"].forEach((period) => {
+    if (!availablePeriods[period] || seen[period]) return;
+    rows.push({
+      goals_login: goalsLogin,
+      period,
+      inb_deb: "0",
+      vse_card: "0",
+      web_fuib: "0",
+      web_apps: "0",
+      x_sell: "0",
+      overall: "0",
+      updated_at: updatedAt,
+    });
+  });
 
   return rows;
 }

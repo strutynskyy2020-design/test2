@@ -1,0 +1,221 @@
+--- tm6v58-full-merged/backend/server.py	2026-07-23 18:31:02.252829387 +0000
++++ tm6v62-rewards-merged/backend/server.py	2026-07-23 18:34:12.008823373 +0000
+@@ -211,6 +211,41 @@
+     outcome_text: str = ""
+     client_mood: str = ""
+ 
++
++AI_TRAINER_REWARD_TABLE = {
++    "easy": ((9.0, 200), (8.0, 150), (7.0, 100), (6.0, 50), (5.0, 25)),
++    "medium": ((9.0, 300), (8.0, 200), (7.0, 150), (6.0, 80), (5.0, 35)),
++    "hard": ((9.0, 500), (8.0, 400), (7.0, 250), (6.0, 125), (5.0, 50)),
++}
++
++AI_SCENARIO_DIFFICULTY = {
++    **{f"cc-{index:02d}": "easy" for index in range(1, 4)},
++    **{f"cc-{index:02d}": "medium" for index in range(4, 8)},
++    **{f"cc-{index:02d}": "hard" for index in range(8, 11)},
++    **{f"dep-{index:02d}": "easy" for index in range(1, 3)},
++    **{f"dep-{index:02d}": "medium" for index in range(3, 5)},
++    "dep-05": "hard",
++    **{f"dc-{index:02d}": "easy" for index in range(1, 3)},
++    **{f"dc-{index:02d}": "medium" for index in range(3, 5)},
++    "dc-05": "hard",
++    **{f"ins-{index:02d}": "easy" for index in range(1, 3)},
++    **{f"ins-{index:02d}": "medium" for index in range(3, 5)},
++    "ins-05": "hard",
++    **{f"gen-{index:02d}": "easy" for index in range(1, 3)},
++    **{f"gen-{index:02d}": "medium" for index in range(3, 5)},
++    "gen-05": "hard",
++}
++
++
++def ai_trainer_points_for_score(difficulty: str, average_score: float) -> int:
++    difficulty_key = str(difficulty or "easy").strip().lower()
++    tiers = AI_TRAINER_REWARD_TABLE.get(difficulty_key, AI_TRAINER_REWARD_TABLE["easy"])
++    score = max(0.0, min(10.0, float(average_score or 0)))
++    for minimum_score, reward in tiers:
++        if score >= minimum_score:
++            return reward
++    return 0
++
+ class LoginBody(BaseModel):
+     email: EmailStr
+     password: str
+@@ -738,20 +773,33 @@
+     user: dict = Depends(get_current_user),
+ ):
+     ts = now_iso()
++    verified_difficulty = AI_SCENARIO_DIFFICULTY.get(
++        body.scenario_id,
++        str(body.difficulty or "easy").strip().lower(),
++    )
++    verified_score = max(0.0, min(10.0, float(body.average_score or 0)))
++    points_reward = ai_trainer_points_for_score(verified_difficulty, verified_score)
++    xp_reward = max(0, int(body.xp_earned or 0))
++
++    result_payload = body.model_dump()
++    result_payload.update({
++        "difficulty": verified_difficulty,
++        "average_score": verified_score,
++        "consultation_quality": verified_score,
++        "points": points_reward,
++    })
+     doc = {
+         "id": str(uuid.uuid4()),
+         "user_id": user["id"],
+         "user_name": user.get("name") or user.get("email", "Користувач"),
+         "avatar_initials": user.get("avatar_initials", ""),
+         "avatar_color": user.get("avatar_color", "#FFB800"),
+-        **body.model_dump(),
++        **result_payload,
+         "created_at": ts,
+     }
+-    # AI rewards are real account rewards, not only local trainer statistics.
+-    # Credit them in the same transaction ledger used by quests and admin awards.
+-    points_reward = max(0, int(body.points or 0)) if body.won else 0
+-    xp_reward = max(0, int(body.xp_earned or 0))
+ 
++    # The server calculates the reward from verified difficulty and score.
++    # Browser-provided points are intentionally ignored.
+     await db.ai_training_results.insert_one(doc)
+ 
+     increments = {}
+@@ -769,7 +817,7 @@
+             "user_id": user["id"],
+             "kind": "ai_training",
+             "amount": points_reward,
+-            "description": f"AI-тренажер: {body.scenario_title}",
++            "description": f"AI-тренажер: {body.scenario_title} • {verified_score:.1f}/10",
+             "created_at": ts,
+         })
+ 
+@@ -1952,11 +2000,11 @@
+ CUBE_SPIN_COST = 50
+ CUBE_TABLE = [
+     (1, 37, 0, 30, "one"),
+-    (2, 28, 31, 55, "two"),
+-    (3, 20, 56, 70, "three"),
+-    (4, 10, 71, 90, "four"),
+-    (5, 4, 91, 125, "five"),
+-    (6, 1, 126, 350, "six"),
++    (2, 28, 31, 65, "two"),
++    (3, 20, 66, 77, "three"),
++    (4, 10, 78, 105, "four"),
++    (5, 4, 106, 175, "five"),
++    (6, 1, 176, 1000, "six"),
+ ]
+ 
+ 
+--- tm6v58-full-merged/frontend/src/data/aiTrainerScenarios.js	2026-07-23 18:31:02.576829377 +0000
++++ tm6v62-rewards-merged/frontend/src/data/aiTrainerScenarios.js	2026-07-23 18:34:12.012823373 +0000
+@@ -6,9 +6,39 @@
+   general: { label: "Загальні продажі", icon: "🎯", color: "#FF5C00", description: "Універсальна практика продажів" },
+ };
+ 
++export const AI_TRAINER_REWARD_TABLE = {
++  easy: [
++    { min: 9, points: 200 },
++    { min: 8, points: 150 },
++    { min: 7, points: 100 },
++    { min: 6, points: 50 },
++    { min: 5, points: 25 },
++  ],
++  medium: [
++    { min: 9, points: 300 },
++    { min: 8, points: 200 },
++    { min: 7, points: 150 },
++    { min: 6, points: 80 },
++    { min: 5, points: 35 },
++  ],
++  hard: [
++    { min: 9, points: 500 },
++    { min: 8, points: 400 },
++    { min: 7, points: 250 },
++    { min: 6, points: 125 },
++    { min: 5, points: 50 },
++  ],
++};
++
++export const calculateAITrainerPoints = (difficultyKey, averageScore) => {
++  const score = Math.max(0, Math.min(10, Number(averageScore) || 0));
++  const tiers = AI_TRAINER_REWARD_TABLE[difficultyKey] || AI_TRAINER_REWARD_TABLE.easy;
++  return tiers.find((tier) => score >= tier.min)?.points || 0;
++};
++
+ const difficulty = {
+   easy: { label: "ЛЕГКИЙ", points: 200, patience: 90, target: 70, color: "#39FF14" },
+-  medium: { label: "СЕРЕДНІЙ", points: 350, patience: 72, target: 80, color: "#FFB800" },
++  medium: { label: "СЕРЕДНІЙ", points: 300, patience: 72, target: 80, color: "#FFB800" },
+   hard: { label: "ВАЖКИЙ", points: 500, patience: 52, target: 90, color: "#FF5C00" },
+ };
+ 
+--- tm6v58-full-merged/frontend/src/pages/AITrainer.jsx	2026-07-23 18:31:02.596829376 +0000
++++ tm6v62-rewards-merged/frontend/src/pages/AITrainer.jsx	2026-07-23 18:34:12.012823373 +0000
+@@ -2,7 +2,7 @@
+ import { ChevronLeft, Flame, Loader2, Mic, MicOff, RotateCcw, Send, Sparkles, Target, Trophy, Zap, BarChart3, Award, ChevronDown, Lightbulb, Volume2 } from "lucide-react";
+ import { motion, AnimatePresence } from "framer-motion";
+ import { toast } from "sonner";
+-import { LEVELS, PRODUCT_CATEGORIES, SCENARIOS, TECHNIQUE_KEYS } from "@/data/aiTrainerScenarios";
++import { calculateAITrainerPoints, LEVELS, PRODUCT_CATEGORIES, SCENARIOS, TECHNIQUE_KEYS } from "@/data/aiTrainerScenarios";
+ import api from "@/lib/api";
+ import { useApp } from "@/context/AppContext";
+ 
+@@ -109,7 +109,7 @@
+     <div className="flex items-start justify-between gap-3"><div><div className="inline-flex items-center gap-2 rounded-full border border-[#00F0FF]/25 bg-[#00F0FF]/10 px-3 py-1 text-[10px] font-black tracking-[0.18em] text-[#00F0FF]"><Sparkles size={13}/>30 AI СЦЕНАРІЇВ</div><h1 className="font-display text-3xl text-white mt-4">ТРЕНАЖЕР <span className="text-[#FFB800]">ПРОДАЖІВ</span></h1><p className="text-zinc-400 text-sm mt-2">ПУМБ-продукти, універсальні кейси, XP, досягнення та рейтинг.</p></div><button onClick={()=>setShowStats(!showStats)} className="w-11 h-11 rounded-2xl bg-[#1A1A1E] border border-white/10 flex items-center justify-center text-[#00F0FF]"><BarChart3 size={20}/></button></div>
+     <ProfileStrip profile={profile}/>{showStats && <><Dashboard profile={profile}/><button onClick={resetProgress} className="mt-3 text-[10px] text-zinc-700 underline">Скинути прогрес</button></>}
+     <div className="flex gap-2 overflow-x-auto no-scrollbar py-4">{Object.entries(PRODUCT_CATEGORIES).map(([key,item])=><button key={key} onClick={()=>setCategory(key)} className={`shrink-0 rounded-2xl border px-3 py-2 text-left ${category===key ? "bg-white/10 border-white/25" : "bg-[#151519] border-white/5"}`}><div className="text-lg">{item.icon}</div><div className="text-[10px] font-black text-white whitespace-nowrap">{item.label}</div><div className="text-[8px] text-zinc-600">{SCENARIOS.filter(s=>s.category===key).length} кейсів</div></button>)}</div>
+-    <div className="grid gap-3 md:grid-cols-2">{list.map((scenario,index)=><motion.button key={scenario.id} initial={{opacity:0,y:10}} animate={{opacity:1,y:0}} transition={{delay:index*.035}} onClick={()=>onPick(scenario.id)} className="w-full text-left rounded-3xl bg-[#1A1A1E] border border-white/10 p-4 active:scale-[.985] relative overflow-hidden"><div className="absolute left-0 inset-y-0 w-1" style={{background:scenario.color}}/><div className="flex gap-3"><div className="w-14 h-14 rounded-2xl bg-black/35 flex items-center justify-center text-2xl">{scenario.emoji}</div><div className="flex-1 min-w-0"><div className="flex justify-between gap-2"><div><div className="font-display text-sm text-white">{scenario.name}, {scenario.age}</div><div className="text-xs text-zinc-400 mt-1">{scenario.title}</div></div><div className="text-right"><div className="text-[8px] font-black" style={{color:scenario.color}}>{scenario.label}</div><div className="text-[10px] text-[#FFB800] font-black">+{scenario.points} балів</div></div></div><p className="text-[11px] text-zinc-600 mt-2 line-clamp-2">«{scenario.objection}»</p></div></div>{profile.completed?.[scenario.id] && <div className="absolute top-2 right-2 text-xs">✅</div>}</motion.button>)}</div>
++    <div className="grid gap-3 md:grid-cols-2">{list.map((scenario,index)=><motion.button key={scenario.id} initial={{opacity:0,y:10}} animate={{opacity:1,y:0}} transition={{delay:index*.035}} onClick={()=>onPick(scenario.id)} className="w-full text-left rounded-3xl bg-[#1A1A1E] border border-white/10 p-4 active:scale-[.985] relative overflow-hidden"><div className="absolute left-0 inset-y-0 w-1" style={{background:scenario.color}}/><div className="flex gap-3"><div className="w-14 h-14 rounded-2xl bg-black/35 flex items-center justify-center text-2xl">{scenario.emoji}</div><div className="flex-1 min-w-0"><div className="flex justify-between gap-2"><div><div className="font-display text-sm text-white">{scenario.name}, {scenario.age}</div><div className="text-xs text-zinc-400 mt-1">{scenario.title}</div></div><div className="text-right"><div className="text-[8px] font-black" style={{color:scenario.color}}>{scenario.label}</div><div className="text-[10px] text-[#FFB800] font-black">до +{scenario.points} балів</div></div></div><p className="text-[11px] text-zinc-600 mt-2 line-clamp-2">«{scenario.objection}»</p></div></div>{profile.completed?.[scenario.id] && <div className="absolute top-2 right-2 text-xs">✅</div>}</motion.button>)}</div>
+     <Dashboard profile={profile}/>
+   </div>;
+ }
+@@ -236,14 +236,14 @@
+   const callTrainer=async(payload)=>{const response=await fetch("/.netlify/functions/ai-trainer",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(payload)});const data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(data.error||"AI-сервіс недоступний");return data};
+   const start=async(id)=>{const chosen=SCENARIOS.find(s=>s.id===id);setScenarioId(id);setPatience(chosen.patience);setConversion(0);setScores([]);setStreak(0);setBestStreak(0);setMessages([]);setFinished(null);setMood("нейтральний");setSessionTechniques(blankTechniques());setLoading(true);try{const result=await callTrainer({action:"start",scenarioId:id});setMessages([{role:"client",text:result.client_reply}]);setMood(result.client_mood||"нейтральний")}catch(e){toast.error(e.message);setScenarioId(null)}finally{setLoading(false)}};
+   const reset=()=>{stopListening();setScenarioId(null);setMessages([]);setInput("");setFinished(null);setLoading(false)};
+-  const finishGame=(win,text,nextBest,nextScores,techniqueData,conversation=[])=>{const avg=nextScores.length?Number((nextScores.reduce((a,b)=>a+b,0)/nextScores.length).toFixed(1)):0;const points=win?scenario.points:0;const xpEarned=Math.round(nextScores.reduce((sum,s)=>sum+(s>=9?25:s>=7?18:s>=5?10:s>=3?5:0),0)+(win?50:10));const unlocked=[];if(mode==="live"){api.post("/ai-training/results",{scenario_id:scenario.id,scenario_title:scenario.title,category:scenario.category,difficulty:scenario.difficulty,average_score:avg,consultation_quality:avg,sale_probability:conversion,won:win,points,xp_earned:xpEarned,best_streak:nextBest,techniques:techniqueData,conversation,outcome_text:text,client_mood:mood}).then(()=>refreshMe?.()).catch(()=>{toast.error("Результат збережено локально, але нагороду не вдалося зарахувати на баланс")});}setProfile(prev=>{const techniques={...prev.techniques};Object.entries(techniqueData).forEach(([key,val])=>{const old=techniques[key]||{uses:0,total:0};techniques[key]={uses:old.uses+val.uses,total:old.total+val.total}});const achievements=new Set(prev.achievements||[]);if(win)achievements.add("Перша угода");if(nextBest>=5)achievements.add("Стрік 5");if(avg>=9)achievements.add("Влучність 9+");if(scenario.category==="credit"&&win)achievements.add("Кредитний консультант");if(Object.keys(prev.completed||{}).length+(!prev.completed?.[scenario.id]&&win?1:0)>=10)achievements.add("10 кейсів");[...achievements].filter(a=>!(prev.achievements||[]).includes(a)).forEach(a=>unlocked.push(a));return {...prev,xp:prev.xp+xpEarned,points:prev.points+points,wins:prev.wins+(win?1:0),attempts:prev.attempts+1,bestStreak:Math.max(prev.bestStreak,nextBest),completed:{...prev.completed,...(win?{[scenario.id]:true}:{})},achievements:[...achievements],techniques,results:[...prev.results,{date:Date.now(),title:scenario.title,difficulty:scenario.label,average:avg,points,win}].slice(-50)}});setFinished({win,text,points,xpEarned,unlocked,avg,saleProbability:conversion})};
++  const finishGame=(win,text,nextBest,nextScores,techniqueData,conversation=[])=>{const avg=nextScores.length?Number((nextScores.reduce((a,b)=>a+b,0)/nextScores.length).toFixed(1)):0;const points=calculateAITrainerPoints(scenario.difficulty,avg);const xpEarned=Math.round(nextScores.reduce((sum,s)=>sum+(s>=9?25:s>=7?18:s>=5?10:s>=3?5:0),0)+(win?50:10));const unlocked=[];if(mode==="live"){api.post("/ai-training/results",{scenario_id:scenario.id,scenario_title:scenario.title,category:scenario.category,difficulty:scenario.difficulty,average_score:avg,consultation_quality:avg,sale_probability:conversion,won:win,points,xp_earned:xpEarned,best_streak:nextBest,techniques:techniqueData,conversation,outcome_text:text,client_mood:mood}).then(()=>refreshMe?.()).catch(()=>{toast.error("Результат збережено локально, але нагороду не вдалося зарахувати на баланс")});}setProfile(prev=>{const techniques={...prev.techniques};Object.entries(techniqueData).forEach(([key,val])=>{const old=techniques[key]||{uses:0,total:0};techniques[key]={uses:old.uses+val.uses,total:old.total+val.total}});const achievements=new Set(prev.achievements||[]);if(win)achievements.add("Перша угода");if(nextBest>=5)achievements.add("Стрік 5");if(avg>=9)achievements.add("Влучність 9+");if(scenario.category==="credit"&&win)achievements.add("Кредитний консультант");if(Object.keys(prev.completed||{}).length+(!prev.completed?.[scenario.id]&&win?1:0)>=10)achievements.add("10 кейсів");[...achievements].filter(a=>!(prev.achievements||[]).includes(a)).forEach(a=>unlocked.push(a));return {...prev,xp:prev.xp+xpEarned,points:prev.points+points,wins:prev.wins+(win?1:0),attempts:prev.attempts+1,bestStreak:Math.max(prev.bestStreak,nextBest),completed:{...prev.completed,...(win?{[scenario.id]:true}:{})},achievements:[...achievements],techniques,results:[...prev.results,{date:Date.now(),title:scenario.title,difficulty:scenario.label,average:avg,points,win}].slice(-50)}});setFinished({win,text,points,xpEarned,unlocked,avg,saleProbability:conversion})};
+   const send=async()=>{const text=input.trim();if(!text||loading||finished)return;stopListening();const operator={role:"operator",text};const nextMessages=[...messages,operator];setMessages(nextMessages);setInput("");setLoading(true);try{const result=await callTrainer({action:"turn",scenarioId,patience,conversion,history:nextMessages.slice(-18),operatorText:text,turnNumber:scores.length+1,previous_feedback:messages.filter((item)=>item.role==="feedback").slice(-3).map((item)=>item.text)});const score=clamp(result.score);const nextPatience=clamp(patience+Number(result.patience_delta||0));const nextConversion=clamp(conversion+Number(result.trust_delta||0));const nextStreak=score>=7?streak+1:0;const nextBest=Math.max(bestStreak,nextStreak);const nextScores=[...scores,score];const techniqueNames=Array.isArray(result.techniques)?result.techniques:[result.technique||""];const updated={...sessionTechniques};techniqueNames.forEach((name)=>{const key=normalizeTechnique(name);const old=updated[key]||{uses:0,total:0};updated[key]={uses:old.uses+1,total:old.total+Math.round(score*10)}});setSessionTechniques(updated);setScores(nextScores);setPatience(nextPatience);setConversion(nextConversion);setStreak(nextStreak);setBestStreak(nextBest);setMood(result.client_mood||"нейтральний");const responseMessages=[{role:"feedback",score,technique:techniqueNames.join(" • "),text:result.feedback,strongResponse:result.strong_response,whyBetter:Array.isArray(result.why_better)?result.why_better:[],exampleContext:result.example_context||""},{role:"client",text:result.client_reply}];const fullConversation=[...nextMessages,...responseMessages];setMessages(prev=>[...prev,...responseMessages]);const target=scenario.target||80;if(result.outcome==="deal")finishGame(true,"Клієнт погодився на доречний наступний крок.",nextBest,nextScores,updated,fullConversation);else if(result.terminal||result.outcome==="complaint"||result.outcome==="declined")finishGame(false,result.outcome==="complaint"?"Розмову завершено зі скаргою через порушення стандартів спілкування.":"Клієнт логічно завершив розмову без оформлення.",nextBest,nextScores,updated,fullConversation);else if(nextPatience<=0)finishGame(false,"Клієнт завершив розмову через тон або зміст відповідей.",nextBest,nextScores,updated,fullConversation);else if(nextConversion>=target&&(result.deal_ready||score>=8))finishGame(true,"Клієнт погодився на доречний наступний крок.",nextBest,nextScores,updated,fullConversation)}catch(e){toast.error(e.message)}finally{setLoading(false)}};
+ 
+   if(!scenario)return <ClientPicker onPick={start} profile={profile} setProfile={setProfile}/>;
+   const level=currentLevel(profile.xp);
+   return <div className="mx-auto w-full max-w-4xl h-[calc(100dvh-174px)] min-h-[520px] md:h-[calc(100dvh-120px)] flex flex-col overflow-hidden bg-[#0A0A0A]">
+     <header className="shrink-0 px-3 sm:px-5 pt-3 pb-3 border-b border-white/5 bg-[#0A0A0A]/95 backdrop-blur-md">
+-      <div className="flex items-center gap-3"><button onClick={reset} className="w-10 h-10 rounded-2xl border border-white/10 bg-[#1A1A1E] flex items-center justify-center text-zinc-400"><ChevronLeft size={20}/></button><div className="w-11 h-11 rounded-2xl bg-[#1A1A1E] flex items-center justify-center text-2xl">{scenario.emoji}</div><div className="min-w-0 flex-1"><div className="font-display text-sm text-white">{scenario.name}, {scenario.age}</div><div className="text-[9px] font-black uppercase" style={{color:scenario.color}}>{scenario.label} • {mood} • +{scenario.points}</div></div><div className="text-right"><div className="text-lg">{level.icon}</div><div className="text-[8px] text-zinc-500">{profile.xp} XP</div></div></div>
++      <div className="flex items-center gap-3"><button onClick={reset} className="w-10 h-10 rounded-2xl border border-white/10 bg-[#1A1A1E] flex items-center justify-center text-zinc-400"><ChevronLeft size={20}/></button><div className="w-11 h-11 rounded-2xl bg-[#1A1A1E] flex items-center justify-center text-2xl">{scenario.emoji}</div><div className="min-w-0 flex-1"><div className="font-display text-sm text-white">{scenario.name}, {scenario.age}</div><div className="text-[9px] font-black uppercase" style={{color:scenario.color}}>{scenario.label} • {mood} • до +{scenario.points}</div></div><div className="text-right"><div className="text-lg">{level.icon}</div><div className="text-[8px] text-zinc-500">{profile.xp} XP</div></div></div>
+       <div className="grid grid-cols-2 gap-2 mt-3"><Meter label="Лояльність" value={patience} color={patience<30?"#FF3B30":scenario.color} icon={Zap}/><Meter label="Ймовірність угоди" value={conversion} color="#00F0FF" icon={Target}/></div>
+       <div className="flex items-center justify-between mt-2 gap-2"><div className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[9px] font-black text-zinc-300 truncate">ЕТАП: {stage}</div><div className="text-[9px] uppercase font-black text-zinc-600 whitespace-nowrap">Хід {scores.length+1} • середній {average}</div><div className="text-[#FF5C00] text-[9px] font-black flex gap-1 whitespace-nowrap"><Flame size={12}/> {streak}/{bestStreak}</div></div>
+     </header>
+--- tm6v58-full-merged/frontend/src/pages/Fun.jsx	2026-07-19 22:49:41.000000000 +0000
++++ tm6v62-rewards-merged/frontend/src/pages/Fun.jsx	2026-07-23 18:34:12.012823373 +0000
+@@ -293,15 +293,15 @@
+             <span className="generous-cube-header-icon"><Dice5 size={18} strokeWidth={3} /></span>
+             <div>
+               <div className="text-[10px] font-black uppercase tracking-[0.22em] text-[#39FF14]">Щедрий куб</div>
+-              <div className="mt-0.5 text-xs font-bold text-zinc-500">Кидай і забирай до 350 Point</div>
++              <div className="mt-0.5 text-xs font-bold text-zinc-500">Кидай і забирай до 1000 Point</div>
+             </div>
+           </div>
+           <details className="generous-cube-info">
+             <summary><Info size={14} /> Як працює?</summary>
+             <div className="generous-cube-prizes">
+               {[
+-                [1, "0–30"], [2, "31–55"], [3, "56–70"],
+-                [4, "71–90"], [5, "91–125"], [6, "126–350"],
++                [1, "0–30"], [2, "31–65"], [3, "66–77"],
++                [4, "78–105"], [5, "106–175"], [6, "176–1000"],
+               ].map(([value, range]) => (
+                 <div key={value}><span>{faceGlyph(value)}</span><b>{value}</b><em>{range} Point</em></div>
+               ))}
+--- tm6v58-full-merged/frontend/src/pages/Home.jsx	2026-07-19 23:25:29.000000000 +0000
++++ tm6v62-rewards-merged/frontend/src/pages/Home.jsx	2026-07-23 18:34:12.012823373 +0000
+@@ -198,7 +198,7 @@
+     <section className="grid grid-cols-2 gap-3"><button onClick={() => nav("/tasks")} className="arcade-btn bg-[#39FF14] border-[#1a7a0a] p-4 text-left text-[#0A0A0A]"><Swords size={22}/><div className="mt-2 font-display text-lg">КВЕСТИ</div><div className="mt-1 text-xs font-black opacity-80">3 нові щодня</div></button><button onClick={() => nav("/store")} className="arcade-btn bg-[#00F0FF] border-[#005f66] p-4 text-left text-[#0A0A0A]"><Gift size={22}/><div className="mt-2 font-display text-lg">МАГАЗИН</div><div className="mt-1 text-xs font-black opacity-80">Витрачай Point</div></button></section>
+ 
+     {/* 5. Cube */}
+-    <button onClick={() => nav("/fun")} className="arcade-btn flex w-full items-center gap-4 border-[#7a1c00] bg-gradient-to-r from-[#FFB800] to-[#FF5C00] p-4 text-left text-[#0A0A0A]"><div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-black/25"><Dice5 size={28}/></div><div className="min-w-0 flex-1"><div className="text-[10px] font-black uppercase tracking-widest opacity-70">Щоденний бонус</div><div className="mt-1 font-display text-xl">ЩЕДРИЙ КУБ</div><div className="mt-1 text-xs font-black opacity-90">До 350 балів</div></div><ChevronRight /></button>
++    <button onClick={() => nav("/fun")} className="arcade-btn flex w-full items-center gap-4 border-[#7a1c00] bg-gradient-to-r from-[#FFB800] to-[#FF5C00] p-4 text-left text-[#0A0A0A]"><div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-black/25"><Dice5 size={28}/></div><div className="min-w-0 flex-1"><div className="text-[10px] font-black uppercase tracking-widest opacity-70">Щоденний бонус</div><div className="mt-1 font-display text-xl">ЩЕДРИЙ КУБ</div><div className="mt-1 text-xs font-black opacity-90">До 1000 балів</div></div><ChevronRight /></button>
+ 
+     {/* 6. Streak */}
+     <section className="flex items-center gap-3 rounded-3xl border border-[#FF5C00]/30 bg-gradient-to-r from-[#FF5C00]/15 to-transparent p-4"><div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#FF5C00]"><Flame size={24} color="#0A0A0A" /></div><div className="flex-1"><div className="font-black text-white">{user.streak} днів поспіль</div><div className="text-xs text-zinc-400">Не втрачай серію</div></div></section>

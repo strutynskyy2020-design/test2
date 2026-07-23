@@ -2,7 +2,7 @@
  * Dynamic data is always network-only.
  * App shell uses network-first so new deployments replace old PWA files promptly.
  */
-const VERSION = "tm6-v30";
+const VERSION = "tm6-v62";
 const STATIC_CACHE = `${VERSION}-static`;
 const RUNTIME_CACHE = `${VERSION}-runtime`;
 

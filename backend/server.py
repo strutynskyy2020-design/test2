@@ -211,6 +211,41 @@ class AITrainingResultBody(BaseModel):
     outcome_text: str = ""
     client_mood: str = ""
 
+
+AI_TRAINER_REWARD_TABLE = {
+    "easy": ((9.0, 200), (8.0, 150), (7.0, 100), (6.0, 50), (5.0, 25)),
+    "medium": ((9.0, 300), (8.0, 200), (7.0, 150), (6.0, 80), (5.0, 35)),
+    "hard": ((9.0, 500), (8.0, 400), (7.0, 250), (6.0, 125), (5.0, 50)),
+}
+
+AI_SCENARIO_DIFFICULTY = {
+    **{f"cc-{index:02d}": "easy" for index in range(1, 4)},
+    **{f"cc-{index:02d}": "medium" for index in range(4, 8)},
+    **{f"cc-{index:02d}": "hard" for index in range(8, 11)},
+    **{f"dep-{index:02d}": "easy" for index in range(1, 3)},
+    **{f"dep-{index:02d}": "medium" for index in range(3, 5)},
+    "dep-05": "hard",
+    **{f"dc-{index:02d}": "easy" for index in range(1, 3)},
+    **{f"dc-{index:02d}": "medium" for index in range(3, 5)},
+    "dc-05": "hard",
+    **{f"ins-{index:02d}": "easy" for index in range(1, 3)},
+    **{f"ins-{index:02d}": "medium" for index in range(3, 5)},
+    "ins-05": "hard",
+    **{f"gen-{index:02d}": "easy" for index in range(1, 3)},
+    **{f"gen-{index:02d}": "medium" for index in range(3, 5)},
+    "gen-05": "hard",
+}
+
+
+def ai_trainer_points_for_score(difficulty: str, average_score: float) -> int:
+    difficulty_key = str(difficulty or "easy").strip().lower()
+    tiers = AI_TRAINER_REWARD_TABLE.get(difficulty_key, AI_TRAINER_REWARD_TABLE["easy"])
+    score = max(0.0, min(10.0, float(average_score or 0)))
+    for minimum_score, reward in tiers:
+        if score >= minimum_score:
+            return reward
+    return 0
+
 class LoginBody(BaseModel):
     email: EmailStr
     password: str
@@ -738,20 +773,33 @@ async def save_ai_training_result(
     user: dict = Depends(get_current_user),
 ):
     ts = now_iso()
+    verified_difficulty = AI_SCENARIO_DIFFICULTY.get(
+        body.scenario_id,
+        str(body.difficulty or "easy").strip().lower(),
+    )
+    verified_score = max(0.0, min(10.0, float(body.average_score or 0)))
+    points_reward = ai_trainer_points_for_score(verified_difficulty, verified_score)
+    xp_reward = max(0, int(body.xp_earned or 0))
+
+    result_payload = body.model_dump()
+    result_payload.update({
+        "difficulty": verified_difficulty,
+        "average_score": verified_score,
+        "consultation_quality": verified_score,
+        "points": points_reward,
+    })
     doc = {
         "id": str(uuid.uuid4()),
         "user_id": user["id"],
         "user_name": user.get("name") or user.get("email", "Користувач"),
         "avatar_initials": user.get("avatar_initials", ""),
         "avatar_color": user.get("avatar_color", "#FFB800"),
-        **body.model_dump(),
+        **result_payload,
         "created_at": ts,
     }
-    # AI rewards are real account rewards, not only local trainer statistics.
-    # Credit them in the same transaction ledger used by quests and admin awards.
-    points_reward = max(0, int(body.points or 0)) if body.won else 0
-    xp_reward = max(0, int(body.xp_earned or 0))
 
+    # The server calculates the reward from verified difficulty and score.
+    # Browser-provided points are intentionally ignored.
     await db.ai_training_results.insert_one(doc)
 
     increments = {}
@@ -769,7 +817,7 @@ async def save_ai_training_result(
             "user_id": user["id"],
             "kind": "ai_training",
             "amount": points_reward,
-            "description": f"AI-тренажер: {body.scenario_title}",
+            "description": f"AI-тренажер: {body.scenario_title} • {verified_score:.1f}/10",
             "created_at": ts,
         })
 
@@ -1952,11 +2000,11 @@ PREDICTIONS_UK = [
 CUBE_SPIN_COST = 50
 CUBE_TABLE = [
     (1, 37, 0, 30, "one"),
-    (2, 28, 31, 55, "two"),
-    (3, 20, 56, 70, "three"),
-    (4, 10, 71, 90, "four"),
-    (5, 4, 91, 125, "five"),
-    (6, 1, 126, 350, "six"),
+    (2, 28, 31, 65, "two"),
+    (3, 20, 66, 77, "three"),
+    (4, 10, 78, 105, "four"),
+    (5, 4, 106, 175, "five"),
+    (6, 1, 176, 1000, "six"),
 ]
 
 
