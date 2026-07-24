@@ -1,0 +1,1086 @@
+--- /mnt/data/tm6v72-work/frontend/src/pages/BonusMatch.jsx	2026-07-24 22:57:10.303065361 +0000
++++ /mnt/data/tm6v73-work/frontend/src/pages/BonusMatch.jsx	2026-07-24 23:07:32.907047706 +0000
+@@ -410,6 +410,69 @@
+ 
+ const formatNumber = (value) => Number(value || 0).toLocaleString("uk-UA");
+ 
++const cellBoxStyle = (row, col, size = 1) => ({
++  width: `${(size / COLS) * 100}%`,
++  height: `${(size / ROWS) * 100}%`,
++  left: `${((col + 0.5 - size / 2) / COLS) * 100}%`,
++  top: `${((row + 0.5 - size / 2) / ROWS) * 100}%`,
++});
++
++const boardMotionForFx = (fx, reducedMotion) => {
++  if (reducedMotion) return { x: 0, y: 0, scale: 1, rotate: 0 };
++  if (fx === "won") return { scale: [1, 1.025, 0.995, 1], x: 0, y: 0, rotate: 0 };
++  if (fx === "rocket") return { x: [0, -3, 4, -2, 0], y: 0, scale: [1, 1.006, 1], rotate: 0 };
++  if (fx === "bomb") return { x: [0, -5, 5, -3, 3, 0], y: [0, 2, -2, 0], scale: [1, 0.985, 1.018, 1], rotate: 0 };
++  if (fx === "color_bomb") return { x: [0, -2, 2, 0], y: [0, 1, -1, 0], scale: [1, 1.018, 0.994, 1], rotate: [0, -0.45, 0.45, 0] };
++  if (fx === "core") return { x: [0, -7, 7, -5, 5, -2, 2, 0], y: [0, 3, -3, 0], scale: [1, 0.975, 1.025, 1], rotate: 0 };
++  if (fx === "heavy") return { x: [0, -3, 3, -1, 0], y: [0, 3, -1, 0], scale: 1, rotate: 0 };
++  if (fx === "slime") return { x: [0, 2, -2, 0], y: [0, 2, -1, 0], scale: [1, 1.01, 0.995, 1], rotate: [0, 0.3, -0.3, 0] };
++  if (fx === "web") return { x: [0, -1, 1, 0], y: 0, scale: [1, 1.006, 1], rotate: 0 };
++  if (fx === "match") return { scale: [1, 1.008, 1], x: 0, y: 0, rotate: 0 };
++  return { x: 0, y: 0, scale: 1, rotate: 0 };
++};
++
++const obstacleImageMotion = (obstacle, impact, reducedMotion) => {
++  if (!impact || reducedMotion) {
++    if (obstacle === "core") return { scale: [1, 1.045, 1], rotate: [0, 1.5, 0] };
++    if (obstacle === "slime") return { scaleX: [1, 1.035, 0.985, 1], scaleY: [1, 0.98, 1.03, 1] };
++    return { scale: 1, rotate: 0, x: 0, y: 0, opacity: 1 };
++  }
++  const destroyed = Boolean(impact.destroyed);
++  const motions = {
++    ice: { x: [0, -3, 3, -2, 2, 0], scale: [1, 1.08, 0.96, 1], rotate: [0, -2, 2, 0] },
++    chain: { x: [0, -6, 6, -4, 4, 0], rotate: [0, -5, 5, 0], scale: [1, 1.04, 0.98, 1] },
++    crate: { y: [0, -5, 2, 0], rotate: [0, -5, 4, 0], scale: [1, 1.08, 0.98, 1] },
++    stone: { y: [0, 4, -2, 1, 0], x: [0, -2, 2, 0], scale: [1, 0.97, 1.025, 1] },
++    crystal: { scale: [1, 1.18, 0.9, 1.08, 1], rotate: [0, -4, 4, 0] },
++    web: { scale: [1, 1.07, 0.92, 1], rotate: [0, 3, -3, 0] },
++    shield: { x: [0, -4, 4, -2, 0], scale: [1, 0.94, 1.08, 1], rotateY: [0, 14, -7, 0] },
++    slime: { scaleX: [1, 1.22, 0.84, 1.08, 1], scaleY: [1, 0.8, 1.22, 0.94, 1], y: [0, 3, -2, 0] },
++    metal: { x: [0, -2, 2, -2, 2, 0], y: [0, 2, 0], scale: [1, 0.985, 1.015, 1] },
++    core: { scale: [1, 0.86, 1.2, 0.98, 1.08], rotate: [0, -4, 4, 0], x: [0, -4, 4, 0] },
++  };
++  const motion = motions[obstacle] || motions.stone;
++  if (!destroyed) return motion;
++  return {
++    ...motion,
++    opacity: [1, 1, 0.72],
++  };
++};
++
++const specialIconMotion = (special, activated, reducedMotion) => {
++  if (!special) return undefined;
++  if (reducedMotion) return { scale: activated ? 1.12 : 1 };
++  if (activated) {
++    if (special === "rocket_row") return { scale: [1, 0.82, 1.24], x: [0, -5, 9], rotate: [45, 40, 45] };
++    if (special === "rocket_col") return { scale: [1, 0.82, 1.24], y: [0, 5, -9], rotate: [-45, -50, -45] };
++    if (special === "bomb") return { scale: [1, 1.18, 0.9, 1.36], rotate: [0, -8, 8, 0] };
++    return { scale: [1, 0.76, 1.28], rotate: [0, 140, 320], opacity: [1, 0.9, 1] };
++  }
++  if (special === "rocket_row") return { x: [0, 2, 0], scale: [0.96, 1.04, 0.96] };
++  if (special === "rocket_col") return { y: [0, -2, 0], scale: [0.96, 1.04, 0.96] };
++  if (special === "bomb") return { scale: [0.94, 1.07, 0.94], rotate: [0, 2, 0] };
++  return { rotate: [0, 360], scale: [0.94, 1.04, 0.94] };
++};
++
+ function Piece({
+   cell,
+   selected,
+@@ -419,6 +482,7 @@
+   shaking,
+   spawned,
+   activated,
++  impact,
+   removeDelay = 0,
+   onClick,
+   row,
+@@ -436,6 +500,16 @@
+   const background = "#0A0811";
+   const label = obstacle?.label || special?.label || piece.label;
+   const shakeAnimation = shaking && !reducedMotion ? [0, -7, 7, -6, 6, -3, 3, 0] : 0;
++  const impactMotion = obstacleImageMotion(cell.obstacle, impact, reducedMotion);
++  const impactTransition = impact
++    ? { duration: reducedMotion ? 0.06 : impact.destroyed ? 0.5 : 0.38, ease: [0.22, 1, 0.36, 1] }
++    : cell.obstacle === "core" || cell.obstacle === "slime"
++      ? { duration: cell.obstacle === "core" ? 1.75 : 1.45, repeat: Infinity, ease: "easeInOut" }
++      : { duration: 0.2 };
++  const specialMotion = specialIconMotion(cell.special, activated, reducedMotion);
++  const specialTransition = activated
++    ? { duration: reducedMotion ? 0.05 : cell.special === "color_bomb" ? 0.34 : 0.28, ease: [0.22, 1, 0.36, 1] }
++    : { duration: cell.special === "color_bomb" ? 2.8 : 1.2, repeat: Infinity, ease: "easeInOut" };
+ 
+   return (
+     <motion.button
+@@ -451,32 +525,36 @@
+         gridRowStart: row + 1,
+         gridColumnStart: col + 1,
+       }}
+-      initial={spawned && !reducedMotion ? { y: -70, opacity: 0, scale: 0.72 } : { opacity: 1, scale: 1 }}
++      initial={spawned && !reducedMotion ? { y: -84, opacity: 0, scale: 0.68 } : { opacity: 1, scale: 1 }}
+       animate={{
+         x: shakeAnimation,
+         y: 0,
+         opacity: removing ? 0 : 1,
+-        scale: removing ? 0 : selected ? 1.12 : activated ? 1.16 : 1,
+-        rotate: removing ? 24 : activated ? [0, 8, -8, 0] : 0,
++        scale: removing ? 0.12 : selected ? 1.12 : activated ? 1.08 : 1,
++        rotate: removing ? (cell.obstacle === "slime" ? 0 : 18) : 0,
+       }}
+       exit={reducedMotion
+         ? { opacity: 0, transition: { duration: 0.05 } }
+-        : {
+-          opacity: 0,
+-          scale: 0,
+-          rotate: 30,
+-          transition: { duration: 0.28, delay: removeDelay, ease: "easeIn" },
+-        }}
++        : cell.obstacle === "slime"
++          ? { opacity: 0, scaleX: 1.45, scaleY: 0.08, y: 10, transition: { duration: 0.34, delay: removeDelay } }
++          : cell.obstacle === "stone" || cell.obstacle === "metal"
++            ? { opacity: 0, scale: 0.62, y: 12, rotate: 8, transition: { duration: 0.42, delay: removeDelay, ease: "easeIn" } }
++            : {
++              opacity: 0,
++              scale: 0,
++              rotate: cell.special === "color_bomb" ? 120 : 28,
++              transition: { duration: 0.32, delay: removeDelay, ease: "easeIn" },
++            }}
+       whileTap={disabled ? undefined : { scale: obstacle && !targetable ? 0.96 : 0.86 }}
+       transition={
+         shaking
+           ? { duration: reducedMotion ? 0.01 : 0.32, ease: "easeInOut" }
+           : {
+-            layout: { duration: reducedMotion ? 0.05 : 0.23, ease: [0.22, 1, 0.36, 1] },
+-            y: { type: "spring", stiffness: 480, damping: 20, bounce: 0.24 },
+-            scale: { type: "spring", stiffness: 420, damping: 24, delay: removing ? removeDelay : 0 },
+-            opacity: { duration: reducedMotion ? 0.05 : 0.22, delay: removing ? removeDelay : 0 },
+-            rotate: { duration: reducedMotion ? 0.05 : 0.28, delay: removing ? removeDelay : 0 },
++            layout: { duration: reducedMotion ? 0.05 : 0.3, ease: [0.22, 1, 0.36, 1] },
++            y: { type: "spring", stiffness: 470, damping: 19, bounce: 0.3 },
++            scale: { type: "spring", stiffness: 430, damping: 23, delay: removing ? removeDelay : 0 },
++            opacity: { duration: reducedMotion ? 0.05 : 0.24, delay: removing ? removeDelay : 0 },
++            rotate: { duration: reducedMotion ? 0.05 : 0.3, delay: removing ? removeDelay : 0 },
+           }
+       }
+     >
+@@ -489,47 +567,65 @@
+         aria-hidden="true"
+       />
+       {!obstacle && piece.image && (
+-        <img
++        <motion.img
+           src={piece.image}
+           alt=""
+           draggable="false"
+           decoding="async"
+           className="pointer-events-none absolute inset-0 z-[2] h-full w-full select-none object-cover"
++          animate={activated && !reducedMotion ? { scale: [1, 0.9, 1.12], rotate: [0, -3, 3, 0] } : { scale: 1, rotate: 0 }}
++          transition={{ duration: activated ? 0.28 : 0.2 }}
+         />
+       )}
+       {overlayObstacle && piece.image && (
+-        <img
++        <motion.img
+           src={piece.image}
+           alt=""
+           draggable="false"
+           decoding="async"
+           className="pointer-events-none absolute inset-[9%] z-[2] h-[82%] w-[82%] select-none object-contain"
++          animate={impact && !reducedMotion ? { scale: [1, 0.9, 1.08, 1] } : { scale: 1 }}
++          transition={{ duration: impact ? 0.42 : 0.2 }}
+         />
+       )}
+       {obstacle?.image && (
+-        <img
++        <motion.img
++          key={`${cell.id}-${impact?.token || "steady"}`}
+           src={obstacle.image}
+           alt=""
+           draggable="false"
+           decoding="async"
+-          className={`pointer-events-none absolute inset-0 z-[3] h-full w-full select-none object-cover ${overlayObstacle ? "opacity-[0.82]" : ""}`}
++          className={`pointer-events-none absolute inset-0 z-[3] h-full w-full select-none object-cover ${overlayObstacle ? "opacity-[0.84]" : ""}`}
+           style={overlayObstacle && cell.obstacle === "web" ? { mixBlendMode: "screen" } : undefined}
++          animate={impactMotion}
++          transition={impactTransition}
+         />
+       )}
+       <div className="pointer-events-none absolute inset-0 z-[4] bg-gradient-to-br from-white/8 via-transparent to-black/10" />
++      {impact && (
++        <motion.div
++          key={`impact-glint-${impact.token}`}
++          className="pointer-events-none absolute inset-0 z-[5] bg-white"
++          initial={{ opacity: 0 }}
++          animate={{ opacity: [0, impact.destroyed ? 0.38 : 0.22, 0] }}
++          transition={{ duration: reducedMotion ? 0.06 : 0.28 }}
++        />
++      )}
+       {special && (
+         <motion.div
+           className="pointer-events-none absolute inset-[1px] z-[5] rounded-[9px] border-2"
+           style={{ borderColor: special.color }}
+-          animate={reducedMotion ? { opacity: 0.5 } : { opacity: [0.35, 0.85, 0.35] }}
+-          transition={{ duration: 1.25, repeat: Infinity, ease: "easeInOut" }}
++          animate={activated && !reducedMotion
++            ? { opacity: [0.35, 1, 0.7], scale: [1, 1.08, 1] }
++            : reducedMotion ? { opacity: 0.55 } : { opacity: [0.35, 0.85, 0.35] }}
++          transition={activated ? { duration: 0.28 } : { duration: 1.25, repeat: Infinity, ease: "easeInOut" }}
+         />
+       )}
+       {special && cell.special !== "color_bomb" && SpecialIcon && (
+         <motion.div
+           className="pointer-events-none absolute inset-0 z-[6] flex items-center justify-center"
+-          animate={reducedMotion ? undefined : { scale: [0.92, 1.08, 0.92] }}
+-          transition={{ duration: 1.15, repeat: Infinity, ease: "easeInOut" }}
++          animate={specialMotion}
++          transition={specialTransition}
+         >
+           <span className="flex h-[62%] w-[62%] items-center justify-center rounded-full border border-white/45 bg-black/60 shadow-[0_0_14px_rgba(183,140,255,.55)] backdrop-blur-[1px]">
+             <SpecialIcon
+@@ -542,7 +638,17 @@
+         </motion.div>
+       )}
+       {cell.special === "color_bomb" && (
+-        <div className="pointer-events-none absolute inset-[6px] z-[6] rounded-full border-2 border-white/80 bg-[conic-gradient(#FFB800,#F64CFF,#00F0FF,#39FF14,#FF5C00,#FFB800)] opacity-80 shadow-[0_0_14px_rgba(246,76,255,.7)]" />
++        <motion.div
++          className="pointer-events-none absolute inset-[6px] z-[6] rounded-full border-2 border-white/80 bg-[conic-gradient(#FFB800,#F64CFF,#00F0FF,#39FF14,#FF5C00,#FFB800)] opacity-85 shadow-[0_0_14px_rgba(246,76,255,.7)]"
++          animate={specialMotion}
++          transition={specialTransition}
++        >
++          <motion.div
++            className="absolute inset-[22%] rounded-full bg-white/75"
++            animate={reducedMotion ? undefined : { scale: [0.7, 1.25, 0.7], opacity: [0.35, 0.9, 0.35] }}
++            transition={{ duration: 0.9, repeat: Infinity, ease: "easeInOut" }}
++          />
++        </motion.div>
+       )}
+       <AnimatePresence>
+         {selected && (
+@@ -551,13 +657,18 @@
+             initial={{ opacity: 0, scale: 0.85 }}
+             animate={{ opacity: 0.98, scale: 1 }}
+             exit={{ opacity: 0, scale: 0.9 }}
++            transition={{ type: "spring", stiffness: 500, damping: 25 }}
+           />
+         )}
+       </AnimatePresence>
+       {obstacle && (
+-        <div className="absolute bottom-0.5 right-0.5 z-[8] flex h-4 min-w-4 items-center justify-center rounded-full border border-white/25 bg-black/85 px-1 text-[8px] font-black text-white">
++        <motion.div
++          className="absolute bottom-0.5 right-0.5 z-[8] flex h-4 min-w-4 items-center justify-center rounded-full border border-white/25 bg-black/85 px-1 text-[8px] font-black text-white"
++          animate={impact && !reducedMotion ? { scale: [1, 1.35, 0.92, 1] } : { scale: 1 }}
++          transition={{ duration: 0.34 }}
++        >
+           {cell.obstacle_hits}
+-        </div>
++        </motion.div>
+       )}
+     </motion.button>
+   );
+@@ -585,160 +696,475 @@
+   );
+ }
+ 
+-function SpecialEffects({ effects = [] }) {
++function FxParticles({ row, col, color, count = 8, distance = 34, delay = 0, reducedMotion = false, square = false }) {
++  if (reducedMotion) return null;
++  return Array.from({ length: count }, (_, index) => {
++    const angle = ((Math.PI * 2) / count) * index + (index % 2) * 0.17;
++    const radius = distance * (0.72 + (index % 3) * 0.14);
++    const x = Math.cos(angle) * radius;
++    const y = Math.sin(angle) * radius;
++    return (
++      <motion.span
++        key={`particle-${index}`}
++        className={`pointer-events-none absolute z-30 ${square ? "h-2.5 w-2.5 rounded-[2px]" : "h-2 w-2 rounded-full"}`}
++        style={{
++          left: `${((col + 0.5) / COLS) * 100}%`,
++          top: `${((row + 0.5) / ROWS) * 100}%`,
++          background: color,
++          boxShadow: `0 0 8px ${color}`,
++        }}
++        initial={{ x: -4, y: -4, scale: 0.2, opacity: 0 }}
++        animate={{ x, y, scale: [0.2, 1.15, 0.1], opacity: [0, 1, 0], rotate: square ? [0, 90, 180] : 0 }}
++        transition={{ duration: 0.48, delay: delay + index * 0.018, ease: "easeOut" }}
++      />
++    );
++  });
++}
++
++function FxCellFlash({ row, col, color, delay = 0, reducedMotion = false }) {
++  return (
++    <motion.div
++      className="pointer-events-none absolute z-20 rounded-[10px] border-2"
++      style={{ ...cellBoxStyle(row, col), borderColor: color, background: `${color}2E` }}
++      initial={{ opacity: 0, scale: reducedMotion ? 1 : 0.55 }}
++      animate={{ opacity: [0, 0.95, 0], scale: reducedMotion ? 1 : [0.55, 1.12, 0.88] }}
++      transition={{ duration: reducedMotion ? 0.12 : 0.36, delay, ease: "easeOut" }}
++    />
++  );
++}
++
++function FxRing({ row, col, color, size = 1.7, delay = 0, duration = 0.42, reducedMotion = false, border = 4 }) {
++  return (
++    <motion.div
++      className="pointer-events-none absolute z-20 aspect-square rounded-full"
++      style={{ ...cellBoxStyle(row, col, size), border: `${border}px solid ${color}` }}
++      initial={{ opacity: 0.95, scale: reducedMotion ? 1 : 0.12 }}
++      animate={{ opacity: 0, scale: reducedMotion ? 1 : 1.35 }}
++      transition={{ duration: reducedMotion ? 0.12 : duration, delay, ease: "easeOut" }}
++    />
++  );
++}
++
++function FxSpecialCharge({ effect, reducedMotion }) {
++  const special = effect.special;
++  const color = special === "rocket_col" ? "#00F0FF" : special === "bomb" ? "#FF5C00" : special === "color_bomb" ? "#F64CFF" : "#FFB800";
++  const Icon = special === "bomb" ? Bomb : special === "color_bomb" ? CircleDot : Rocket;
++  return (
++    <>
++      <motion.div
++        className="pointer-events-none absolute z-40 flex items-center justify-center rounded-full"
++        style={{ ...cellBoxStyle(effect.row, effect.col, 1.35), background: `${color}24` }}
++        initial={{ scale: 0.5, opacity: 0 }}
++        animate={{ scale: reducedMotion ? 1 : [0.5, 1.18, 0.92, 1.08], opacity: [0, 1, 0.85, 0] }}
++        transition={{ duration: reducedMotion ? 0.12 : special === "color_bomb" ? 0.42 : 0.32, ease: "easeOut" }}
++      >
++        <motion.span
++          className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-white/70 bg-black/75"
++          animate={reducedMotion ? undefined : special === "color_bomb" ? { rotate: 360 } : { scale: [0.88, 1.12, 0.88] }}
++          transition={{ duration: special === "color_bomb" ? 0.38 : 0.24, ease: "easeInOut" }}
++        >
++          <Icon size={21} color={color} strokeWidth={3} />
++        </motion.span>
++      </motion.div>
++      <FxRing row={effect.row} col={effect.col} color={color} size={1.55} duration={0.35} reducedMotion={reducedMotion} border={2} />
++      <FxRing row={effect.row} col={effect.col} color="#FFFFFF" size={1.15} delay={0.06} duration={0.28} reducedMotion={reducedMotion} border={2} />
++    </>
++  );
++}
++
++const lightningPath = (fromRow, fromCol, toRow, toCol, index = 0) => {
++  const x1 = fromCol + 0.5;
++  const y1 = fromRow + 0.5;
++  const x2 = toCol + 0.5;
++  const y2 = toRow + 0.5;
++  const dx = x2 - x1;
++  const dy = y2 - y1;
++  const length = Math.max(0.001, Math.sqrt(dx * dx + dy * dy));
++  const px = -dy / length;
++  const py = dx / length;
++  const wobble = 0.11 + (index % 3) * 0.035;
++  const p1x = x1 + dx * 0.32 + px * wobble;
++  const p1y = y1 + dy * 0.32 + py * wobble;
++  const p2x = x1 + dx * 0.58 - px * wobble * 1.15;
++  const p2y = y1 + dy * 0.58 - py * wobble * 1.15;
++  const p3x = x1 + dx * 0.8 + px * wobble * 0.7;
++  const p3y = y1 + dy * 0.8 + py * wobble * 0.7;
++  return `M ${x1} ${y1} L ${p1x} ${p1y} L ${p2x} ${p2y} L ${p3x} ${p3y} L ${x2} ${y2}`;
++};
++
++function FxColorBomb({ effect, reducedMotion }) {
++  const targets = (effect.targets || []).filter((target) => target.row !== effect.row || target.col !== effect.col).slice(0, 24);
++  return (
++    <>
++      <motion.svg
++        className="pointer-events-none absolute inset-0 z-30 h-full w-full overflow-visible"
++        viewBox={`0 0 ${COLS} ${ROWS}`}
++        preserveAspectRatio="none"
++        initial={{ opacity: 0 }}
++        animate={{ opacity: [0, 1, 0] }}
++        transition={{ duration: reducedMotion ? 0.16 : 0.72 }}
++      >
++        {targets.map((target, index) => (
++          <motion.path
++            key={`lightning-${target.row}-${target.col}-${index}`}
++            d={lightningPath(effect.row, effect.col, target.row, target.col, index)}
++            fill="none"
++            stroke={index % 3 === 0 ? "#FFFFFF" : index % 3 === 1 ? "#F64CFF" : "#00F0FF"}
++            strokeWidth={index % 3 === 0 ? 0.09 : 0.065}
++            strokeLinecap="round"
++            strokeLinejoin="round"
++            vectorEffect="non-scaling-stroke"
++            initial={{ pathLength: 0, opacity: 0 }}
++            animate={{ pathLength: 1, opacity: [0, 1, 0.85, 0] }}
++            transition={{ duration: reducedMotion ? 0.12 : 0.36, delay: reducedMotion ? 0 : Math.floor(index / 5) * 0.07, ease: "easeOut" }}
++          />
++        ))}
++      </motion.svg>
++      <FxRing row={effect.row} col={effect.col} color="#F64CFF" size={2.1} duration={0.55} reducedMotion={reducedMotion} border={4} />
++      <FxParticles row={effect.row} col={effect.col} color="#F64CFF" count={10} distance={46} reducedMotion={reducedMotion} />
++      {targets.map((target, index) => (
++        <FxCellFlash
++          key={`joker-flash-${target.row}-${target.col}-${index}`}
++          row={target.row}
++          col={target.col}
++          color={index % 2 ? "#00F0FF" : "#F64CFF"}
++          delay={reducedMotion ? 0 : Math.floor(index / 5) * 0.07 + 0.08}
++          reducedMotion={reducedMotion}
++        />
++      ))}
++    </>
++  );
++}
++
++function FxRocket({ effect, reducedMotion }) {
++  const rowRocket = effect.special === "rocket_row";
++  const color = rowRocket ? "#FFB800" : "#00F0FF";
++  const targets = (effect.targets || []).slice(0, 14);
++  return (
++    <>
++      <motion.div
++        className={`pointer-events-none absolute z-30 rounded-full ${rowRocket ? "left-0 right-0 h-[9px]" : "bottom-0 top-0 w-[9px]"}`}
++        style={rowRocket
++          ? { top: `${((effect.row + 0.5) / ROWS) * 100}%`, background: `linear-gradient(90deg,transparent,${color},#FFFFFF,${color},transparent)` }
++          : { left: `${((effect.col + 0.5) / COLS) * 100}%`, background: `linear-gradient(180deg,transparent,${color},#FFFFFF,${color},transparent)` }}
++        initial={rowRocket ? { scaleX: 0, opacity: 0 } : { scaleY: 0, opacity: 0 }}
++        animate={rowRocket ? { scaleX: 1, opacity: [0, 1, 1, 0] } : { scaleY: 1, opacity: [0, 1, 1, 0] }}
++        transition={{ duration: reducedMotion ? 0.14 : 0.42, ease: [0.22, 1, 0.36, 1] }}
++      />
++      <motion.div
++        className="pointer-events-none absolute z-40 flex items-center justify-center"
++        style={cellBoxStyle(effect.row, effect.col, 1.05)}
++        initial={{ opacity: 1, scale: 0.7, x: 0, y: 0 }}
++        animate={rowRocket
++          ? { opacity: [1, 1, 0], scale: [0.7, 1.2, 0.8], x: [0, reducedMotion ? 0 : 130] }
++          : { opacity: [1, 1, 0], scale: [0.7, 1.2, 0.8], y: [0, reducedMotion ? 0 : -130] }}
++        transition={{ duration: reducedMotion ? 0.14 : 0.42, ease: "easeIn" }}
++      >
++        <Rocket size={28} color={color} strokeWidth={3.2} style={{ transform: `rotate(${rowRocket ? 45 : -45}deg)` }} />
++      </motion.div>
++      {targets.map((target, index) => (
++        <FxCellFlash
++          key={`rocket-target-${target.row}-${target.col}-${index}`}
++          row={target.row}
++          col={target.col}
++          color={color}
++          delay={reducedMotion ? 0 : index * 0.022}
++          reducedMotion={reducedMotion}
++        />
++      ))}
++    </>
++  );
++}
++
++function FxBomb({ effect, reducedMotion }) {
++  const targets = (effect.targets || []).slice(0, 12);
++  return (
++    <>
++      <motion.div
++        className="pointer-events-none absolute z-30 rounded-full bg-white"
++        style={cellBoxStyle(effect.row, effect.col, 0.75)}
++        initial={{ scale: 0.15, opacity: 1 }}
++        animate={{ scale: reducedMotion ? 1 : [0.15, 1.2, 0.25], opacity: [1, 0.95, 0] }}
++        transition={{ duration: reducedMotion ? 0.12 : 0.34, ease: "easeOut" }}
++      />
++      <FxRing row={effect.row} col={effect.col} color="#FFB800" size={2.15} duration={0.46} reducedMotion={reducedMotion} border={4} />
++      <FxRing row={effect.row} col={effect.col} color="#FF5C00" size={3.25} delay={0.05} duration={0.52} reducedMotion={reducedMotion} border={5} />
++      <FxParticles row={effect.row} col={effect.col} color="#FF5C00" count={12} distance={54} reducedMotion={reducedMotion} square />
++      {targets.map((target, index) => (
++        <FxCellFlash
++          key={`bomb-target-${target.row}-${target.col}-${index}`}
++          row={target.row}
++          col={target.col}
++          color={index % 2 ? "#FFB800" : "#FF5C00"}
++          delay={reducedMotion ? 0 : (Math.abs(target.row - effect.row) + Math.abs(target.col - effect.col)) * 0.045}
++          reducedMotion={reducedMotion}
++        />
++      ))}
++    </>
++  );
++}
++
++function FxObstacle({ effect, reducedMotion }) {
++  const obstacle = effect.obstacle;
++  if (!obstacle) return null;
++  const destroyed = Boolean(effect.destroyed);
++  const color = OBSTACLES[obstacle]?.color || "#B78CFF";
++  const count = destroyed ? 10 : 5;
++  const common = (
++    <>
++      <FxCellFlash row={effect.row} col={effect.col} color={color} reducedMotion={reducedMotion} />
++      <FxParticles row={effect.row} col={effect.col} color={color} count={count} distance={destroyed ? 44 : 27} reducedMotion={reducedMotion} square={["crate", "stone", "metal"].includes(obstacle)} />
++    </>
++  );
++
++  if (obstacle === "ice") {
++    return (
++      <>{common}
++        {[0, 1, 2].map((line) => (
++          <motion.span
++            key={`ice-line-${line}`}
++            className="pointer-events-none absolute z-40 h-[2px] origin-left bg-white/90"
++            style={{
++              left: `${((effect.col + 0.5) / COLS) * 100}%`,
++              top: `${((effect.row + 0.5) / ROWS) * 100}%`,
++              width: `${7 + line * 2}%`,
++            }}
++            initial={{ scaleX: 0, rotate: -58 + line * 54, opacity: 0 }}
++            animate={{ scaleX: 1, opacity: [0, 1, 0] }}
++            transition={{ duration: reducedMotion ? 0.12 : 0.34, delay: line * 0.035 }}
++          />
++        ))}
++      </>
++    );
++  }
++
++  if (obstacle === "chain") {
++    return (
++      <>{common}
++        {[-1, 1].map((direction) => (
++          <motion.span
++            key={`chain-half-${direction}`}
++            className="pointer-events-none absolute z-40 h-2 w-[8%] rounded-full bg-zinc-200"
++            style={{ left: `${((effect.col + 0.5) / COLS) * 100}%`, top: `${((effect.row + 0.5) / ROWS) * 100}%` }}
++            initial={{ x: -12, y: -4, opacity: 1, rotate: direction * 18 }}
++            animate={{ x: direction * (destroyed ? 44 : 18), y: destroyed ? 12 : 2, opacity: 0, rotate: direction * 75 }}
++            transition={{ duration: reducedMotion ? 0.12 : 0.42, ease: "easeOut" }}
++          />
++        ))}
++      </>
++    );
++  }
++
++  if (obstacle === "crate") {
++    return <>{common}<FxRing row={effect.row} col={effect.col} color="#FDBA74" size={1.55} duration={0.38} reducedMotion={reducedMotion} border={3} /></>;
++  }
++
++  if (obstacle === "stone") {
++    return <>{common}<FxRing row={effect.row} col={effect.col} color="#D4D4D8" size={1.4} duration={0.35} reducedMotion={reducedMotion} border={5} /></>;
++  }
++
++  if (obstacle === "crystal") {
++    return (
++      <>{common}
++        <motion.div
++          className="pointer-events-none absolute z-40"
++          style={cellBoxStyle(effect.row, effect.col, destroyed ? 3 : 1.5)}
++          initial={{ opacity: 0, scale: 0.25, rotate: -12 }}
++          animate={{ opacity: [0, 1, 0], scale: [0.25, 1.1, 1.32], rotate: 12 }}
++          transition={{ duration: reducedMotion ? 0.14 : 0.52, ease: "easeOut" }}
++        >
++          <span className="absolute left-1/2 top-0 h-full w-[5px] -translate-x-1/2 rounded-full bg-gradient-to-b from-transparent via-[#C084FC] to-transparent" />
++          <span className="absolute left-0 top-1/2 h-[5px] w-full -translate-y-1/2 rounded-full bg-gradient-to-r from-transparent via-[#C084FC] to-transparent" />
++        </motion.div>
++      </>
++    );
++  }
++
++  if (obstacle === "web") {
++    return (
++      <>{common}
++        <motion.div
++          className="pointer-events-none absolute z-40 rounded-full border border-white/90"
++          style={cellBoxStyle(effect.row, effect.col, 1.25)}
++          initial={{ scale: 1.25, opacity: 0.9, rotate: 0 }}
++          animate={{ scale: destroyed ? 0.05 : 0.75, opacity: 0, rotate: destroyed ? 48 : 18 }}
++          transition={{ duration: reducedMotion ? 0.12 : 0.4, ease: "easeIn" }}
++        />
++      </>
++    );
++  }
++
++  if (obstacle === "shield") {
++    return (
++      <>{common}
++        <FxRing row={effect.row} col={effect.col} color="#60A5FA" size={1.75} duration={0.45} reducedMotion={reducedMotion} border={4} />
++        <FxRing row={effect.row} col={effect.col} color="#FFFFFF" size={1.25} delay={0.05} duration={0.3} reducedMotion={reducedMotion} border={2} />
++      </>
++    );
++  }
++
++  if (obstacle === "slime") {
++    return (
++      <>{common}
++        {[0, 1, 2, 3].map((bubble) => (
++          <motion.span
++            key={`slime-bubble-${bubble}`}
++            className="pointer-events-none absolute z-40 rounded-full border border-white/45 bg-[#39FF14]/60"
++            style={{ left: `${((effect.col + 0.4 + (bubble % 2) * 0.22) / COLS) * 100}%`, top: `${((effect.row + 0.38 + Math.floor(bubble / 2) * 0.22) / ROWS) * 100}%`, width: 8 + bubble * 2, height: 8 + bubble * 2 }}
++            initial={{ scale: 0.2, opacity: 0 }}
++            animate={{ scale: [0.2, 1.25, 0], y: -18 - bubble * 4, opacity: [0, 1, 0] }}
++            transition={{ duration: reducedMotion ? 0.12 : 0.48, delay: bubble * 0.04 }}
++          />
++        ))}
++      </>
++    );
++  }
++
++  if (obstacle === "metal") {
++    return (
++      <>{common}
++        {[-1, 0, 1].map((spark) => (
++          <motion.span
++            key={`metal-spark-${spark}`}
++            className="pointer-events-none absolute z-40 h-[3px] w-8 origin-left bg-[#FFB800]"
++            style={{ left: `${((effect.col + 0.5) / COLS) * 100}%`, top: `${((effect.row + 0.5) / ROWS) * 100}%` }}
++            initial={{ scaleX: 0, rotate: spark * 42, opacity: 0 }}
++            animate={{ scaleX: 1, opacity: [0, 1, 0] }}
++            transition={{ duration: reducedMotion ? 0.12 : 0.3, delay: (spark + 1) * 0.03 }}
++          />
++        ))}
++      </>
++    );
++  }
++
++  if (obstacle === "core") {
++    return (
++      <>{common}
++        <motion.div
++          className="pointer-events-none absolute z-30 rounded-full bg-[#FF4D55]/35"
++          style={cellBoxStyle(effect.row, effect.col, destroyed ? 3.4 : 2)}
++          initial={{ scale: 0.15, opacity: 1 }}
++          animate={{ scale: [0.15, 1.2, 1.45], opacity: [1, 0.8, 0] }}
++          transition={{ duration: reducedMotion ? 0.14 : destroyed ? 0.68 : 0.42, ease: "easeOut" }}
++        />
++        <FxRing row={effect.row} col={effect.col} color="#FF4D55" size={destroyed ? 3.6 : 2.1} duration={destroyed ? 0.7 : 0.45} reducedMotion={reducedMotion} border={5} />
++      </>
++    );
++  }
++
++  return common;
++}
++
++function FxSpread({ effect, reducedMotion }) {
++  const web = effect.effect === "web_spread";
++  const color = web ? "#E4E4E7" : "#39FF14";
++  const fromX = ((effect.col + 0.5) / COLS) * 100;
++  const fromY = ((effect.row + 0.5) / ROWS) * 100;
++  const toX = ((effect.to_col + 0.5) / COLS) * 100;
++  const toY = ((effect.to_row + 0.5) / ROWS) * 100;
++  const dx = toX - fromX;
++  const dy = toY - fromY;
++  const angle = (Math.atan2(dy, dx) * 180) / Math.PI;
++  return (
++    <>
++      <motion.div
++        className={`pointer-events-none absolute z-30 origin-left rounded-full ${web ? "h-[3px]" : "h-[9px]"}`}
++        style={{ left: `${fromX}%`, top: `${fromY}%`, width: `${Math.sqrt(dx * dx + dy * dy)}%`, background: color }}
++        initial={{ scaleX: 0, opacity: 0.95, rotate: angle }}
++        animate={{ scaleX: 1, opacity: web ? [0.95, 0.8, 0] : [0.8, 1, 0], rotate: angle }}
++        transition={{ duration: reducedMotion ? 0.14 : web ? 0.48 : 0.56, ease: "easeOut" }}
++      />
++      <FxCellFlash row={effect.to_row} col={effect.to_col} color={color} delay={reducedMotion ? 0 : 0.22} reducedMotion={reducedMotion} />
++      {!web && <FxParticles row={effect.to_row} col={effect.to_col} color={color} count={6} distance={26} delay={0.18} reducedMotion={reducedMotion} />}
++    </>
++  );
++}
++
++function SpecialEffects({ effects = [], reducedMotion = false }) {
+   return (
+     <AnimatePresence>
+       {effects.flatMap((effect, effectIndex) => {
+         const effectType = effect.special || effect.effect;
+-        if (effectType === "rocket_row") {
+-          return (
+-            <motion.div
+-              key={`row-${effectIndex}`}
+-              className="pointer-events-none absolute left-0 right-0 h-[7px] rounded-full bg-gradient-to-r from-transparent via-[#FFB800] to-transparent"
+-              style={{ top: `${((effect.row + 0.5) / ROWS) * 100}%` }}
+-              initial={{ scaleX: 0, opacity: 0 }}
+-              animate={{ scaleX: 1, opacity: [0, 1, 0] }}
+-              exit={{ opacity: 0 }}
+-              transition={{ duration: 0.28 }}
+-            />
+-          );
++        const stage = effect.stage || "fire";
++        const token = effect.token || `${effectIndex}-${effectType}-${stage}`;
++
++        if (effect.obstacle) {
++          return <FxObstacle key={`obstacle-${token}`} effect={effect} reducedMotion={reducedMotion} />;
+         }
+-        if (effectType === "rocket_col") {
+-          return (
+-            <motion.div
+-              key={`col-${effectIndex}`}
+-              className="pointer-events-none absolute bottom-0 top-0 w-[7px] rounded-full bg-gradient-to-b from-transparent via-[#00F0FF] to-transparent"
+-              style={{ left: `${((effect.col + 0.5) / COLS) * 100}%` }}
+-              initial={{ scaleY: 0, opacity: 0 }}
+-              animate={{ scaleY: 1, opacity: [0, 1, 0] }}
+-              exit={{ opacity: 0 }}
+-              transition={{ duration: 0.28 }}
+-            />
+-          );
++
++        if (["rocket_row", "rocket_col", "bomb", "color_bomb"].includes(effectType) && stage === "charge") {
++          return <FxSpecialCharge key={`charge-${token}`} effect={effect} reducedMotion={reducedMotion} />;
++        }
++
++        if (effectType === "rocket_row" || effectType === "rocket_col") {
++          return <FxRocket key={`rocket-${token}`} effect={effect} reducedMotion={reducedMotion} />;
+         }
++
+         if (effectType === "bomb") {
+-          return (
+-            <motion.div
+-              key={`bomb-${effectIndex}`}
+-              className="pointer-events-none absolute aspect-square rounded-full border-4 border-[#FF5C00]"
+-              style={{
+-                width: `${(3 / COLS) * 100}%`,
+-                left: `${((effect.col - 1) / COLS) * 100}%`,
+-                top: `${((effect.row - 1) / ROWS) * 100}%`,
+-              }}
+-              initial={{ scale: 0.1, opacity: 1 }}
+-              animate={{ scale: 1.35, opacity: 0 }}
+-              exit={{ opacity: 0 }}
+-              transition={{ duration: 0.35, ease: "easeOut" }}
+-            />
+-          );
++          return <FxBomb key={`bomb-${token}`} effect={effect} reducedMotion={reducedMotion} />;
++        }
++
++        if (effectType === "color_bomb" || effectType === "booster_color_bomb") {
++          return <FxColorBomb key={`color-bomb-${token}`} effect={effect} reducedMotion={reducedMotion} />;
+         }
++
+         if (effectType === "booster_rocket") {
+           return (
+-            <motion.div key={`booster-rocket-${effectIndex}`} className="pointer-events-none absolute inset-0">
+-              <motion.div
+-                className="absolute left-0 right-0 h-[8px] rounded-full bg-gradient-to-r from-transparent via-[#FF5C00] to-transparent"
+-                style={{ top: `${((effect.row + 0.5) / ROWS) * 100}%` }}
+-                initial={{ scaleX: 0, opacity: 0 }} animate={{ scaleX: 1, opacity: [0, 1, 0] }} transition={{ duration: 0.34 }}
+-              />
+-              <motion.div
+-                className="absolute bottom-0 top-0 w-[8px] rounded-full bg-gradient-to-b from-transparent via-[#FFB800] to-transparent"
+-                style={{ left: `${((effect.col + 0.5) / COLS) * 100}%` }}
+-                initial={{ scaleY: 0, opacity: 0 }} animate={{ scaleY: 1, opacity: [0, 1, 0] }} transition={{ duration: 0.34 }}
+-              />
++            <motion.div key={`booster-rocket-${token}`} className="pointer-events-none absolute inset-0 z-30">
++              <FxRocket effect={{ ...effect, special: "rocket_row" }} reducedMotion={reducedMotion} />
++              <FxRocket effect={{ ...effect, special: "rocket_col" }} reducedMotion={reducedMotion} />
+             </motion.div>
+           );
+         }
++
+         if (effectType === "booster_hammer") {
+           return (
+-            <motion.div
+-              key={`booster-hammer-${effectIndex}`}
+-              className="pointer-events-none absolute aspect-square rounded-full border-4 border-[#B78CFF]"
+-              style={{
+-                width: `${(1.6 / COLS) * 100}%`,
+-                left: `${((effect.col - 0.3) / COLS) * 100}%`,
+-                top: `${((effect.row - 0.3) / ROWS) * 100}%`,
+-              }}
+-              initial={{ scale: 0.2, opacity: 1 }}
+-              animate={{ scale: 1.5, opacity: 0 }}
+-              transition={{ duration: 0.32, ease: "easeOut" }}
+-            />
++            <motion.div key={`booster-hammer-${token}`} className="pointer-events-none absolute inset-0 z-40">
++              <motion.div
++                className="pointer-events-none absolute flex items-center justify-center"
++                style={cellBoxStyle(effect.row, effect.col, 1.25)}
++                initial={{ y: -65, rotate: -28, scale: 1.25, opacity: 0 }}
++                animate={{ y: [reducedMotion ? 0 : -65, 0, -6], rotate: [-28, 12, 0], scale: [1.25, 0.9, 1], opacity: [0, 1, 0] }}
++                transition={{ duration: reducedMotion ? 0.14 : 0.42, ease: "easeIn" }}
++              >
++                <Hammer size={34} color="#B78CFF" strokeWidth={3.2} />
++              </motion.div>
++              <FxRing row={effect.row} col={effect.col} color="#B78CFF" size={1.8} delay={0.14} duration={0.34} reducedMotion={reducedMotion} border={4} />
++            </motion.div>
+           );
+         }
++
+         if (effectType === "crystal_burst") {
+           return (
+-            <motion.div
+-              key={`crystal-${effectIndex}`}
+-              className="pointer-events-none absolute"
+-              style={{
+-                width: `${(3 / COLS) * 100}%`,
+-                height: `${(3 / ROWS) * 100}%`,
+-                left: `${((effect.col - 1) / COLS) * 100}%`,
+-                top: `${((effect.row - 1) / ROWS) * 100}%`,
+-              }}
+-              initial={{ scale: 0.25, opacity: 1, rotate: -20 }}
+-              animate={{ scale: 1.2, opacity: 0, rotate: 20 }}
+-              transition={{ duration: 0.38, ease: "easeOut" }}
+-            >
+-              <div className="absolute left-1/2 top-0 h-full w-[5px] -translate-x-1/2 rounded-full bg-gradient-to-b from-transparent via-[#C084FC] to-transparent" />
+-              <div className="absolute left-0 top-1/2 h-[5px] w-full -translate-y-1/2 rounded-full bg-gradient-to-r from-transparent via-[#C084FC] to-transparent" />
++            <motion.div key={`crystal-${token}`} className="pointer-events-none absolute inset-0 z-30">
++              <FxObstacle effect={{ ...effect, obstacle: "crystal", destroyed: true }} reducedMotion={reducedMotion} />
++              {(effect.targets || []).map((target, index) => <FxCellFlash key={`crystal-target-${index}`} row={target.row} col={target.col} color="#C084FC" delay={index * 0.04} reducedMotion={reducedMotion} />)}
+             </motion.div>
+           );
+         }
++
+         if (effectType === "core_pulse" || effectType === "core_blast") {
+           const blast = effectType === "core_blast";
+           return (
+-            <motion.div
+-              key={`core-${effectIndex}`}
+-              className="pointer-events-none absolute aspect-square rounded-full border-[5px] border-[#FF5C00] bg-[#FF5C00]/15"
+-              style={{
+-                width: `${((blast ? 3.2 : 1.8) / COLS) * 100}%`,
+-                left: `${((effect.col - (blast ? 1.1 : 0.4)) / COLS) * 100}%`,
+-                top: `${((effect.row - (blast ? 1.1 : 0.4)) / ROWS) * 100}%`,
+-              }}
+-              initial={{ scale: 0.15, opacity: 1 }}
+-              animate={{ scale: 1.35, opacity: 0 }}
+-              transition={{ duration: blast ? 0.48 : 0.34, ease: "easeOut" }}
+-            />
++            <motion.div key={`core-${token}`} className="pointer-events-none absolute inset-0 z-30">
++              <FxObstacle effect={{ ...effect, obstacle: "core", destroyed: blast }} reducedMotion={reducedMotion} />
++              {blast && (effect.targets || []).map((target, index) => <FxCellFlash key={`core-target-${index}`} row={target.row} col={target.col} color="#FF4D55" delay={index * 0.025} reducedMotion={reducedMotion} />)}
++            </motion.div>
+           );
+         }
++
+         if (effectType === "web_spread" || effectType === "slime_spread") {
+-          const color = effectType === "web_spread" ? "#E4E4E7" : "#39FF14";
+-          const fromX = ((effect.col + 0.5) / COLS) * 100;
+-          const fromY = ((effect.row + 0.5) / ROWS) * 100;
+-          const toX = ((effect.to_col + 0.5) / COLS) * 100;
+-          const toY = ((effect.to_row + 0.5) / ROWS) * 100;
+-          const dx = toX - fromX;
+-          const dy = toY - fromY;
+-          const angle = (Math.atan2(dy, dx) * 180) / Math.PI;
+-          return (
+-            <motion.div
+-              key={`spread-${effectIndex}`}
+-              className="pointer-events-none absolute h-[6px] origin-left rounded-full"
+-              style={{
+-                left: `${fromX}%`,
+-                top: `${fromY}%`,
+-                width: `${Math.sqrt(dx * dx + dy * dy)}%`,
+-                background: color,
+-              }}
+-              initial={{ scaleX: 0, opacity: 0.9, rotate: angle }}
+-              animate={{ scaleX: 1, opacity: 0, rotate: angle }}
+-              transition={{ duration: 0.42, ease: "easeOut" }}
+-            />
+-          );
++          return <FxSpread key={`spread-${token}`} effect={effect} reducedMotion={reducedMotion} />;
+         }
+-        return (effect.targets || []).slice(0, 24).map((target, targetIndex) => (
+-          <motion.div
+-            key={`joker-${effectIndex}-${targetIndex}`}
+-            className="pointer-events-none absolute h-2 w-2 rounded-full bg-[#F64CFF]"
+-            style={{
+-              left: `${((target.col + 0.5) / COLS) * 100}%`,
+-              top: `${((target.row + 0.5) / ROWS) * 100}%`,
+-            }}
+-            initial={{ scale: 0, opacity: 0 }}
+-            animate={{ scale: [0, 1.8, 0], opacity: [0, 1, 0] }}
+-            exit={{ opacity: 0 }}
+-            transition={{ duration: 0.32, delay: targetIndex * 0.008 }}
++
++        return (effect.targets || []).slice(0, 20).map((target, targetIndex) => (
++          <FxCellFlash
++            key={`generic-${token}-${targetIndex}`}
++            row={target.row}
++            col={target.col}
++            color="#F64CFF"
++            delay={targetIndex * 0.012}
++            reducedMotion={reducedMotion}
+           />
+         ));
+       })}
+@@ -766,6 +1192,7 @@
+   const [spawnedIds, setSpawnedIds] = useState(new Set());
+   const [activatedIds, setActivatedIds] = useState(new Set());
+   const [specialEffects, setSpecialEffects] = useState([]);
++  const [obstacleImpacts, setObstacleImpacts] = useState(new Map());
+   const [combo, setCombo] = useState(0);
+   const [flash, setFlash] = useState("");
+   const [animatedScore, setAnimatedScore] = useState(0);
+@@ -1039,9 +1466,7 @@
+         const before = normalizeBoard(frame.board || displayBoard);
+         setDisplayBoard(before);
+ 
+-        const removed = new Set(
+-          (frame.cleared_ids || []).filter(Boolean),
+-        );
++        const removed = new Set((frame.cleared_ids || []).filter(Boolean));
+         if (!removed.size) {
+           (frame.cleared_cells || []).forEach(({ row, col }) => {
+             const id = before?.[row]?.[col]?.id;
+@@ -1049,28 +1474,74 @@
+           });
+         }
+ 
++        const activations = frame.activated_specials || [];
++        const changes = frame.obstacle_changes || [];
++        const obstacleEvents = frame.obstacle_events || [];
++        const fxToken = `${Date.now()}-${index}`;
+         const active = new Set();
+-        (frame.activated_specials || []).forEach(({ row, col, id }) => {
++        activations.forEach(({ row, col, id }) => {
+           const pieceId = id || before?.[row]?.[col]?.id;
+           if (pieceId) active.add(pieceId);
+         });
++
++        const impactMap = new Map();
++        changes.forEach((change, changeIndex) => {
++          const pieceId = before?.[change.row]?.[change.col]?.id;
++          if (pieceId) {
++            impactMap.set(pieceId, {
++              ...change,
++              token: `${fxToken}-impact-${changeIndex}`,
++            });
++          }
++        });
++        setObstacleImpacts(impactMap);
+         setActivatedIds(active);
++        setCombo(frame.combo || 1);
++        setFlash(frame.combo > 1 ? `КОМБО ×${frame.combo}` : "");
++
++        const hasColorBomb = activations.some((item) => ["color_bomb", "booster_color_bomb"].includes(item.special));
++        const hasBomb = activations.some((item) => item.special === "bomb");
++        const hasRocket = activations.some((item) => ["rocket_row", "rocket_col", "booster_rocket"].includes(item.special));
++        const hasCoreBlast = changes.some((item) => item.effect === "core_blast");
++        const hasHeavyObstacle = changes.some((item) => ["stone", "metal", "shield", "core"].includes(item.obstacle));
++        const nextBoardFx = hasCoreBlast
++          ? "core"
++          : hasColorBomb
++            ? "color_bomb"
++            : hasBomb
++              ? "bomb"
++              : hasRocket
++                ? "rocket"
++                : hasHeavyObstacle
++                  ? "heavy"
++                  : changes.some((item) => item.obstacle === "slime")
++                    ? "slime"
++                    : "match";
++
++        const chargeEffects = activations
++          .filter((item) => ["rocket_row", "rocket_col", "bomb", "color_bomb"].includes(item.special))
++          .map((item, effectIndex) => ({ ...item, stage: "charge", token: `${fxToken}-charge-${effectIndex}` }));
++        if (chargeEffects.length) {
++          setSpecialEffects(chargeEffects);
++          setBoardFx(nextBoardFx);
++          await wait(reducedMotion ? 35 : hasColorBomb ? 180 : 135);
++        }
++
+         setSpecialEffects([
+-          ...(frame.activated_specials || []),
+-          ...(frame.obstacle_events || []),
++          ...activations.map((item, effectIndex) => ({ ...item, stage: "fire", token: `${fxToken}-special-${effectIndex}` })),
++          ...changes.map((item, effectIndex) => ({ ...item, stage: "fire", token: `${fxToken}-obstacle-${effectIndex}` })),
++          ...obstacleEvents.map((item, effectIndex) => ({ ...item, stage: "fire", token: `${fxToken}-event-${effectIndex}` })),
+         ]);
++        setBoardFx(nextBoardFx);
+         setRemovingIds(removed);
+-        setCombo(frame.combo || 1);
+-        setFlash(frame.combo > 1 ? `КОМБО ×${frame.combo}` : "");
+ 
+         for (const created of frame.created_specials || []) {
+           toast.success(SPECIAL_TOASTS[created.special] || "Бонусна фішка створена!");
+         }
+-        const changes = frame.obstacle_changes || [];
+         if (changes.some((item) => item.effect === "crystal_burst")) {
+           toast.success("КРИСТАЛ ВИБУХНУВ!", { description: "Очищено сусідні клітинки" });
+         }
+-        if (changes.some((item) => item.effect === "core_blast")) {
++        if (hasCoreBlast) {
+           toast.success("ЯДРО ЗНИЩЕНО!", { description: "Вибух очищує область 3×3" });
+           setFlash("ЯДРО ЗНИЩЕНО!");
+         } else if (changes.some((item) => item.effect === "core_pulse")) {
+@@ -1083,18 +1554,20 @@
+           );
+         }
+ 
+-        const burstColor = (frame.activated_specials || []).some((item) => item.special === "bomb")
++        const burstColor = hasBomb || hasCoreBlast
+           ? "#FF5C00"
+-          : (frame.activated_specials || []).some((item) => item.special === "color_bomb")
++          : hasColorBomb
+             ? "#F64CFF"
+-            : "#B78CFF";
++            : hasRocket
++              ? "#FFB800"
++              : "#B78CFF";
+         burstAtCells(frame.cleared_cells || [], burstColor);
+         launchScoreFlight(frame.cleared_cells || [], frame.score_gain || 0);
+ 
+-        // Let the exiting pieces receive their removal state before the board
+-        // advances. The next frame then starts falling pieces immediately,
+-        // while AnimatePresence keeps removed pieces visible until exit ends.
++        // Give charge, material impact and exit animations a visible first frame.
++        // The server remains authoritative; only its frames are being replayed.
+         await new Promise((resolve) => window.requestAnimationFrame(() => window.requestAnimationFrame(resolve)));
++        await wait(reducedMotion ? 20 : activations.length || changes.length ? 90 : 45);
+ 
+         const collapseFrame = frames[index + 1]?.phase === "collapse" ? frames[index + 1] : null;
+         if (collapseFrame?.board) {
+@@ -1103,20 +1576,29 @@
+           ));
+           setDisplayBoard(normalizeBoard(collapseFrame.board));
+           const nextScore = runningScore + Number(frame.score_gain || 0);
++          const minimumFxDuration = hasColorBomb || hasCoreBlast
++            ? 680
++            : hasBomb
++              ? 580
++              : hasRocket || changes.length
++                ? 500
++                : 430;
+           await Promise.all([
+             tickScore(runningScore, nextScore),
+-            wait(reducedMotion ? 70 : Number(collapseFrame.duration_ms || 430)),
++            wait(reducedMotion ? 75 : Math.max(Number(collapseFrame.duration_ms || 430), minimumFxDuration)),
+           ]);
+           runningScore = nextScore;
+           index += 1;
+         } else {
+-          await wait(reducedMotion ? 70 : Number(frame.duration_ms || 290));
++          await wait(reducedMotion ? 70 : Math.max(Number(frame.duration_ms || 290), 420));
+         }
+ 
+         setRemovingIds(new Set());
+         setSpawnedIds(new Set());
+         setActivatedIds(new Set());
++        setObstacleImpacts(new Map());
+         setSpecialEffects([]);
++        setBoardFx("");
+         setFlash("");
+         continue;
+       }
+@@ -1131,17 +1613,21 @@
+ 
+       if (frame.phase === "obstacle" && frame.board) {
+         const events = frame.events || [];
+-        setSpecialEffects(events);
++        const token = `${Date.now()}-obstacle-turn`;
++        setSpecialEffects(events.map((item, eventIndex) => ({ ...item, stage: "fire", token: `${token}-${eventIndex}` })));
+         setDisplayBoard(normalizeBoard(frame.board));
+         if (events.some((item) => item.effect === "slime_spread")) {
++          setBoardFx("slime");
+           setFlash("СЛИЗ ПОШИРИВСЯ");
+           toast.info("Слиз зайняв сусідню клітинку");
+         } else if (events.some((item) => item.effect === "web_spread")) {
++          setBoardFx("web");
+           setFlash("ПАВУТИНА РОЗРОСЛАСЯ");
+           toast.info("Павутина обплутала сусідню фішку");
+         }
+-        await wait(reducedMotion ? 70 : Number(frame.duration_ms || 420));
++        await wait(reducedMotion ? 80 : Math.max(Number(frame.duration_ms || 420), 560));
+         setSpecialEffects([]);
++        setBoardFx("");
+         setFlash("");
+         continue;
+       }
+@@ -1561,8 +2047,8 @@
+             <motion.div
+               ref={boardRef}
+               className="relative mt-3 rounded-[22px] border border-[#7C3AED]/55 bg-[#090711] p-1.5 shadow-[inset_0_0_30px_rgba(124,58,237,.12)]"
+-              animate={boardFx === "won" && !reducedMotion ? { scale: [1, 1.025, 1] } : { scale: 1 }}
+-              transition={{ duration: 0.45 }}
++              animate={boardMotionForFx(boardFx, reducedMotion)}
++              transition={{ duration: boardFx === "core" ? 0.62 : boardFx === "bomb" || boardFx === "color_bomb" ? 0.5 : 0.42, ease: "easeOut" }}
+             >
+               <div className="grid grid-cols-7 gap-1" aria-hidden="true">
+                 {Array.from({ length: ROWS * COLS }, (_, index) => (
+@@ -1593,6 +2079,7 @@
+                           shaking={shakingIds.has(cell.id)}
+                           spawned={spawnedIds.has(cell.id)}
+                           activated={activatedIds.has(cell.id)}
++                          impact={obstacleImpacts.get(cell.id)}
+                           removeDelay={(row + col) * 0.012}
+                           reducedMotion={reducedMotion}
+                           onClick={() => handlePiece(row, col)}
+@@ -1603,7 +2090,7 @@
+                 </div>
+               </LayoutGroup>
+ 
+-              <SpecialEffects effects={specialEffects} />
++              <SpecialEffects effects={specialEffects} reducedMotion={reducedMotion} />
+ 
+               <AnimatePresence>
+                 {flash && (
+--- /mnt/data/tm6v72-work/frontend/public/service-worker.js	2026-07-24 22:24:19.311121252 +0000
++++ /mnt/data/tm6v73-work/frontend/public/service-worker.js	2026-07-24 23:08:04.027046823 +0000
+@@ -2,7 +2,7 @@
+  * Dynamic data is always network-only.
+  * App shell uses network-first so new deployments replace old PWA files promptly.
+  */
+-const VERSION = "tm6-v72";
++const VERSION = "tm6-v73";
+ const STATIC_CACHE = `${VERSION}-static`;
+ const RUNTIME_CACHE = `${VERSION}-runtime`;
+ 
