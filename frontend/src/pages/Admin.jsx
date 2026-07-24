@@ -2063,16 +2063,16 @@ const PointsManager = () => {
 
 // ─────────────── Bonus Match level editor ───────────────
 const BONUS_MATCH_OBSTACLE_STYLE = {
-  ice: { label: "Крига", color: "#7DD3FC" },
-  chain: { label: "Ланцюг", color: "#A1A1AA" },
-  crate: { label: "Ящик", color: "#FDBA74" },
-  stone: { label: "Камінь", color: "#D4D4D8" },
-  crystal: { label: "Кристал", color: "#C084FC" },
-  web: { label: "Павутина", color: "#E4E4E7" },
-  shield: { label: "Щит", color: "#60A5FA" },
-  slime: { label: "Слиз", color: "#4ADE80" },
-  metal: { label: "Метал", color: "#CBD5E1" },
-  core: { label: "Ядро", color: "#FF4D55" },
+  ice: { label: "Крига", color: "#7DD3FC", image: "/bonus-match/obstacles/ice.webp" },
+  chain: { label: "Ланцюг", color: "#A1A1AA", image: "/bonus-match/obstacles/chain.webp" },
+  crate: { label: "Ящик", color: "#FDBA74", image: "/bonus-match/obstacles/crate.webp" },
+  stone: { label: "Камінь", color: "#D4D4D8", image: "/bonus-match/obstacles/stone.webp" },
+  crystal: { label: "Кристал", color: "#C084FC", image: "/bonus-match/obstacles/crystal.webp" },
+  web: { label: "Павутина", color: "#E4E4E7", image: "/bonus-match/obstacles/web.webp" },
+  shield: { label: "Щит", color: "#60A5FA", image: "/bonus-match/obstacles/shield.webp" },
+  slime: { label: "Слиз", color: "#4ADE80", image: "/bonus-match/obstacles/slime.webp" },
+  metal: { label: "Метал", color: "#CBD5E1", image: "/bonus-match/obstacles/metal.webp" },
+  core: { label: "Ядро", color: "#FF4D55", image: "/bonus-match/obstacles/core.webp" },
 };
 
 const BonusMatchLevelEditor = ({ level, obstacleCatalog, onClose, onSaved }) => {
@@ -2208,7 +2208,13 @@ const BonusMatchLevelEditor = ({ level, obstacleCatalog, onClose, onSaved }) => 
           </select>
         </div>
         <div className="mt-2 flex flex-wrap gap-2">
-          {obstacleCatalog.map((item) => <button key={item.id} type="button" onClick={() => toggleAllowedObstacle(item.id)} className={`rounded-full border px-3 py-2 text-[9px] font-black uppercase ${f.obstacles.includes(item.id) ? "border-[#B78CFF] bg-[#B78CFF]/15 text-[#D8C1FF]" : "border-white/10 bg-black/20 text-zinc-500"}`}>{item.label}</button>)}
+          {obstacleCatalog.map((item) => {
+            const style = BONUS_MATCH_OBSTACLE_STYLE[item.id];
+            return <button key={item.id} type="button" title={item.description || item.label} onClick={() => toggleAllowedObstacle(item.id)} className={`flex items-center gap-2 rounded-full border py-1.5 pl-1.5 pr-3 text-[9px] font-black uppercase ${f.obstacles.includes(item.id) ? "border-[#B78CFF] bg-[#B78CFF]/15 text-[#D8C1FF]" : "border-white/10 bg-black/20 text-zinc-500"}`}>
+              <img src={style?.image} alt="" className="h-7 w-7 rounded-full object-cover" draggable="false" />
+              {item.label}
+            </button>;
+          })}
         </div>
       </div>
 
@@ -2219,7 +2225,13 @@ const BonusMatchLevelEditor = ({ level, obstacleCatalog, onClose, onSaved }) => 
         </div>
         <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
           <button type="button" onClick={() => setPaint("erase")} className={`h-9 shrink-0 rounded-xl border px-3 text-[9px] font-black uppercase ${paint === "erase" ? "border-[#FF4D55] bg-[#FF4D55]/15 text-[#FF767C]" : "border-white/10 text-zinc-500"}`}>Гумка</button>
-          {obstacleCatalog.map((item) => <button key={item.id} type="button" onClick={() => setPaint(item.id)} className={`h-9 shrink-0 rounded-xl border px-3 text-[9px] font-black uppercase ${paint === item.id ? "border-[#B78CFF] bg-[#B78CFF]/15 text-white" : "border-white/10 text-zinc-500"}`}>{item.label}</button>)}
+          {obstacleCatalog.map((item) => {
+            const style = BONUS_MATCH_OBSTACLE_STYLE[item.id];
+            return <button key={item.id} type="button" title={item.description || item.label} onClick={() => setPaint(item.id)} className={`flex h-10 shrink-0 items-center gap-2 rounded-xl border py-1 pl-1 pr-3 text-[9px] font-black uppercase ${paint === item.id ? "border-[#B78CFF] bg-[#B78CFF]/15 text-white" : "border-white/10 text-zinc-500"}`}>
+              <img src={style?.image} alt="" className="h-8 w-8 rounded-lg object-cover" draggable="false" />
+              {item.label}
+            </button>;
+          })}
         </div>
         <div className="mt-3 grid grid-cols-7 gap-1">
           {Array.from({ length: 49 }, (_, index) => {
@@ -2227,7 +2239,10 @@ const BonusMatchLevelEditor = ({ level, obstacleCatalog, onClose, onSaved }) => 
             const col = index % 7;
             const item = layoutMap.get(`${row}:${col}`);
             const style = item ? BONUS_MATCH_OBSTACLE_STYLE[item.obstacle] : null;
-            return <button key={index} type="button" onClick={() => paintCell(row, col)} className="relative aspect-square rounded-lg border border-white/10 bg-[#11101A] text-[8px] font-black" style={{ color: style?.color || "#3F3F46", background: item ? `${style?.color || "#B78CFF"}18` : undefined }} title={item ? `${style?.label}: ${item.hits} уд.` : "Порожньо"}>{item ? item.hits : "·"}</button>;
+            return <button key={index} type="button" onClick={() => paintCell(row, col)} className="relative aspect-square overflow-hidden rounded-lg border border-white/10 bg-[#11101A] text-[8px] font-black" style={{ color: style?.color || "#3F3F46" }} title={item ? `${style?.label}: ${item.hits} уд.` : "Порожньо"}>
+              {item && style?.image ? <img src={style.image} alt="" className="absolute inset-0 h-full w-full object-cover" draggable="false" /> : <span className="text-zinc-700">·</span>}
+              {item && <span className="absolute bottom-0.5 right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full border border-white/20 bg-black/85 px-1 text-[8px] text-white">{item.hits}</span>}
+            </button>;
           })}
         </div>
       </div>

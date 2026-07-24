@@ -39,17 +39,18 @@ const MAX_LEVEL = 200;
 const SYMBOLS = ["coin", "star", "gift", "cube", "zap", "trophy"];
 const BOSS_LEVELS = { 25: 2, 40: 2, 50: 3 };
 const OBSTACLE_ORDER = ["ice", "chain", "crate", "stone", "crystal", "web", "shield", "slime", "metal", "core"];
+const OVERLAY_OBSTACLES = new Set(["chain", "web"]);
 const wait = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms));
 const coordKey = (row, col) => `${row}:${col}`;
 const cloneBoard = (board) => (board || []).map((row) => row.map((cell) => (cell ? { ...cell } : null)));
 
 const PIECES = {
-  coin: { Icon: Coins, label: "Монета", color: "#FFB800", background: "linear-gradient(145deg,#5B3A00,#231700)" },
-  star: { Icon: Star, label: "Зірка", color: "#35B8FF", background: "linear-gradient(145deg,#073F69,#07182A)" },
-  gift: { Icon: Gift, label: "Подарунок", color: "#F64CFF", background: "linear-gradient(145deg,#5A145F,#210923)" },
-  cube: { Icon: Dice5, label: "Куб", color: "#39FF14", background: "linear-gradient(145deg,#176408,#092506)" },
-  zap: { Icon: Zap, label: "Блискавка", color: "#FF5C00", background: "linear-gradient(145deg,#6B2400,#260D00)" },
-  trophy: { Icon: Trophy, label: "Трофей", color: "#B78CFF", background: "linear-gradient(145deg,#442878,#170C2B)" },
+  coin: { Icon: Coins, label: "Монета", color: "#FFB800", image: "/bonus-match/pieces/coin.webp" },
+  star: { Icon: Star, label: "Зірка", color: "#35B8FF", image: "/bonus-match/pieces/star.webp" },
+  gift: { Icon: Gift, label: "Подарунок", color: "#F64CFF", image: "/bonus-match/pieces/gift.webp" },
+  cube: { Icon: Dice5, label: "Куб", color: "#39FF14", image: "/bonus-match/pieces/cube.webp" },
+  zap: { Icon: Zap, label: "Блискавка", color: "#FF5C00", image: "/bonus-match/pieces/zap.webp" },
+  trophy: { Icon: Trophy, label: "Трофей", color: "#B78CFF", image: "/bonus-match/pieces/trophy.webp" },
 };
 
 const SPECIALS = {
@@ -60,17 +61,22 @@ const SPECIALS = {
 };
 
 const OBSTACLES = {
-  ice: { Icon: Snowflake, label: "Крига", color: "#7DD3FC", background: "linear-gradient(145deg,#164E63,#082F49)" },
-  chain: { Icon: Lock, label: "Ланцюг", color: "#A1A1AA", background: "linear-gradient(145deg,#3F3F46,#18181B)" },
-  crate: { Icon: Box, label: "Ящик", color: "#FDBA74", background: "linear-gradient(145deg,#78350F,#2A1205)" },
-  stone: { Icon: Shield, label: "Камінь", color: "#D4D4D8", background: "linear-gradient(145deg,#52525B,#18181B)" },
-  crystal: { Icon: Gem, label: "Кристал", color: "#C084FC", background: "linear-gradient(145deg,#581C87,#1E0B2E)" },
-  web: { Icon: Sparkles, label: "Павутина", color: "#E4E4E7", background: "linear-gradient(145deg,#3F3F46,#09090B)" },
-  shield: { Icon: Shield, label: "Щит", color: "#60A5FA", background: "linear-gradient(145deg,#1E3A8A,#0A163D)" },
-  slime: { Icon: CircleDot, label: "Слиз", color: "#4ADE80", background: "linear-gradient(145deg,#166534,#052E16)" },
-  metal: { Icon: Shield, label: "Метал", color: "#CBD5E1", background: "linear-gradient(145deg,#475569,#111827)" },
-  core: { Icon: Zap, label: "Ядро", color: "#FF4D55", background: "linear-gradient(145deg,#7F1D1D,#2A0808)" },
+  ice: { Icon: Snowflake, label: "Крига", color: "#7DD3FC", image: "/bonus-match/obstacles/ice.webp" },
+  chain: { Icon: Lock, label: "Ланцюг", color: "#A1A1AA", image: "/bonus-match/obstacles/chain.webp" },
+  crate: { Icon: Box, label: "Ящик", color: "#FDBA74", image: "/bonus-match/obstacles/crate.webp" },
+  stone: { Icon: Shield, label: "Камінь", color: "#D4D4D8", image: "/bonus-match/obstacles/stone.webp" },
+  crystal: { Icon: Gem, label: "Кристал", color: "#C084FC", image: "/bonus-match/obstacles/crystal.webp" },
+  web: { Icon: Sparkles, label: "Павутина", color: "#E4E4E7", image: "/bonus-match/obstacles/web.webp" },
+  shield: { Icon: Shield, label: "Щит", color: "#60A5FA", image: "/bonus-match/obstacles/shield.webp" },
+  slime: { Icon: CircleDot, label: "Слиз", color: "#4ADE80", image: "/bonus-match/obstacles/slime.webp" },
+  metal: { Icon: Shield, label: "Метал", color: "#CBD5E1", image: "/bonus-match/obstacles/metal.webp" },
+  core: { Icon: Zap, label: "Ядро", color: "#FF4D55", image: "/bonus-match/obstacles/core.webp" },
 };
+
+const BONUS_MATCH_ARTWORK = [
+  ...Object.values(PIECES).map((item) => item.image),
+  ...Object.values(OBSTACLES).map((item) => item.image),
+].filter(Boolean);
 
 const SPECIAL_TOASTS = {
   rocket_row: "Ракета створена!",
@@ -99,12 +105,26 @@ const OBSTACLE_NAMES = {
   core: "Ядро",
 };
 
+const OBSTACLE_HELP = {
+  ice: "Крига: розбий двома збігами поруч або спецфішкою",
+  chain: "Ланцюг: закута фішка не рухається, але може входити у збіг",
+  crate: "Ящик: розбий двома збігами поруч, усередині буде нова фішка",
+  stone: "Камінь: міцний блок, витримує три удари",
+  crystal: "Кристал: після руйнування очищує сусідні клітинки хрестом",
+  web: "Павутина: звільни фішку збігом, інакше павутина розростатиметься",
+  shield: "Щит: спецфішки пробивають одразу два шари",
+  slime: "Слиз: поширюється після ходу, якщо його не пошкодити",
+  metal: "Метал: пошкоджується тільки спецфішками або бустерами",
+  core: "Ядро: бий спецфішками або комбінаціями 4+, після руйнування вибухне 3×3",
+};
+
 const makeCell = (symbol = null, extras = {}) => ({
   id: extras.id || `mock-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
   symbol,
   special: extras.special || null,
   obstacle: extras.obstacle || null,
   obstacle_hits: extras.obstacle_hits || 0,
+  obstacle_age: extras.obstacle_age || 0,
 });
 
 const normalizeCell = (cell) => {
@@ -116,6 +136,7 @@ const normalizeCell = (cell) => {
     special: cell.special || null,
     obstacle: cell.obstacle || null,
     obstacle_hits: Number(cell.obstacle_hits || 0),
+    obstacle_age: Number(cell.obstacle_age || 0),
   };
 };
 
@@ -157,7 +178,8 @@ const levelConfig = (level) => {
 };
 
 const matchSymbol = (cell) => {
-  if (!cell || cell.obstacle || cell.special === "color_bomb") return null;
+  if (!cell || cell.special === "color_bomb") return null;
+  if (cell.obstacle && !OVERLAY_OBSTACLES.has(cell.obstacle)) return null;
   return cell.symbol;
 };
 
@@ -232,7 +254,12 @@ const makeMockBoard = (level = 1) => {
         const row = Math.floor(Math.random() * ROWS);
         const col = Math.floor(Math.random() * COLS);
         const obstacle = config.obstacles[Math.floor(Math.random() * config.obstacles.length)];
-        board[row][col] = makeCell(null, { obstacle, obstacle_hits: obstacle === "core" ? 4 : obstacle === "stone" || obstacle === "metal" ? 3 : 2 });
+        const hits = obstacle === "core" ? 4 : ["stone", "shield", "metal"].includes(obstacle) ? 3 : obstacle === "web" ? 1 : 2;
+        if (OVERLAY_OBSTACLES.has(obstacle)) {
+          board[row][col] = { ...board[row][col], obstacle, obstacle_hits: hits, obstacle_age: 0, special: null };
+        } else {
+          board[row][col] = makeCell(null, { obstacle, obstacle_hits: hits });
+        }
       }
     }
     if (!findMatches(board).size && hasPossibleMove(board)) return board;
@@ -402,9 +429,11 @@ function Piece({
   const obstacle = cell.obstacle ? OBSTACLES[cell.obstacle] || OBSTACLES.stone : null;
   const special = cell.special ? SPECIALS[cell.special] || SPECIALS.bomb : null;
   const piece = PIECES[cell.symbol] || PIECES.star;
-  const Icon = obstacle?.Icon || special?.Icon || piece.Icon;
+  const overlayObstacle = Boolean(cell.obstacle && OVERLAY_OBSTACLES.has(cell.obstacle));
+  const ArtworkIcon = obstacle?.Icon || piece.Icon;
+  const SpecialIcon = special?.Icon || null;
   const color = obstacle?.color || special?.color || piece.color;
-  const background = obstacle?.background || piece.background;
+  const background = "#0A0811";
   const label = obstacle?.label || special?.label || piece.label;
   const shakeAnimation = shaking && !reducedMotion ? [0, -7, 7, -6, 6, -3, 3, 0] : 0;
 
@@ -414,7 +443,7 @@ function Piece({
       layoutId={`bonus-piece-${cell.id}`}
       type="button"
       onClick={onClick}
-      disabled={disabled || (Boolean(obstacle) && !targetable)}
+      disabled={disabled}
       aria-label={`${label}, рядок ${row + 1}, колонка ${col + 1}`}
       className="relative flex aspect-square min-w-0 touch-manipulation items-center justify-center overflow-hidden rounded-[10px] border border-white/10"
       style={{
@@ -438,7 +467,7 @@ function Piece({
           rotate: 30,
           transition: { duration: 0.28, delay: removeDelay, ease: "easeIn" },
         }}
-      whileTap={disabled || (obstacle && !targetable) ? undefined : { scale: 0.86 }}
+      whileTap={disabled ? undefined : { scale: obstacle && !targetable ? 0.96 : 0.86 }}
       transition={
         shaking
           ? { duration: reducedMotion ? 0.01 : 0.32, ease: "easeInOut" }
@@ -451,38 +480,82 @@ function Piece({
           }
       }
     >
-      <div className="absolute inset-0 bg-gradient-to-br from-white/10 to-transparent" />
+      <div className="absolute inset-0 bg-[#0A0811]" />
+      <ArtworkIcon
+        className="relative z-[1] opacity-0"
+        size={24}
+        strokeWidth={2.8}
+        color={color}
+        aria-hidden="true"
+      />
+      {!obstacle && piece.image && (
+        <img
+          src={piece.image}
+          alt=""
+          draggable="false"
+          decoding="async"
+          className="pointer-events-none absolute inset-0 z-[2] h-full w-full select-none object-cover"
+        />
+      )}
+      {overlayObstacle && piece.image && (
+        <img
+          src={piece.image}
+          alt=""
+          draggable="false"
+          decoding="async"
+          className="pointer-events-none absolute inset-[9%] z-[2] h-[82%] w-[82%] select-none object-contain"
+        />
+      )}
+      {obstacle?.image && (
+        <img
+          src={obstacle.image}
+          alt=""
+          draggable="false"
+          decoding="async"
+          className={`pointer-events-none absolute inset-0 z-[3] h-full w-full select-none object-cover ${overlayObstacle ? "opacity-[0.82]" : ""}`}
+          style={overlayObstacle && cell.obstacle === "web" ? { mixBlendMode: "screen" } : undefined}
+        />
+      )}
+      <div className="pointer-events-none absolute inset-0 z-[4] bg-gradient-to-br from-white/8 via-transparent to-black/10" />
+      {special && (
+        <motion.div
+          className="pointer-events-none absolute inset-[1px] z-[5] rounded-[9px] border-2"
+          style={{ borderColor: special.color }}
+          animate={reducedMotion ? { opacity: 0.5 } : { opacity: [0.35, 0.85, 0.35] }}
+          transition={{ duration: 1.25, repeat: Infinity, ease: "easeInOut" }}
+        />
+      )}
+      {special && cell.special !== "color_bomb" && SpecialIcon && (
+        <motion.div
+          className="pointer-events-none absolute inset-0 z-[6] flex items-center justify-center"
+          animate={reducedMotion ? undefined : { scale: [0.92, 1.08, 0.92] }}
+          transition={{ duration: 1.15, repeat: Infinity, ease: "easeInOut" }}
+        >
+          <span className="flex h-[62%] w-[62%] items-center justify-center rounded-full border border-white/45 bg-black/60 shadow-[0_0_14px_rgba(183,140,255,.55)] backdrop-blur-[1px]">
+            <SpecialIcon
+              size={24}
+              strokeWidth={3.1}
+              color={special.color}
+              style={{ transform: special.rotate ? `rotate(${special.rotate}deg)` : undefined }}
+            />
+          </span>
+        </motion.div>
+      )}
+      {cell.special === "color_bomb" && (
+        <div className="pointer-events-none absolute inset-[6px] z-[6] rounded-full border-2 border-white/80 bg-[conic-gradient(#FFB800,#F64CFF,#00F0FF,#39FF14,#FF5C00,#FFB800)] opacity-80 shadow-[0_0_14px_rgba(246,76,255,.7)]" />
+      )}
       <AnimatePresence>
         {selected && (
           <motion.div
-            className="pointer-events-none absolute inset-[2px] rounded-[8px] border-2 border-white"
+            className="pointer-events-none absolute inset-[2px] z-[7] rounded-[8px] border-2 border-white"
             initial={{ opacity: 0, scale: 0.85 }}
-            animate={{ opacity: 0.95, scale: 1 }}
+            animate={{ opacity: 0.98, scale: 1 }}
             exit={{ opacity: 0, scale: 0.9 }}
           />
         )}
       </AnimatePresence>
-      {special && (
-        <motion.div
-          className="pointer-events-none absolute inset-0 rounded-[10px] border-2"
-          style={{ borderColor: special.color }}
-          animate={reducedMotion ? { opacity: 0.45 } : { opacity: [0.28, 0.72, 0.28], scale: [0.92, 1.06, 0.92] }}
-          transition={{ duration: 1.25, repeat: Infinity, ease: "easeInOut" }}
-        />
-      )}
-      <Icon
-        className="relative drop-shadow-[0_3px_3px_rgba(0,0,0,.72)]"
-        size={special ? 25 : obstacle ? 23 : 24}
-        strokeWidth={special ? 3.1 : 2.8}
-        color={color}
-        fill={!special && cell.symbol === "star" ? color : "none"}
-        style={{ transform: special?.rotate ? `rotate(${special.rotate}deg)` : undefined }}
-      />
-      {cell.special === "color_bomb" && (
-        <div className="pointer-events-none absolute inset-[7px] rounded-full border-2 border-white/70 bg-[conic-gradient(#FFB800,#F64CFF,#00F0FF,#39FF14,#FF5C00,#FFB800)] opacity-65" />
-      )}
       {obstacle && (
-        <div className="absolute bottom-0.5 right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-black/75 px-1 text-[8px] font-black text-white">
+        <div className="absolute bottom-0.5 right-0.5 z-[8] flex h-4 min-w-4 items-center justify-center rounded-full border border-white/25 bg-black/85 px-1 text-[8px] font-black text-white">
           {cell.obstacle_hits}
         </div>
       )}
@@ -516,7 +589,8 @@ function SpecialEffects({ effects = [] }) {
   return (
     <AnimatePresence>
       {effects.flatMap((effect, effectIndex) => {
-        if (effect.special === "rocket_row") {
+        const effectType = effect.special || effect.effect;
+        if (effectType === "rocket_row") {
           return (
             <motion.div
               key={`row-${effectIndex}`}
@@ -529,7 +603,7 @@ function SpecialEffects({ effects = [] }) {
             />
           );
         }
-        if (effect.special === "rocket_col") {
+        if (effectType === "rocket_col") {
           return (
             <motion.div
               key={`col-${effectIndex}`}
@@ -542,7 +616,7 @@ function SpecialEffects({ effects = [] }) {
             />
           );
         }
-        if (effect.special === "bomb") {
+        if (effectType === "bomb") {
           return (
             <motion.div
               key={`bomb-${effectIndex}`}
@@ -559,7 +633,7 @@ function SpecialEffects({ effects = [] }) {
             />
           );
         }
-        if (effect.special === "booster_rocket") {
+        if (effectType === "booster_rocket") {
           return (
             <motion.div key={`booster-rocket-${effectIndex}`} className="pointer-events-none absolute inset-0">
               <motion.div
@@ -575,7 +649,7 @@ function SpecialEffects({ effects = [] }) {
             </motion.div>
           );
         }
-        if (effect.special === "booster_hammer") {
+        if (effectType === "booster_hammer") {
           return (
             <motion.div
               key={`booster-hammer-${effectIndex}`}
@@ -588,6 +662,68 @@ function SpecialEffects({ effects = [] }) {
               initial={{ scale: 0.2, opacity: 1 }}
               animate={{ scale: 1.5, opacity: 0 }}
               transition={{ duration: 0.32, ease: "easeOut" }}
+            />
+          );
+        }
+        if (effectType === "crystal_burst") {
+          return (
+            <motion.div
+              key={`crystal-${effectIndex}`}
+              className="pointer-events-none absolute"
+              style={{
+                width: `${(3 / COLS) * 100}%`,
+                height: `${(3 / ROWS) * 100}%`,
+                left: `${((effect.col - 1) / COLS) * 100}%`,
+                top: `${((effect.row - 1) / ROWS) * 100}%`,
+              }}
+              initial={{ scale: 0.25, opacity: 1, rotate: -20 }}
+              animate={{ scale: 1.2, opacity: 0, rotate: 20 }}
+              transition={{ duration: 0.38, ease: "easeOut" }}
+            >
+              <div className="absolute left-1/2 top-0 h-full w-[5px] -translate-x-1/2 rounded-full bg-gradient-to-b from-transparent via-[#C084FC] to-transparent" />
+              <div className="absolute left-0 top-1/2 h-[5px] w-full -translate-y-1/2 rounded-full bg-gradient-to-r from-transparent via-[#C084FC] to-transparent" />
+            </motion.div>
+          );
+        }
+        if (effectType === "core_pulse" || effectType === "core_blast") {
+          const blast = effectType === "core_blast";
+          return (
+            <motion.div
+              key={`core-${effectIndex}`}
+              className="pointer-events-none absolute aspect-square rounded-full border-[5px] border-[#FF5C00] bg-[#FF5C00]/15"
+              style={{
+                width: `${((blast ? 3.2 : 1.8) / COLS) * 100}%`,
+                left: `${((effect.col - (blast ? 1.1 : 0.4)) / COLS) * 100}%`,
+                top: `${((effect.row - (blast ? 1.1 : 0.4)) / ROWS) * 100}%`,
+              }}
+              initial={{ scale: 0.15, opacity: 1 }}
+              animate={{ scale: 1.35, opacity: 0 }}
+              transition={{ duration: blast ? 0.48 : 0.34, ease: "easeOut" }}
+            />
+          );
+        }
+        if (effectType === "web_spread" || effectType === "slime_spread") {
+          const color = effectType === "web_spread" ? "#E4E4E7" : "#39FF14";
+          const fromX = ((effect.col + 0.5) / COLS) * 100;
+          const fromY = ((effect.row + 0.5) / ROWS) * 100;
+          const toX = ((effect.to_col + 0.5) / COLS) * 100;
+          const toY = ((effect.to_row + 0.5) / ROWS) * 100;
+          const dx = toX - fromX;
+          const dy = toY - fromY;
+          const angle = (Math.atan2(dy, dx) * 180) / Math.PI;
+          return (
+            <motion.div
+              key={`spread-${effectIndex}`}
+              className="pointer-events-none absolute h-[6px] origin-left rounded-full"
+              style={{
+                left: `${fromX}%`,
+                top: `${fromY}%`,
+                width: `${Math.sqrt(dx * dx + dy * dy)}%`,
+                background: color,
+              }}
+              initial={{ scaleX: 0, opacity: 0.9, rotate: angle }}
+              animate={{ scaleX: 1, opacity: 0, rotate: angle }}
+              transition={{ duration: 0.42, ease: "easeOut" }}
             />
           );
         }
@@ -639,6 +775,21 @@ export default function BonusMatch() {
   const [bossPrompt, setBossPrompt] = useState(null);
   const [activeBooster, setActiveBooster] = useState(null);
   const [buyingBooster, setBuyingBooster] = useState(null);
+
+  useEffect(() => {
+    const preloaded = BONUS_MATCH_ARTWORK.map((src) => {
+      const image = new Image();
+      image.decoding = "async";
+      image.src = src;
+      return image;
+    });
+    return () => {
+      preloaded.forEach((image) => {
+        image.onload = null;
+        image.onerror = null;
+      });
+    };
+  }, []);
 
   const applySessionState = async (rawSession, animation = null) => {
     const session = { ...rawSession, board: normalizeBoard(rawSession?.board) };
@@ -832,6 +983,7 @@ export default function BonusMatch() {
             created_specials: step.created_specials,
             activated_specials: step.activated_specials,
             obstacle_changes: step.obstacle_changes,
+            obstacle_events: step.obstacle_events,
           },
           {
             phase: "collapse",
@@ -903,13 +1055,32 @@ export default function BonusMatch() {
           if (pieceId) active.add(pieceId);
         });
         setActivatedIds(active);
-        setSpecialEffects(frame.activated_specials || []);
+        setSpecialEffects([
+          ...(frame.activated_specials || []),
+          ...(frame.obstacle_events || []),
+        ]);
         setRemovingIds(removed);
         setCombo(frame.combo || 1);
         setFlash(frame.combo > 1 ? `КОМБО ×${frame.combo}` : "");
 
         for (const created of frame.created_specials || []) {
           toast.success(SPECIAL_TOASTS[created.special] || "Бонусна фішка створена!");
+        }
+        const changes = frame.obstacle_changes || [];
+        if (changes.some((item) => item.effect === "crystal_burst")) {
+          toast.success("КРИСТАЛ ВИБУХНУВ!", { description: "Очищено сусідні клітинки" });
+        }
+        if (changes.some((item) => item.effect === "core_blast")) {
+          toast.success("ЯДРО ЗНИЩЕНО!", { description: "Вибух очищує область 3×3" });
+          setFlash("ЯДРО ЗНИЩЕНО!");
+        } else if (changes.some((item) => item.effect === "core_pulse")) {
+          setFlash("ІМПУЛЬС ЯДРА");
+        }
+        const crateReward = changes.find((item) => item.effect === "crate_reward");
+        if (crateReward) {
+          toast.success(
+            crateReward.replacement_symbol === "coin" ? "У ЯЩИКУ БУЛА МОНЕТА!" : "ЯЩИК ВІДКРИТО!",
+          );
         }
 
         const burstColor = (frame.activated_specials || []).some((item) => item.special === "bomb")
@@ -955,6 +1126,23 @@ export default function BonusMatch() {
         setDisplayBoard(normalizeBoard(frame.board));
         await wait(reducedMotion ? 60 : Number(frame.duration_ms || 430));
         setSpawnedIds(new Set());
+        continue;
+      }
+
+      if (frame.phase === "obstacle" && frame.board) {
+        const events = frame.events || [];
+        setSpecialEffects(events);
+        setDisplayBoard(normalizeBoard(frame.board));
+        if (events.some((item) => item.effect === "slime_spread")) {
+          setFlash("СЛИЗ ПОШИРИВСЯ");
+          toast.info("Слиз зайняв сусідню клітинку");
+        } else if (events.some((item) => item.effect === "web_spread")) {
+          setFlash("ПАВУТИНА РОЗРОСЛАСЯ");
+          toast.info("Павутина обплутала сусідню фішку");
+        }
+        await wait(reducedMotion ? 70 : Number(frame.duration_ms || 420));
+        setSpecialEffects([]);
+        setFlash("");
         continue;
       }
 
@@ -1153,7 +1341,12 @@ export default function BonusMatch() {
       return;
     }
     if (!cell || cell.obstacle) {
-      if (cell?.obstacle) toast.info(`${OBSTACLE_NAMES[cell.obstacle] || "Перешкода"}: зруйнуй її збігами поруч`);
+      if (cell?.obstacle) {
+        toast.info(
+          OBSTACLE_HELP[cell.obstacle]
+          || `${OBSTACLE_NAMES[cell.obstacle] || "Перешкода"}: зруйнуй її збігами поруч`,
+        );
+      }
       return;
     }
     if (!selected) {

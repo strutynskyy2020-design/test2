@@ -2437,6 +2437,23 @@ BONUS_MATCH_OBSTACLE_HITS = {
     "ice": 2, "chain": 2, "crate": 2, "stone": 3, "crystal": 2,
     "web": 1, "shield": 3, "slime": 2, "metal": 3, "core": 4,
 }
+# Chain and web are overlays: they hold a real symbol in place, so the symbol
+# can participate in a match even though the cell itself cannot be swapped or
+# moved by gravity. The other obstacle types occupy the whole cell.
+BONUS_MATCH_OVERLAY_OBSTACLES = {"chain", "web"}
+BONUS_MATCH_BLOCKING_OBSTACLES = set(BONUS_MATCH_OBSTACLE_HITS) - BONUS_MATCH_OVERLAY_OBSTACLES
+BONUS_MATCH_OBSTACLE_SCORE = {
+    "ice": {"hit": 70, "destroy": 180},
+    "chain": {"hit": 80, "destroy": 220},
+    "crate": {"hit": 70, "destroy": 260},
+    "stone": {"hit": 80, "destroy": 260},
+    "crystal": {"hit": 100, "destroy": 520},
+    "web": {"hit": 0, "destroy": 190},
+    "shield": {"hit": 100, "destroy": 360},
+    "slime": {"hit": 90, "destroy": 280},
+    "metal": {"hit": 130, "destroy": 460},
+    "core": {"hit": 180, "destroy": 1400},
+}
 BONUS_MATCH_SPECIAL_SCORE = {
     "rocket_row": 450, "rocket_col": 450, "bomb": 700, "color_bomb": 1100,
 }
@@ -2494,16 +2511,25 @@ def _bonus_match_new_cell(
     special: Optional[str] = None,
     obstacle: Optional[str] = None,
     obstacle_hits: Optional[int] = None,
+    obstacle_age: int = 0,
+    cell_id: Optional[str] = None,
 ) -> dict:
+    obstacle = obstacle if obstacle in BONUS_MATCH_OBSTACLE_HITS else None
+    if obstacle in BONUS_MATCH_BLOCKING_OBSTACLES:
+        symbol = None
+        special = None
+    elif obstacle in BONUS_MATCH_OVERLAY_OBSTACLES:
+        special = None
     return {
-        "id": uuid.uuid4().hex[:14],
+        "id": str(cell_id or uuid.uuid4().hex[:14]),
         "symbol": symbol if symbol in BONUS_MATCH_SYMBOLS else None,
         "special": special if special in BONUS_MATCH_SPECIALS else None,
-        "obstacle": obstacle if obstacle in BONUS_MATCH_OBSTACLE_HITS else None,
+        "obstacle": obstacle,
         "obstacle_hits": int(
             obstacle_hits if obstacle_hits is not None
             else BONUS_MATCH_OBSTACLE_HITS.get(obstacle, 0)
         ),
+        "obstacle_age": max(0, int(obstacle_age or 0)),
     }
 
 
@@ -2517,24 +2543,28 @@ def _bonus_match_normalize_cell(value) -> Optional[dict]:
     symbol = value.get("symbol")
     special = value.get("special")
     obstacle = value.get("obstacle")
-    cell = {
-        "id": str(value.get("id") or uuid.uuid4().hex[:14]),
-        "symbol": symbol if symbol in BONUS_MATCH_SYMBOLS else None,
-        "special": special if special in BONUS_MATCH_SPECIALS else None,
-        "obstacle": obstacle if obstacle in BONUS_MATCH_OBSTACLE_HITS else None,
-        "obstacle_hits": max(
+    obstacle = obstacle if obstacle in BONUS_MATCH_OBSTACLE_HITS else None
+    cell_id = str(value.get("id") or uuid.uuid4().hex[:14])
+    if obstacle in BONUS_MATCH_OVERLAY_OBSTACLES and symbol not in BONUS_MATCH_SYMBOLS:
+        # Old sessions stored every obstacle as a symbol-less block. Give old
+        # chain/web cells a deterministic held piece so saved games remain valid.
+        symbol = BONUS_MATCH_SYMBOLS[sum(ord(char) for char in cell_id) % len(BONUS_MATCH_SYMBOLS)]
+    cell = _bonus_match_new_cell(
+        symbol=symbol,
+        special=special,
+        obstacle=obstacle,
+        obstacle_hits=max(
             0,
             int(value.get(
                 "obstacle_hits",
                 BONUS_MATCH_OBSTACLE_HITS.get(obstacle, 0),
             ) or 0),
         ),
-    }
-    if cell["obstacle"]:
-        cell["symbol"] = None
-        cell["special"] = None
-        if cell["obstacle_hits"] <= 0:
-            cell["obstacle_hits"] = BONUS_MATCH_OBSTACLE_HITS[cell["obstacle"]]
+        obstacle_age=max(0, int(value.get("obstacle_age", 0) or 0)),
+        cell_id=cell_id,
+    )
+    if cell["obstacle"] and cell["obstacle_hits"] <= 0:
+        cell["obstacle_hits"] = BONUS_MATCH_OBSTACLE_HITS[cell["obstacle"]]
     return cell
 
 
@@ -2570,10 +2600,40 @@ def _bonus_match_clone_board(board) -> list[list[Optional[dict]]]:
 
 
 def _bonus_match_cell_symbol(cell: Optional[dict]) -> Optional[str]:
-    if not cell or cell.get("obstacle") or cell.get("special") == "color_bomb":
+    if not cell or cell.get("special") == "color_bomb":
+        return None
+    obstacle = cell.get("obstacle")
+    if obstacle and obstacle not in BONUS_MATCH_OVERLAY_OBSTACLES:
         return None
     symbol = cell.get("symbol")
     return symbol if symbol in BONUS_MATCH_SYMBOLS else None
+
+
+def _bonus_match_apply_obstacle(
+    board: list[list[Optional[dict]]],
+    row: int,
+    col: int,
+    obstacle: str,
+    hits: Optional[int] = None,
+) -> dict:
+    """Place a blocking obstacle or wrap the existing symbol in an overlay."""
+    if obstacle in BONUS_MATCH_OVERLAY_OBSTACLES:
+        current = _bonus_match_normalize_cell(board[row][col])
+        if not current or not _bonus_match_cell_symbol(current):
+            current = _bonus_match_new_cell(symbol=BONUS_MATCH_SYMBOLS[(row * 3 + col * 5) % len(BONUS_MATCH_SYMBOLS)])
+        current["special"] = None
+        current["obstacle"] = obstacle
+        current["obstacle_hits"] = max(1, int(hits or BONUS_MATCH_OBSTACLE_HITS[obstacle]))
+        current["obstacle_age"] = 0
+        board[row][col] = current
+        return current
+    cell = _bonus_match_new_cell(
+        obstacle=obstacle,
+        obstacle_hits=hits,
+        obstacle_age=0,
+    )
+    board[row][col] = cell
+    return cell
 
 
 def _bonus_match_cell_swappable(cell: Optional[dict]) -> bool:
@@ -3006,9 +3066,12 @@ def _bonus_match_make_board(
         last_board = board
         if manual_layout:
             for item in manual_layout:
-                board[item["row"]][item["col"]] = _bonus_match_new_cell(
-                    obstacle=item["obstacle"],
-                    obstacle_hits=item["hits"],
+                _bonus_match_apply_obstacle(
+                    board,
+                    item["row"],
+                    item["col"],
+                    item["obstacle"],
+                    item["hits"],
                 )
         else:
             obstacle_types = [
@@ -3029,7 +3092,7 @@ def _bonus_match_make_board(
                         obstacle = newest
                     else:
                         obstacle = _random.choice(obstacle_types)
-                    board[row][col] = _bonus_match_new_cell(obstacle=obstacle)
+                    _bonus_match_apply_obstacle(board, row, col, obstacle)
         if not _bonus_match_find_matches(board) and _bonus_match_has_move(board):
             return board
     return last_board if manual_layout and last_board else _bonus_match_make_plain_board()
@@ -3137,6 +3200,8 @@ def _bonus_match_animation_frames(
     steps: list[dict],
     final_board: list[list[Optional[dict]]],
     reshuffled: bool = False,
+    obstacle_events: Optional[list[dict]] = None,
+    obstacle_board: Optional[list[list[Optional[dict]]]] = None,
 ) -> list[dict]:
     """Build deterministic animation frames from the authoritative server state.
 
@@ -3174,6 +3239,7 @@ def _bonus_match_animation_frames(
             "created_specials": step.get("created_specials", []),
             "activated_specials": step.get("activated_specials", []),
             "obstacle_changes": step.get("obstacle_changes", []),
+            "obstacle_events": step.get("obstacle_events", []),
         })
         frames.append({
             "phase": "collapse",
@@ -3188,6 +3254,14 @@ def _bonus_match_animation_frames(
                 for item in step.get("spawned", [])
                 if item.get("id")
             ],
+        })
+
+    if obstacle_events:
+        frames.append({
+            "phase": "obstacle",
+            "duration_ms": 420,
+            "board": _bonus_match_clone_board(obstacle_board or final_board),
+            "events": obstacle_events,
         })
 
     if reshuffled:
@@ -3249,6 +3323,7 @@ def _bonus_match_expand_specials(
     initial_triggers: set[tuple[int, int]],
     protected: set[tuple[int, int]],
     color_symbol: Optional[str] = None,
+    already_seen: Optional[set[tuple[int, int]]] = None,
 ) -> tuple[set[tuple[int, int]], list[dict]]:
     rows = len(board)
     cols = len(board[0]) if rows else 0
@@ -3272,7 +3347,7 @@ def _bonus_match_expand_specials(
                     queue.append((current_row, current_col))
 
     activated: list[dict] = []
-    seen: set[tuple[int, int]] = set()
+    seen: set[tuple[int, int]] = set(already_seen or set())
     while queue:
         row, col = queue.pop(0)
         if (row, col) in seen or (row, col) in protected:
@@ -3312,50 +3387,338 @@ def _bonus_match_expand_specials(
     return clear_cells, activated
 
 
+def _bonus_match_nearby_cells(
+    row: int,
+    col: int,
+    include_self: bool = True,
+) -> set[tuple[int, int]]:
+    cells = {
+        (row - 1, col),
+        (row + 1, col),
+        (row, col - 1),
+        (row, col + 1),
+    }
+    if include_self:
+        cells.add((row, col))
+    return {
+        (current_row, current_col)
+        for current_row, current_col in cells
+        if 0 <= current_row < BONUS_MATCH_ROWS
+        and 0 <= current_col < BONUS_MATCH_COLS
+    }
+
+
+def _bonus_match_special_impact_cells(activated_specials: list[dict]) -> set[tuple[int, int]]:
+    targets: set[tuple[int, int]] = set()
+    for item in activated_specials or []:
+        for target in item.get("targets", []) or []:
+            try:
+                row = int(target.get("row"))
+                col = int(target.get("col"))
+            except (TypeError, ValueError, AttributeError):
+                continue
+            if 0 <= row < BONUS_MATCH_ROWS and 0 <= col < BONUS_MATCH_COLS:
+                targets.add((row, col))
+    return targets
+
+
+def _bonus_match_strong_match_cells(groups: list[dict]) -> set[tuple[int, int]]:
+    strong: set[tuple[int, int]] = set()
+    for group in groups or []:
+        for run in group.get("runs", []) or []:
+            if len(run.get("cells", set())) >= 4:
+                strong.update(run["cells"])
+    return strong
+
+
+def _bonus_match_resolve_obstacles(
+    board: list[list[Optional[dict]]],
+    clear_cells: set[tuple[int, int]],
+    matched_cells: Optional[set[tuple[int, int]]] = None,
+    special_targets: Optional[set[tuple[int, int]]] = None,
+    strong_match_cells: Optional[set[tuple[int, int]]] = None,
+    booster: Optional[str] = None,
+    already_damaged: Optional[set[tuple[int, int]]] = None,
+) -> dict:
+    """Apply the distinct mechanics of all ten Bonus Match obstacles.
+
+    The helper mutates ``board`` and extends ``clear_cells`` with crystal/core
+    blast targets. One obstacle can lose health only once per cascade step,
+    even when several effects overlap it.
+    """
+    import random as _random
+
+    clear_cells = set(clear_cells or set())
+    matched_cells = set(matched_cells or set())
+    special_targets = set(special_targets or set())
+    strong_match_cells = set(strong_match_cells or set())
+    damaged = already_damaged if already_damaged is not None else set()
+    protected_clear: set[tuple[int, int]] = set()
+    changes: list[dict] = []
+    events: list[dict] = []
+    created_cells: list[dict] = []
+    score_gain = 0
+
+    for _ in range(6):
+        blast_targets: set[tuple[int, int]] = set()
+        did_damage = False
+        for row in range(BONUS_MATCH_ROWS):
+            for col in range(BONUS_MATCH_COLS):
+                coord = (row, col)
+                cell = board[row][col]
+                obstacle = cell.get("obstacle") if cell else None
+                if obstacle not in BONUS_MATCH_OBSTACLE_HITS or coord in damaged:
+                    continue
+
+                nearby = _bonus_match_nearby_cells(row, col, include_self=False)
+                direct_clear = coord in clear_cells
+                adjacent_clear = bool(nearby & clear_cells)
+                direct_match = coord in matched_cells
+                direct_special = coord in special_targets
+                special_hit = direct_special or bool(nearby & special_targets)
+                strong_hit = coord in strong_match_cells or bool(nearby & strong_match_cells)
+                if booster == "hammer":
+                    booster_hit = direct_clear
+                else:
+                    booster_hit = bool(booster) and (direct_clear or adjacent_clear)
+
+                damage = 0
+                if obstacle == "ice":
+                    damage = 1 if direct_clear or adjacent_clear else 0
+                elif obstacle in {"chain", "web"}:
+                    damage = 1 if direct_match or direct_special or (booster == "hammer" and direct_clear) else 0
+                elif obstacle in {"crate", "stone", "crystal", "slime"}:
+                    damage = 1 if direct_clear or adjacent_clear else 0
+                elif obstacle == "shield":
+                    if direct_clear or adjacent_clear:
+                        damage = 2 if special_hit or booster_hit else 1
+                elif obstacle == "metal":
+                    damage = 1 if special_hit or booster_hit else 0
+                elif obstacle == "core":
+                    damage = 1 if special_hit or booster_hit or strong_hit else 0
+
+                # An overlay can be part of a match, but its held piece remains
+                # until the chain/web layer has actually been removed.
+                if obstacle in BONUS_MATCH_OVERLAY_OBSTACLES and direct_clear and not damage:
+                    protected_clear.add(coord)
+                if damage <= 0:
+                    continue
+
+                did_damage = True
+                damaged.add(coord)
+                previous = max(1, int(cell.get("obstacle_hits", 1) or 1))
+                if booster == "hammer" and direct_clear:
+                    damage = previous
+                remaining = max(0, previous - damage)
+                destroyed = remaining <= 0
+                cell["obstacle_age"] = 0
+
+                change = {
+                    "row": row,
+                    "col": col,
+                    "obstacle": obstacle,
+                    "before": previous,
+                    "after": remaining,
+                    "damage": min(previous, damage),
+                    "destroyed": destroyed,
+                    "effect": None,
+                    "score_gain": 0,
+                }
+
+                reward = BONUS_MATCH_OBSTACLE_SCORE.get(obstacle, {"hit": 70, "destroy": 180})
+                obstacle_score = int(reward["destroy"] if destroyed else reward["hit"])
+
+                if destroyed:
+                    if obstacle in BONUS_MATCH_OVERLAY_OBSTACLES:
+                        cell["obstacle"] = None
+                        cell["obstacle_hits"] = 0
+                        cell["obstacle_age"] = 0
+                        if booster == "hammer":
+                            protected_clear.add(coord)
+                    elif obstacle == "crate":
+                        replacement_symbol = "coin" if _random.random() < 0.55 else _random.choice(BONUS_MATCH_SYMBOLS)
+                        replacement = _bonus_match_new_cell(symbol=replacement_symbol)
+                        board[row][col] = replacement
+                        protected_clear.add(coord)
+                        change["replacement_symbol"] = replacement_symbol
+                        change["replacement_id"] = replacement["id"]
+                        change["effect"] = "crate_reward"
+                        created_cells.append({"row": row, "col": col, "id": replacement["id"]})
+                    else:
+                        board[row][col] = None
+
+                    if obstacle == "crystal":
+                        targets = _bonus_match_nearby_cells(row, col, include_self=False)
+                        blast_targets.update(targets)
+                        change["effect"] = "crystal_burst"
+                        change["targets"] = [
+                            {"row": target_row, "col": target_col}
+                            for target_row, target_col in sorted(targets)
+                        ]
+                        events.append({
+                            "effect": "crystal_burst",
+                            "row": row,
+                            "col": col,
+                            "targets": change["targets"],
+                        })
+                    elif obstacle == "core":
+                        targets = {
+                            (target_row, target_col)
+                            for target_row in range(max(0, row - 1), min(BONUS_MATCH_ROWS, row + 2))
+                            for target_col in range(max(0, col - 1), min(BONUS_MATCH_COLS, col + 2))
+                            if (target_row, target_col) != coord
+                        }
+                        blast_targets.update(targets)
+                        change["effect"] = "core_blast"
+                        change["targets"] = [
+                            {"row": target_row, "col": target_col}
+                            for target_row, target_col in sorted(targets)
+                        ]
+                        events.append({
+                            "effect": "core_blast",
+                            "row": row,
+                            "col": col,
+                            "targets": change["targets"],
+                        })
+                else:
+                    cell["obstacle_hits"] = remaining
+                    if obstacle in BONUS_MATCH_OVERLAY_OBSTACLES:
+                        protected_clear.add(coord)
+                    if obstacle == "core":
+                        change["effect"] = "core_pulse"
+                        events.append({
+                            "effect": "core_pulse",
+                            "row": row,
+                            "col": col,
+                            "targets": [
+                                {"row": target_row, "col": target_col}
+                                for target_row, target_col in sorted(_bonus_match_nearby_cells(row, col))
+                            ],
+                        })
+
+                change["score_gain"] = obstacle_score
+                score_gain += obstacle_score
+                changes.append(change)
+
+        if blast_targets:
+            new_targets = blast_targets - clear_cells
+            clear_cells.update(blast_targets)
+            special_targets.update(blast_targets)
+            if new_targets:
+                continue
+        if not did_damage:
+            break
+        # No new blast means this damage pass is complete.
+        break
+
+    return {
+        "clear_cells": clear_cells,
+        "protected_clear": protected_clear,
+        "changes": changes,
+        "events": events,
+        "created_cells": created_cells,
+        "score_gain": score_gain,
+        "damaged_coords": damaged,
+    }
+
+
 def _bonus_match_damage_obstacles(
     board,
     impact_cells: set[tuple[int, int]],
 ) -> list[dict]:
-    rows = len(board)
-    cols = len(board[0]) if rows else 0
-    affected: set[tuple[int, int]] = set()
+    """Backward-compatible generic obstacle damage used by older tests."""
+    result = _bonus_match_resolve_obstacles(
+        board,
+        set(impact_cells),
+        matched_cells=set(impact_cells),
+    )
+    return result["changes"]
 
-    for row, col in impact_cells:
-        for current_row, current_col in (
-            (row, col),
-            (row - 1, col),
-            (row + 1, col),
-            (row, col - 1),
-            (row, col + 1),
-        ):
-            if (
-                0 <= current_row < rows
-                and 0 <= current_col < cols
-            ):
-                affected.add((current_row, current_col))
 
-    changes: list[dict] = []
-    for row, col in affected:
-        cell = board[row][col]
-        if not cell or not cell.get("obstacle"):
+def _bonus_match_advance_obstacles(
+    board: list[list[Optional[dict]]],
+    damage_changes: list[dict],
+) -> tuple[list[list[Optional[dict]]], list[dict]]:
+    """Advance web/slime behaviour after one consumed player move."""
+    import random as _random
+
+    board = _bonus_match_clone_board(board)
+    damaged_coords = {
+        (int(item.get("row", -1)), int(item.get("col", -1)))
+        for item in damage_changes or []
+    }
+    damaged_types = {str(item.get("obstacle")) for item in damage_changes or []}
+    events: list[dict] = []
+
+    # Webs remember quiet turns independently. After two untouched moves one
+    # web can spread to a neighbouring ordinary piece.
+    ready_webs: list[tuple[int, int]] = []
+    for row in range(BONUS_MATCH_ROWS):
+        for col in range(BONUS_MATCH_COLS):
+            cell = board[row][col]
+            if not cell or cell.get("obstacle") != "web":
+                continue
+            if (row, col) in damaged_coords:
+                cell["obstacle_age"] = 0
+            else:
+                cell["obstacle_age"] = int(cell.get("obstacle_age", 0) or 0) + 1
+            if cell["obstacle_age"] >= 2:
+                ready_webs.append((row, col))
+
+    _random.shuffle(ready_webs)
+    for row, col in ready_webs:
+        candidates = []
+        for target_row, target_col in _bonus_match_nearby_cells(row, col, include_self=False):
+            target = board[target_row][target_col]
+            if target and not target.get("obstacle") and not target.get("special") and _bonus_match_cell_symbol(target):
+                candidates.append((target_row, target_col))
+        if not candidates:
             continue
-        previous = int(cell.get("obstacle_hits", 1))
-        remaining = max(0, previous - 1)
-        obstacle = cell.get("obstacle")
-        destroyed = remaining <= 0
-        changes.append({
+        target_row, target_col = _random.choice(candidates)
+        target = _bonus_match_apply_obstacle(board, target_row, target_col, "web")
+        board[row][col]["obstacle_age"] = 0
+        events.append({
+            "effect": "web_spread",
             "row": row,
             "col": col,
-            "obstacle": obstacle,
-            "before": previous,
-            "after": remaining,
-            "destroyed": destroyed,
+            "to_row": target_row,
+            "to_col": target_col,
+            "id": target.get("id"),
         })
-        if destroyed:
-            board[row][col] = None
-        else:
-            cell["obstacle_hits"] = remaining
-    return changes
+        break
+
+    # Slime grows once per untouched move. It consumes a neighbouring ordinary
+    # piece and becomes a new two-hit blocking cell.
+    if "slime" not in damaged_types:
+        slime_sources = [
+            (row, col)
+            for row in range(BONUS_MATCH_ROWS)
+            for col in range(BONUS_MATCH_COLS)
+            if board[row][col] and board[row][col].get("obstacle") == "slime"
+        ]
+        _random.shuffle(slime_sources)
+        for row, col in slime_sources:
+            candidates = []
+            for target_row, target_col in _bonus_match_nearby_cells(row, col, include_self=False):
+                target = board[target_row][target_col]
+                if target and not target.get("obstacle") and not target.get("special") and _bonus_match_cell_symbol(target):
+                    candidates.append((target_row, target_col, target.get("id")))
+            if not candidates:
+                continue
+            target_row, target_col, removed_id = _random.choice(candidates)
+            slime = _bonus_match_apply_obstacle(board, target_row, target_col, "slime")
+            events.append({
+                "effect": "slime_spread",
+                "row": row,
+                "col": col,
+                "to_row": target_row,
+                "to_col": target_col,
+                "removed_id": removed_id,
+                "id": slime.get("id"),
+            })
+            break
+
+    return board, events
 
 
 def _bonus_match_parse_iso(value: Optional[str]) -> datetime:
@@ -3801,6 +4164,18 @@ async def admin_bonus_match_levels(admin: dict = Depends(get_current_admin)):
                     "stone": "Камінь", "crystal": "Кристал", "web": "Павутина",
                     "shield": "Щит", "slime": "Слиз", "metal": "Метал", "core": "Ядро",
                 }.get(key, key),
+                "description": {
+                    "ice": "2 удари збігами поруч або спецфішкою",
+                    "chain": "Утримує фішку; фішка входить у збіги, але не рухається",
+                    "crate": "2 удари; після руйнування відкриває нову фішку або монету",
+                    "stone": "Нерухомий блок на 3 удари",
+                    "crystal": "Після руйнування очищує чотири сусідні клітинки",
+                    "web": "Знімається збігом із фішкою; через 2 тихі ходи поширюється",
+                    "shield": "3 шари; спецфішка або бустер знімає одразу 2",
+                    "slime": "Поширюється на сусідню клітинку, якщо за хід не отримав шкоди",
+                    "metal": "Пошкоджується лише спецфішками та бустерами",
+                    "core": "4 удари спецфішками або комбінаціями 4+; вибух 3×3",
+                }.get(key, ""),
             }
             for key, hits in BONUS_MATCH_OBSTACLE_HITS.items()
         ],
@@ -3895,13 +4270,59 @@ def _bonus_match_followup_cascades(
                         "row": anchor[0], "col": anchor[1], "special": special,
                         "symbol": cell.get("symbol"), "id": cell.get("id"),
                     })
+
+        board_before_clear = _bonus_match_clone_board(board)
         clear_cells = set(matched_cells) - protected
         clear_cells, activated_specials = _bonus_match_expand_specials(
             board, clear_cells, set(), protected, None,
         )
+        seen_specials = {
+            (int(item.get("row", -1)), int(item.get("col", -1)))
+            for item in activated_specials
+        }
+        damaged_coords: set[tuple[int, int]] = set()
+        obstacle_changes: list[dict] = []
+        obstacle_events: list[dict] = []
+        obstacle_score = 0
+        created_obstacle_cells: list[dict] = []
+
+        for _ in range(5):
+            special_targets = _bonus_match_special_impact_cells(activated_specials)
+            obstacle_result = _bonus_match_resolve_obstacles(
+                board,
+                clear_cells,
+                matched_cells=matched_cells,
+                special_targets=special_targets,
+                strong_match_cells=_bonus_match_strong_match_cells(groups),
+                already_damaged=damaged_coords,
+            )
+            clear_cells = set(obstacle_result["clear_cells"])
+            clear_cells.difference_update(obstacle_result["protected_clear"])
+            obstacle_changes.extend(obstacle_result["changes"])
+            obstacle_events.extend(obstacle_result["events"])
+            created_obstacle_cells.extend(obstacle_result["created_cells"])
+            obstacle_score += int(obstacle_result["score_gain"])
+
+            before_count = len(activated_specials)
+            clear_cells, newly_activated = _bonus_match_expand_specials(
+                board,
+                clear_cells,
+                set(),
+                protected,
+                None,
+                already_seen=seen_specials,
+            )
+            activated_specials.extend(newly_activated)
+            seen_specials.update(
+                (int(item.get("row", -1)), int(item.get("col", -1)))
+                for item in newly_activated
+            )
+            if len(activated_specials) == before_count:
+                break
+
         if not clear_cells and not created_specials:
             break
-        board_before_clear = _bonus_match_clone_board(board)
+
         coins_this_step = 0
         symbol_cells_cleared = 0
         for row, col in clear_cells:
@@ -3911,25 +4332,36 @@ def _bonus_match_followup_cascades(
                     coins_this_step += 1
                 if cell.get("symbol") or cell.get("special"):
                     symbol_cells_cleared += 1
-        obstacle_changes = _bonus_match_damage_obstacles(board, clear_cells)
+
         for row, col in clear_cells:
             if (row, col) in protected:
                 continue
             cell = board[row][col]
             if cell and not cell.get("obstacle"):
                 board[row][col] = None
+
         special_bonus = sum(BONUS_MATCH_SPECIAL_SCORE.get(item["special"], 0) for item in activated_specials)
         long_match_bonus = sum(
             max(0, len(run["cells"]) - 3) * 120
             for group in groups for run in group["runs"]
         )
-        obstacle_bonus = sum(180 if item["destroyed"] else 70 for item in obstacle_changes)
-        base_score = symbol_cells_cleared * 100 + special_bonus + long_match_bonus + obstacle_bonus
+        base_score = symbol_cells_cleared * 100 + special_bonus + long_match_bonus + obstacle_score
         step_score = int(base_score * (1 + (combo - 1) * 0.25))
         score_gain += step_score
         coins_gain += coins_this_step
         board_after_clear = _bonus_match_clone_board(board)
         board, spawned = _bonus_match_collapse(board)
+
+        # Crates can reveal a new piece. Mark it as spawned at its final position
+        # so the frontend gives it the same entrance animation as refill pieces.
+        created_ids = {item.get("id") for item in created_obstacle_cells if item.get("id")}
+        if created_ids:
+            for row in range(BONUS_MATCH_ROWS):
+                for col in range(BONUS_MATCH_COLS):
+                    cell = board[row][col]
+                    if cell and cell.get("id") in created_ids:
+                        spawned.append({"row": row, "col": col, "id": cell["id"]})
+
         steps.append({
             "combo": combo,
             "score_gain": step_score,
@@ -3939,6 +4371,7 @@ def _bonus_match_followup_cascades(
             "created_specials": created_specials,
             "activated_specials": activated_specials,
             "obstacle_changes": obstacle_changes,
+            "obstacle_events": obstacle_events,
             "board_before_clear": board_before_clear,
             "board_after_clear": board_after_clear,
             "board_after_collapse": _bonus_match_clone_board(board),
@@ -4037,25 +4470,13 @@ async def bonus_match_use_booster(
         if not target_cell:
             raise HTTPException(status_code=400, detail="Клітинка порожня")
 
-        clear_cells: set[tuple[int, int]] = set()
-        activated_specials: list[dict] = []
-        obstacle_changes: list[dict] = []
-        effect_name = f"booster_{booster}"
-
         if booster == "hammer":
-            if target_cell.get("obstacle"):
-                obstacle_changes.append({
-                    "row": row, "col": col, "obstacle": target_cell.get("obstacle"),
-                    "before": int(target_cell.get("obstacle_hits", 1)), "after": 0, "destroyed": True,
-                })
-                board[row][col] = None
-            else:
-                clear_cells.add((row, col))
+            clear_cells: set[tuple[int, int]] = {(row, col)}
         elif booster == "rocket":
             clear_cells = {(row, current_col) for current_col in range(BONUS_MATCH_COLS)} | {
                 (current_row, col) for current_row in range(BONUS_MATCH_ROWS)
             }
-        elif booster == "color_bomb":
+        else:
             symbol = _bonus_match_cell_symbol(target_cell)
             if not symbol:
                 raise HTTPException(status_code=400, detail="Джокер потрібно застосувати до звичайної фішки")
@@ -4066,13 +4487,63 @@ async def bonus_match_use_booster(
                 if _bonus_match_cell_symbol(cell) == symbol
             }
 
-        if clear_cells:
-            clear_cells, chained = _bonus_match_expand_specials(board, clear_cells, set(), set(), None)
-            activated_specials.extend(chained)
-            obstacle_changes.extend(_bonus_match_damage_obstacles(board, clear_cells))
+        effect_name = f"booster_{booster}"
+        clear_cells, chained = _bonus_match_expand_specials(
+            board, clear_cells, set(), set(), None,
+        )
+        activated_specials: list[dict] = list(chained)
+        seen_specials = {
+            (int(item.get("row", -1)), int(item.get("col", -1)))
+            for item in activated_specials
+        }
+        damaged_coords: set[tuple[int, int]] = set()
+        obstacle_changes: list[dict] = []
+        obstacle_events: list[dict] = []
+        obstacle_score = 0
+        created_obstacle_cells: list[dict] = []
+
+        for _ in range(5):
+            obstacle_result = _bonus_match_resolve_obstacles(
+                board,
+                clear_cells,
+                matched_cells=set(),
+                special_targets=_bonus_match_special_impact_cells(activated_specials),
+                strong_match_cells=set(),
+                booster=booster,
+                already_damaged=damaged_coords,
+            )
+            clear_cells = set(obstacle_result["clear_cells"])
+            clear_cells.difference_update(obstacle_result["protected_clear"])
+            obstacle_changes.extend(obstacle_result["changes"])
+            obstacle_events.extend(obstacle_result["events"])
+            created_obstacle_cells.extend(obstacle_result["created_cells"])
+            obstacle_score += int(obstacle_result["score_gain"])
+
+            before_count = len(activated_specials)
+            clear_cells, newly_activated = _bonus_match_expand_specials(
+                board,
+                clear_cells,
+                set(),
+                set(),
+                None,
+                already_seen=seen_specials,
+            )
+            activated_specials.extend(newly_activated)
+            seen_specials.update(
+                (int(item.get("row", -1)), int(item.get("col", -1)))
+                for item in newly_activated
+            )
+            if len(activated_specials) == before_count:
+                break
+
         activated_specials.insert(0, {
-            "row": row, "col": col, "special": effect_name,
-            "targets": [{"row": target_row, "col": target_col} for target_row, target_col in sorted(clear_cells)],
+            "row": row,
+            "col": col,
+            "special": effect_name,
+            "targets": [
+                {"row": target_row, "col": target_col}
+                for target_row, target_col in sorted(clear_cells)
+            ],
         })
 
         board_before_clear = _bonus_match_clone_board(original_board)
@@ -4086,6 +4557,7 @@ async def bonus_match_use_booster(
                 if cell.get("symbol") or cell.get("special"):
                     symbols_cleared += 1
                 board[target_row][target_col] = None
+
         visual_clear_cells = {
             (current_row, current_col)
             for current_row in range(BONUS_MATCH_ROWS)
@@ -4094,21 +4566,34 @@ async def bonus_match_use_booster(
             and board[current_row][current_col] is None
         }
         base_score = BONUS_MATCH_BOOSTERS[booster]["score"] + symbols_cleared * 100
-        base_score += sum(180 if item.get("destroyed") else 70 for item in obstacle_changes)
+        base_score += obstacle_score
         base_score += sum(BONUS_MATCH_SPECIAL_SCORE.get(item.get("special"), 0) for item in activated_specials)
         score_gain += base_score
         coins_gain += coins_this_step
         board_after_clear = _bonus_match_clone_board(board)
         board, spawned = _bonus_match_collapse(board)
+
+        created_ids = {item.get("id") for item in created_obstacle_cells if item.get("id")}
+        if created_ids:
+            for current_row in range(BONUS_MATCH_ROWS):
+                for current_col in range(BONUS_MATCH_COLS):
+                    cell = board[current_row][current_col]
+                    if cell and cell.get("id") in created_ids:
+                        spawned.append({"row": current_row, "col": current_col, "id": cell["id"]})
+
         steps.append({
             "combo": 1,
             "score_gain": base_score,
             "coins_gain": coins_this_step,
             "matched_cells": [],
-            "cleared_cells": [{"row": target_row, "col": target_col} for target_row, target_col in sorted(visual_clear_cells)],
+            "cleared_cells": [
+                {"row": target_row, "col": target_col}
+                for target_row, target_col in sorted(visual_clear_cells)
+            ],
             "created_specials": [],
             "activated_specials": activated_specials,
             "obstacle_changes": obstacle_changes,
+            "obstacle_events": obstacle_events,
             "board_before_clear": board_before_clear,
             "board_after_clear": board_after_clear,
             "board_after_collapse": _bonus_match_clone_board(board),
@@ -4634,6 +5119,7 @@ async def bonus_match_move(
     animation_steps: list[dict] = []
     preferred = [second_coord, first_coord]
 
+    turn_obstacle_changes: list[dict] = []
     while (
         groups or direct_triggers
     ) and cascade_count < 12:
@@ -4650,11 +5136,7 @@ async def bonus_match_move(
             anchor = _bonus_match_pick_special_anchor(
                 board,
                 group,
-                (
-                    preferred
-                    if cascade_count == 1
-                    else []
-                ),
+                preferred if cascade_count == 1 else [],
             )
             if anchor:
                 cell = board[anchor[0]][anchor[1]]
@@ -4669,53 +5151,72 @@ async def bonus_match_move(
                         "id": cell.get("id"),
                     })
 
+        board_before_clear = _bonus_match_clone_board(board)
         clear_cells = set(matched_cells) - protected
-        (
-            clear_cells,
-            activated_specials,
-        ) = _bonus_match_expand_specials(
+        clear_cells, activated_specials = _bonus_match_expand_specials(
             board,
             clear_cells,
-            (
-                direct_triggers
-                if cascade_count == 1
-                else set()
-            ),
+            direct_triggers if cascade_count == 1 else set(),
             protected,
-            (
-                color_symbol
-                if cascade_count == 1
-                else None
-            ),
+            color_symbol if cascade_count == 1 else None,
         )
         direct_triggers = set()
+        seen_specials = {
+            (int(item.get("row", -1)), int(item.get("col", -1)))
+            for item in activated_specials
+        }
+        damaged_coords: set[tuple[int, int]] = set()
+        obstacle_changes: list[dict] = []
+        obstacle_events: list[dict] = []
+        obstacle_score = 0
+        created_obstacle_cells: list[dict] = []
+
+        for _ in range(5):
+            obstacle_result = _bonus_match_resolve_obstacles(
+                board,
+                clear_cells,
+                matched_cells=matched_cells,
+                special_targets=_bonus_match_special_impact_cells(activated_specials),
+                strong_match_cells=_bonus_match_strong_match_cells(groups),
+                already_damaged=damaged_coords,
+            )
+            clear_cells = set(obstacle_result["clear_cells"])
+            clear_cells.difference_update(obstacle_result["protected_clear"])
+            obstacle_changes.extend(obstacle_result["changes"])
+            obstacle_events.extend(obstacle_result["events"])
+            created_obstacle_cells.extend(obstacle_result["created_cells"])
+            obstacle_score += int(obstacle_result["score_gain"])
+
+            before_count = len(activated_specials)
+            clear_cells, newly_activated = _bonus_match_expand_specials(
+                board,
+                clear_cells,
+                set(),
+                protected,
+                None,
+                already_seen=seen_specials,
+            )
+            activated_specials.extend(newly_activated)
+            seen_specials.update(
+                (int(item.get("row", -1)), int(item.get("col", -1)))
+                for item in newly_activated
+            )
+            if len(activated_specials) == before_count:
+                break
 
         if not clear_cells and not created_specials:
             break
 
-        board_before_clear = _bonus_match_clone_board(
-            board
-        )
         coins_this_step = 0
         symbol_cells_cleared = 0
-
         for row, col in clear_cells:
             cell = board[row][col]
             if cell and not cell.get("obstacle"):
                 if cell.get("symbol") == "coin":
                     coins_this_step += 1
-                if (
-                    cell.get("symbol")
-                    or cell.get("special")
-                ):
+                if cell.get("symbol") or cell.get("special"):
                     symbol_cells_cleared += 1
 
-        obstacle_changes = (
-            _bonus_match_damage_obstacles(
-                board,
-                clear_cells,
-            )
-        )
         for row, col in clear_cells:
             if (row, col) in protected:
                 continue
@@ -4724,10 +5225,7 @@ async def bonus_match_move(
                 board[row][col] = None
 
         special_bonus = sum(
-            BONUS_MATCH_SPECIAL_SCORE.get(
-                item["special"],
-                0,
-            )
+            BONUS_MATCH_SPECIAL_SCORE.get(item["special"], 0)
             for item in activated_specials
         )
         long_match_bonus = sum(
@@ -4735,32 +5233,23 @@ async def bonus_match_move(
             for group in groups
             for run in group["runs"]
         )
-        obstacle_bonus = sum(
-            180 if item["destroyed"] else 70
-            for item in obstacle_changes
-        )
-        base_step_score = (
-            symbol_cells_cleared * 100
-            + special_bonus
-            + long_match_bonus
-            + obstacle_bonus
-        )
-        combo_multiplier = (
-            1 + (cascade_count - 1) * 0.25
-        )
-        step_score = int(
-            base_step_score * combo_multiplier
-        )
+        base_step_score = symbol_cells_cleared * 100 + special_bonus + long_match_bonus + obstacle_score
+        combo_multiplier = 1 + (cascade_count - 1) * 0.25
+        step_score = int(base_step_score * combo_multiplier)
         score_gain += step_score
         coins_gain += coins_this_step
+        turn_obstacle_changes.extend(obstacle_changes)
 
-        board_after_clear = (
-            _bonus_match_clone_board(board)
-        )
+        board_after_clear = _bonus_match_clone_board(board)
         board, spawned = _bonus_match_collapse(board)
-        board_after_collapse = (
-            _bonus_match_clone_board(board)
-        )
+        created_ids = {item.get("id") for item in created_obstacle_cells if item.get("id")}
+        if created_ids:
+            for row in range(BONUS_MATCH_ROWS):
+                for col in range(BONUS_MATCH_COLS):
+                    cell = board[row][col]
+                    if cell and cell.get("id") in created_ids:
+                        spawned.append({"row": row, "col": col, "id": cell["id"]})
+        board_after_collapse = _bonus_match_clone_board(board)
         animation_steps.append({
             "combo": cascade_count,
             "score_gain": step_score,
@@ -4774,24 +5263,15 @@ async def bonus_match_move(
                 for row, col in sorted(clear_cells)
             ],
             "created_specials": created_specials,
-            "activated_specials": (
-                activated_specials
-            ),
+            "activated_specials": activated_specials,
             "obstacle_changes": obstacle_changes,
-            "board_before_clear": (
-                board_before_clear
-            ),
-            "board_after_clear": (
-                board_after_clear
-            ),
-            "board_after_collapse": (
-                board_after_collapse
-            ),
+            "obstacle_events": obstacle_events,
+            "board_before_clear": board_before_clear,
+            "board_after_clear": board_after_clear,
+            "board_after_collapse": board_after_collapse,
             "spawned": spawned,
         })
-        groups = _bonus_match_find_match_groups(
-            board
-        )
+        groups = _bonus_match_find_match_groups(board)
         preferred = []
 
     reshuffled = False
@@ -4829,7 +5309,14 @@ async def bonus_match_move(
             else "active"
         )
     )
+    obstacle_turn_events: list[dict] = []
+    obstacle_turn_board: Optional[list[list[Optional[dict]]]] = None
     if status_value == "active":
+        board, obstacle_turn_events = _bonus_match_advance_obstacles(
+            board,
+            turn_obstacle_changes,
+        )
+        obstacle_turn_board = _bonus_match_clone_board(board)
         board, reshuffled, reshuffle_method = _bonus_match_ensure_playable_board(
             board,
             int(session["level"]),
@@ -4923,7 +5410,10 @@ async def bonus_match_move(
                 animation_steps,
                 board,
                 reshuffled,
+                obstacle_events=obstacle_turn_events,
+                obstacle_board=obstacle_turn_board,
             ),
+            "obstacle_events": obstacle_turn_events,
             "reshuffled": reshuffled,
             "reason": "no_moves" if reshuffled else None,
             "method": reshuffle_method,
