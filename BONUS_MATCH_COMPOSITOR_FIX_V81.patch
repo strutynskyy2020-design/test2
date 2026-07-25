@@ -1,0 +1,204 @@
+diff -ruN tm6v80-work/BONUS_MATCH_COMPOSITOR_FIX_V81.md tm6v81-work/BONUS_MATCH_COMPOSITOR_FIX_V81.md
+--- tm6v80-work/BONUS_MATCH_COMPOSITOR_FIX_V81.md	1970-01-01 00:00:00.000000000 +0000
++++ tm6v81-work/BONUS_MATCH_COMPOSITOR_FIX_V81.md	2026-07-25 14:20:30.238948445 +0000
+@@ -0,0 +1,23 @@
++# TM6 Bonus v81 — Chrome compositor stability fix
++
++## Root cause
++
++DevTools confirmed that the board and all piece DOM nodes still exist when the white rectangle appears. `elementsFromPoint()` returns the normal Bonus Match cell/button/layer hierarchy and no large `img`, `object`, `embed`, or `iframe`. This rules out the earlier broken-image and empty-React-state hypotheses.
++
++The failure is consistent with Chrome compositor/raster instability caused by many permanently promoted layers: every piece used `will-change: transform`, nested Framer Motion transforms, CSS `filter: drop-shadow(...)`, and layout containment. After repeated cascades, the board layer could be rasterized as a white surface while the DOM remained intact.
++
++## Changes
++
++- Removed permanent `contain: layout style` from the pieces layer and every piece wrapper.
++- `will-change: transform` is now enabled only while a piece is actively moving, falling, shaking, being removed, dragged, or celebrating.
++- Removed animated CSS `filter: drop-shadow(...)` from all atlas sprites. The existing static shadow/rim-light layers remain.
++- Removed `backdrop-filter` from special-piece badges.
++- Replaced the full-cell opaque white impact layer with a transparent radial glint.
++- Added `backface-visibility: hidden` to moving wrappers and sprite surfaces.
++- Added `data-render-engine="v81"`, `data-bonus-pieces-layer`, and `data-bonus-piece` attributes for future diagnostics.
++- Versioned the atlas files and PWA cache as v81.
++- Fixed the preload and Service Worker atlas query strings to `?v=81`.
++
++## Deployment
++
++Deploy frontend only. After deployment, close the old tab and reopen it. One hard refresh may be required to activate the v81 Service Worker.
+diff -ruN tm6v80-work/BONUS_MATCH_COMPOSITOR_FIX_V81.patch tm6v81-work/BONUS_MATCH_COMPOSITOR_FIX_V81.patch
+--- tm6v80-work/BONUS_MATCH_COMPOSITOR_FIX_V81.patch	1970-01-01 00:00:00.000000000 +0000
++++ tm6v81-work/BONUS_MATCH_COMPOSITOR_FIX_V81.patch	2026-07-25 14:20:53.230947486 +0000
+@@ -0,0 +1,27 @@
++diff -ruN tm6v80-work/BONUS_MATCH_COMPOSITOR_FIX_V81.md tm6v81-work/BONUS_MATCH_COMPOSITOR_FIX_V81.md
++--- tm6v80-work/BONUS_MATCH_COMPOSITOR_FIX_V81.md	1970-01-01 00:00:00.000000000 +0000
+++++ tm6v81-work/BONUS_MATCH_COMPOSITOR_FIX_V81.md	2026-07-25 14:20:30.238948445 +0000
++@@ -0,0 +1,23 @@
+++# TM6 Bonus v81 — Chrome compositor stability fix
+++
+++## Root cause
+++
+++DevTools confirmed that the board and all piece DOM nodes still exist when the white rectangle appears. `elementsFromPoint()` returns the normal Bonus Match cell/button/layer hierarchy and no large `img`, `object`, `embed`, or `iframe`. This rules out the earlier broken-image and empty-React-state hypotheses.
+++
+++The failure is consistent with Chrome compositor/raster instability caused by many permanently promoted layers: every piece used `will-change: transform`, nested Framer Motion transforms, CSS `filter: drop-shadow(...)`, and layout containment. After repeated cascades, the board layer could be rasterized as a white surface while the DOM remained intact.
+++
+++## Changes
+++
+++- Removed permanent `contain: layout style` from the pieces layer and every piece wrapper.
+++- `will-change: transform` is now enabled only while a piece is actively moving, falling, shaking, being removed, dragged, or celebrating.
+++- Removed animated CSS `filter: drop-shadow(...)` from all atlas sprites. The existing static shadow/rim-light layers remain.
+++- Removed `backdrop-filter` from special-piece badges.
+++- Replaced the full-cell opaque white impact layer with a transparent radial glint.
+++- Added `backface-visibility: hidden` to moving wrappers and sprite surfaces.
+++- Added `data-render-engine="v81"`, `data-bonus-pieces-layer`, and `data-bonus-piece` attributes for future diagnostics.
+++- Versioned the atlas files and PWA cache as v81.
+++- Fixed the preload and Service Worker atlas query strings to `?v=81`.
+++
+++## Deployment
+++
+++Deploy frontend only. After deployment, close the old tab and reopen it. One hard refresh may be required to activate the v81 Service Worker.
+Binary files tm6v80-work/backend/__pycache__/server.cpython-313.pyc and tm6v81-work/backend/__pycache__/server.cpython-313.pyc differ
+Binary files tm6v80-work/frontend/public/bonus-match/atlas/obstacles-v80.webp and tm6v81-work/frontend/public/bonus-match/atlas/obstacles-v80.webp differ
+Binary files tm6v80-work/frontend/public/bonus-match/atlas/obstacles-v81.webp and tm6v81-work/frontend/public/bonus-match/atlas/obstacles-v81.webp differ
+Binary files tm6v80-work/frontend/public/bonus-match/atlas/pieces-v80.webp and tm6v81-work/frontend/public/bonus-match/atlas/pieces-v80.webp differ
+Binary files tm6v80-work/frontend/public/bonus-match/atlas/pieces-v81.webp and tm6v81-work/frontend/public/bonus-match/atlas/pieces-v81.webp differ
+diff -ruN tm6v80-work/frontend/public/index.html tm6v81-work/frontend/public/index.html
+--- tm6v80-work/frontend/public/index.html	2026-07-25 14:00:44.038997931 +0000
++++ tm6v81-work/frontend/public/index.html	2026-07-25 14:20:30.238948445 +0000
+@@ -12,8 +12,8 @@
+         <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+ 
+         <!-- Warm the Bonus Match cache after the app shell; the game itself awaits image.decode(). -->
+-        <link rel="prefetch" as="image" type="image/webp" href="/bonus-match/atlas/pieces-v80.webp?v=80" />
+-        <link rel="prefetch" as="image" type="image/webp" href="/bonus-match/atlas/obstacles-v80.webp?v=80" />
++        <link rel="prefetch" as="image" type="image/webp" href="/bonus-match/atlas/pieces-v81.webp?v=81" />
++        <link rel="prefetch" as="image" type="image/webp" href="/bonus-match/atlas/obstacles-v81.webp?v=81" />
+ 
+         <!-- iOS PWA meta -->
+         <meta name="apple-mobile-web-app-capable" content="yes" />
+@@ -32,7 +32,7 @@
+         <title>TM6 Bonus</title>
+         <script>
+             window.__TM6_PRODUCTION_UI__ = true;
+-            // v80: visual-edit overlays must never be mounted in the production game.
++            // v81: visual-edit overlays must never be mounted in the production game.
+             document.addEventListener("DOMContentLoaded", function () {
+                 document.querySelectorAll('script[src*="emergent-main"], script[src*="visual-edits"]').forEach(function (node) { node.remove(); });
+             });
+diff -ruN tm6v80-work/frontend/public/service-worker.js tm6v81-work/frontend/public/service-worker.js
+--- tm6v80-work/frontend/public/service-worker.js	2026-07-25 14:00:44.034997931 +0000
++++ tm6v81-work/frontend/public/service-worker.js	2026-07-25 14:20:30.238948445 +0000
+@@ -1,9 +1,9 @@
+ /* TM6 Bonus — Service Worker
+- * v80 removes legacy editor/cache overlays and protects image requests from Netlify's SPA fallback. A missing image must
++ * v81 removes legacy editor/cache overlays and protects image requests from Netlify's SPA fallback. A missing image must
+  * never be cached as index.html, otherwise browsers can render a giant broken
+  * image element over the board.
+  */
+-const VERSION = "tm6-v80";
++const VERSION = "tm6-v81";
+ const STATIC_CACHE = `${VERSION}-static`;
+ const RUNTIME_CACHE = `${VERSION}-runtime`;
+ 
+@@ -12,8 +12,8 @@
+   "/icon-192.png",
+   "/icon-512.png",
+   "/apple-touch-icon.png",
+-  "/bonus-match/atlas/pieces-v80.webp?v=80",
+-  "/bonus-match/atlas/obstacles-v80.webp?v=80",
++  "/bonus-match/atlas/pieces-v81.webp?v=81",
++  "/bonus-match/atlas/obstacles-v81.webp?v=81",
+ ];
+ 
+ const isImageRequest = (request, url) => (
+diff -ruN tm6v80-work/frontend/src/index.css tm6v81-work/frontend/src/index.css
+--- tm6v80-work/frontend/src/index.css	2026-07-25 13:50:41.643023061 +0000
++++ tm6v81-work/frontend/src/index.css	2026-07-25 14:20:30.238948445 +0000
+@@ -268,7 +268,7 @@
+ @media (max-width:420px) { .generous-cube-meta-grid { grid-template-columns:1fr; } .generous-cube-stage { height:306px; perspective:940px; } .generous-cube-flight { --cube-size:142px; } .generous-cube-grid { grid-template-columns:repeat(3,18px); grid-template-rows:repeat(3,18px); gap:11px; } .generous-cube-dot { width:16px; height:16px; } }
+ @media (prefers-reduced-motion:reduce) { .generous-cube-energy,.generous-cube-aura,.generous-cube-platform span,.generous-cube-shadow { animation:none!important; } }
+ 
+-/* Bonus Match v80 production safety guard.
++/* Bonus Match v81 production safety guard.
+    The board is sprite/CSS/canvas-only; replaced media nodes are never legitimate here. */
+ .bonus-match-board > img,
+ .bonus-match-board img,
+diff -ruN tm6v80-work/frontend/src/lib/bonusMatchAssets.js tm6v81-work/frontend/src/lib/bonusMatchAssets.js
+--- tm6v80-work/frontend/src/lib/bonusMatchAssets.js	2026-07-25 13:50:41.639023062 +0000
++++ tm6v81-work/frontend/src/lib/bonusMatchAssets.js	2026-07-25 14:19:20.838951341 +0000
+@@ -1,6 +1,6 @@
+-const ASSET_VERSION = "80";
+-const PIECES_ATLAS = `/bonus-match/atlas/pieces-v80.webp?v=${ASSET_VERSION}`;
+-const OBSTACLES_ATLAS = `/bonus-match/atlas/obstacles-v80.webp?v=${ASSET_VERSION}`;
++const ASSET_VERSION = "81";
++const PIECES_ATLAS = `/bonus-match/atlas/pieces-v81.webp?v=${ASSET_VERSION}`;
++const OBSTACLES_ATLAS = `/bonus-match/atlas/obstacles-v81.webp?v=${ASSET_VERSION}`;
+ 
+ const makeSprite = (atlas, index, columns, rows) => {
+   const column = index % columns;
+diff -ruN tm6v80-work/frontend/src/pages/BonusMatch.jsx tm6v81-work/frontend/src/pages/BonusMatch.jsx
+--- tm6v80-work/frontend/src/pages/BonusMatch.jsx	2026-07-25 14:00:44.042997931 +0000
++++ tm6v81-work/frontend/src/pages/BonusMatch.jsx	2026-07-25 14:19:20.838951341 +0000
+@@ -757,8 +757,8 @@
+           ? "none"
+           : `transform ${positionDurationMs}ms cubic-bezier(.2,.82,.25,1)`,
+         zIndex: selected ? 24 : removing ? 18 : activated ? 16 : 10,
+-        willChange: "transform",
+-        contain: "layout style",
++        willChange: (fall || removing || shaking || celebrating || dragOffset.x || dragOffset.y) ? "transform" : "auto",
++        backfaceVisibility: "hidden",
+       }}
+     >
+       <motion.button
+@@ -776,6 +776,8 @@
+       onPointerCancel={resetGesture}
+       disabled={disabled}
+       aria-label={`${label}, рядок ${row + 1}, колонка ${col + 1}`}
++      data-bonus-piece={cell.id}
++      data-piece-symbol={cell.symbol || ""}
+       className="relative flex h-full w-full min-w-0 items-center justify-center overflow-visible rounded-[10px] border border-white/10"
+       style={{
+         background,
+@@ -833,7 +835,7 @@
+         <motion.div
+           aria-hidden="true"
+           className="pointer-events-none absolute inset-[1%] z-[2] select-none"
+-          style={{ ...piece.sprite, filter: "drop-shadow(-1px -1px 0 rgba(255,255,255,.32)) drop-shadow(1.5px 2px 0 rgba(0,0,0,.48))" }}
++          style={{ ...piece.sprite, backfaceVisibility: "hidden" }}
+           animate={pieceArtworkMotion}
+           transition={
+             activated
+@@ -893,7 +895,7 @@
+       {impact && (
+         <motion.div
+           key={`impact-glint-${impact.token}`}
+-          className="pointer-events-none absolute inset-0 z-[5] rounded-[10px] bg-white"
++          className="pointer-events-none absolute inset-0 z-[5] rounded-[10px] bg-[radial-gradient(circle_at_center,rgba(255,255,255,.9),rgba(255,255,255,.18)_38%,transparent_72%)]"
+           initial={{ opacity: 0 }}
+           animate={{ opacity: [0, impact.destroyed ? 0.38 : 0.22, 0] }}
+           transition={{ duration: reducedMotion ? 0.06 : 0.28 * pieceTempo }}
+@@ -915,7 +917,7 @@
+           animate={specialMotion}
+           transition={specialTransition}
+         >
+-          <span className="flex h-[62%] w-[62%] items-center justify-center rounded-full border border-white/45 bg-black/60 shadow-[0_0_14px_rgba(183,140,255,.55)] backdrop-blur-[1px]">
++          <span className="flex h-[62%] w-[62%] items-center justify-center rounded-full border border-white/45 bg-black/70 shadow-[0_0_10px_rgba(183,140,255,.45)]">
+             <SpecialIcon
+               size={24}
+               strokeWidth={3.1}
+@@ -1073,7 +1075,7 @@
+ }) {
+   const positionDurationMs = Math.max(110, Math.min(190, cascadeDurationMs || OPTIMISTIC_SWAP_MS));
+   return (
+-    <div className="absolute inset-1.5 overflow-visible" style={{ contain: "layout style" }}>
++    <div className="absolute inset-1.5 overflow-visible" data-bonus-pieces-layer="true">
+       <AnimatePresence initial={false}>
+         {pieces.map(({ cell, row, col }) => {
+           const key = coordKey(row, col);
+@@ -2800,6 +2802,7 @@
+             <motion.div
+               ref={boardRef}
+               className="bonus-match-board relative isolate mt-3 overflow-hidden rounded-[22px] border border-[#7C3AED]/55 bg-[#090711] p-1.5 shadow-[inset_0_0_30px_rgba(124,58,237,.12)]"
++              data-render-engine="v81"
+               animate={boardMotionForFx(boardFx, reducedMotion)}
+               transition={{
+                 duration: boardFx === "won"

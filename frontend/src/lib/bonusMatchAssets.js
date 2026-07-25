@@ -1,6 +1,6 @@
-const ASSET_VERSION = "80";
-const PIECES_ATLAS = `/bonus-match/atlas/pieces-v80.webp?v=${ASSET_VERSION}`;
-const OBSTACLES_ATLAS = `/bonus-match/atlas/obstacles-v80.webp?v=${ASSET_VERSION}`;
+const ASSET_VERSION = "81";
+const PIECES_ATLAS = `/bonus-match/atlas/pieces-v81.webp?v=${ASSET_VERSION}`;
+const OBSTACLES_ATLAS = `/bonus-match/atlas/obstacles-v81.webp?v=${ASSET_VERSION}`;
 
 const makeSprite = (atlas, index, columns, rows) => {
   const column = index % columns;

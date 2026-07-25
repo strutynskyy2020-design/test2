@@ -12,8 +12,8 @@
         <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
 
         <!-- Warm the Bonus Match cache after the app shell; the game itself awaits image.decode(). -->
-        <link rel="prefetch" as="image" type="image/webp" href="/bonus-match/atlas/pieces-v80.webp?v=80" />
-        <link rel="prefetch" as="image" type="image/webp" href="/bonus-match/atlas/obstacles-v80.webp?v=80" />
+        <link rel="prefetch" as="image" type="image/webp" href="/bonus-match/atlas/pieces-v81.webp?v=81" />
+        <link rel="prefetch" as="image" type="image/webp" href="/bonus-match/atlas/obstacles-v81.webp?v=81" />
 
         <!-- iOS PWA meta -->
         <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -32,7 +32,7 @@
         <title>TM6 Bonus</title>
         <script>
             window.__TM6_PRODUCTION_UI__ = true;
-            // v80: visual-edit overlays must never be mounted in the production game.
+            // v81: visual-edit overlays must never be mounted in the production game.
             document.addEventListener("DOMContentLoaded", function () {
                 document.querySelectorAll('script[src*="emergent-main"], script[src*="visual-edits"]').forEach(function (node) { node.remove(); });
             });

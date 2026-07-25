@@ -757,8 +757,8 @@ function Piece({
           ? "none"
           : `transform ${positionDurationMs}ms cubic-bezier(.2,.82,.25,1)`,
         zIndex: selected ? 24 : removing ? 18 : activated ? 16 : 10,
-        willChange: "transform",
-        contain: "layout style",
+        willChange: (fall || removing || shaking || celebrating || dragOffset.x || dragOffset.y) ? "transform" : "auto",
+        backfaceVisibility: "hidden",
       }}
     >
       <motion.button
@@ -776,6 +776,8 @@ function Piece({
       onPointerCancel={resetGesture}
       disabled={disabled}
       aria-label={`${label}, рядок ${row + 1}, колонка ${col + 1}`}
+      data-bonus-piece={cell.id}
+      data-piece-symbol={cell.symbol || ""}
       className="relative flex h-full w-full min-w-0 items-center justify-center overflow-visible rounded-[10px] border border-white/10"
       style={{
         background,
@@ -833,7 +835,7 @@ function Piece({
         <motion.div
           aria-hidden="true"
           className="pointer-events-none absolute inset-[1%] z-[2] select-none"
-          style={{ ...piece.sprite, filter: "drop-shadow(-1px -1px 0 rgba(255,255,255,.32)) drop-shadow(1.5px 2px 0 rgba(0,0,0,.48))" }}
+          style={{ ...piece.sprite, backfaceVisibility: "hidden" }}
           animate={pieceArtworkMotion}
           transition={
             activated
@@ -893,7 +895,7 @@ function Piece({
       {impact && (
         <motion.div
           key={`impact-glint-${impact.token}`}
-          className="pointer-events-none absolute inset-0 z-[5] rounded-[10px] bg-white"
+          className="pointer-events-none absolute inset-0 z-[5] rounded-[10px] bg-[radial-gradient(circle_at_center,rgba(255,255,255,.9),rgba(255,255,255,.18)_38%,transparent_72%)]"
           initial={{ opacity: 0 }}
           animate={{ opacity: [0, impact.destroyed ? 0.38 : 0.22, 0] }}
           transition={{ duration: reducedMotion ? 0.06 : 0.28 * pieceTempo }}
@@ -915,7 +917,7 @@ function Piece({
           animate={specialMotion}
           transition={specialTransition}
         >
-          <span className="flex h-[62%] w-[62%] items-center justify-center rounded-full border border-white/45 bg-black/60 shadow-[0_0_14px_rgba(183,140,255,.55)] backdrop-blur-[1px]">
+          <span className="flex h-[62%] w-[62%] items-center justify-center rounded-full border border-white/45 bg-black/70 shadow-[0_0_10px_rgba(183,140,255,.45)]">
             <SpecialIcon
               size={24}
               strokeWidth={3.1}
@@ -1073,7 +1075,7 @@ const BoardPiecesLayer = memo(function BoardPiecesLayer({
 }) {
   const positionDurationMs = Math.max(110, Math.min(190, cascadeDurationMs || OPTIMISTIC_SWAP_MS));
   return (
-    <div className="absolute inset-1.5 overflow-visible" style={{ contain: "layout style" }}>
+    <div className="absolute inset-1.5 overflow-visible" data-bonus-pieces-layer="true">
       <AnimatePresence initial={false}>
         {pieces.map(({ cell, row, col }) => {
           const key = coordKey(row, col);
@@ -2800,6 +2802,7 @@ export default function BonusMatch() {
             <motion.div
               ref={boardRef}
               className="bonus-match-board relative isolate mt-3 overflow-hidden rounded-[22px] border border-[#7C3AED]/55 bg-[#090711] p-1.5 shadow-[inset_0_0_30px_rgba(124,58,237,.12)]"
+              data-render-engine="v81"
               animate={boardMotionForFx(boardFx, reducedMotion)}
               transition={{
                 duration: boardFx === "won"
