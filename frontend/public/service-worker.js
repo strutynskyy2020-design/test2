@@ -1,10 +1,10 @@
 /* TM6 Bonus — Service Worker
- * v86 keeps the safe fetch fallbacks and forces a fresh cache for the diagnostics build.
+ * v87 keeps the safe fetch fallbacks and forces a fresh cache for the diagnostics build.
  * v84 fixes rejected FetchEvent promises, navigation fallback, and stale registration URLs and protects image requests from Netlify's SPA fallback. A missing image must
  * never be cached as index.html, otherwise browsers can render a giant broken
  * image element over the board.
  */
-const VERSION = "tm6-v86";
+const VERSION = "tm6-v87";
 const STATIC_CACHE = `${VERSION}-static`;
 const RUNTIME_CACHE = `${VERSION}-runtime`;
 

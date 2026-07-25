@@ -10,7 +10,7 @@ export function registerServiceWorker() {
   window.addEventListener("load", async () => {
     try {
       const registration = await navigator.serviceWorker.register(
-        "/service-worker.js?v=86",
+        "/service-worker.js?v=87",
         { scope: "/", updateViaCache: "none" }
       );
 

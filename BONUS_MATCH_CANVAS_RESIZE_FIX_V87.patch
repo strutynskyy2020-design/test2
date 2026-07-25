@@ -1,0 +1,275 @@
+diff -ruN /mnt/data/tm6v86-work/frontend/public/service-worker.js /mnt/data/tm6v87-work/frontend/public/service-worker.js
+--- /mnt/data/tm6v86-work/frontend/public/service-worker.js	2026-07-25 15:20:46.382797589 +0000
++++ /mnt/data/tm6v87-work/frontend/public/service-worker.js	2026-07-25 15:37:34.326755540 +0000
+@@ -1,10 +1,10 @@
+ /* TM6 Bonus — Service Worker
+- * v86 keeps the safe fetch fallbacks and forces a fresh cache for the diagnostics build.
++ * v87 keeps the safe fetch fallbacks and forces a fresh cache for the diagnostics build.
+  * v84 fixes rejected FetchEvent promises, navigation fallback, and stale registration URLs and protects image requests from Netlify's SPA fallback. A missing image must
+  * never be cached as index.html, otherwise browsers can render a giant broken
+  * image element over the board.
+  */
+-const VERSION = "tm6-v86";
++const VERSION = "tm6-v87";
+ const STATIC_CACHE = `${VERSION}-static`;
+ const RUNTIME_CACHE = `${VERSION}-runtime`;
+ 
+diff -ruN /mnt/data/tm6v86-work/frontend/src/components/BonusMatchDebugOverlay.jsx /mnt/data/tm6v87-work/frontend/src/components/BonusMatchDebugOverlay.jsx
+--- /mnt/data/tm6v86-work/frontend/src/components/BonusMatchDebugOverlay.jsx	2026-07-25 15:33:20.378766134 +0000
++++ /mnt/data/tm6v87-work/frontend/src/components/BonusMatchDebugOverlay.jsx	2026-07-25 15:37:34.326755540 +0000
+@@ -19,7 +19,7 @@
+   const [summary, setSummary] = useState(() => bonusMatchDiagnostics.getSummary());
+ 
+   useEffect(() => {
+-    document.documentElement.dataset.bonusDiagnostics = "v86";
++    document.documentElement.dataset.bonusDiagnostics = "v87";
+     const refresh = () => setSummary(bonusMatchDiagnostics.getSummary());
+     const timer = window.setInterval(refresh, 700);
+     const onAlert = (event) => {
+@@ -117,7 +117,7 @@
+         >
+           <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+             <div>
+-              <div style={{ color: "#B78CFF", fontSize: 12, fontWeight: 1000, letterSpacing: ".08em" }}>🐞 BONUS DEBUG v86</div>
++              <div style={{ color: "#B78CFF", fontSize: 12, fontWeight: 1000, letterSpacing: ".08em" }}>🐞 BONUS DEBUG v87</div>
+               <div style={{ marginTop: 4, color: "#71717A", fontSize: 10 }}>Alt + Shift + B відкриває панель</div>
+             </div>
+             <button
+@@ -147,7 +147,7 @@
+             </div>
+             <div style={{ borderRadius: 12, padding: 9, background: "#101A1C", textAlign: "center" }}>
+               <div style={{ color: "#71717A", fontSize: 9, fontWeight: 900 }}>ВЕРСІЯ</div>
+-              <div style={{ marginTop: 2, color: "#5EEBFF", fontSize: 18, fontWeight: 1000 }}>86</div>
++              <div style={{ marginTop: 2, color: "#5EEBFF", fontSize: 18, fontWeight: 1000 }}>87</div>
+             </div>
+           </div>
+ 
+@@ -199,7 +199,7 @@
+           cursor: "pointer",
+         }}
+       >
+-        🐞 DEBUG {summary.errorCount ? `(${summary.errorCount})` : "v86"}
++        🐞 DEBUG {summary.errorCount ? `(${summary.errorCount})` : "v87"}
+       </button>
+     </div>,
+     document.body,
+diff -ruN /mnt/data/tm6v86-work/frontend/src/lib/bonusMatchDiagnostics.js /mnt/data/tm6v87-work/frontend/src/lib/bonusMatchDiagnostics.js
+--- /mnt/data/tm6v86-work/frontend/src/lib/bonusMatchDiagnostics.js	2026-07-25 15:33:20.362766134 +0000
++++ /mnt/data/tm6v87-work/frontend/src/lib/bonusMatchDiagnostics.js	2026-07-25 15:37:34.326755540 +0000
+@@ -1,4 +1,4 @@
+-const STORAGE_KEY = "tm6_bonus_match_diagnostics_v86";
++const STORAGE_KEY = "tm6_bonus_match_diagnostics_v87";
+ const MAX_EVENTS = 1200;
+ const MAX_PERSISTED = 420;
+ const WATCH_INTERVAL_MS = 500;
+@@ -220,7 +220,7 @@
+ 
+ class BonusMatchDiagnostics {
+   constructor() {
+-    this.version = "v86";
++    this.version = "v87";
+     this.events = [];
+     this.sessionId = `bm-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+     this.installed = false;
+@@ -596,6 +596,14 @@
+       ...pointStacks.flatMap((stack) => stack.elements),
+     ].filter((item) => item && (isNearlyWhite(item.backgroundColor) || /url\(/i.test(item.backgroundImage || "") && item.tag === "IMG"));
+ 
++    const canvases = [...boardElement.querySelectorAll("canvas")].map(canvasSnapshot);
++    const runawayCanvases = canvases.filter((canvas) => (
++      Number(canvas.width || 0) > 8192
++      || Number(canvas.height || 0) > 8192
++      || Number(canvas.clientWidth || 0) > Math.max(2048, rect.width * 2)
++      || Number(canvas.clientHeight || 0) > Math.max(2048, rect.height * 2)
++    ));
++
+     return {
+       exists: true,
+       rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+@@ -615,7 +623,8 @@
+         src: sanitizeUrl(element.currentSrc || element.src || element.data || ""),
+         outerHTML: element.outerHTML?.slice(0, 2500) || null,
+       })),
+-      canvases: [...boardElement.querySelectorAll("canvas")].map(canvasSnapshot),
++      canvases,
++      runawayCanvases,
+       pointStacks,
+       largeDescendants,
+       whiteCandidates: whiteCandidates.slice(0, 30),
+@@ -633,13 +642,22 @@
+       const actualPieces = Number(boardInfo.pieceNodes || 0);
+       const visiblePieces = Number(boardInfo.visiblePieceCount || 0);
+       const suspiciousWhite = boardInfo.whiteCandidates?.length > 0;
++      const runawayCanvas = boardInfo.runawayCanvases?.length > 0;
+       const missingPieces = expectedPieces > 0 && actualPieces === 0;
+       const hiddenPieces = expectedPieces > 0 && actualPieces > 0 && visiblePieces === 0;
+       const signature = suspiciousWhite
+         ? JSON.stringify(boardInfo.whiteCandidates.map((item) => [item.tag, item.className, item.backgroundColor, item.backgroundImage, item.rect]))
+         : null;
+ 
+-      if (suspiciousWhite && signature !== this.lastWhiteSignature) {
++      if (runawayCanvas) {
++        this.log("effects_canvas_size_runaway", {
++          reason,
++          state: stateSummary,
++          boardRect: boardInfo.rect,
++          canvases: boardInfo.runawayCanvases,
++          browser: browserSnapshot(),
++        }, "error");
++      } else if (suspiciousWhite && signature !== this.lastWhiteSignature) {
+         this.lastWhiteSignature = signature;
+         this.log("white_board_candidate_detected", {
+           reason,
+@@ -734,7 +752,7 @@
+     const url = URL.createObjectURL(blob);
+     const anchor = document.createElement("a");
+     anchor.href = url;
+-    anchor.download = `bonus-match-diagnostics-v86-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
++    anchor.download = `bonus-match-diagnostics-v87-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
+     document.body.appendChild(anchor);
+     anchor.click();
+     anchor.remove();
+diff -ruN /mnt/data/tm6v86-work/frontend/src/lib/pwa.js /mnt/data/tm6v87-work/frontend/src/lib/pwa.js
+--- /mnt/data/tm6v86-work/frontend/src/lib/pwa.js	2026-07-25 15:20:46.378797589 +0000
++++ /mnt/data/tm6v87-work/frontend/src/lib/pwa.js	2026-07-25 15:37:34.326755540 +0000
+@@ -10,7 +10,7 @@
+   window.addEventListener("load", async () => {
+     try {
+       const registration = await navigator.serviceWorker.register(
+-        "/service-worker.js?v=86",
++        "/service-worker.js?v=87",
+         { scope: "/", updateViaCache: "none" }
+       );
+ 
+diff -ruN /mnt/data/tm6v86-work/frontend/src/pages/BonusMatch.jsx /mnt/data/tm6v87-work/frontend/src/pages/BonusMatch.jsx
+--- /mnt/data/tm6v86-work/frontend/src/pages/BonusMatch.jsx	2026-07-25 15:33:20.386766133 +0000
++++ /mnt/data/tm6v87-work/frontend/src/pages/BonusMatch.jsx	2026-07-25 15:37:34.326755540 +0000
+@@ -1155,23 +1155,57 @@
+   return "#B78CFF";
+ };
+ 
++const MAX_EFFECTS_CANVAS_CSS_SIZE = 2048;
++const MAX_EFFECTS_CANVAS_BITMAP_SIZE = 4096;
++
+ const BoardEffectsCanvas = forwardRef(function BoardEffectsCanvas({ effects = [], reducedMotion = false }, ref) {
+   const canvasRef = useRef(null);
+   const particlesRef = useRef([]);
+   const seenTokensRef = useRef(new Set());
+   const frameRef = useRef(0);
++  const resizeFrameRef = useRef(0);
++  const lastInvalidSizeRef = useRef(null);
+   const sizeRef = useRef({ width: 1, height: 1, dpr: 1 });
+ 
+   const resizeCanvas = useCallback(() => {
+     const canvas = canvasRef.current;
+     if (!canvas) return;
++
+     const rect = canvas.getBoundingClientRect();
+-    const dpr = Math.min(2, window.devicePixelRatio || 1);
+-    const width = Math.max(1, Math.round(rect.width));
+-    const height = Math.max(1, Math.round(rect.height));
+-    if (canvas.width !== Math.round(width * dpr) || canvas.height !== Math.round(height * dpr)) {
+-      canvas.width = Math.round(width * dpr);
+-      canvas.height = Math.round(height * dpr);
++    const rawWidth = Number(rect.width);
++    const rawHeight = Number(rect.height);
++    const invalidSize = !Number.isFinite(rawWidth)
++      || !Number.isFinite(rawHeight)
++      || rawWidth <= 0
++      || rawHeight <= 0
++      || rawWidth > MAX_EFFECTS_CANVAS_CSS_SIZE
++      || rawHeight > MAX_EFFECTS_CANVAS_CSS_SIZE;
++
++    if (invalidSize) {
++      const signature = `${rawWidth}x${rawHeight}`;
++      if (lastInvalidSizeRef.current !== signature) {
++        lastInvalidSizeRef.current = signature;
++        bonusMatchDiagnostics.log("effects_canvas_invalid_size_blocked", {
++          rawWidth,
++          rawHeight,
++          bitmapWidth: canvas.width,
++          bitmapHeight: canvas.height,
++          parentRect: canvas.parentElement?.getBoundingClientRect?.() || null,
++        }, "error");
++      }
++      return;
++    }
++
++    lastInvalidSizeRef.current = null;
++    const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
++    const width = Math.max(1, Math.round(rawWidth));
++    const height = Math.max(1, Math.round(rawHeight));
++    const bitmapWidth = Math.min(MAX_EFFECTS_CANVAS_BITMAP_SIZE, Math.max(1, Math.round(width * dpr)));
++    const bitmapHeight = Math.min(MAX_EFFECTS_CANVAS_BITMAP_SIZE, Math.max(1, Math.round(height * dpr)));
++
++    if (canvas.width !== bitmapWidth || canvas.height !== bitmapHeight) {
++      canvas.width = bitmapWidth;
++      canvas.height = bitmapHeight;
+     }
+     sizeRef.current = { width, height, dpr };
+   }, []);
+@@ -1278,15 +1312,27 @@
+   }), [emitAt]);
+ 
+   useEffect(() => {
+-    resizeCanvas();
+     const canvas = canvasRef.current;
+     if (!canvas) return undefined;
+-    const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(resizeCanvas) : null;
+-    observer?.observe(canvas);
+-    window.addEventListener("resize", resizeCanvas);
++    const host = canvas.parentElement;
++
++    const scheduleResize = () => {
++      if (resizeFrameRef.current) window.cancelAnimationFrame(resizeFrameRef.current);
++      resizeFrameRef.current = window.requestAnimationFrame(() => {
++        resizeFrameRef.current = 0;
++        resizeCanvas();
++      });
++    };
++
++    scheduleResize();
++    const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(scheduleResize) : null;
++    if (host) observer?.observe(host);
++    window.addEventListener("resize", scheduleResize);
+     return () => {
+       observer?.disconnect();
+-      window.removeEventListener("resize", resizeCanvas);
++      window.removeEventListener("resize", scheduleResize);
++      if (resizeFrameRef.current) window.cancelAnimationFrame(resizeFrameRef.current);
++      resizeFrameRef.current = 0;
+       if (frameRef.current) window.cancelAnimationFrame(frameRef.current);
+       frameRef.current = 0;
+       particlesRef.current = [];
+@@ -1328,7 +1374,12 @@
+   return (
+     <canvas
+       ref={canvasRef}
+-      className="pointer-events-none absolute inset-1.5 z-30"
++      className="pointer-events-none absolute left-1.5 top-1.5 z-30 block"
++      style={{
++        width: "calc(100% - 0.75rem)",
++        height: "calc(100% - 0.75rem)",
++      }}
++      data-bonus-effects-canvas="v87"
+       aria-hidden="true"
+     />
+   );
+@@ -1885,7 +1936,7 @@
+ 
+   useEffect(() => {
+     const uninstall = bonusMatchDiagnostics.installGlobalHandlers();
+-    bonusMatchDiagnostics.log("bonus_match_mount", { version: "v86" });
++    bonusMatchDiagnostics.log("bonus_match_mount", { version: "v87" });
+     return () => {
+       bonusMatchDiagnostics.log("bonus_match_unmount");
+       bonusMatchDiagnostics.stopWatch();
+@@ -2875,7 +2926,7 @@
+             <motion.div
+               ref={boardRef}
+               className="bonus-match-board relative isolate mt-3 overflow-hidden rounded-[22px] border border-[#7C3AED]/55 bg-[#090711] p-1.5 shadow-[inset_0_0_30px_rgba(124,58,237,.12)]"
+-              data-render-engine="v86"
++              data-render-engine="v87"
+               animate={boardMotionForFx(boardFx, reducedMotion)}
+               transition={{
+                 duration: boardFx === "won"

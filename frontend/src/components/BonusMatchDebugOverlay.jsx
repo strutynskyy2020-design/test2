@@ -19,7 +19,7 @@ export default function BonusMatchDebugOverlay({ getState }) {
   const [summary, setSummary] = useState(() => bonusMatchDiagnostics.getSummary());
 
   useEffect(() => {
-    document.documentElement.dataset.bonusDiagnostics = "v86";
+    document.documentElement.dataset.bonusDiagnostics = "v87";
     const refresh = () => setSummary(bonusMatchDiagnostics.getSummary());
     const timer = window.setInterval(refresh, 700);
     const onAlert = (event) => {
@@ -117,7 +117,7 @@ export default function BonusMatchDebugOverlay({ getState }) {
         >
           <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
             <div>
-              <div style={{ color: "#B78CFF", fontSize: 12, fontWeight: 1000, letterSpacing: ".08em" }}>🐞 BONUS DEBUG v86</div>
+              <div style={{ color: "#B78CFF", fontSize: 12, fontWeight: 1000, letterSpacing: ".08em" }}>🐞 BONUS DEBUG v87</div>
               <div style={{ marginTop: 4, color: "#71717A", fontSize: 10 }}>Alt + Shift + B відкриває панель</div>
             </div>
             <button
@@ -147,7 +147,7 @@ export default function BonusMatchDebugOverlay({ getState }) {
             </div>
             <div style={{ borderRadius: 12, padding: 9, background: "#101A1C", textAlign: "center" }}>
               <div style={{ color: "#71717A", fontSize: 9, fontWeight: 900 }}>ВЕРСІЯ</div>
-              <div style={{ marginTop: 2, color: "#5EEBFF", fontSize: 18, fontWeight: 1000 }}>86</div>
+              <div style={{ marginTop: 2, color: "#5EEBFF", fontSize: 18, fontWeight: 1000 }}>87</div>
             </div>
           </div>
 
@@ -199,7 +199,7 @@ export default function BonusMatchDebugOverlay({ getState }) {
           cursor: "pointer",
         }}
       >
-        🐞 DEBUG {summary.errorCount ? `(${summary.errorCount})` : "v86"}
+        🐞 DEBUG {summary.errorCount ? `(${summary.errorCount})` : "v87"}
       </button>
     </div>,
     document.body,

@@ -1,4 +1,4 @@
-const STORAGE_KEY = "tm6_bonus_match_diagnostics_v86";
+const STORAGE_KEY = "tm6_bonus_match_diagnostics_v87";
 const MAX_EVENTS = 1200;
 const MAX_PERSISTED = 420;
 const WATCH_INTERVAL_MS = 500;
@@ -220,7 +220,7 @@ const summarizeState = (state = {}) => {
 
 class BonusMatchDiagnostics {
   constructor() {
-    this.version = "v86";
+    this.version = "v87";
     this.events = [];
     this.sessionId = `bm-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
     this.installed = false;
@@ -596,6 +596,14 @@ class BonusMatchDiagnostics {
       ...pointStacks.flatMap((stack) => stack.elements),
     ].filter((item) => item && (isNearlyWhite(item.backgroundColor) || /url\(/i.test(item.backgroundImage || "") && item.tag === "IMG"));
 
+    const canvases = [...boardElement.querySelectorAll("canvas")].map(canvasSnapshot);
+    const runawayCanvases = canvases.filter((canvas) => (
+      Number(canvas.width || 0) > 8192
+      || Number(canvas.height || 0) > 8192
+      || Number(canvas.clientWidth || 0) > Math.max(2048, rect.width * 2)
+      || Number(canvas.clientHeight || 0) > Math.max(2048, rect.height * 2)
+    ));
+
     return {
       exists: true,
       rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
@@ -615,7 +623,8 @@ class BonusMatchDiagnostics {
         src: sanitizeUrl(element.currentSrc || element.src || element.data || ""),
         outerHTML: element.outerHTML?.slice(0, 2500) || null,
       })),
-      canvases: [...boardElement.querySelectorAll("canvas")].map(canvasSnapshot),
+      canvases,
+      runawayCanvases,
       pointStacks,
       largeDescendants,
       whiteCandidates: whiteCandidates.slice(0, 30),
@@ -633,13 +642,22 @@ class BonusMatchDiagnostics {
       const actualPieces = Number(boardInfo.pieceNodes || 0);
       const visiblePieces = Number(boardInfo.visiblePieceCount || 0);
       const suspiciousWhite = boardInfo.whiteCandidates?.length > 0;
+      const runawayCanvas = boardInfo.runawayCanvases?.length > 0;
       const missingPieces = expectedPieces > 0 && actualPieces === 0;
       const hiddenPieces = expectedPieces > 0 && actualPieces > 0 && visiblePieces === 0;
       const signature = suspiciousWhite
         ? JSON.stringify(boardInfo.whiteCandidates.map((item) => [item.tag, item.className, item.backgroundColor, item.backgroundImage, item.rect]))
         : null;
 
-      if (suspiciousWhite && signature !== this.lastWhiteSignature) {
+      if (runawayCanvas) {
+        this.log("effects_canvas_size_runaway", {
+          reason,
+          state: stateSummary,
+          boardRect: boardInfo.rect,
+          canvases: boardInfo.runawayCanvases,
+          browser: browserSnapshot(),
+        }, "error");
+      } else if (suspiciousWhite && signature !== this.lastWhiteSignature) {
         this.lastWhiteSignature = signature;
         this.log("white_board_candidate_detected", {
           reason,
@@ -734,7 +752,7 @@ class BonusMatchDiagnostics {
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `bonus-match-diagnostics-v86-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
+    anchor.download = `bonus-match-diagnostics-v87-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();

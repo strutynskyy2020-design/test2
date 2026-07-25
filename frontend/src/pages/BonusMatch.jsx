@@ -1155,23 +1155,57 @@ const particleColorForEffect = (effect = {}) => {
   return "#B78CFF";
 };
 
+const MAX_EFFECTS_CANVAS_CSS_SIZE = 2048;
+const MAX_EFFECTS_CANVAS_BITMAP_SIZE = 4096;
+
 const BoardEffectsCanvas = forwardRef(function BoardEffectsCanvas({ effects = [], reducedMotion = false }, ref) {
   const canvasRef = useRef(null);
   const particlesRef = useRef([]);
   const seenTokensRef = useRef(new Set());
   const frameRef = useRef(0);
+  const resizeFrameRef = useRef(0);
+  const lastInvalidSizeRef = useRef(null);
   const sizeRef = useRef({ width: 1, height: 1, dpr: 1 });
 
   const resizeCanvas = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+
     const rect = canvas.getBoundingClientRect();
-    const dpr = Math.min(2, window.devicePixelRatio || 1);
-    const width = Math.max(1, Math.round(rect.width));
-    const height = Math.max(1, Math.round(rect.height));
-    if (canvas.width !== Math.round(width * dpr) || canvas.height !== Math.round(height * dpr)) {
-      canvas.width = Math.round(width * dpr);
-      canvas.height = Math.round(height * dpr);
+    const rawWidth = Number(rect.width);
+    const rawHeight = Number(rect.height);
+    const invalidSize = !Number.isFinite(rawWidth)
+      || !Number.isFinite(rawHeight)
+      || rawWidth <= 0
+      || rawHeight <= 0
+      || rawWidth > MAX_EFFECTS_CANVAS_CSS_SIZE
+      || rawHeight > MAX_EFFECTS_CANVAS_CSS_SIZE;
+
+    if (invalidSize) {
+      const signature = `${rawWidth}x${rawHeight}`;
+      if (lastInvalidSizeRef.current !== signature) {
+        lastInvalidSizeRef.current = signature;
+        bonusMatchDiagnostics.log("effects_canvas_invalid_size_blocked", {
+          rawWidth,
+          rawHeight,
+          bitmapWidth: canvas.width,
+          bitmapHeight: canvas.height,
+          parentRect: canvas.parentElement?.getBoundingClientRect?.() || null,
+        }, "error");
+      }
+      return;
+    }
+
+    lastInvalidSizeRef.current = null;
+    const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+    const width = Math.max(1, Math.round(rawWidth));
+    const height = Math.max(1, Math.round(rawHeight));
+    const bitmapWidth = Math.min(MAX_EFFECTS_CANVAS_BITMAP_SIZE, Math.max(1, Math.round(width * dpr)));
+    const bitmapHeight = Math.min(MAX_EFFECTS_CANVAS_BITMAP_SIZE, Math.max(1, Math.round(height * dpr)));
+
+    if (canvas.width !== bitmapWidth || canvas.height !== bitmapHeight) {
+      canvas.width = bitmapWidth;
+      canvas.height = bitmapHeight;
     }
     sizeRef.current = { width, height, dpr };
   }, []);
@@ -1278,15 +1312,27 @@ const BoardEffectsCanvas = forwardRef(function BoardEffectsCanvas({ effects = []
   }), [emitAt]);
 
   useEffect(() => {
-    resizeCanvas();
     const canvas = canvasRef.current;
     if (!canvas) return undefined;
-    const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(resizeCanvas) : null;
-    observer?.observe(canvas);
-    window.addEventListener("resize", resizeCanvas);
+    const host = canvas.parentElement;
+
+    const scheduleResize = () => {
+      if (resizeFrameRef.current) window.cancelAnimationFrame(resizeFrameRef.current);
+      resizeFrameRef.current = window.requestAnimationFrame(() => {
+        resizeFrameRef.current = 0;
+        resizeCanvas();
+      });
+    };
+
+    scheduleResize();
+    const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(scheduleResize) : null;
+    if (host) observer?.observe(host);
+    window.addEventListener("resize", scheduleResize);
     return () => {
       observer?.disconnect();
-      window.removeEventListener("resize", resizeCanvas);
+      window.removeEventListener("resize", scheduleResize);
+      if (resizeFrameRef.current) window.cancelAnimationFrame(resizeFrameRef.current);
+      resizeFrameRef.current = 0;
       if (frameRef.current) window.cancelAnimationFrame(frameRef.current);
       frameRef.current = 0;
       particlesRef.current = [];
@@ -1328,7 +1374,12 @@ const BoardEffectsCanvas = forwardRef(function BoardEffectsCanvas({ effects = []
   return (
     <canvas
       ref={canvasRef}
-      className="pointer-events-none absolute inset-1.5 z-30"
+      className="pointer-events-none absolute left-1.5 top-1.5 z-30 block"
+      style={{
+        width: "calc(100% - 0.75rem)",
+        height: "calc(100% - 0.75rem)",
+      }}
+      data-bonus-effects-canvas="v87"
       aria-hidden="true"
     />
   );
@@ -1885,7 +1936,7 @@ function BonusMatchScreen() {
 
   useEffect(() => {
     const uninstall = bonusMatchDiagnostics.installGlobalHandlers();
-    bonusMatchDiagnostics.log("bonus_match_mount", { version: "v86" });
+    bonusMatchDiagnostics.log("bonus_match_mount", { version: "v87" });
     return () => {
       bonusMatchDiagnostics.log("bonus_match_unmount");
       bonusMatchDiagnostics.stopWatch();
@@ -2875,7 +2926,7 @@ function BonusMatchScreen() {
             <motion.div
               ref={boardRef}
               className="bonus-match-board relative isolate mt-3 overflow-hidden rounded-[22px] border border-[#7C3AED]/55 bg-[#090711] p-1.5 shadow-[inset_0_0_30px_rgba(124,58,237,.12)]"
-              data-render-engine="v86"
+              data-render-engine="v87"
               animate={boardMotionForFx(boardFx, reducedMotion)}
               transition={{
                 duration: boardFx === "won"
