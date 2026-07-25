@@ -1,0 +1,885 @@
+diff -ruN /mnt/data/tm6v84-work/BONUS_MATCH_DIAGNOSTICS_V85.md /mnt/data/tm6v85-work/BONUS_MATCH_DIAGNOSTICS_V85.md
+--- /mnt/data/tm6v84-work/BONUS_MATCH_DIAGNOSTICS_V85.md	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/tm6v85-work/BONUS_MATCH_DIAGNOSTICS_V85.md	2026-07-25 15:01:25.654846011 +0000
+@@ -0,0 +1,56 @@
++# TM6 Bonus v85 — Bonus Match Diagnostics
++
++## Purpose
++
++This build adds a persistent diagnostics recorder for the intermittent white-board failure. It does not guess the cause. It records the state immediately before, during, and after moves so the exported JSON can identify the exact failing layer.
++
++## New files
++
++- `frontend/src/lib/bonusMatchDiagnostics.js`
++- `frontend/src/components/BonusMatchErrorBoundary.jsx`
++
++## What is recorded
++
++- move start, server response, move completion, and move failure;
++- every animation frame and cascade phase;
++- logical/display board snapshot and stable cell IDs;
++- expected visual piece count and actual DOM piece count;
++- board computed styles and element stack at the board centre;
++- large descendants covering most of the board;
++- `::before` and `::after` computed content/backgrounds;
++- Canvas dimensions;
++- recent network resources;
++- Service Worker controller URL;
++- browser online state, visibility, viewport, DPR, and available heap metrics;
++- uncaught JavaScript errors and rejected promises;
++- React render failures through an Error Boundary;
++- artwork preload failures;
++- automatic detection of nearly-white full-board layers.
++
++## How to collect a report
++
++1. Deploy the v85 frontend.
++2. Open Bonus Match and play until the white board appears.
++3. Press the bug button in the lower-right corner.
++4. Press **ЗАВАНТАЖИТИ ЛОГ**.
++5. Upload the generated `bonus-match-diagnostics-....json` file to the chat.
++
++The journal survives ordinary React renders and is stored in `sessionStorage` for the current browser tab. Do not close the tab before downloading the report after the failure.
++
++## Automatic alert
++
++When the watchdog detects a nearly-white large layer or a mismatch between the expected pieces and DOM pieces, the debug panel opens automatically and displays a red warning.
++
++## Safety
++
++- Ring buffer capped at 900 events.
++- Persisted buffer capped at 350 events.
++- Board snapshots contain game cell state only, no passwords or authorization tokens.
++- Logging/storage failures are swallowed so diagnostics cannot break gameplay.
++
++## Versioning
++
++- Render marker: `data-render-engine="v85"`
++- Service Worker registration: `/service-worker.js?v=85`
++- Cache: `tm6-v85`
++- Artwork atlases: `pieces-v85.webp`, `obstacles-v85.webp`
+diff -ruN /mnt/data/tm6v84-work/BONUS_MATCH_DIAGNOSTICS_V85.patch /mnt/data/tm6v85-work/BONUS_MATCH_DIAGNOSTICS_V85.patch
+--- /mnt/data/tm6v84-work/BONUS_MATCH_DIAGNOSTICS_V85.patch	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/tm6v85-work/BONUS_MATCH_DIAGNOSTICS_V85.patch	2026-07-25 15:01:25.654846011 +0000
+@@ -0,0 +1,60 @@
++diff -ruN /mnt/data/tm6v84-work/BONUS_MATCH_DIAGNOSTICS_V85.md /mnt/data/tm6v85-work/BONUS_MATCH_DIAGNOSTICS_V85.md
++--- /mnt/data/tm6v84-work/BONUS_MATCH_DIAGNOSTICS_V85.md	1970-01-01 00:00:00.000000000 +0000
+++++ /mnt/data/tm6v85-work/BONUS_MATCH_DIAGNOSTICS_V85.md	2026-07-25 15:01:25.654846011 +0000
++@@ -0,0 +1,56 @@
+++# TM6 Bonus v85 — Bonus Match Diagnostics
+++
+++## Purpose
+++
+++This build adds a persistent diagnostics recorder for the intermittent white-board failure. It does not guess the cause. It records the state immediately before, during, and after moves so the exported JSON can identify the exact failing layer.
+++
+++## New files
+++
+++- `frontend/src/lib/bonusMatchDiagnostics.js`
+++- `frontend/src/components/BonusMatchErrorBoundary.jsx`
+++
+++## What is recorded
+++
+++- move start, server response, move completion, and move failure;
+++- every animation frame and cascade phase;
+++- logical/display board snapshot and stable cell IDs;
+++- expected visual piece count and actual DOM piece count;
+++- board computed styles and element stack at the board centre;
+++- large descendants covering most of the board;
+++- `::before` and `::after` computed content/backgrounds;
+++- Canvas dimensions;
+++- recent network resources;
+++- Service Worker controller URL;
+++- browser online state, visibility, viewport, DPR, and available heap metrics;
+++- uncaught JavaScript errors and rejected promises;
+++- React render failures through an Error Boundary;
+++- artwork preload failures;
+++- automatic detection of nearly-white full-board layers.
+++
+++## How to collect a report
+++
+++1. Deploy the v85 frontend.
+++2. Open Bonus Match and play until the white board appears.
+++3. Press the bug button in the lower-right corner.
+++4. Press **ЗАВАНТАЖИТИ ЛОГ**.
+++5. Upload the generated `bonus-match-diagnostics-....json` file to the chat.
+++
+++The journal survives ordinary React renders and is stored in `sessionStorage` for the current browser tab. Do not close the tab before downloading the report after the failure.
+++
+++## Automatic alert
+++
+++When the watchdog detects a nearly-white large layer or a mismatch between the expected pieces and DOM pieces, the debug panel opens automatically and displays a red warning.
+++
+++## Safety
+++
+++- Ring buffer capped at 900 events.
+++- Persisted buffer capped at 350 events.
+++- Board snapshots contain game cell state only, no passwords or authorization tokens.
+++- Logging/storage failures are swallowed so diagnostics cannot break gameplay.
+++
+++## Versioning
+++
+++- Render marker: `data-render-engine="v85"`
+++- Service Worker registration: `/service-worker.js?v=85`
+++- Cache: `tm6-v85`
+++- Artwork atlases: `pieces-v85.webp`, `obstacles-v85.webp`
+Binary files /mnt/data/tm6v84-work/frontend/public/bonus-match/atlas/obstacles-v85.webp and /mnt/data/tm6v85-work/frontend/public/bonus-match/atlas/obstacles-v85.webp differ
+Binary files /mnt/data/tm6v84-work/frontend/public/bonus-match/atlas/pieces-v85.webp and /mnt/data/tm6v85-work/frontend/public/bonus-match/atlas/pieces-v85.webp differ
+diff -ruN /mnt/data/tm6v84-work/frontend/public/service-worker.js /mnt/data/tm6v85-work/frontend/public/service-worker.js
+--- /mnt/data/tm6v84-work/frontend/public/service-worker.js	2026-07-25 14:54:16.702863906 +0000
++++ /mnt/data/tm6v85-work/frontend/public/service-worker.js	2026-07-25 15:00:50.866847463 +0000
+@@ -3,7 +3,7 @@
+  * never be cached as index.html, otherwise browsers can render a giant broken
+  * image element over the board.
+  */
+-const VERSION = "tm6-v84";
++const VERSION = "tm6-v85";
+ const STATIC_CACHE = `${VERSION}-static`;
+ const RUNTIME_CACHE = `${VERSION}-runtime`;
+ 
+@@ -12,8 +12,8 @@
+   "/icon-192.png",
+   "/icon-512.png",
+   "/apple-touch-icon.png",
+-  "/bonus-match/atlas/pieces-v83.webp?v=83",
+-  "/bonus-match/atlas/obstacles-v83.webp?v=83",
++  "/bonus-match/atlas/pieces-v85.webp?v=85",
++  "/bonus-match/atlas/obstacles-v85.webp?v=85",
+ ];
+ 
+ const isImageRequest = (request, url) => (
+diff -ruN /mnt/data/tm6v84-work/frontend/src/components/BonusMatchErrorBoundary.jsx /mnt/data/tm6v85-work/frontend/src/components/BonusMatchErrorBoundary.jsx
+--- /mnt/data/tm6v84-work/frontend/src/components/BonusMatchErrorBoundary.jsx	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/tm6v85-work/frontend/src/components/BonusMatchErrorBoundary.jsx	2026-07-25 14:58:12.034854089 +0000
+@@ -0,0 +1,43 @@
++import React from "react";
++import { bonusMatchDiagnostics } from "@/lib/bonusMatchDiagnostics";
++
++export default class BonusMatchErrorBoundary extends React.Component {
++  constructor(props) {
++    super(props);
++    this.state = { error: null };
++  }
++
++  static getDerivedStateFromError(error) {
++    return { error };
++  }
++
++  componentDidCatch(error, info) {
++    bonusMatchDiagnostics.reactError(error, info);
++  }
++
++  render() {
++    if (!this.state.error) return this.props.children;
++    return (
++      <div className="mx-4 mt-6 rounded-3xl border border-[#FF4D55]/40 bg-[#2A0B10] p-5 text-center">
++        <div className="text-lg font-black text-[#FF7A80]">Bonus Match зупинився</div>
++        <div className="mt-2 text-sm text-zinc-400">Помилка збережена в діагностичному журналі.</div>
++        <div className="mt-4 grid grid-cols-2 gap-2">
++          <button
++            type="button"
++            onClick={() => bonusMatchDiagnostics.download({ source: "react-error-boundary" })}
++            className="h-11 rounded-2xl bg-[#7C3AED] text-sm font-black text-white"
++          >
++            Завантажити лог
++          </button>
++          <button
++            type="button"
++            onClick={() => window.location.reload()}
++            className="h-11 rounded-2xl border border-white/10 bg-[#17171B] text-sm font-black text-zinc-300"
++          >
++            Перезавантажити
++          </button>
++        </div>
++      </div>
++    );
++  }
++}
+diff -ruN /mnt/data/tm6v84-work/frontend/src/lib/bonusMatchAssets.js /mnt/data/tm6v85-work/frontend/src/lib/bonusMatchAssets.js
+--- /mnt/data/tm6v84-work/frontend/src/lib/bonusMatchAssets.js	2026-07-25 14:40:12.954899105 +0000
++++ /mnt/data/tm6v85-work/frontend/src/lib/bonusMatchAssets.js	2026-07-25 15:00:50.866847463 +0000
+@@ -1,6 +1,6 @@
+-const ASSET_VERSION = "83";
+-const PIECES_ATLAS = `/bonus-match/atlas/pieces-v83.webp?v=${ASSET_VERSION}`;
+-const OBSTACLES_ATLAS = `/bonus-match/atlas/obstacles-v83.webp?v=${ASSET_VERSION}`;
++const ASSET_VERSION = "85";
++const PIECES_ATLAS = `/bonus-match/atlas/pieces-v85.webp?v=${ASSET_VERSION}`;
++const OBSTACLES_ATLAS = `/bonus-match/atlas/obstacles-v85.webp?v=${ASSET_VERSION}`;
+ 
+ const makeSprite = (atlas, index, columns, rows) => {
+   const column = index % columns;
+diff -ruN /mnt/data/tm6v84-work/frontend/src/lib/bonusMatchDiagnostics.js /mnt/data/tm6v85-work/frontend/src/lib/bonusMatchDiagnostics.js
+--- /mnt/data/tm6v84-work/frontend/src/lib/bonusMatchDiagnostics.js	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/tm6v85-work/frontend/src/lib/bonusMatchDiagnostics.js	2026-07-25 14:58:12.034854089 +0000
+@@ -0,0 +1,349 @@
++const STORAGE_KEY = "tm6_bonus_match_diagnostics_v85";
++const MAX_EVENTS = 900;
++const MAX_PERSISTED = 350;
++const WATCH_INTERVAL_MS = 500;
++
++const nowIso = () => new Date().toISOString();
++
++const safeValue = (value, depth = 0, seen = new WeakSet()) => {
++  if (value == null || typeof value === "string" || typeof value === "number" || typeof value === "boolean") return value;
++  if (typeof value === "bigint") return String(value);
++  if (typeof value === "function") return `[Function ${value.name || "anonymous"}]`;
++  if (depth > 5) return "[MaxDepth]";
++  if (typeof Element !== "undefined" && value instanceof Element) {
++    const rect = value.getBoundingClientRect();
++    return {
++      tag: value.tagName,
++      id: value.id || null,
++      className: typeof value.className === "string" ? value.className : null,
++      rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
++    };
++  }
++  if (typeof Error !== "undefined" && value instanceof Error) {
++    return { name: value.name, message: value.message, stack: value.stack || null };
++  }
++  if (typeof value === "object") {
++    if (seen.has(value)) return "[Circular]";
++    seen.add(value);
++    if (Array.isArray(value)) return value.slice(0, 120).map((item) => safeValue(item, depth + 1, seen));
++    const output = {};
++    Object.entries(value).slice(0, 160).forEach(([key, item]) => {
++      try {
++        output[key] = safeValue(item, depth + 1, seen);
++      } catch (error) {
++        output[key] = `[Unserializable: ${error?.message || "unknown"}]`;
++      }
++    });
++    return output;
++  }
++  return String(value);
++};
++
++const parseColor = (color) => {
++  const match = String(color || "").match(/rgba?\((\d+)[, ]+(\d+)[, ]+(\d+)(?:[, /]+([\d.]+))?\)/i);
++  if (!match) return null;
++  return { r: Number(match[1]), g: Number(match[2]), b: Number(match[3]), a: match[4] == null ? 1 : Number(match[4]) };
++};
++
++const isNearlyWhite = (color) => {
++  const parsed = parseColor(color);
++  return Boolean(parsed && parsed.a > 0.65 && parsed.r > 238 && parsed.g > 238 && parsed.b > 238);
++};
++
++const boardHash = (board) => (board || []).map((row) => (row || []).map((cell) => {
++  if (!cell) return "_";
++  if (cell.void) return "#";
++  return `${cell.symbol || "-"}:${cell.special || "-"}:${cell.obstacle || "-"}:${cell.obstacle_hits || 0}:${cell.id || "-"}`;
++}).join("|")).join("/");
++
++const compactBoard = (board) => (board || []).map((row) => (row || []).map((cell) => {
++  if (!cell) return null;
++  return {
++    id: cell.id || null,
++    symbol: cell.symbol || null,
++    special: cell.special || null,
++    obstacle: cell.obstacle || null,
++    hits: cell.obstacle_hits || 0,
++    void: Boolean(cell.void),
++  };
++}));
++
++const resourceSnapshot = () => {
++  if (typeof performance === "undefined" || !performance.getEntriesByType) return [];
++  return performance.getEntriesByType("resource").slice(-30).map((entry) => ({
++    name: entry.name,
++    initiatorType: entry.initiatorType,
++    duration: Math.round(entry.duration),
++    transferSize: entry.transferSize || 0,
++    decodedBodySize: entry.decodedBodySize || 0,
++  }));
++};
++
++const browserSnapshot = () => ({
++  href: typeof location !== "undefined" ? location.href : null,
++  userAgent: typeof navigator !== "undefined" ? navigator.userAgent : null,
++  online: typeof navigator !== "undefined" ? navigator.onLine : null,
++  visibility: typeof document !== "undefined" ? document.visibilityState : null,
++  serviceWorker: typeof navigator !== "undefined" ? navigator.serviceWorker?.controller?.scriptURL || null : null,
++  viewport: typeof window !== "undefined" ? { width: window.innerWidth, height: window.innerHeight, dpr: window.devicePixelRatio } : null,
++  memory: typeof performance !== "undefined" && performance.memory ? {
++    usedJSHeapSize: performance.memory.usedJSHeapSize,
++    totalJSHeapSize: performance.memory.totalJSHeapSize,
++    jsHeapSizeLimit: performance.memory.jsHeapSizeLimit,
++  } : null,
++});
++
++class BonusMatchDiagnostics {
++  constructor() {
++    this.version = "v85";
++    this.events = [];
++    this.sessionId = `bm-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
++    this.installed = false;
++    this.watchTimer = null;
++    this.stateProvider = null;
++    this.boardProvider = null;
++    this.lastWhiteSignature = null;
++    this.lastPersistAt = 0;
++    this.boundError = null;
++    this.boundRejection = null;
++    this.boundOnline = null;
++    this.boundOffline = null;
++    this.restore();
++  }
++
++  restore() {
++    try {
++      const raw = sessionStorage.getItem(STORAGE_KEY);
++      if (!raw) return;
++      const parsed = JSON.parse(raw);
++      if (Array.isArray(parsed?.events)) this.events = parsed.events.slice(-MAX_PERSISTED);
++    } catch (_) {
++      // Diagnostics must never break the game.
++    }
++  }
++
++  persist(force = false) {
++    const now = Date.now();
++    if (!force && now - this.lastPersistAt < 750) return;
++    this.lastPersistAt = now;
++    try {
++      sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ version: this.version, sessionId: this.sessionId, events: this.events.slice(-MAX_PERSISTED) }));
++    } catch (_) {
++      // Ignore storage quota/privacy failures.
++    }
++  }
++
++  log(type, data = {}, level = "info") {
++    const event = {
++      seq: this.events.length ? Number(this.events[this.events.length - 1].seq || 0) + 1 : 1,
++      at: nowIso(),
++      perfMs: typeof performance !== "undefined" ? Math.round(performance.now()) : null,
++      type,
++      level,
++      data: safeValue(data),
++    };
++    this.events.push(event);
++    if (this.events.length > MAX_EVENTS) this.events.splice(0, this.events.length - MAX_EVENTS);
++    this.persist(level === "error" || type.includes("white_board") || type.includes("crash"));
++    if (level === "error") {
++      try { window.dispatchEvent(new CustomEvent("bonusmatch:diagnostic-alert", { detail: event })); } catch (_) {}
++    }
++    return event;
++  }
++
++  installGlobalHandlers() {
++    if (this.installed || typeof window === "undefined") return () => {};
++    this.installed = true;
++    this.boundError = (event) => this.log("window_error", {
++      message: event.message,
++      filename: event.filename,
++      lineno: event.lineno,
++      colno: event.colno,
++      error: event.error,
++      browser: browserSnapshot(),
++    }, "error");
++    this.boundRejection = (event) => this.log("unhandled_rejection", {
++      reason: event.reason,
++      browser: browserSnapshot(),
++    }, "error");
++    this.boundOnline = () => this.log("network_online", browserSnapshot());
++    this.boundOffline = () => this.log("network_offline", browserSnapshot(), "warn");
++    window.addEventListener("error", this.boundError, true);
++    window.addEventListener("unhandledrejection", this.boundRejection);
++    window.addEventListener("online", this.boundOnline);
++    window.addEventListener("offline", this.boundOffline);
++    this.log("diagnostics_installed", browserSnapshot());
++    return () => this.uninstallGlobalHandlers();
++  }
++
++  uninstallGlobalHandlers() {
++    if (!this.installed || typeof window === "undefined") return;
++    window.removeEventListener("error", this.boundError, true);
++    window.removeEventListener("unhandledrejection", this.boundRejection);
++    window.removeEventListener("online", this.boundOnline);
++    window.removeEventListener("offline", this.boundOffline);
++    this.installed = false;
++  }
++
++  startWatch({ getState, getBoard }) {
++    this.stopWatch();
++    this.stateProvider = getState;
++    this.boardProvider = getBoard;
++    this.watchTimer = window.setInterval(() => this.captureWatchdog(), WATCH_INTERVAL_MS);
++    this.captureWatchdog("watch_started");
++  }
++
++  stopWatch() {
++    if (this.watchTimer) window.clearInterval(this.watchTimer);
++    this.watchTimer = null;
++    this.stateProvider = null;
++    this.boardProvider = null;
++  }
++
++  inspectBoard(boardElement) {
++    if (!boardElement || typeof getComputedStyle === "undefined") return { exists: false };
++    const rect = boardElement.getBoundingClientRect();
++    const style = getComputedStyle(boardElement);
++    const centerX = rect.left + rect.width / 2;
++    const centerY = rect.top + rect.height / 2;
++    const stack = typeof document.elementsFromPoint === "function"
++      ? document.elementsFromPoint(centerX, centerY).slice(0, 12).map((element) => {
++        const computed = getComputedStyle(element);
++        const elementRect = element.getBoundingClientRect();
++        return {
++          tag: element.tagName,
++          id: element.id || null,
++          className: typeof element.className === "string" ? element.className.slice(0, 300) : null,
++          rect: { x: elementRect.x, y: elementRect.y, width: elementRect.width, height: elementRect.height },
++          backgroundColor: computed.backgroundColor,
++          backgroundImage: computed.backgroundImage,
++          opacity: computed.opacity,
++          visibility: computed.visibility,
++          display: computed.display,
++        };
++      })
++      : [];
++
++    const largeDescendants = [...boardElement.querySelectorAll("*")].map((element) => {
++      const elementRect = element.getBoundingClientRect();
++      if (elementRect.width < rect.width * 0.72 || elementRect.height < rect.height * 0.72) return null;
++      const computed = getComputedStyle(element);
++      const before = getComputedStyle(element, "::before");
++      const after = getComputedStyle(element, "::after");
++      return {
++        tag: element.tagName,
++        className: typeof element.className === "string" ? element.className.slice(0, 260) : null,
++        backgroundColor: computed.backgroundColor,
++        backgroundImage: computed.backgroundImage,
++        opacity: computed.opacity,
++        zIndex: computed.zIndex,
++        before: { content: before.content, backgroundColor: before.backgroundColor, backgroundImage: before.backgroundImage },
++        after: { content: after.content, backgroundColor: after.backgroundColor, backgroundImage: after.backgroundImage },
++      };
++    }).filter(Boolean).slice(0, 20);
++
++    const whiteCandidates = [...stack, ...largeDescendants].filter((item) => isNearlyWhite(item.backgroundColor));
++    return {
++      exists: true,
++      rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
++      boardStyle: {
++        backgroundColor: style.backgroundColor,
++        backgroundImage: style.backgroundImage,
++        opacity: style.opacity,
++        display: style.display,
++        visibility: style.visibility,
++        transform: style.transform,
++      },
++      childCount: boardElement.childElementCount,
++      descendantCount: boardElement.querySelectorAll("*").length,
++      pieceNodes: boardElement.querySelectorAll("[data-bonus-piece]").length,
++      canvas: [...boardElement.querySelectorAll("canvas")].map((canvas) => ({ width: canvas.width, height: canvas.height, clientWidth: canvas.clientWidth, clientHeight: canvas.clientHeight })),
++      stack,
++      largeDescendants,
++      whiteCandidates,
++    };
++  }
++
++  captureWatchdog(reason = "watch_tick") {
++    try {
++      const state = this.stateProvider?.() || {};
++      const boardElement = this.boardProvider?.() || null;
++      const boardInfo = this.inspectBoard(boardElement);
++      const expectedPieces = Number(state.visualPieceCount || 0);
++      const actualPieces = Number(boardInfo.pieceNodes || 0);
++      const suspiciousWhite = boardInfo.whiteCandidates?.length > 0;
++      const missingPieces = expectedPieces > 0 && actualPieces === 0;
++      const signature = suspiciousWhite
++        ? JSON.stringify(boardInfo.whiteCandidates.map((item) => [item.tag, item.className, item.backgroundColor, item.backgroundImage]))
++        : null;
++
++      if (suspiciousWhite && signature !== this.lastWhiteSignature) {
++        this.lastWhiteSignature = signature;
++        this.log("white_board_detected", {
++          reason,
++          state,
++          board: boardInfo,
++          resources: resourceSnapshot(),
++          browser: browserSnapshot(),
++        }, "error");
++      } else if (missingPieces) {
++        this.log("piece_dom_mismatch", { reason, state, board: boardInfo }, "error");
++      } else if (reason !== "watch_tick") {
++        this.log(reason, { state, board: boardInfo });
++      }
++    } catch (error) {
++      this.log("watchdog_failure", { error }, "error");
++    }
++  }
++
++  snapshot(type, state = {}, includeResources = false) {
++    const board = state.displayBoard || state.board || [];
++    const payload = {
++      ...state,
++      boardHash: boardHash(board),
++      board: compactBoard(board),
++      browser: browserSnapshot(),
++    };
++    if (includeResources) payload.resources = resourceSnapshot();
++    return this.log(type, payload);
++  }
++
++  reactError(error, info) {
++    this.log("react_error_boundary", { error, componentStack: info?.componentStack || null, browser: browserSnapshot(), resources: resourceSnapshot() }, "error");
++  }
++
++  clear() {
++    this.events = [];
++    this.lastWhiteSignature = null;
++    try { sessionStorage.removeItem(STORAGE_KEY); } catch (_) {}
++  }
++
++  buildReport(extra = {}) {
++    return {
++      schema: "tm6-bonus-match-diagnostics/1",
++      generatedAt: nowIso(),
++      version: this.version,
++      sessionId: this.sessionId,
++      browser: browserSnapshot(),
++      extra: safeValue(extra),
++      events: this.events.slice(),
++    };
++  }
++
++  download(extra = {}) {
++    const report = this.buildReport(extra);
++    const blob = new Blob([JSON.stringify(report, null, 2)], { type: "application/json" });
++    const url = URL.createObjectURL(blob);
++    const anchor = document.createElement("a");
++    anchor.href = url;
++    anchor.download = `bonus-match-diagnostics-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
++    document.body.appendChild(anchor);
++    anchor.click();
++    anchor.remove();
++    window.setTimeout(() => URL.revokeObjectURL(url), 1500);
++    this.log("diagnostics_downloaded", { eventCount: report.events.length });
++  }
++}
++
++export const bonusMatchDiagnostics = new BonusMatchDiagnostics();
++export { compactBoard, boardHash };
+diff -ruN /mnt/data/tm6v84-work/frontend/src/lib/pwa.js /mnt/data/tm6v85-work/frontend/src/lib/pwa.js
+--- /mnt/data/tm6v84-work/frontend/src/lib/pwa.js	2026-07-25 14:54:16.674863907 +0000
++++ /mnt/data/tm6v85-work/frontend/src/lib/pwa.js	2026-07-25 14:59:26.274850992 +0000
+@@ -10,7 +10,7 @@
+   window.addEventListener("load", async () => {
+     try {
+       const registration = await navigator.serviceWorker.register(
+-        "/service-worker.js?v=84",
++        "/service-worker.js?v=85",
+         { scope: "/", updateViaCache: "none" }
+       );
+ 
+diff -ruN /mnt/data/tm6v84-work/frontend/src/pages/BonusMatch.jsx /mnt/data/tm6v85-work/frontend/src/pages/BonusMatch.jsx
+--- /mnt/data/tm6v84-work/frontend/src/pages/BonusMatch.jsx	2026-07-25 14:48:03.134879491 +0000
++++ /mnt/data/tm6v85-work/frontend/src/pages/BonusMatch.jsx	2026-07-25 14:59:26.114850998 +0000
+@@ -3,12 +3,14 @@
+ import {
+   ArrowLeft,
+   Bomb,
++  Bug,
+   Box,
+   ChevronLeft,
+   ChevronRight,
+   CircleDot,
+   Coins,
+   Dice5,
++  Download,
+   Gamepad2,
+   Gem,
+   Gift,
+@@ -22,6 +24,7 @@
+   Snowflake,
+   Sparkles,
+   Star,
++  Trash2,
+   Trophy,
+   Zap,
+ } from "lucide-react";
+@@ -31,6 +34,8 @@
+ import { fireConfetti } from "@/lib/confetti";
+ import { useApp } from "@/context/AppContext";
+ import AvatarFrame from "@/components/AvatarFrame";
++import BonusMatchErrorBoundary from "@/components/BonusMatchErrorBoundary";
++import { bonusMatchDiagnostics } from "@/lib/bonusMatchDiagnostics";
+ import {
+   BONUS_MATCH_OBSTACLE_SPRITES,
+   BONUS_MATCH_PIECE_SPRITES,
+@@ -1793,7 +1798,7 @@
+ }
+ 
+ 
+-export default function BonusMatch() {
++function BonusMatchScreen() {
+   const navigate = useNavigate();
+   const reducedMotion = useReducedMotion();
+   const { user, mode, refreshMe } = useApp();
+@@ -1832,9 +1837,34 @@
+   const [hintMove, setHintMove] = useState(null);
+   const [activityToken, setActivityToken] = useState(0);
+   const [celebrating, setCelebrating] = useState(false);
++  const [debugOpen, setDebugOpen] = useState(false);
++  const [diagnosticAlert, setDiagnosticAlert] = useState(null);
++  const diagnosticsStateRef = useRef({});
+ 
+   const visualPieces = useMemo(() => flattenVisualPieces(displayBoard), [displayBoard]);
+   const selectedKey = selected ? coordKey(selected.row, selected.col) : null;
++  diagnosticsStateRef.current = {
++    gameId: game?.id || null,
++    level: game?.level || selectedLevel,
++    gameStatus: game?.status || null,
++    movesLeft: game?.moves_left ?? null,
++    score: game?.score ?? animatedScore,
++    visualPieceCount: visualPieces.length,
++    displayBoard,
++    moving,
++    selected,
++    activeBooster,
++    combo,
++    boardFx,
++    flash,
++    cascadeMotion,
++    removingCount: removingIds.size,
++    spawnedCount: spawnedIds.size,
++    activatedCount: activatedIds.size,
++    specialEffectCount: specialEffects.length,
++    artworkReady,
++    artworkFailed,
++  };
+   const dispatchPieceClick = useCallback((row, col) => {
+     pieceClickHandlerRef.current?.(row, col);
+   }, []);
+@@ -1858,17 +1888,49 @@
+   };
+ 
+   useEffect(() => {
++    const uninstall = bonusMatchDiagnostics.installGlobalHandlers();
++    const onAlert = (event) => {
++      setDiagnosticAlert(event.detail || { type: "unknown" });
++      setDebugOpen(true);
++    };
++    window.addEventListener("bonusmatch:diagnostic-alert", onAlert);
++    bonusMatchDiagnostics.log("bonus_match_mount", { version: "v85" });
++    return () => {
++      bonusMatchDiagnostics.log("bonus_match_unmount");
++      bonusMatchDiagnostics.stopWatch();
++      window.removeEventListener("bonusmatch:diagnostic-alert", onAlert);
++      uninstall?.();
++    };
++  }, []);
++
++  useEffect(() => {
++    if (!game || game.status !== "active") {
++      bonusMatchDiagnostics.stopWatch();
++      return undefined;
++    }
++    bonusMatchDiagnostics.startWatch({
++      getState: () => diagnosticsStateRef.current,
++      getBoard: () => boardRef.current,
++    });
++    bonusMatchDiagnostics.snapshot("active_session_watch_started", diagnosticsStateRef.current, true);
++    return () => bonusMatchDiagnostics.stopWatch();
++  }, [game?.id, game?.status]);
++
++  useEffect(() => {
+     let mounted = true;
++    bonusMatchDiagnostics.log("artwork_preload_started");
+     preloadBonusMatchArtwork()
+       .then((result) => {
+         if (!mounted) return;
+         setArtworkFailed(!result?.ok);
+         setArtworkReady(true);
++        bonusMatchDiagnostics.log("artwork_preload_finished", result || {});
+       })
+-      .catch(() => {
++      .catch((error) => {
+         if (!mounted) return;
+         setArtworkFailed(true);
+         setArtworkReady(true);
++        bonusMatchDiagnostics.log("artwork_preload_failed", { error }, "error");
+       });
+     return () => {
+       mounted = false;
+@@ -1900,6 +1962,7 @@
+   }, [game, moving, selected, activeBooster, celebrating, displayBoard, activityToken]);
+ 
+   const applySessionState = async (rawSession, animation = null) => {
++    bonusMatchDiagnostics.log("apply_session_state", { sessionId: rawSession?.id, status: rawSession?.status, reshuffled: Boolean(animation?.reshuffled) });
+     const session = { ...rawSession, board: normalizeBoard(rawSession?.board) };
+     setGame(session);
+     setAnimatedScore(session.score || 0);
+@@ -1926,6 +1989,7 @@
+   };
+ 
+   const loadStatus = async () => {
++    bonusMatchDiagnostics.log("status_load_started", { mode });
+     if (mode === "mock") {
+       const mockStatus = {
+         profile: { current_level: 12, max_level: 50, total_stars: 26, lives: 5, max_lives: 5, next_life_at: null, daily_points: 17, daily_point_cap: 40, balance: 24500, booster_price: 50, boosters: { hammer: 2, rocket: 1, color_bomb: 1, shuffle: 2 } },
+@@ -1946,12 +2010,14 @@
+     try {
+       setLoading(true);
+       const { data } = await api.get("/games/bonus-match/status");
++      bonusMatchDiagnostics.log("status_load_succeeded", { hasActiveSession: Boolean(data.active_session), level: data.profile?.current_level });
+       setStatus(data);
+       setSelectedLevel(Number(data.profile.current_level || 1));
+       if (data.active_session) {
+         await applySessionState(data.active_session, data.active_session_animation);
+       }
+     } catch (error) {
++      bonusMatchDiagnostics.log("status_load_failed", { error }, "error");
+       toast.error(extractError(error, "Не вдалося завантажити Bonus Match"));
+     } finally {
+       setLoading(false);
+@@ -1991,6 +2057,7 @@
+   const coinProgress = Math.min(100, Math.round(((game?.coins_collected || 0) / Math.max(1, config.target_coins)) * 100));
+ 
+   const startGame = async (level = selectedLevel, confirmed = false) => {
++    bonusMatchDiagnostics.log("game_start_requested", { level, confirmed, mode });
+     const preview = levelCatalogMap.get(Number(level)) || levelConfig(level);
+     if (preview.is_boss && !confirmed) {
+       setBossPrompt(preview);
+@@ -2029,10 +2096,12 @@
+     try {
+       setLoading(true);
+       const { data } = await api.post("/games/bonus-match/start", { level });
++      bonusMatchDiagnostics.log("game_start_succeeded", { sessionId: data.session?.id, level: data.session?.level, resumed: data.resumed });
+       await applySessionState(data.session, data.animation);
+       setStatus((current) => (current ? { ...current, profile: { ...current.profile, ...data.profile } } : current));
+       if (data.resumed) toast.info("Продовжуємо незавершений рівень");
+     } catch (error) {
++      bonusMatchDiagnostics.log("game_start_failed", { level, error }, "error");
+       toast.error(extractError(error, "Не вдалося почати рівень"));
+     } finally {
+       setLoading(false);
+@@ -2097,6 +2166,7 @@
+   };
+ 
+   const animateServerMove = async (data, baseScore) => {
++    bonusMatchDiagnostics.log("animation_pipeline_started", { valid: data?.valid, sessionId: data?.session?.id, baseScore });
+     const animation = data.animation || {};
+     const frames = Array.isArray(animation.frames) && animation.frames.length
+       ? animation.frames
+@@ -2171,6 +2241,7 @@
+ 
+     for (let index = 0; index < frames.length; index += 1) {
+       const frame = frames[index];
++      bonusMatchDiagnostics.log("animation_frame", { index, phase: frame.phase, combo: frame.combo, scoreGain: frame.score_gain, cleared: frame.cleared_cells?.length || 0, spawned: frame.spawned_ids?.length || frame.spawned?.length || 0 });
+       if (frame.phase === "swap") continue;
+ 
+       if (frame.phase === "match") {
+@@ -2494,6 +2565,7 @@
+ 
+   const makeMove = async (from, to) => {
+     if (!game || moving || game.status !== "active") return;
++    bonusMatchDiagnostics.snapshot("move_started", { ...diagnosticsStateRef.current, from, to }, true);
+     registerBoardInteraction();
+     setMoving(true);
+     setSelected(null);
+@@ -2520,6 +2592,7 @@
+         }).then((response) => response.data);
+ 
+       const data = await request;
++      bonusMatchDiagnostics.log("move_response_received", { valid: data?.valid, result: data?.result, sessionStatus: data?.session?.status, frameCount: data?.animation?.frames?.length || 0, elapsedMs: Math.round(performance.now() - swapStartedAt) });
+       await waitUntil(swapStartedAt + (reducedMotion ? 25 : OPTIMISTIC_SWAP_MS));
+       await animateServerMove(data, game.score);
+ 
+@@ -2535,10 +2608,12 @@
+         if (mode !== "mock") await loadStatus();
+       }
+     } catch (error) {
++      bonusMatchDiagnostics.snapshot("move_failed", { ...diagnosticsStateRef.current, from, to, error }, true);
+       setDisplayBoard(startingBoard);
+       setGame(startingGame);
+       toast.error(extractError(error, "Не вдалося виконати хід"));
+     } finally {
++      bonusMatchDiagnostics.snapshot("move_finished", { ...diagnosticsStateRef.current, from, to });
+       setMoving(false);
+       setCombo(0);
+       window.setTimeout(() => setFlash(""), 420);
+@@ -2624,6 +2699,62 @@
+ 
+   return (
+     <div className="space-y-4 px-4 pb-8 pt-2" data-testid="bonus-match-page">
++      <div className="fixed bottom-20 right-3 z-[120] flex flex-col items-end gap-2">
++        <AnimatePresence>
++          {debugOpen && (
++            <motion.div
++              initial={{ opacity: 0, y: 8, scale: 0.96 }}
++              animate={{ opacity: 1, y: 0, scale: 1 }}
++              exit={{ opacity: 0, y: 8, scale: 0.96 }}
++              className="w-[280px] rounded-2xl border border-[#7C3AED]/40 bg-[#101014]/95 p-3 shadow-2xl backdrop-blur"
++            >
++              <div className="flex items-center justify-between gap-2">
++                <div>
++                  <div className="text-[10px] font-black uppercase tracking-[.14em] text-[#B78CFF]">Діагностика v85</div>
++                  <div className="mt-1 text-[9px] text-zinc-500">Лог зберігається у цій вкладці браузера</div>
++                </div>
++                <button type="button" onClick={() => setDebugOpen(false)} className="rounded-lg px-2 py-1 text-xs text-zinc-500">×</button>
++              </div>
++              {diagnosticAlert && (
++                <div className="mt-2 rounded-xl border border-[#FF4D55]/35 bg-[#FF4D55]/10 px-2.5 py-2 text-[9px] font-bold text-[#FF9CA2]">
++                  Зафіксовано: {diagnosticAlert.type || "помилка"}. Завантаж лог одразу.
++                </div>
++              )}
++              <div className="mt-3 grid grid-cols-2 gap-2">
++                <button
++                  type="button"
++                  onClick={() => { bonusMatchDiagnostics.snapshot("manual_snapshot", diagnosticsStateRef.current, true); bonusMatchDiagnostics.download({ source: "debug-panel", state: diagnosticsStateRef.current }); }}
++                  className="flex h-10 items-center justify-center gap-1.5 rounded-xl bg-[#7C3AED] text-[10px] font-black text-white"
++                >
++                  <Download size={14} /> ЗАВАНТАЖИТИ ЛОГ
++                </button>
++                <button
++                  type="button"
++                  onClick={() => { bonusMatchDiagnostics.clear(); setDiagnosticAlert(null); toast.success("Діагностичний лог очищено"); }}
++                  className="flex h-10 items-center justify-center gap-1.5 rounded-xl border border-white/10 bg-[#1A1A1E] text-[10px] font-black text-zinc-400"
++                >
++                  <Trash2 size={14} /> ОЧИСТИТИ
++                </button>
++              </div>
++              <button
++                type="button"
++                onClick={() => { bonusMatchDiagnostics.captureWatchdog("manual_board_check"); toast.info("Стан дошки записано"); }}
++                className="mt-2 h-9 w-full rounded-xl border border-[#00F0FF]/20 bg-[#00F0FF]/10 text-[9px] font-black text-[#5EEBFF]"
++              >
++                ЗАПИСАТИ СТАН ДОШКИ ЗАРАЗ
++              </button>
++            </motion.div>
++          )}
++        </AnimatePresence>
++        <button
++          type="button"
++          onClick={() => setDebugOpen((value) => !value)}
++          className={`flex h-11 w-11 items-center justify-center rounded-full border shadow-xl ${diagnosticAlert ? "border-[#FF4D55] bg-[#451219] text-[#FF7A80]" : "border-[#7C3AED]/50 bg-[#18121F] text-[#B78CFF]"}`}
++          aria-label="Відкрити діагностику Bonus Match"
++        >
++          <Bug size={20} />
++        </button>
++      </div>
+       <section className="flex items-center gap-3">
+         <button
+           type="button"
+@@ -2802,7 +2933,7 @@
+             <motion.div
+               ref={boardRef}
+               className="bonus-match-board relative isolate mt-3 overflow-hidden rounded-[22px] border border-[#7C3AED]/55 bg-[#090711] p-1.5 shadow-[inset_0_0_30px_rgba(124,58,237,.12)]"
+-              data-render-engine="v84"
++              data-render-engine="v85"
+               animate={boardMotionForFx(boardFx, reducedMotion)}
+               transition={{
+                 duration: boardFx === "won"
+@@ -2997,3 +3128,11 @@
+     </div>
+   );
+ }
++
++export default function BonusMatch() {
++  return (
++    <BonusMatchErrorBoundary>
++      <BonusMatchScreen />
++    </BonusMatchErrorBoundary>
++  );
++}

@@ -1,9 +1,10 @@
 /* TM6 Bonus — Service Worker
- * v82 removes legacy editor/cache overlays and protects image requests from Netlify's SPA fallback. A missing image must
+ * v86 keeps the safe fetch fallbacks and forces a fresh cache for the diagnostics build.
+ * v84 fixes rejected FetchEvent promises, navigation fallback, and stale registration URLs and protects image requests from Netlify's SPA fallback. A missing image must
  * never be cached as index.html, otherwise browsers can render a giant broken
  * image element over the board.
  */
-const VERSION = "tm6-v83";
+const VERSION = "tm6-v86";
 const STATIC_CACHE = `${VERSION}-static`;
 const RUNTIME_CACHE = `${VERSION}-runtime`;
 
@@ -12,8 +13,8 @@ const PRECACHE_URLS = [
   "/icon-192.png",
   "/icon-512.png",
   "/apple-touch-icon.png",
-  "/bonus-match/atlas/pieces-v83.webp?v=83",
-  "/bonus-match/atlas/obstacles-v83.webp?v=83",
+  "/bonus-match/atlas/pieces-v85.webp?v=85",
+  "/bonus-match/atlas/obstacles-v85.webp?v=85",
 ];
 
 const isImageRequest = (request, url) => (
@@ -86,17 +87,23 @@ self.addEventListener("fetch", (event) => {
   }
 
   if (request.mode === "navigate") {
-    event.respondWith(
-      fetch(request, { cache: "no-store" })
-        .then((response) => {
-          if (response.ok) {
-            const copy = response.clone();
-            caches.open(RUNTIME_CACHE).then((cache) => cache.put("/", copy));
-          }
-          return response;
-        })
-        .catch(() => caches.match("/"))
-    );
+    event.respondWith((async () => {
+      try {
+        const response = await fetch(request, { cache: "no-store" });
+        if (response.ok) {
+          const cache = await caches.open(RUNTIME_CACHE);
+          await cache.put("/", response.clone());
+        }
+        return response;
+      } catch (_) {
+        const cachedShell = await caches.match("/") || await caches.match("/index.html");
+        if (cachedShell) return cachedShell;
+        return new Response(
+          '<!doctype html><html lang="uk"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><body style="margin:0;background:#090711;color:white;font-family:system-ui;display:grid;place-items:center;min-height:100vh"><div>Немає з’єднання. Перевірте мережу та оновіть сторінку.</div></body></html>',
+          { status: 503, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } },
+        );
+      }
+    })());
     return;
   }
 
@@ -138,13 +145,22 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  event.respondWith(
-    caches.match(request).then((cached) => cached || fetch(request).then((response) => {
+  event.respondWith((async () => {
+    const cached = await caches.match(request);
+    if (cached) return cached;
+    try {
+      const response = await fetch(request);
       if (response.ok && isSameOrigin) {
-        const copy = response.clone();
-        caches.open(RUNTIME_CACHE).then((cache) => cache.put(request, copy));
+        const cache = await caches.open(RUNTIME_CACHE);
+        await cache.put(request, response.clone());
       }
       return response;
-    }))
-  );
+    } catch (_) {
+      return new Response("", {
+        status: 503,
+        statusText: "Offline",
+        headers: { "Cache-Control": "no-store" },
+      });
+    }
+  })());
 });

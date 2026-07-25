@@ -1,0 +1,1213 @@
+--- a/frontend/src/pages/BonusMatch.jsx
++++ b/frontend/src/pages/BonusMatch.jsx
+@@ -3,14 +3,12 @@
+ import {
+   ArrowLeft,
+   Bomb,
+-  Bug,
+   Box,
+   ChevronLeft,
+   ChevronRight,
+   CircleDot,
+   Coins,
+   Dice5,
+-  Download,
+   Gamepad2,
+   Gem,
+   Gift,
+@@ -24,7 +22,6 @@
+   Snowflake,
+   Sparkles,
+   Star,
+-  Trash2,
+   Trophy,
+   Zap,
+ } from "lucide-react";
+@@ -35,6 +32,7 @@
+ import { useApp } from "@/context/AppContext";
+ import AvatarFrame from "@/components/AvatarFrame";
+ import BonusMatchErrorBoundary from "@/components/BonusMatchErrorBoundary";
++import BonusMatchDebugOverlay from "@/components/BonusMatchDebugOverlay";
+ import { bonusMatchDiagnostics } from "@/lib/bonusMatchDiagnostics";
+ import {
+   BONUS_MATCH_OBSTACLE_SPRITES,
+@@ -1837,8 +1835,6 @@
+   const [hintMove, setHintMove] = useState(null);
+   const [activityToken, setActivityToken] = useState(0);
+   const [celebrating, setCelebrating] = useState(false);
+-  const [debugOpen, setDebugOpen] = useState(false);
+-  const [diagnosticAlert, setDiagnosticAlert] = useState(null);
+   const diagnosticsStateRef = useRef({});
+ 
+   const visualPieces = useMemo(() => flattenVisualPieces(displayBoard), [displayBoard]);
+@@ -1889,16 +1885,10 @@
+ 
+   useEffect(() => {
+     const uninstall = bonusMatchDiagnostics.installGlobalHandlers();
+-    const onAlert = (event) => {
+-      setDiagnosticAlert(event.detail || { type: "unknown" });
+-      setDebugOpen(true);
+-    };
+-    window.addEventListener("bonusmatch:diagnostic-alert", onAlert);
+-    bonusMatchDiagnostics.log("bonus_match_mount", { version: "v85" });
++    bonusMatchDiagnostics.log("bonus_match_mount", { version: "v86" });
+     return () => {
+       bonusMatchDiagnostics.log("bonus_match_unmount");
+       bonusMatchDiagnostics.stopWatch();
+-      window.removeEventListener("bonusmatch:diagnostic-alert", onAlert);
+       uninstall?.();
+     };
+   }, []);
+@@ -2694,67 +2684,19 @@
+   };
+ 
+   if (!artworkReady || (loading && !status && !game)) {
+-    return <div className="px-5 py-12 text-center text-sm font-bold text-zinc-500">{artworkReady ? "Завантаження Bonus Match..." : "Готуємо фішки..."}</div>;
++    return (
++      <>
++        <BonusMatchDebugOverlay getState={() => diagnosticsStateRef.current} />
++        <div className="px-5 py-12 text-center text-sm font-bold text-zinc-500">
++          {artworkReady ? "Завантаження Bonus Match..." : "Готуємо фішки..."}
++        </div>
++      </>
++    );
+   }
+ 
+   return (
+     <div className="space-y-4 px-4 pb-8 pt-2" data-testid="bonus-match-page">
+-      <div className="fixed bottom-20 right-3 z-[120] flex flex-col items-end gap-2">
+-        <AnimatePresence>
+-          {debugOpen && (
+-            <motion.div
+-              initial={{ opacity: 0, y: 8, scale: 0.96 }}
+-              animate={{ opacity: 1, y: 0, scale: 1 }}
+-              exit={{ opacity: 0, y: 8, scale: 0.96 }}
+-              className="w-[280px] rounded-2xl border border-[#7C3AED]/40 bg-[#101014]/95 p-3 shadow-2xl backdrop-blur"
+-            >
+-              <div className="flex items-center justify-between gap-2">
+-                <div>
+-                  <div className="text-[10px] font-black uppercase tracking-[.14em] text-[#B78CFF]">Діагностика v85</div>
+-                  <div className="mt-1 text-[9px] text-zinc-500">Лог зберігається у цій вкладці браузера</div>
+-                </div>
+-                <button type="button" onClick={() => setDebugOpen(false)} className="rounded-lg px-2 py-1 text-xs text-zinc-500">×</button>
+-              </div>
+-              {diagnosticAlert && (
+-                <div className="mt-2 rounded-xl border border-[#FF4D55]/35 bg-[#FF4D55]/10 px-2.5 py-2 text-[9px] font-bold text-[#FF9CA2]">
+-                  Зафіксовано: {diagnosticAlert.type || "помилка"}. Завантаж лог одразу.
+-                </div>
+-              )}
+-              <div className="mt-3 grid grid-cols-2 gap-2">
+-                <button
+-                  type="button"
+-                  onClick={() => { bonusMatchDiagnostics.snapshot("manual_snapshot", diagnosticsStateRef.current, true); bonusMatchDiagnostics.download({ source: "debug-panel", state: diagnosticsStateRef.current }); }}
+-                  className="flex h-10 items-center justify-center gap-1.5 rounded-xl bg-[#7C3AED] text-[10px] font-black text-white"
+-                >
+-                  <Download size={14} /> ЗАВАНТАЖИТИ ЛОГ
+-                </button>
+-                <button
+-                  type="button"
+-                  onClick={() => { bonusMatchDiagnostics.clear(); setDiagnosticAlert(null); toast.success("Діагностичний лог очищено"); }}
+-                  className="flex h-10 items-center justify-center gap-1.5 rounded-xl border border-white/10 bg-[#1A1A1E] text-[10px] font-black text-zinc-400"
+-                >
+-                  <Trash2 size={14} /> ОЧИСТИТИ
+-                </button>
+-              </div>
+-              <button
+-                type="button"
+-                onClick={() => { bonusMatchDiagnostics.captureWatchdog("manual_board_check"); toast.info("Стан дошки записано"); }}
+-                className="mt-2 h-9 w-full rounded-xl border border-[#00F0FF]/20 bg-[#00F0FF]/10 text-[9px] font-black text-[#5EEBFF]"
+-              >
+-                ЗАПИСАТИ СТАН ДОШКИ ЗАРАЗ
+-              </button>
+-            </motion.div>
+-          )}
+-        </AnimatePresence>
+-        <button
+-          type="button"
+-          onClick={() => setDebugOpen((value) => !value)}
+-          className={`flex h-11 w-11 items-center justify-center rounded-full border shadow-xl ${diagnosticAlert ? "border-[#FF4D55] bg-[#451219] text-[#FF7A80]" : "border-[#7C3AED]/50 bg-[#18121F] text-[#B78CFF]"}`}
+-          aria-label="Відкрити діагностику Bonus Match"
+-        >
+-          <Bug size={20} />
+-        </button>
+-      </div>
++      <BonusMatchDebugOverlay getState={() => diagnosticsStateRef.current} />
+       <section className="flex items-center gap-3">
+         <button
+           type="button"
+@@ -2933,7 +2875,7 @@
+             <motion.div
+               ref={boardRef}
+               className="bonus-match-board relative isolate mt-3 overflow-hidden rounded-[22px] border border-[#7C3AED]/55 bg-[#090711] p-1.5 shadow-[inset_0_0_30px_rgba(124,58,237,.12)]"
+-              data-render-engine="v85"
++              data-render-engine="v86"
+               animate={boardMotionForFx(boardFx, reducedMotion)}
+               transition={{
+                 duration: boardFx === "won"
+--- a/frontend/src/lib/bonusMatchDiagnostics.js
++++ b/frontend/src/lib/bonusMatchDiagnostics.js
+@@ -1,33 +1,43 @@
+-const STORAGE_KEY = "tm6_bonus_match_diagnostics_v85";
+-const MAX_EVENTS = 900;
+-const MAX_PERSISTED = 350;
++const STORAGE_KEY = "tm6_bonus_match_diagnostics_v86";
++const MAX_EVENTS = 1200;
++const MAX_PERSISTED = 420;
+ const WATCH_INTERVAL_MS = 500;
++const HEARTBEAT_INTERVAL_MS = 1000;
+ 
+ const nowIso = () => new Date().toISOString();
++const perfNow = () => (typeof performance !== "undefined" ? Math.round(performance.now()) : null);
+ 
+ const safeValue = (value, depth = 0, seen = new WeakSet()) => {
+   if (value == null || typeof value === "string" || typeof value === "number" || typeof value === "boolean") return value;
+   if (typeof value === "bigint") return String(value);
+   if (typeof value === "function") return `[Function ${value.name || "anonymous"}]`;
+-  if (depth > 5) return "[MaxDepth]";
++  if (depth > 6) return "[MaxDepth]";
++
+   if (typeof Element !== "undefined" && value instanceof Element) {
+     const rect = value.getBoundingClientRect();
+     return {
+       tag: value.tagName,
+       id: value.id || null,
+-      className: typeof value.className === "string" ? value.className : null,
++      className: typeof value.className === "string" ? value.className.slice(0, 400) : null,
+       rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+     };
+   }
++
+   if (typeof Error !== "undefined" && value instanceof Error) {
+-    return { name: value.name, message: value.message, stack: value.stack || null };
++    return {
++      name: value.name,
++      message: value.message,
++      stack: value.stack || null,
++      cause: value.cause ? safeValue(value.cause, depth + 1, seen) : null,
++    };
+   }
++
+   if (typeof value === "object") {
+     if (seen.has(value)) return "[Circular]";
+     seen.add(value);
+-    if (Array.isArray(value)) return value.slice(0, 120).map((item) => safeValue(item, depth + 1, seen));
++    if (Array.isArray(value)) return value.slice(0, 160).map((item) => safeValue(item, depth + 1, seen));
+     const output = {};
+-    Object.entries(value).slice(0, 160).forEach(([key, item]) => {
++    Object.entries(value).slice(0, 220).forEach(([key, item]) => {
+       try {
+         output[key] = safeValue(item, depth + 1, seen);
+       } catch (error) {
+@@ -36,18 +46,34 @@
+     });
+     return output;
+   }
++
+   return String(value);
+ };
+ 
+ const parseColor = (color) => {
+   const match = String(color || "").match(/rgba?\((\d+)[, ]+(\d+)[, ]+(\d+)(?:[, /]+([\d.]+))?\)/i);
+   if (!match) return null;
+-  return { r: Number(match[1]), g: Number(match[2]), b: Number(match[3]), a: match[4] == null ? 1 : Number(match[4]) };
++  return {
++    r: Number(match[1]),
++    g: Number(match[2]),
++    b: Number(match[3]),
++    a: match[4] == null ? 1 : Number(match[4]),
++  };
+ };
+ 
+ const isNearlyWhite = (color) => {
+   const parsed = parseColor(color);
+-  return Boolean(parsed && parsed.a > 0.65 && parsed.r > 238 && parsed.g > 238 && parsed.b > 238);
++  return Boolean(parsed && parsed.a > 0.62 && parsed.r > 236 && parsed.g > 236 && parsed.b > 236);
++};
++
++const sanitizeUrl = (rawUrl) => {
++  try {
++    const url = new URL(String(rawUrl || ""), typeof location !== "undefined" ? location.href : "https://local.invalid");
++    const keys = [...url.searchParams.keys()];
++    return `${url.origin}${url.pathname}${keys.length ? `?${keys.map((key) => `${encodeURIComponent(key)}=<redacted>`).join("&")}` : ""}`;
++  } catch (_) {
++    return String(rawUrl || "").slice(0, 800);
++  }
+ };
+ 
+ const boardHash = (board) => (board || []).map((row) => (row || []).map((cell) => {
+@@ -64,28 +90,39 @@
+     special: cell.special || null,
+     obstacle: cell.obstacle || null,
+     hits: cell.obstacle_hits || 0,
++    age: cell.obstacle_age || 0,
+     void: Boolean(cell.void),
+   };
+ }));
+ 
+ const resourceSnapshot = () => {
+   if (typeof performance === "undefined" || !performance.getEntriesByType) return [];
+-  return performance.getEntriesByType("resource").slice(-30).map((entry) => ({
+-    name: entry.name,
++  return performance.getEntriesByType("resource").slice(-50).map((entry) => ({
++    name: sanitizeUrl(entry.name),
+     initiatorType: entry.initiatorType,
+     duration: Math.round(entry.duration),
+     transferSize: entry.transferSize || 0,
++    encodedBodySize: entry.encodedBodySize || 0,
+     decodedBodySize: entry.decodedBodySize || 0,
++    startTime: Math.round(entry.startTime || 0),
+   }));
+ };
+ 
+ const browserSnapshot = () => ({
+-  href: typeof location !== "undefined" ? location.href : null,
++  href: typeof location !== "undefined" ? sanitizeUrl(location.href) : null,
+   userAgent: typeof navigator !== "undefined" ? navigator.userAgent : null,
++  platform: typeof navigator !== "undefined" ? navigator.platform : null,
+   online: typeof navigator !== "undefined" ? navigator.onLine : null,
+   visibility: typeof document !== "undefined" ? document.visibilityState : null,
+   serviceWorker: typeof navigator !== "undefined" ? navigator.serviceWorker?.controller?.scriptURL || null : null,
+-  viewport: typeof window !== "undefined" ? { width: window.innerWidth, height: window.innerHeight, dpr: window.devicePixelRatio } : null,
++  viewport: typeof window !== "undefined" ? {
++    width: window.innerWidth,
++    height: window.innerHeight,
++    dpr: window.devicePixelRatio,
++    scrollX: window.scrollX,
++    scrollY: window.scrollY,
++  } : null,
++  fonts: typeof document !== "undefined" && document.fonts ? document.fonts.status : null,
+   memory: typeof performance !== "undefined" && performance.memory ? {
+     usedJSHeapSize: performance.memory.usedJSHeapSize,
+     totalJSHeapSize: performance.memory.totalJSHeapSize,
+@@ -93,27 +130,140 @@
+   } : null,
+ });
+ 
++const styleSnapshot = (element, pseudo = null) => {
++  if (!element || typeof getComputedStyle === "undefined") return null;
++  try {
++    const style = getComputedStyle(element, pseudo);
++    const rect = element.getBoundingClientRect();
++    return {
++      tag: element.tagName,
++      id: element.id || null,
++      className: typeof element.className === "string" ? element.className.slice(0, 500) : null,
++      rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
++      display: style.display,
++      visibility: style.visibility,
++      opacity: style.opacity,
++      zIndex: style.zIndex,
++      position: style.position,
++      overflow: style.overflow,
++      pointerEvents: style.pointerEvents,
++      transform: style.transform,
++      filter: style.filter,
++      backdropFilter: style.backdropFilter,
++      mixBlendMode: style.mixBlendMode,
++      backgroundColor: style.backgroundColor,
++      backgroundImage: style.backgroundImage,
++      content: pseudo ? style.content : undefined,
++      color: style.color,
++    };
++  } catch (error) {
++    return { error: error?.message || String(error) };
++  }
++};
++
++const canvasSnapshot = (canvas) => {
++  const result = {
++    width: canvas.width,
++    height: canvas.height,
++    clientWidth: canvas.clientWidth,
++    clientHeight: canvas.clientHeight,
++    style: styleSnapshot(canvas),
++    pixelSamples: [],
++  };
++
++  try {
++    const context = canvas.getContext("2d", { willReadFrequently: true });
++    if (!context || !canvas.width || !canvas.height) return result;
++    const points = [
++      [0.1, 0.1], [0.5, 0.1], [0.9, 0.1],
++      [0.1, 0.5], [0.5, 0.5], [0.9, 0.5],
++      [0.1, 0.9], [0.5, 0.9], [0.9, 0.9],
++    ];
++    result.pixelSamples = points.map(([px, py]) => {
++      const x = Math.max(0, Math.min(canvas.width - 1, Math.round(canvas.width * px)));
++      const y = Math.max(0, Math.min(canvas.height - 1, Math.round(canvas.height * py)));
++      const data = context.getImageData(x, y, 1, 1).data;
++      return { x, y, rgba: [...data] };
++    });
++  } catch (error) {
++    result.pixelReadError = error?.message || String(error);
++  }
++  return result;
++};
++
++const summarizeState = (state = {}) => {
++  const board = state.displayBoard || state.board || [];
++  return {
++    gameId: state.gameId || null,
++    level: state.level ?? null,
++    gameStatus: state.gameStatus || null,
++    movesLeft: state.movesLeft ?? null,
++    score: state.score ?? null,
++    visualPieceCount: state.visualPieceCount ?? null,
++    moving: Boolean(state.moving),
++    selected: state.selected || null,
++    activeBooster: state.activeBooster || null,
++    combo: state.combo ?? null,
++    boardFx: state.boardFx || null,
++    flash: state.flash || null,
++    cascadeMotion: state.cascadeMotion || null,
++    removingCount: state.removingCount ?? null,
++    spawnedCount: state.spawnedCount ?? null,
++    activatedCount: state.activatedCount ?? null,
++    specialEffectCount: state.specialEffectCount ?? null,
++    artworkReady: Boolean(state.artworkReady),
++    artworkFailed: Boolean(state.artworkFailed),
++    boardHash: boardHash(board),
++    board: compactBoard(board),
++  };
++};
++
+ class BonusMatchDiagnostics {
+   constructor() {
+-    this.version = "v85";
++    this.version = "v86";
+     this.events = [];
+     this.sessionId = `bm-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+     this.installed = false;
+     this.watchTimer = null;
+     this.stateProvider = null;
+     this.boardProvider = null;
++    this.boardObserver = null;
+     this.lastWhiteSignature = null;
++    this.lastHeartbeatAt = 0;
+     this.lastPersistAt = 0;
++    this.originalFetch = null;
++    this.originalXhrOpen = null;
++    this.originalXhrSend = null;
++    this.originalConsoleError = null;
++    this.originalConsoleWarn = null;
++    this.performanceObserver = null;
+     this.boundError = null;
+     this.boundRejection = null;
+     this.boundOnline = null;
+     this.boundOffline = null;
++    this.boundVisibility = null;
++    this.boundSecurityPolicy = null;
+     this.restore();
++    this.exposeGlobalApi();
++  }
++
++  exposeGlobalApi() {
++    if (typeof window === "undefined") return;
++    window.__TM6_BONUS_DIAGNOSTICS__ = {
++      version: this.version,
++      download: (extra) => this.download(extra),
++      copy: (extra) => this.copy(extra),
++      snapshot: (reason = "console_snapshot") => this.captureWatchdog(reason, true),
++      clear: () => this.clear(),
++      report: () => this.buildReport({ source: "console" }),
++      events: () => this.events.slice(),
++      summary: () => this.getSummary(),
++    };
+   }
+ 
+   restore() {
+     try {
+-      const raw = sessionStorage.getItem(STORAGE_KEY);
++      const raw = localStorage.getItem(STORAGE_KEY) || sessionStorage.getItem(STORAGE_KEY);
+       if (!raw) return;
+       const parsed = JSON.parse(raw);
+       if (Array.isArray(parsed?.events)) this.events = parsed.events.slice(-MAX_PERSISTED);
+@@ -124,27 +274,30 @@
+ 
+   persist(force = false) {
+     const now = Date.now();
+-    if (!force && now - this.lastPersistAt < 750) return;
++    if (!force && now - this.lastPersistAt < 700) return;
+     this.lastPersistAt = now;
+-    try {
+-      sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ version: this.version, sessionId: this.sessionId, events: this.events.slice(-MAX_PERSISTED) }));
+-    } catch (_) {
+-      // Ignore storage quota/privacy failures.
+-    }
++    const payload = JSON.stringify({
++      version: this.version,
++      sessionId: this.sessionId,
++      updatedAt: nowIso(),
++      events: this.events.slice(-MAX_PERSISTED),
++    });
++    try { sessionStorage.setItem(STORAGE_KEY, payload); } catch (_) {}
++    try { localStorage.setItem(STORAGE_KEY, payload); } catch (_) {}
+   }
+ 
+   log(type, data = {}, level = "info") {
+     const event = {
+       seq: this.events.length ? Number(this.events[this.events.length - 1].seq || 0) + 1 : 1,
+       at: nowIso(),
+-      perfMs: typeof performance !== "undefined" ? Math.round(performance.now()) : null,
++      perfMs: perfNow(),
+       type,
+       level,
+       data: safeValue(data),
+     };
+     this.events.push(event);
+     if (this.events.length > MAX_EVENTS) this.events.splice(0, this.events.length - MAX_EVENTS);
+-    this.persist(level === "error" || type.includes("white_board") || type.includes("crash"));
++    this.persist(level === "error" || type.includes("white_board") || type.includes("mismatch") || type.includes("crash"));
+     if (level === "error") {
+       try { window.dispatchEvent(new CustomEvent("bonusmatch:diagnostic-alert", { detail: event })); } catch (_) {}
+     }
+@@ -154,34 +307,181 @@
+   installGlobalHandlers() {
+     if (this.installed || typeof window === "undefined") return () => {};
+     this.installed = true;
+-    this.boundError = (event) => this.log("window_error", {
+-      message: event.message,
+-      filename: event.filename,
+-      lineno: event.lineno,
+-      colno: event.colno,
+-      error: event.error,
+-      browser: browserSnapshot(),
+-    }, "error");
++
++    this.boundError = (event) => {
++      const target = event.target;
++      const resourceElement = target && target !== window && target instanceof Element;
++      if (resourceElement) {
++        this.log("resource_load_error", {
++          target: styleSnapshot(target),
++          src: sanitizeUrl(target.currentSrc || target.src || target.href || target.data || ""),
++          outerHTML: target.outerHTML?.slice(0, 3000) || null,
++          browser: browserSnapshot(),
++        }, "error");
++        return;
++      }
++      this.log("window_error", {
++        message: event.message,
++        filename: sanitizeUrl(event.filename),
++        lineno: event.lineno,
++        colno: event.colno,
++        error: event.error,
++        browser: browserSnapshot(),
++      }, "error");
++    };
++
+     this.boundRejection = (event) => this.log("unhandled_rejection", {
+       reason: event.reason,
+       browser: browserSnapshot(),
+     }, "error");
+     this.boundOnline = () => this.log("network_online", browserSnapshot());
+     this.boundOffline = () => this.log("network_offline", browserSnapshot(), "warn");
++    this.boundVisibility = () => this.log("visibility_changed", browserSnapshot());
++    this.boundSecurityPolicy = (event) => this.log("security_policy_violation", {
++      blockedURI: sanitizeUrl(event.blockedURI),
++      violatedDirective: event.violatedDirective,
++      effectiveDirective: event.effectiveDirective,
++      sourceFile: sanitizeUrl(event.sourceFile),
++      lineNumber: event.lineNumber,
++      columnNumber: event.columnNumber,
++    }, "error");
++
+     window.addEventListener("error", this.boundError, true);
+     window.addEventListener("unhandledrejection", this.boundRejection);
+     window.addEventListener("online", this.boundOnline);
+     window.addEventListener("offline", this.boundOffline);
++    document.addEventListener("visibilitychange", this.boundVisibility);
++    document.addEventListener("securitypolicyviolation", this.boundSecurityPolicy);
++
++    this.installFetchInstrumentation();
++    this.installXhrInstrumentation();
++    this.installConsoleInstrumentation();
++    this.installPerformanceObserver();
++
+     this.log("diagnostics_installed", browserSnapshot());
+     return () => this.uninstallGlobalHandlers();
+   }
+ 
++  installFetchInstrumentation() {
++    if (typeof window.fetch !== "function" || this.originalFetch) return;
++    this.originalFetch = window.fetch;
++    const diagnostics = this;
++    window.fetch = async function instrumentedFetch(input, init = {}) {
++      const startedAt = typeof performance !== "undefined" ? performance.now() : Date.now();
++      const url = sanitizeUrl(typeof input === "string" ? input : input?.url);
++      const method = String(init?.method || input?.method || "GET").toUpperCase();
++      diagnostics.log("fetch_started", { method, url });
++      try {
++        const response = await diagnostics.originalFetch.apply(this, arguments);
++        diagnostics.log("fetch_finished", {
++          method,
++          url,
++          status: response.status,
++          ok: response.ok,
++          type: response.type,
++          redirected: response.redirected,
++          contentType: response.headers?.get?.("content-type") || null,
++          elapsedMs: Math.round((typeof performance !== "undefined" ? performance.now() : Date.now()) - startedAt),
++        }, response.ok ? "info" : "warn");
++        return response;
++      } catch (error) {
++        diagnostics.log("fetch_failed", {
++          method,
++          url,
++          elapsedMs: Math.round((typeof performance !== "undefined" ? performance.now() : Date.now()) - startedAt),
++          error,
++        }, "error");
++        throw error;
++      }
++    };
++  }
++
++  installXhrInstrumentation() {
++    if (typeof XMLHttpRequest === "undefined" || this.originalXhrOpen) return;
++    const diagnostics = this;
++    this.originalXhrOpen = XMLHttpRequest.prototype.open;
++    this.originalXhrSend = XMLHttpRequest.prototype.send;
++
++    XMLHttpRequest.prototype.open = function instrumentedOpen(method, url) {
++      this.__tm6BonusDiagnostic = {
++        method: String(method || "GET").toUpperCase(),
++        url: sanitizeUrl(url),
++      };
++      return diagnostics.originalXhrOpen.apply(this, arguments);
++    };
++
++    XMLHttpRequest.prototype.send = function instrumentedSend() {
++      const meta = this.__tm6BonusDiagnostic || { method: "GET", url: "unknown" };
++      meta.startedAt = typeof performance !== "undefined" ? performance.now() : Date.now();
++      diagnostics.log("xhr_started", meta);
++      const finalize = () => {
++        diagnostics.log("xhr_finished", {
++          ...meta,
++          status: this.status,
++          statusText: this.statusText,
++          responseType: this.responseType,
++          contentType: this.getResponseHeader?.("content-type") || null,
++          elapsedMs: Math.round((typeof performance !== "undefined" ? performance.now() : Date.now()) - meta.startedAt),
++        }, this.status >= 200 && this.status < 400 ? "info" : "error");
++      };
++      this.addEventListener("loadend", finalize, { once: true });
++      return diagnostics.originalXhrSend.apply(this, arguments);
++    };
++  }
++
++  installConsoleInstrumentation() {
++    if (typeof console === "undefined" || this.originalConsoleError) return;
++    const diagnostics = this;
++    this.originalConsoleError = console.error;
++    this.originalConsoleWarn = console.warn;
++    console.error = function instrumentedConsoleError() {
++      diagnostics.log("console_error", { arguments: [...arguments] }, "error");
++      return diagnostics.originalConsoleError.apply(this, arguments);
++    };
++    console.warn = function instrumentedConsoleWarn() {
++      diagnostics.log("console_warn", { arguments: [...arguments] }, "warn");
++      return diagnostics.originalConsoleWarn.apply(this, arguments);
++    };
++  }
++
++  installPerformanceObserver() {
++    if (typeof PerformanceObserver === "undefined" || this.performanceObserver) return;
++    try {
++      this.performanceObserver = new PerformanceObserver((list) => {
++        list.getEntries().forEach((entry) => {
++          if (entry.entryType === "longtask" && entry.duration >= 80) {
++            this.log("long_task", { duration: Math.round(entry.duration), startTime: Math.round(entry.startTime) }, "warn");
++          }
++        });
++      });
++      this.performanceObserver.observe({ entryTypes: ["longtask"] });
++    } catch (_) {
++      this.performanceObserver = null;
++    }
++  }
++
+   uninstallGlobalHandlers() {
+     if (!this.installed || typeof window === "undefined") return;
+     window.removeEventListener("error", this.boundError, true);
+     window.removeEventListener("unhandledrejection", this.boundRejection);
+     window.removeEventListener("online", this.boundOnline);
+     window.removeEventListener("offline", this.boundOffline);
++    document.removeEventListener("visibilitychange", this.boundVisibility);
++    document.removeEventListener("securitypolicyviolation", this.boundSecurityPolicy);
++
++    if (this.originalFetch) window.fetch = this.originalFetch;
++    if (this.originalXhrOpen) XMLHttpRequest.prototype.open = this.originalXhrOpen;
++    if (this.originalXhrSend) XMLHttpRequest.prototype.send = this.originalXhrSend;
++    if (this.originalConsoleError) console.error = this.originalConsoleError;
++    if (this.originalConsoleWarn) console.warn = this.originalConsoleWarn;
++    this.performanceObserver?.disconnect?.();
++
++    this.originalFetch = null;
++    this.originalXhrOpen = null;
++    this.originalXhrSend = null;
++    this.originalConsoleError = null;
++    this.originalConsoleWarn = null;
++    this.performanceObserver = null;
+     this.installed = false;
+   }
+ 
+@@ -189,13 +489,44 @@
+     this.stopWatch();
+     this.stateProvider = getState;
+     this.boardProvider = getBoard;
++    this.attachBoardObserver();
+     this.watchTimer = window.setInterval(() => this.captureWatchdog(), WATCH_INTERVAL_MS);
+-    this.captureWatchdog("watch_started");
++    this.captureWatchdog("watch_started", true);
++  }
++
++  attachBoardObserver() {
++    this.boardObserver?.disconnect?.();
++    this.boardObserver = null;
++    const board = this.boardProvider?.();
++    if (!board || typeof MutationObserver === "undefined") return;
++    this.boardObserver = new MutationObserver((mutations) => {
++      const childMutations = mutations.filter((mutation) => mutation.type === "childList");
++      const attributeMutations = mutations.filter((mutation) => mutation.type === "attributes");
++      const added = childMutations.flatMap((mutation) => [...mutation.addedNodes]).filter((node) => node.nodeType === 1);
++      const removed = childMutations.flatMap((mutation) => [...mutation.removedNodes]).filter((node) => node.nodeType === 1);
++      if (!added.length && !removed.length && !attributeMutations.length) return;
++      this.log("board_dom_mutation", {
++        added: added.slice(0, 20).map((node) => ({ tag: node.tagName, className: node.className, outerHTML: node.outerHTML?.slice(0, 1200) })),
++        removed: removed.slice(0, 20).map((node) => ({ tag: node.tagName, className: node.className, outerHTML: node.outerHTML?.slice(0, 1200) })),
++        attributes: attributeMutations.slice(0, 20).map((mutation) => ({
++          attributeName: mutation.attributeName,
++          target: styleSnapshot(mutation.target),
++        })),
++      });
++    });
++    this.boardObserver.observe(board, {
++      subtree: true,
++      childList: true,
++      attributes: true,
++      attributeFilter: ["src", "href", "data", "class", "hidden"],
++    });
+   }
+ 
+   stopWatch() {
+     if (this.watchTimer) window.clearInterval(this.watchTimer);
+     this.watchTimer = null;
++    this.boardObserver?.disconnect?.();
++    this.boardObserver = null;
+     this.stateProvider = null;
+     this.boardProvider = null;
+   }
+@@ -203,105 +534,146 @@
+   inspectBoard(boardElement) {
+     if (!boardElement || typeof getComputedStyle === "undefined") return { exists: false };
+     const rect = boardElement.getBoundingClientRect();
+-    const style = getComputedStyle(boardElement);
+-    const centerX = rect.left + rect.width / 2;
+-    const centerY = rect.top + rect.height / 2;
+-    const stack = typeof document.elementsFromPoint === "function"
+-      ? document.elementsFromPoint(centerX, centerY).slice(0, 12).map((element) => {
+-        const computed = getComputedStyle(element);
+-        const elementRect = element.getBoundingClientRect();
++    const samplePoints = [
++      [0.08, 0.08], [0.5, 0.08], [0.92, 0.08],
++      [0.08, 0.5], [0.5, 0.5], [0.92, 0.5],
++      [0.08, 0.92], [0.5, 0.92], [0.92, 0.92],
++    ];
++
++    const pointStacks = typeof document.elementsFromPoint === "function"
++      ? samplePoints.map(([px, py]) => {
++        const x = rect.left + rect.width * px;
++        const y = rect.top + rect.height * py;
+         return {
+-          tag: element.tagName,
+-          id: element.id || null,
+-          className: typeof element.className === "string" ? element.className.slice(0, 300) : null,
+-          rect: { x: elementRect.x, y: elementRect.y, width: elementRect.width, height: elementRect.height },
+-          backgroundColor: computed.backgroundColor,
+-          backgroundImage: computed.backgroundImage,
+-          opacity: computed.opacity,
+-          visibility: computed.visibility,
+-          display: computed.display,
++          point: { x, y, px, py },
++          elements: document.elementsFromPoint(x, y).slice(0, 14).map((element) => styleSnapshot(element)),
+         };
+       })
+       : [];
+ 
+-    const largeDescendants = [...boardElement.querySelectorAll("*")].map((element) => {
++    const descendants = [...boardElement.querySelectorAll("*")];
++    const largeDescendants = descendants.map((element) => {
+       const elementRect = element.getBoundingClientRect();
+-      if (elementRect.width < rect.width * 0.72 || elementRect.height < rect.height * 0.72) return null;
+-      const computed = getComputedStyle(element);
+-      const before = getComputedStyle(element, "::before");
+-      const after = getComputedStyle(element, "::after");
++      if (elementRect.width < rect.width * 0.68 || elementRect.height < rect.height * 0.68) return null;
+       return {
+-        tag: element.tagName,
+-        className: typeof element.className === "string" ? element.className.slice(0, 260) : null,
+-        backgroundColor: computed.backgroundColor,
+-        backgroundImage: computed.backgroundImage,
+-        opacity: computed.opacity,
+-        zIndex: computed.zIndex,
+-        before: { content: before.content, backgroundColor: before.backgroundColor, backgroundImage: before.backgroundImage },
+-        after: { content: after.content, backgroundColor: after.backgroundColor, backgroundImage: after.backgroundImage },
++        ...styleSnapshot(element),
++        before: styleSnapshot(element, "::before"),
++        after: styleSnapshot(element, "::after"),
++        outerHTML: element.outerHTML?.slice(0, 2500) || null,
+       };
+-    }).filter(Boolean).slice(0, 20);
++    }).filter(Boolean).slice(0, 30);
++
++    const pieceElements = [...boardElement.querySelectorAll("[data-bonus-piece]")];
++    const pieceSamples = pieceElements.slice(0, 18).map((element) => ({
++      ...styleSnapshot(element),
++      pieceId: element.getAttribute("data-bonus-piece"),
++      symbol: element.getAttribute("data-piece-symbol"),
++      parent: styleSnapshot(element.parentElement),
++    }));
++
++    const visiblePieceCount = pieceElements.filter((element) => {
++      const style = getComputedStyle(element);
++      const pieceRect = element.getBoundingClientRect();
++      return style.display !== "none" && style.visibility !== "hidden" && Number(style.opacity || 1) > 0.03 && pieceRect.width > 1 && pieceRect.height > 1;
++    }).length;
++
++    const animations = typeof boardElement.getAnimations === "function"
++      ? boardElement.getAnimations({ subtree: true }).slice(0, 80).map((animation) => {
++        const target = animation.effect?.target;
++        return {
++          playState: animation.playState,
++          currentTime: animation.currentTime,
++          startTime: animation.startTime,
++          playbackRate: animation.playbackRate,
++          target: target ? styleSnapshot(target) : null,
++        };
++      })
++      : [];
++
++    const whiteCandidates = [
++      styleSnapshot(boardElement),
++      ...largeDescendants,
++      ...pointStacks.flatMap((stack) => stack.elements),
++    ].filter((item) => item && (isNearlyWhite(item.backgroundColor) || /url\(/i.test(item.backgroundImage || "") && item.tag === "IMG"));
+ 
+-    const whiteCandidates = [...stack, ...largeDescendants].filter((item) => isNearlyWhite(item.backgroundColor));
+     return {
+       exists: true,
+       rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+-      boardStyle: {
+-        backgroundColor: style.backgroundColor,
+-        backgroundImage: style.backgroundImage,
+-        opacity: style.opacity,
+-        display: style.display,
+-        visibility: style.visibility,
+-        transform: style.transform,
++      board: {
++        ...styleSnapshot(boardElement),
++        before: styleSnapshot(boardElement, "::before"),
++        after: styleSnapshot(boardElement, "::after"),
++        outerHTML: boardElement.outerHTML?.slice(0, 12000) || null,
+       },
+       childCount: boardElement.childElementCount,
+-      descendantCount: boardElement.querySelectorAll("*").length,
+-      pieceNodes: boardElement.querySelectorAll("[data-bonus-piece]").length,
+-      canvas: [...boardElement.querySelectorAll("canvas")].map((canvas) => ({ width: canvas.width, height: canvas.height, clientWidth: canvas.clientWidth, clientHeight: canvas.clientHeight })),
+-      stack,
++      descendantCount: descendants.length,
++      pieceNodes: pieceElements.length,
++      visiblePieceCount,
++      pieceSamples,
++      replacedElements: [...boardElement.querySelectorAll("img,picture,object,embed,iframe,video")].slice(0, 30).map((element) => ({
++        ...styleSnapshot(element),
++        src: sanitizeUrl(element.currentSrc || element.src || element.data || ""),
++        outerHTML: element.outerHTML?.slice(0, 2500) || null,
++      })),
++      canvases: [...boardElement.querySelectorAll("canvas")].map(canvasSnapshot),
++      pointStacks,
+       largeDescendants,
+-      whiteCandidates,
++      whiteCandidates: whiteCandidates.slice(0, 30),
++      animations,
+     };
+   }
+ 
+-  captureWatchdog(reason = "watch_tick") {
++  captureWatchdog(reason = "watch_tick", forceLog = false) {
+     try {
+       const state = this.stateProvider?.() || {};
+       const boardElement = this.boardProvider?.() || null;
++      const stateSummary = summarizeState(state);
+       const boardInfo = this.inspectBoard(boardElement);
+-      const expectedPieces = Number(state.visualPieceCount || 0);
++      const expectedPieces = Number(stateSummary.visualPieceCount || 0);
+       const actualPieces = Number(boardInfo.pieceNodes || 0);
++      const visiblePieces = Number(boardInfo.visiblePieceCount || 0);
+       const suspiciousWhite = boardInfo.whiteCandidates?.length > 0;
+       const missingPieces = expectedPieces > 0 && actualPieces === 0;
++      const hiddenPieces = expectedPieces > 0 && actualPieces > 0 && visiblePieces === 0;
+       const signature = suspiciousWhite
+-        ? JSON.stringify(boardInfo.whiteCandidates.map((item) => [item.tag, item.className, item.backgroundColor, item.backgroundImage]))
++        ? JSON.stringify(boardInfo.whiteCandidates.map((item) => [item.tag, item.className, item.backgroundColor, item.backgroundImage, item.rect]))
+         : null;
+ 
+       if (suspiciousWhite && signature !== this.lastWhiteSignature) {
+         this.lastWhiteSignature = signature;
+-        this.log("white_board_detected", {
++        this.log("white_board_candidate_detected", {
+           reason,
+-          state,
++          state: stateSummary,
+           board: boardInfo,
+           resources: resourceSnapshot(),
+           browser: browserSnapshot(),
+         }, "error");
+       } else if (missingPieces) {
+-        this.log("piece_dom_mismatch", { reason, state, board: boardInfo }, "error");
+-      } else if (reason !== "watch_tick") {
+-        this.log(reason, { state, board: boardInfo });
++        this.log("piece_dom_missing", { reason, state: stateSummary, board: boardInfo }, "error");
++      } else if (hiddenPieces) {
++        this.log("piece_dom_hidden", { reason, state: stateSummary, board: boardInfo }, "error");
++      }
++
++      const now = Date.now();
++      if (forceLog || reason !== "watch_tick" || now - this.lastHeartbeatAt >= HEARTBEAT_INTERVAL_MS) {
++        this.lastHeartbeatAt = now;
++        this.log(reason === "watch_tick" ? "watch_heartbeat" : reason, {
++          state: stateSummary,
++          board: boardInfo,
++          resources: forceLog ? resourceSnapshot() : undefined,
++          browser: forceLog ? browserSnapshot() : undefined,
++        });
+       }
++      return { state: stateSummary, board: boardInfo };
+     } catch (error) {
+       this.log("watchdog_failure", { error }, "error");
++      return null;
+     }
+   }
+ 
+   snapshot(type, state = {}, includeResources = false) {
+-    const board = state.displayBoard || state.board || [];
+     const payload = {
+-      ...state,
+-      boardHash: boardHash(board),
+-      board: compactBoard(board),
++      state: summarizeState(state),
+       browser: browserSnapshot(),
+     };
+     if (includeResources) payload.resources = resourceSnapshot();
+@@ -309,22 +681,48 @@
+   }
+ 
+   reactError(error, info) {
+-    this.log("react_error_boundary", { error, componentStack: info?.componentStack || null, browser: browserSnapshot(), resources: resourceSnapshot() }, "error");
++    this.log("react_error_boundary", {
++      error,
++      componentStack: info?.componentStack || null,
++      browser: browserSnapshot(),
++      resources: resourceSnapshot(),
++    }, "error");
+   }
+ 
+   clear() {
+     this.events = [];
+     this.lastWhiteSignature = null;
++    this.lastHeartbeatAt = 0;
+     try { sessionStorage.removeItem(STORAGE_KEY); } catch (_) {}
++    try { localStorage.removeItem(STORAGE_KEY); } catch (_) {}
++    this.log("diagnostics_cleared");
++  }
++
++  getSummary() {
++    const errors = this.events.filter((event) => event.level === "error");
++    return {
++      version: this.version,
++      sessionId: this.sessionId,
++      eventCount: this.events.length,
++      errorCount: errors.length,
++      lastEvent: this.events.at(-1) || null,
++      lastError: errors.at(-1) || null,
++    };
+   }
+ 
+   buildReport(extra = {}) {
++    let liveCapture = null;
++    try {
++      liveCapture = this.captureWatchdog("report_generated", true);
++    } catch (_) {}
+     return {
+-      schema: "tm6-bonus-match-diagnostics/1",
++      schema: "tm6-bonus-match-diagnostics/2",
+       generatedAt: nowIso(),
+       version: this.version,
+       sessionId: this.sessionId,
+       browser: browserSnapshot(),
++      liveCapture,
++      resources: resourceSnapshot(),
+       extra: safeValue(extra),
+       events: this.events.slice(),
+     };
+@@ -336,14 +734,22 @@
+     const url = URL.createObjectURL(blob);
+     const anchor = document.createElement("a");
+     anchor.href = url;
+-    anchor.download = `bonus-match-diagnostics-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
++    anchor.download = `bonus-match-diagnostics-v86-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
+     document.body.appendChild(anchor);
+     anchor.click();
+     anchor.remove();
+-    window.setTimeout(() => URL.revokeObjectURL(url), 1500);
++    window.setTimeout(() => URL.revokeObjectURL(url), 2000);
+     this.log("diagnostics_downloaded", { eventCount: report.events.length });
+   }
++
++  async copy(extra = {}) {
++    const report = this.buildReport(extra);
++    const text = JSON.stringify(report, null, 2);
++    if (!navigator.clipboard?.writeText) throw new Error("Clipboard API is unavailable");
++    await navigator.clipboard.writeText(text);
++    this.log("diagnostics_copied", { eventCount: report.events.length });
++  }
+ }
+ 
+ export const bonusMatchDiagnostics = new BonusMatchDiagnostics();
+-export { compactBoard, boardHash };
++export { compactBoard, boardHash, browserSnapshot, resourceSnapshot };
+--- /dev/null
++++ b/frontend/src/components/BonusMatchDebugOverlay.jsx
+@@ -0,0 +1,207 @@
++import { useEffect, useMemo, useState } from "react";
++import { createPortal } from "react-dom";
++import { toast } from "sonner";
++import { bonusMatchDiagnostics } from "@/lib/bonusMatchDiagnostics";
++
++const buttonBase = {
++  border: "1px solid rgba(255,255,255,.12)",
++  borderRadius: 12,
++  minHeight: 40,
++  padding: "0 12px",
++  fontSize: 11,
++  fontWeight: 900,
++  cursor: "pointer",
++};
++
++export default function BonusMatchDebugOverlay({ getState }) {
++  const [open, setOpen] = useState(false);
++  const [alert, setAlert] = useState(null);
++  const [summary, setSummary] = useState(() => bonusMatchDiagnostics.getSummary());
++
++  useEffect(() => {
++    document.documentElement.dataset.bonusDiagnostics = "v86";
++    const refresh = () => setSummary(bonusMatchDiagnostics.getSummary());
++    const timer = window.setInterval(refresh, 700);
++    const onAlert = (event) => {
++      setAlert(event.detail || { type: "unknown" });
++      setOpen(true);
++      refresh();
++    };
++    const onKeyDown = (event) => {
++      if (event.altKey && event.shiftKey && event.code === "KeyB") {
++        event.preventDefault();
++        setOpen((value) => !value);
++      }
++    };
++
++    window.addEventListener("bonusmatch:diagnostic-alert", onAlert);
++    window.addEventListener("keydown", onKeyDown);
++    return () => {
++      window.clearInterval(timer);
++      window.removeEventListener("bonusmatch:diagnostic-alert", onAlert);
++      window.removeEventListener("keydown", onKeyDown);
++    };
++  }, []);
++
++  const fixedRight = useMemo(
++    () => "max(12px, calc((100vw - 480px) / 2 + 12px))",
++    [],
++  );
++
++  if (typeof document === "undefined") return null;
++
++  const captureAndDownload = () => {
++    const state = getState?.() || {};
++    bonusMatchDiagnostics.snapshot("manual_export_requested", state, true);
++    bonusMatchDiagnostics.download({ source: "debug-overlay", state });
++    setSummary(bonusMatchDiagnostics.getSummary());
++  };
++
++  const copyLog = async () => {
++    try {
++      const state = getState?.() || {};
++      bonusMatchDiagnostics.snapshot("manual_copy_requested", state, true);
++      await bonusMatchDiagnostics.copy({ source: "debug-overlay", state });
++      toast.success("Діагностичний лог скопійовано");
++    } catch (error) {
++      bonusMatchDiagnostics.log("diagnostics_copy_failed", { error }, "error");
++      toast.error("Не вдалося скопіювати лог. Використай завантаження JSON");
++    }
++  };
++
++  const captureNow = () => {
++    bonusMatchDiagnostics.captureWatchdog("manual_board_capture", true);
++    setSummary(bonusMatchDiagnostics.getSummary());
++    toast.info("Стан дошки записано");
++  };
++
++  const clearLog = () => {
++    bonusMatchDiagnostics.clear();
++    setAlert(null);
++    setSummary(bonusMatchDiagnostics.getSummary());
++    toast.success("Діагностичний лог очищено");
++  };
++
++  return createPortal(
++    <div
++      data-testid="bonus-debug-overlay"
++      style={{
++        position: "fixed",
++        right: fixedRight,
++        bottom: 92,
++        zIndex: 2147483647,
++        display: "flex",
++        flexDirection: "column",
++        alignItems: "flex-end",
++        gap: 10,
++        pointerEvents: "none",
++        fontFamily: "Nunito, system-ui, sans-serif",
++      }}
++    >
++      {open && (
++        <div
++          role="dialog"
++          aria-label="Діагностика Bonus Match"
++          style={{
++            width: "min(360px, calc(100vw - 24px))",
++            maxHeight: "min(560px, calc(100vh - 190px))",
++            overflow: "auto",
++            border: "1px solid rgba(124,58,237,.7)",
++            borderRadius: 18,
++            padding: 14,
++            color: "#F4F4F5",
++            background: "rgba(12,10,18,.985)",
++            boxShadow: "0 18px 50px rgba(0,0,0,.65)",
++            pointerEvents: "auto",
++          }}
++        >
++          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
++            <div>
++              <div style={{ color: "#B78CFF", fontSize: 12, fontWeight: 1000, letterSpacing: ".08em" }}>🐞 BONUS DEBUG v86</div>
++              <div style={{ marginTop: 4, color: "#71717A", fontSize: 10 }}>Alt + Shift + B відкриває панель</div>
++            </div>
++            <button
++              type="button"
++              onClick={() => setOpen(false)}
++              aria-label="Закрити діагностику"
++              style={{ ...buttonBase, minHeight: 30, padding: "0 10px", color: "#A1A1AA", background: "#18181B" }}
++            >
++              ×
++            </button>
++          </div>
++
++          {alert && (
++            <div style={{ marginTop: 10, border: "1px solid rgba(255,77,85,.45)", borderRadius: 12, padding: 10, color: "#FF9CA2", background: "rgba(255,77,85,.12)", fontSize: 11, fontWeight: 900 }}>
++              Зафіксовано: {alert.type || "помилка"}. Завантаж JSON одразу.
++            </div>
++          )}
++
++          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginTop: 12 }}>
++            <div style={{ borderRadius: 12, padding: 9, background: "#17131F", textAlign: "center" }}>
++              <div style={{ color: "#71717A", fontSize: 9, fontWeight: 900 }}>ПОДІЙ</div>
++              <div style={{ marginTop: 2, color: "white", fontSize: 18, fontWeight: 1000 }}>{summary.eventCount}</div>
++            </div>
++            <div style={{ borderRadius: 12, padding: 9, background: "#211014", textAlign: "center" }}>
++              <div style={{ color: "#A1A1AA", fontSize: 9, fontWeight: 900 }}>ПОМИЛОК</div>
++              <div style={{ marginTop: 2, color: "#FF7A80", fontSize: 18, fontWeight: 1000 }}>{summary.errorCount}</div>
++            </div>
++            <div style={{ borderRadius: 12, padding: 9, background: "#101A1C", textAlign: "center" }}>
++              <div style={{ color: "#71717A", fontSize: 9, fontWeight: 900 }}>ВЕРСІЯ</div>
++              <div style={{ marginTop: 2, color: "#5EEBFF", fontSize: 18, fontWeight: 1000 }}>86</div>
++            </div>
++          </div>
++
++          <div style={{ marginTop: 10, borderRadius: 12, padding: 10, background: "#111114", color: "#A1A1AA", fontSize: 10, lineHeight: 1.45, wordBreak: "break-word" }}>
++            <div><strong style={{ color: "#D4D4D8" }}>Остання подія:</strong> {summary.lastEvent?.type || "немає"}</div>
++            <div style={{ marginTop: 4 }}><strong style={{ color: "#D4D4D8" }}>Остання помилка:</strong> {summary.lastError?.type || "немає"}</div>
++            <div style={{ marginTop: 4 }}><strong style={{ color: "#D4D4D8" }}>Сесія:</strong> {summary.sessionId}</div>
++          </div>
++
++          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 12 }}>
++            <button type="button" onClick={captureAndDownload} style={{ ...buttonBase, color: "white", background: "#7C3AED", borderColor: "#9B6BFF" }}>
++              ⬇ JSON ЛОГ
++            </button>
++            <button type="button" onClick={copyLog} style={{ ...buttonBase, color: "#E4E4E7", background: "#1C1C22" }}>
++              📋 КОПІЮВАТИ
++            </button>
++            <button type="button" onClick={captureNow} style={{ ...buttonBase, color: "#5EEBFF", background: "#102126", borderColor: "rgba(0,240,255,.28)" }}>
++              📸 СТАН ДОШКИ
++            </button>
++            <button type="button" onClick={clearLog} style={{ ...buttonBase, color: "#A1A1AA", background: "#18181B" }}>
++              🗑 ОЧИСТИТИ
++            </button>
++          </div>
++
++          <div style={{ marginTop: 10, color: "#71717A", fontSize: 9, lineHeight: 1.4 }}>
++            Лог зберігається у localStorage і не зникає після перезавантаження. Тіла API-запитів та значення query-параметрів не записуються.
++          </div>
++        </div>
++      )}
++
++      <button
++        type="button"
++        data-testid="bonus-debug-button"
++        onClick={() => setOpen((value) => !value)}
++        aria-label="Відкрити діагностику Bonus Match"
++        style={{
++          pointerEvents: "auto",
++          minWidth: 112,
++          height: 46,
++          padding: "0 14px",
++          border: alert ? "2px solid #FF4D55" : "2px solid #7C3AED",
++          borderRadius: 16,
++          color: alert ? "#FFE4E6" : "#F3E8FF",
++          background: alert ? "#5B1119" : "#241238",
++          boxShadow: alert ? "0 0 24px rgba(255,77,85,.55)" : "0 0 24px rgba(124,58,237,.45)",
++          fontSize: 12,
++          fontWeight: 1000,
++          letterSpacing: ".04em",
++          cursor: "pointer",
++        }}
++      >
++        🐞 DEBUG {summary.errorCount ? `(${summary.errorCount})` : "v86"}
++      </button>
++    </div>,
++    document.body,
++  );
++}
+--- a/frontend/src/lib/pwa.js
++++ b/frontend/src/lib/pwa.js
+@@ -10,7 +10,7 @@
+   window.addEventListener("load", async () => {
+     try {
+       const registration = await navigator.serviceWorker.register(
+-        "/service-worker.js?v=85",
++        "/service-worker.js?v=86",
+         { scope: "/", updateViaCache: "none" }
+       );
+ 
+--- a/frontend/public/service-worker.js
++++ b/frontend/public/service-worker.js
+@@ -1,9 +1,10 @@
+ /* TM6 Bonus — Service Worker
++ * v86 keeps the safe fetch fallbacks and forces a fresh cache for the diagnostics build.
+  * v84 fixes rejected FetchEvent promises, navigation fallback, and stale registration URLs and protects image requests from Netlify's SPA fallback. A missing image must
+  * never be cached as index.html, otherwise browsers can render a giant broken
+  * image element over the board.
+  */
+-const VERSION = "tm6-v85";
++const VERSION = "tm6-v86";
+ const STATIC_CACHE = `${VERSION}-static`;
+ const RUNTIME_CACHE = `${VERSION}-runtime`;
+ 

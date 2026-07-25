@@ -31,6 +31,9 @@ import api, { extractError } from "@/lib/api";
 import { fireConfetti } from "@/lib/confetti";
 import { useApp } from "@/context/AppContext";
 import AvatarFrame from "@/components/AvatarFrame";
+import BonusMatchErrorBoundary from "@/components/BonusMatchErrorBoundary";
+import BonusMatchDebugOverlay from "@/components/BonusMatchDebugOverlay";
+import { bonusMatchDiagnostics } from "@/lib/bonusMatchDiagnostics";
 import {
   BONUS_MATCH_OBSTACLE_SPRITES,
   BONUS_MATCH_PIECE_SPRITES,
@@ -1793,7 +1796,7 @@ function SpecialEffects({ effects = [], reducedMotion = false }) {
 }
 
 
-export default function BonusMatch() {
+function BonusMatchScreen() {
   const navigate = useNavigate();
   const reducedMotion = useReducedMotion();
   const { user, mode, refreshMe } = useApp();
@@ -1832,9 +1835,32 @@ export default function BonusMatch() {
   const [hintMove, setHintMove] = useState(null);
   const [activityToken, setActivityToken] = useState(0);
   const [celebrating, setCelebrating] = useState(false);
+  const diagnosticsStateRef = useRef({});
 
   const visualPieces = useMemo(() => flattenVisualPieces(displayBoard), [displayBoard]);
   const selectedKey = selected ? coordKey(selected.row, selected.col) : null;
+  diagnosticsStateRef.current = {
+    gameId: game?.id || null,
+    level: game?.level || selectedLevel,
+    gameStatus: game?.status || null,
+    movesLeft: game?.moves_left ?? null,
+    score: game?.score ?? animatedScore,
+    visualPieceCount: visualPieces.length,
+    displayBoard,
+    moving,
+    selected,
+    activeBooster,
+    combo,
+    boardFx,
+    flash,
+    cascadeMotion,
+    removingCount: removingIds.size,
+    spawnedCount: spawnedIds.size,
+    activatedCount: activatedIds.size,
+    specialEffectCount: specialEffects.length,
+    artworkReady,
+    artworkFailed,
+  };
   const dispatchPieceClick = useCallback((row, col) => {
     pieceClickHandlerRef.current?.(row, col);
   }, []);
@@ -1858,17 +1884,43 @@ export default function BonusMatch() {
   };
 
   useEffect(() => {
+    const uninstall = bonusMatchDiagnostics.installGlobalHandlers();
+    bonusMatchDiagnostics.log("bonus_match_mount", { version: "v86" });
+    return () => {
+      bonusMatchDiagnostics.log("bonus_match_unmount");
+      bonusMatchDiagnostics.stopWatch();
+      uninstall?.();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!game || game.status !== "active") {
+      bonusMatchDiagnostics.stopWatch();
+      return undefined;
+    }
+    bonusMatchDiagnostics.startWatch({
+      getState: () => diagnosticsStateRef.current,
+      getBoard: () => boardRef.current,
+    });
+    bonusMatchDiagnostics.snapshot("active_session_watch_started", diagnosticsStateRef.current, true);
+    return () => bonusMatchDiagnostics.stopWatch();
+  }, [game?.id, game?.status]);
+
+  useEffect(() => {
     let mounted = true;
+    bonusMatchDiagnostics.log("artwork_preload_started");
     preloadBonusMatchArtwork()
       .then((result) => {
         if (!mounted) return;
         setArtworkFailed(!result?.ok);
         setArtworkReady(true);
+        bonusMatchDiagnostics.log("artwork_preload_finished", result || {});
       })
-      .catch(() => {
+      .catch((error) => {
         if (!mounted) return;
         setArtworkFailed(true);
         setArtworkReady(true);
+        bonusMatchDiagnostics.log("artwork_preload_failed", { error }, "error");
       });
     return () => {
       mounted = false;
@@ -1900,6 +1952,7 @@ export default function BonusMatch() {
   }, [game, moving, selected, activeBooster, celebrating, displayBoard, activityToken]);
 
   const applySessionState = async (rawSession, animation = null) => {
+    bonusMatchDiagnostics.log("apply_session_state", { sessionId: rawSession?.id, status: rawSession?.status, reshuffled: Boolean(animation?.reshuffled) });
     const session = { ...rawSession, board: normalizeBoard(rawSession?.board) };
     setGame(session);
     setAnimatedScore(session.score || 0);
@@ -1926,6 +1979,7 @@ export default function BonusMatch() {
   };
 
   const loadStatus = async () => {
+    bonusMatchDiagnostics.log("status_load_started", { mode });
     if (mode === "mock") {
       const mockStatus = {
         profile: { current_level: 12, max_level: 50, total_stars: 26, lives: 5, max_lives: 5, next_life_at: null, daily_points: 17, daily_point_cap: 40, balance: 24500, booster_price: 50, boosters: { hammer: 2, rocket: 1, color_bomb: 1, shuffle: 2 } },
@@ -1946,12 +2000,14 @@ export default function BonusMatch() {
     try {
       setLoading(true);
       const { data } = await api.get("/games/bonus-match/status");
+      bonusMatchDiagnostics.log("status_load_succeeded", { hasActiveSession: Boolean(data.active_session), level: data.profile?.current_level });
       setStatus(data);
       setSelectedLevel(Number(data.profile.current_level || 1));
       if (data.active_session) {
         await applySessionState(data.active_session, data.active_session_animation);
       }
     } catch (error) {
+      bonusMatchDiagnostics.log("status_load_failed", { error }, "error");
       toast.error(extractError(error, "Не вдалося завантажити Bonus Match"));
     } finally {
       setLoading(false);
@@ -1991,6 +2047,7 @@ export default function BonusMatch() {
   const coinProgress = Math.min(100, Math.round(((game?.coins_collected || 0) / Math.max(1, config.target_coins)) * 100));
 
   const startGame = async (level = selectedLevel, confirmed = false) => {
+    bonusMatchDiagnostics.log("game_start_requested", { level, confirmed, mode });
     const preview = levelCatalogMap.get(Number(level)) || levelConfig(level);
     if (preview.is_boss && !confirmed) {
       setBossPrompt(preview);
@@ -2029,10 +2086,12 @@ export default function BonusMatch() {
     try {
       setLoading(true);
       const { data } = await api.post("/games/bonus-match/start", { level });
+      bonusMatchDiagnostics.log("game_start_succeeded", { sessionId: data.session?.id, level: data.session?.level, resumed: data.resumed });
       await applySessionState(data.session, data.animation);
       setStatus((current) => (current ? { ...current, profile: { ...current.profile, ...data.profile } } : current));
       if (data.resumed) toast.info("Продовжуємо незавершений рівень");
     } catch (error) {
+      bonusMatchDiagnostics.log("game_start_failed", { level, error }, "error");
       toast.error(extractError(error, "Не вдалося почати рівень"));
     } finally {
       setLoading(false);
@@ -2097,6 +2156,7 @@ export default function BonusMatch() {
   };
 
   const animateServerMove = async (data, baseScore) => {
+    bonusMatchDiagnostics.log("animation_pipeline_started", { valid: data?.valid, sessionId: data?.session?.id, baseScore });
     const animation = data.animation || {};
     const frames = Array.isArray(animation.frames) && animation.frames.length
       ? animation.frames
@@ -2171,6 +2231,7 @@ export default function BonusMatch() {
 
     for (let index = 0; index < frames.length; index += 1) {
       const frame = frames[index];
+      bonusMatchDiagnostics.log("animation_frame", { index, phase: frame.phase, combo: frame.combo, scoreGain: frame.score_gain, cleared: frame.cleared_cells?.length || 0, spawned: frame.spawned_ids?.length || frame.spawned?.length || 0 });
       if (frame.phase === "swap") continue;
 
       if (frame.phase === "match") {
@@ -2494,6 +2555,7 @@ export default function BonusMatch() {
 
   const makeMove = async (from, to) => {
     if (!game || moving || game.status !== "active") return;
+    bonusMatchDiagnostics.snapshot("move_started", { ...diagnosticsStateRef.current, from, to }, true);
     registerBoardInteraction();
     setMoving(true);
     setSelected(null);
@@ -2520,6 +2582,7 @@ export default function BonusMatch() {
         }).then((response) => response.data);
 
       const data = await request;
+      bonusMatchDiagnostics.log("move_response_received", { valid: data?.valid, result: data?.result, sessionStatus: data?.session?.status, frameCount: data?.animation?.frames?.length || 0, elapsedMs: Math.round(performance.now() - swapStartedAt) });
       await waitUntil(swapStartedAt + (reducedMotion ? 25 : OPTIMISTIC_SWAP_MS));
       await animateServerMove(data, game.score);
 
@@ -2535,10 +2598,12 @@ export default function BonusMatch() {
         if (mode !== "mock") await loadStatus();
       }
     } catch (error) {
+      bonusMatchDiagnostics.snapshot("move_failed", { ...diagnosticsStateRef.current, from, to, error }, true);
       setDisplayBoard(startingBoard);
       setGame(startingGame);
       toast.error(extractError(error, "Не вдалося виконати хід"));
     } finally {
+      bonusMatchDiagnostics.snapshot("move_finished", { ...diagnosticsStateRef.current, from, to });
       setMoving(false);
       setCombo(0);
       window.setTimeout(() => setFlash(""), 420);
@@ -2619,11 +2684,19 @@ export default function BonusMatch() {
   };
 
   if (!artworkReady || (loading && !status && !game)) {
-    return <div className="px-5 py-12 text-center text-sm font-bold text-zinc-500">{artworkReady ? "Завантаження Bonus Match..." : "Готуємо фішки..."}</div>;
+    return (
+      <>
+        <BonusMatchDebugOverlay getState={() => diagnosticsStateRef.current} />
+        <div className="px-5 py-12 text-center text-sm font-bold text-zinc-500">
+          {artworkReady ? "Завантаження Bonus Match..." : "Готуємо фішки..."}
+        </div>
+      </>
+    );
   }
 
   return (
     <div className="space-y-4 px-4 pb-8 pt-2" data-testid="bonus-match-page">
+      <BonusMatchDebugOverlay getState={() => diagnosticsStateRef.current} />
       <section className="flex items-center gap-3">
         <button
           type="button"
@@ -2802,7 +2875,7 @@ export default function BonusMatch() {
             <motion.div
               ref={boardRef}
               className="bonus-match-board relative isolate mt-3 overflow-hidden rounded-[22px] border border-[#7C3AED]/55 bg-[#090711] p-1.5 shadow-[inset_0_0_30px_rgba(124,58,237,.12)]"
-              data-render-engine="v83"
+              data-render-engine="v86"
               animate={boardMotionForFx(boardFx, reducedMotion)}
               transition={{
                 duration: boardFx === "won"
@@ -2995,5 +3068,13 @@ export default function BonusMatch() {
         )}
       </AnimatePresence>
     </div>
+  );
+}
+
+export default function BonusMatch() {
+  return (
+    <BonusMatchErrorBoundary>
+      <BonusMatchScreen />
+    </BonusMatchErrorBoundary>
   );
 }
