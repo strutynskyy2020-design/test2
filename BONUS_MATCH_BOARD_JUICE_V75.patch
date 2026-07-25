@@ -1,0 +1,1005 @@
+--- a/backend/server.py
++++ b/backend/server.py
+@@ -2418,6 +2418,54 @@
+ # ────────────────────────────────────────────────────────────────────────
+ BONUS_MATCH_ROWS = 7
+ BONUS_MATCH_COLS = 7
++BONUS_MATCH_BOARD_SHAPES = {
++    "full": [
++        "1111111",
++        "1111111",
++        "1111111",
++        "1111111",
++        "1111111",
++        "1111111",
++        "1111111",
++    ],
++    "rounded": [
++        "0111110",
++        "1111111",
++        "1111111",
++        "1111111",
++        "1111111",
++        "1111111",
++        "0111110",
++    ],
++    "diamond": [
++        "0011100",
++        "0111110",
++        "1111111",
++        "1111111",
++        "1111111",
++        "0111110",
++        "0011100",
++    ],
++    "cross": [
++        "0011100",
++        "0011100",
++        "1111111",
++        "1111111",
++        "1111111",
++        "0011100",
++        "0011100",
++    ],
++    "staircase": [
++        "1111100",
++        "1111110",
++        "1111111",
++        "1111111",
++        "1111111",
++        "0111111",
++        "0011111",
++    ],
++}
++BONUS_MATCH_BOARD_SHAPE_ORDER = ["full", "rounded", "diamond", "cross", "staircase"]
+ BONUS_MATCH_DEFAULT_LEVEL_COUNT = 50
+ BONUS_MATCH_LEVEL_LIMIT = 200
+ BONUS_MATCH_MAX_LEVEL = BONUS_MATCH_LEVEL_LIMIT
+@@ -2466,6 +2514,63 @@
+ }
+ 
+ 
++def _bonus_match_default_board_shape(level: int) -> str:
++    """Rotate safe connected board silhouettes as levels progress."""
++    level = max(1, min(BONUS_MATCH_LEVEL_LIMIT, int(level or 1)))
++    if level <= 4:
++        return "full"
++    cycle = ["rounded", "full", "diamond", "rounded", "staircase", "full", "cross", "rounded"]
++    return cycle[((level - 5) // 2) % len(cycle)]
++
++
++def _bonus_match_normalize_board_shape(value, level: int = 1) -> str:
++    shape = str(value or "").strip().lower()
++    return shape if shape in BONUS_MATCH_BOARD_SHAPES else _bonus_match_default_board_shape(level)
++
++
++def _bonus_match_board_mask(shape: str) -> list[list[bool]]:
++    rows = BONUS_MATCH_BOARD_SHAPES[_bonus_match_normalize_board_shape(shape)]
++    return [[char == "1" for char in row] for row in rows]
++
++
++def _bonus_match_cell_void(cell: Optional[dict]) -> bool:
++    return bool(cell and cell.get("void"))
++
++
++def _bonus_match_infer_board_shape(board) -> str:
++    """Infer a persisted silhouette so pre-v75 active sessions stay visually unchanged."""
++    rows = list(board or [])
++    for shape, pattern in BONUS_MATCH_BOARD_SHAPES.items():
++        matches = True
++        for row in range(BONUS_MATCH_ROWS):
++            for col in range(BONUS_MATCH_COLS):
++                cell = rows[row][col] if row < len(rows) and col < len(rows[row] or []) else None
++                should_be_void = pattern[row][col] == "0"
++                if _bonus_match_cell_void(cell) != should_be_void:
++                    matches = False
++                    break
++            if not matches:
++                break
++        if matches:
++            return shape
++    return "full"
++
++
++def _bonus_match_config_with_board_shape(config, level: int, board=None) -> dict:
++    provided = dict(config or {})
++    resolved = {**_bonus_match_level_config(level), **provided}
++    raw_shape = str(provided.get("board_shape") or "").strip().lower()
++    if raw_shape in BONUS_MATCH_BOARD_SHAPES:
++        shape = raw_shape
++    elif board is not None:
++        shape = _bonus_match_infer_board_shape(board)
++    else:
++        shape = _bonus_match_default_board_shape(level)
++    resolved["board_shape"] = shape
++    resolved["board_mask"] = _bonus_match_board_mask(shape)
++    return resolved
++
++
+ class BonusMatchStartBody(BaseModel):
+     level: int = 1
+ 
+@@ -2492,6 +2597,7 @@
+ class BonusMatchLevelAdminBody(BaseModel):
+     level: Optional[int] = None
+     title: str = ""
++    board_shape: str = "full"
+     moves: int = Field(default=20, ge=5, le=80)
+     target_score: int = Field(default=2500, ge=100, le=10_000_000)
+     target_coins: int = Field(default=10, ge=0, le=5000)
+@@ -2513,7 +2619,18 @@
+     obstacle_hits: Optional[int] = None,
+     obstacle_age: int = 0,
+     cell_id: Optional[str] = None,
++    void: bool = False,
+ ) -> dict:
++    if void:
++        return {
++            "id": str(cell_id or f"void-{uuid.uuid4().hex[:12]}"),
++            "symbol": None,
++            "special": None,
++            "obstacle": None,
++            "obstacle_hits": 0,
++            "obstacle_age": 0,
++            "void": True,
++        }
+     obstacle = obstacle if obstacle in BONUS_MATCH_OBSTACLE_HITS else None
+     if obstacle in BONUS_MATCH_BLOCKING_OBSTACLES:
+         symbol = None
+@@ -2530,6 +2647,7 @@
+             else BONUS_MATCH_OBSTACLE_HITS.get(obstacle, 0)
+         ),
+         "obstacle_age": max(0, int(obstacle_age or 0)),
++        "void": False,
+     }
+ 
+ 
+@@ -2540,6 +2658,8 @@
+         return _bonus_match_new_cell(symbol=value)
+     if not isinstance(value, dict):
+         return None
++    if value.get("void"):
++        return _bonus_match_new_cell(void=True, cell_id=str(value.get("id") or uuid.uuid4().hex[:14]))
+     symbol = value.get("symbol")
+     special = value.get("special")
+     obstacle = value.get("obstacle")
+@@ -2600,7 +2720,7 @@
+ 
+ 
+ def _bonus_match_cell_symbol(cell: Optional[dict]) -> Optional[str]:
+-    if not cell or cell.get("special") == "color_bomb":
++    if not cell or _bonus_match_cell_void(cell) or cell.get("special") == "color_bomb":
+         return None
+     obstacle = cell.get("obstacle")
+     if obstacle and obstacle not in BONUS_MATCH_OVERLAY_OBSTACLES:
+@@ -2617,6 +2737,8 @@
+     hits: Optional[int] = None,
+ ) -> dict:
+     """Place a blocking obstacle or wrap the existing symbol in an overlay."""
++    if _bonus_match_cell_void(board[row][col]):
++        return board[row][col]
+     if obstacle in BONUS_MATCH_OVERLAY_OBSTACLES:
+         current = _bonus_match_normalize_cell(board[row][col])
+         if not current or not _bonus_match_cell_symbol(current):
+@@ -2639,6 +2761,7 @@
+ def _bonus_match_cell_swappable(cell: Optional[dict]) -> bool:
+     return bool(
+         cell
++        and not _bonus_match_cell_void(cell)
+         and not cell.get("obstacle")
+         and (cell.get("symbol") or cell.get("special"))
+     )
+@@ -2689,6 +2812,8 @@
+     return {
+         "level": level,
+         "title": f"Рівень {level}",
++        "board_shape": _bonus_match_default_board_shape(level),
++        "board_mask": _bonus_match_board_mask(_bonus_match_default_board_shape(level)),
+         "moves": moves,
+         "target_score": target_score,
+         "target_coins": target_coins,
+@@ -2764,9 +2889,12 @@
+     is_boss = bool(doc.get("is_boss", base["is_boss"]))
+     is_milestone = bool(doc.get("is_milestone", base["is_milestone"]))
+     reward_multiplier = max(1, min(10, int(doc.get("reward_multiplier", base["reward_multiplier"]))))
++    board_shape = _bonus_match_normalize_board_shape(doc.get("board_shape"), level)
+     return {
+         **base,
+         "title": str(doc.get("title") or base["title"]).strip()[:80],
++        "board_shape": board_shape,
++        "board_mask": _bonus_match_board_mask(board_shape),
+         "moves": max(5, min(80, int(doc.get("moves", base["moves"])))),
+         "target_score": target_score,
+         "target_coins": max(0, min(5000, int(doc.get("target_coins", base["target_coins"])))),
+@@ -3024,13 +3152,17 @@
+     return False
+ 
+ 
+-def _bonus_match_make_plain_board() -> list[list[Optional[dict]]]:
++def _bonus_match_make_plain_board(board_shape: str = "full") -> list[list[Optional[dict]]]:
+     import random as _random
+ 
++    mask = _bonus_match_board_mask(board_shape)
+     board: list[list[Optional[dict]]] = []
+     for row in range(BONUS_MATCH_ROWS):
+         board.append([])
+         for col in range(BONUS_MATCH_COLS):
++            if not mask[row][col]:
++                board[row].append(_bonus_match_new_cell(void=True, cell_id=f"void-{row}-{col}"))
++                continue
+             blocked: set[str] = set()
+             if col >= 2:
+                 left = _bonus_match_cell_symbol(board[row][col - 1])
+@@ -3040,13 +3172,8 @@
+                 above = _bonus_match_cell_symbol(board[row - 1][col])
+                 if above and above == _bonus_match_cell_symbol(board[row - 2][col]):
+                     blocked.add(above)
+-            choices = [
+-                symbol for symbol in BONUS_MATCH_SYMBOLS
+-                if symbol not in blocked
+-            ]
+-            board[row].append(
+-                _bonus_match_new_cell(symbol=_random.choice(choices))
+-            )
++            choices = [symbol for symbol in BONUS_MATCH_SYMBOLS if symbol not in blocked]
++            board[row].append(_bonus_match_new_cell(symbol=_random.choice(choices)))
+     return board
+ 
+ 
+@@ -3057,12 +3184,13 @@
+     import random as _random
+ 
+     config = config or _bonus_match_level_config(level)
++    board_shape = _bonus_match_normalize_board_shape(config.get("board_shape"), level)
+     manual_layout = _bonus_match_normalize_obstacle_layout(
+         config.get("obstacle_layout")
+     )
+     last_board = None
+     for _ in range(180):
+-        board = _bonus_match_make_plain_board()
++        board = _bonus_match_make_plain_board(board_shape)
+         last_board = board
+         if manual_layout:
+             for item in manual_layout:
+@@ -3084,6 +3212,7 @@
+                     (row, col)
+                     for row in range(BONUS_MATCH_ROWS)
+                     for col in range(BONUS_MATCH_COLS)
++                    if not _bonus_match_cell_void(board[row][col])
+                 ]
+                 _random.shuffle(positions)
+                 newest = config.get("new_obstacle")
+@@ -3095,7 +3224,7 @@
+                     _bonus_match_apply_obstacle(board, row, col, obstacle)
+         if not _bonus_match_find_matches(board) and _bonus_match_has_move(board):
+             return board
+-    return last_board if manual_layout and last_board else _bonus_match_make_plain_board()
++    return last_board if manual_layout and last_board else _bonus_match_make_plain_board(board_shape)
+ 
+ 
+ def _bonus_match_shuffle_board(
+@@ -3108,7 +3237,7 @@
+         (row, col)
+         for row in range(BONUS_MATCH_ROWS)
+         for col in range(BONUS_MATCH_COLS)
+-        if source[row][col] and not source[row][col].get("obstacle")
++        if _bonus_match_cell_swappable(source[row][col])
+     ]
+     pieces = [source[row][col] for row, col in positions]
+     for _ in range(160):
+@@ -3163,7 +3292,7 @@
+             row
+             for row in range(rows)
+             if board[row][col]
+-            and board[row][col].get("obstacle")
++            and (board[row][col].get("obstacle") or _bonus_match_cell_void(board[row][col]))
+         ]
+         boundaries = [-1] + fixed_rows + [rows]
+         for boundary_index in range(len(boundaries) - 1):
+@@ -3174,7 +3303,7 @@
+             values = [
+                 board[row][col]
+                 for row in range(start, end + 1)
+-                if board[row][col] is not None
++                if board[row][col] is not None and not _bonus_match_cell_void(board[row][col])
+             ]
+             write_row = end
+             for cell in reversed(values):
+@@ -3283,9 +3412,9 @@
+     rows = len(board)
+     cols = len(board[0]) if rows else 0
+     if special == "rocket_row":
+-        return {(row, current_col) for current_col in range(cols)}
++        return {(row, current_col) for current_col in range(cols) if not _bonus_match_cell_void(board[row][current_col])}
+     if special == "rocket_col":
+-        return {(current_row, col) for current_row in range(rows)}
++        return {(current_row, col) for current_row in range(rows) if not _bonus_match_cell_void(board[current_row][col])}
+     if special == "bomb":
+         return {
+             (current_row, current_col)
+@@ -3297,6 +3426,7 @@
+                 max(0, col - 1),
+                 min(cols, col + 2),
+             )
++            if not _bonus_match_cell_void(board[current_row][current_col])
+         }
+     if special == "color_bomb":
+         target = color_symbol
+@@ -3820,20 +3950,18 @@
+ 
+ 
+ def _bonus_match_session_payload(session: dict) -> dict:
++    board = _bonus_match_normalize_board(session["board"])
++    level = int(session["level"])
++    config = _bonus_match_config_with_board_shape(session.get("config"), level, board)
+     return {
+         "id": session["id"],
+-        "level": int(session["level"]),
+-        "board": _bonus_match_normalize_board(session["board"]),
++        "level": level,
++        "board": board,
+         "moves_left": int(session["moves_left"]),
+         "score": int(session.get("score", 0)),
+-        "coins_collected": int(
+-            session.get("coins_collected", 0)
+-        ),
++        "coins_collected": int(session.get("coins_collected", 0)),
+         "status": session.get("status", "active"),
+-        "config": (
+-            session.get("config")
+-            or _bonus_match_level_config(session["level"])
+-        ),
++        "config": config,
+         "cascades": int(session.get("cascades", 0)),
+         "created_at": session.get("created_at"),
+         "completed_at": session.get("completed_at"),
+@@ -4130,6 +4258,7 @@
+     return {
+         "level": level,
+         "title": str(payload.get("title") or f"Рівень {level}").strip()[:80],
++        "board_shape": _bonus_match_normalize_board_shape(payload.get("board_shape"), level),
+         "moves": max(5, min(80, int(payload.get("moves") or 20))),
+         "target_score": target_score,
+         "target_coins": max(0, min(5000, int(payload.get("target_coins") or 0))),
+@@ -4155,6 +4284,16 @@
+         "level_limit": BONUS_MATCH_LEVEL_LIMIT,
+         "rows": BONUS_MATCH_ROWS,
+         "cols": BONUS_MATCH_COLS,
++        "board_shapes": [
++            {"id": key, "mask": _bonus_match_board_mask(key), "label": {
++                "full": "Повне 7×7",
++                "rounded": "Зрізані кути",
++                "diamond": "Діамант",
++                "cross": "Хрест",
++                "staircase": "Сходинки",
++            }.get(key, key)}
++            for key in BONUS_MATCH_BOARD_SHAPE_ORDER
++        ],
+         "obstacles": [
+             {
+                 "id": key,
+@@ -4327,7 +4466,7 @@
+         symbol_cells_cleared = 0
+         for row, col in clear_cells:
+             cell = board[row][col]
+-            if cell and not cell.get("obstacle"):
++            if cell and not _bonus_match_cell_void(cell) and not cell.get("obstacle"):
+                 if cell.get("symbol") == "coin":
+                     coins_this_step += 1
+                 if cell.get("symbol") or cell.get("special"):
+@@ -4337,7 +4476,7 @@
+             if (row, col) in protected:
+                 continue
+             cell = board[row][col]
+-            if cell and not cell.get("obstacle"):
++            if cell and not _bonus_match_cell_void(cell) and not cell.get("obstacle"):
+                 board[row][col] = None
+ 
+         special_bonus = sum(BONUS_MATCH_SPECIAL_SCORE.get(item["special"], 0) for item in activated_specials)
+@@ -4444,7 +4583,7 @@
+ 
+     board = _bonus_match_clone_board(session.get("board"))
+     original_board = _bonus_match_clone_board(board)
+-    config = session.get("config") or _bonus_match_level_config(session["level"])
++    config = _bonus_match_config_with_board_shape(session.get("config"), int(session["level"]), board)
+     score_gain = 0
+     coins_gain = 0
+     cascade_count = 0
+@@ -4467,14 +4606,20 @@
+         if not (0 <= row < BONUS_MATCH_ROWS and 0 <= col < BONUS_MATCH_COLS):
+             raise HTTPException(status_code=400, detail="Некоректна клітинка")
+         target_cell = board[row][col]
+-        if not target_cell:
+-            raise HTTPException(status_code=400, detail="Клітинка порожня")
++        if not target_cell or _bonus_match_cell_void(target_cell):
++            raise HTTPException(status_code=400, detail="Ця клітинка не входить до форми дошки")
+ 
+         if booster == "hammer":
+             clear_cells: set[tuple[int, int]] = {(row, col)}
+         elif booster == "rocket":
+-            clear_cells = {(row, current_col) for current_col in range(BONUS_MATCH_COLS)} | {
+-                (current_row, col) for current_row in range(BONUS_MATCH_ROWS)
++            clear_cells = {
++                (row, current_col)
++                for current_col in range(BONUS_MATCH_COLS)
++                if not _bonus_match_cell_void(board[row][current_col])
++            } | {
++                (current_row, col)
++                for current_row in range(BONUS_MATCH_ROWS)
++                if not _bonus_match_cell_void(board[current_row][col])
+             }
+         else:
+             symbol = _bonus_match_cell_symbol(target_cell)
+@@ -4551,7 +4696,7 @@
+         symbols_cleared = 0
+         for target_row, target_col in clear_cells:
+             cell = board[target_row][target_col]
+-            if cell and not cell.get("obstacle"):
++            if cell and not _bonus_match_cell_void(cell) and not cell.get("obstacle"):
+                 if cell.get("symbol") == "coin":
+                     coins_this_step += 1
+                 if cell.get("symbol") or cell.get("special"):
+@@ -4913,7 +5058,11 @@
+         }
+ 
+     original_session_board = _bonus_match_clone_board(session.get("board"))
+-    session_config = session.get("config") or _bonus_match_level_config(session.get("level", 1))
++    session_config = _bonus_match_config_with_board_shape(
++        session.get("config"),
++        int(session.get("level", 1)),
++        original_session_board,
++    )
+     playable_board, auto_reshuffled, reshuffle_method = _bonus_match_ensure_playable_board(
+         original_session_board,
+         int(session.get("level", 1)),
+@@ -5211,7 +5360,7 @@
+         symbol_cells_cleared = 0
+         for row, col in clear_cells:
+             cell = board[row][col]
+-            if cell and not cell.get("obstacle"):
++            if cell and not _bonus_match_cell_void(cell) and not cell.get("obstacle"):
+                 if cell.get("symbol") == "coin":
+                     coins_this_step += 1
+                 if cell.get("symbol") or cell.get("special"):
+@@ -5221,7 +5370,7 @@
+             if (row, col) in protected:
+                 continue
+             cell = board[row][col]
+-            if cell and not cell.get("obstacle"):
++            if cell and not _bonus_match_cell_void(cell) and not cell.get("obstacle"):
+                 board[row][col] = None
+ 
+         special_bonus = sum(
+@@ -5261,6 +5410,7 @@
+             "cleared_cells": [
+                 {"row": row, "col": col}
+                 for row, col in sorted(clear_cells)
++                if not _bonus_match_cell_void(board_before_clear[row][col])
+             ],
+             "created_specials": created_specials,
+             "activated_specials": activated_specials,
+--- a/frontend/public/service-worker.js
++++ b/frontend/public/service-worker.js
+@@ -2,7 +2,7 @@
+  * Dynamic data is always network-only.
+  * App shell uses network-first so new deployments replace old PWA files promptly.
+  */
+-const VERSION = "tm6-v74";
++const VERSION = "tm6-v75";
+ const STATIC_CACHE = `${VERSION}-static`;
+ const RUNTIME_CACHE = `${VERSION}-runtime`;
+ 
+--- a/frontend/src/pages/Admin.jsx
++++ b/frontend/src/pages/Admin.jsx
+@@ -2075,11 +2075,12 @@
+   core: { label: "Ядро", color: "#FF4D55", image: "/bonus-match/obstacles/core.webp" },
+ };
+ 
+-const BonusMatchLevelEditor = ({ level, obstacleCatalog, onClose, onSaved }) => {
++const BonusMatchLevelEditor = ({ level, obstacleCatalog, boardShapeCatalog = [], onClose, onSaved }) => {
+   const isNew = Boolean(level?._new);
+   const [f, setF] = useState({
+     level: Number(level?.level || 1),
+     title: level?.title || `Рівень ${level?.level || 1}`,
++    board_shape: level?.board_shape || "full",
+     moves: Number(level?.moves || 20),
+     target_score: Number(level?.target_score || 2500),
+     target_coins: Number(level?.target_coins || 10),
+@@ -2113,6 +2114,7 @@
+   };
+ 
+   const paintCell = (row, col) => {
++    if (!boardMask[row]?.[col]) return;
+     setF((current) => {
+       const without = current.obstacle_layout.filter((item) => !(item.row === row && item.col === col));
+       if (paint === "erase") return { ...current, obstacle_layout: without };
+@@ -2127,6 +2129,8 @@
+     });
+   };
+ 
++  const selectedShape = boardShapeCatalog.find((item) => item.id === f.board_shape) || boardShapeCatalog[0] || { id: "full", label: "Повне 7×7", mask: Array.from({ length: 7 }, () => Array(7).fill(true)) };
++  const boardMask = selectedShape.mask || Array.from({ length: 7 }, () => Array(7).fill(true));
+   const layoutMap = new Map(f.obstacle_layout.map((item) => [`${item.row}:${item.col}`, item]));
+ 
+   const save = async () => {
+@@ -2167,6 +2171,24 @@
+         <input value={f.title} onChange={(e) => setF((current) => ({ ...current, title: e.target.value }))} className="mt-1 h-11 w-full rounded-xl border border-white/10 bg-[#121318] px-3 text-white outline-none focus:border-[#B78CFF]" />
+       </label>
+ 
++      <label className="block text-[9px] font-black uppercase text-zinc-600">Форма дошки
++        <select
++          value={f.board_shape}
++          onChange={(e) => {
++            const nextShape = e.target.value;
++            const nextMask = boardShapeCatalog.find((item) => item.id === nextShape)?.mask || Array.from({ length: 7 }, () => Array(7).fill(true));
++            setF((current) => ({
++              ...current,
++              board_shape: nextShape,
++              obstacle_layout: current.obstacle_layout.filter((item) => nextMask[item.row]?.[item.col]),
++            }));
++          }}
++          className="mt-1 h-11 w-full rounded-xl border border-white/10 bg-[#121318] px-3 text-white outline-none focus:border-[#B78CFF]"
++        >
++          {(boardShapeCatalog.length ? boardShapeCatalog : [{ id: "full", label: "Повне 7×7" }]).map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
++        </select>
++      </label>
++
+       <div className="grid grid-cols-2 gap-3">
+         <label className="text-[9px] font-black uppercase text-zinc-600">Цільовий рахунок
+           <input type="number" min="100" value={f.target_score} onChange={(e) => setNumber("target_score", e.target.value, 100)} className="mt-1 h-11 w-full rounded-xl border border-white/10 bg-[#121318] px-3 text-white outline-none focus:border-[#B78CFF]" />
+@@ -2237,10 +2259,11 @@
+           {Array.from({ length: 49 }, (_, index) => {
+             const row = Math.floor(index / 7);
+             const col = index % 7;
+-            const item = layoutMap.get(`${row}:${col}`);
++            const activeCell = Boolean(boardMask[row]?.[col]);
++            const item = activeCell ? layoutMap.get(`${row}:${col}`) : null;
+             const style = item ? BONUS_MATCH_OBSTACLE_STYLE[item.obstacle] : null;
+-            return <button key={index} type="button" onClick={() => paintCell(row, col)} className="relative aspect-square overflow-hidden rounded-lg border border-white/10 bg-[#11101A] text-[8px] font-black" style={{ color: style?.color || "#3F3F46" }} title={item ? `${style?.label}: ${item.hits} уд.` : "Порожньо"}>
+-              {item && style?.image ? <img src={style.image} alt="" className="absolute inset-0 h-full w-full object-cover" draggable="false" /> : <span className="text-zinc-700">·</span>}
++            return <button key={index} type="button" disabled={!activeCell} onClick={() => paintCell(row, col)} className={`relative aspect-square overflow-hidden rounded-lg text-[8px] font-black ${activeCell ? "border border-white/10 bg-[#11101A]" : "cursor-not-allowed border border-transparent bg-transparent opacity-20"}`} style={{ color: style?.color || "#3F3F46" }} title={!activeCell ? "Клітинка поза формою дошки" : item ? `${style?.label}: ${item.hits} уд.` : "Порожньо"}>
++              {activeCell && item && style?.image ? <img src={style.image} alt="" className="absolute inset-0 h-full w-full object-cover" draggable="false" /> : activeCell ? <span className="text-zinc-700">·</span> : null}
+               {item && <span className="absolute bottom-0.5 right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full border border-white/20 bg-black/85 px-1 text-[8px] text-white">{item.hits}</span>}
+             </button>;
+           })}
+@@ -2294,7 +2317,7 @@
+     <div className="rounded-2xl border border-[#B78CFF]/30 bg-[#B78CFF]/10 p-4">
+       <div className="flex items-center gap-3"><Gamepad2 size={22} className="text-[#B78CFF]" /><div><div className="text-sm font-black uppercase text-white">РЕДАКТОР BONUS MATCH</div><div className="mt-1 text-[10px] text-zinc-500">Змінюй складність, цілі, ходи та точне розташування перешкод.</div></div></div>
+     </div>
+-    <button type="button" onClick={() => setEditing({ _new: true, level: nextLevel, title: `Рівень ${nextLevel}`, moves: 18, target_score: 5000, target_coins: 15, star_thresholds: [5000, 6750, 8600], reward_multiplier: 1, obstacles: [], obstacle_layout: [], active: true })} className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[#FFB800] text-xs font-black uppercase text-[#0A0A0A]"><Plus size={17} />СТВОРИТИ НОВИЙ РІВЕНЬ</button>
++    <button type="button" onClick={() => setEditing({ _new: true, level: nextLevel, title: `Рівень ${nextLevel}`, board_shape: "full", moves: 18, target_score: 5000, target_coins: 15, star_thresholds: [5000, 6750, 8600], reward_multiplier: 1, obstacles: [], obstacle_layout: [], active: true })} className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[#FFB800] text-xs font-black uppercase text-[#0A0A0A]"><Plus size={17} />СТВОРИТИ НОВИЙ РІВЕНЬ</button>
+ 
+     <div className="space-y-2">
+       {data.levels.map((level) => <div key={level.level} className={`rounded-2xl border p-3 ${level.active ? "border-white/10 bg-[#1A1A1E]" : "border-[#FF4D55]/20 bg-[#FF4D55]/[.04] opacity-70"}`}>
+@@ -2303,7 +2326,7 @@
+           <div className="min-w-0 flex-1">
+             <div className="flex flex-wrap items-center gap-1.5"><div className="truncate text-sm font-black text-white">{level.title || `Рівень ${level.level}`}</div>{level.is_boss && <span className="rounded-full bg-[#FF5C00]/15 px-2 py-0.5 text-[8px] font-black text-[#FF7D36]">БОС</span>}{level.custom && <span className="rounded-full bg-[#00F0FF]/10 px-2 py-0.5 text-[8px] font-black text-[#00F0FF]">ЗМІНЕНО</span>}</div>
+             <div className="mt-1 text-[10px] font-bold text-zinc-500">{level.moves} ходів · {Number(level.target_score).toLocaleString("uk-UA")} очок · {level.target_coins} монет</div>
+-            <div className="mt-1 text-[9px] text-zinc-600">Перешкоди: {level.obstacle_layout?.length ? `схема ${level.obstacle_layout.length}` : level.obstacle_count ? `${level.obstacle_count} випадково` : "немає"} · нагорода ×{level.reward_multiplier}</div>
++            <div className="mt-1 text-[9px] text-zinc-600">Форма: {data.board_shapes?.find((item) => item.id === level.board_shape)?.label || level.board_shape || "Повне 7×7"} · перешкоди: {level.obstacle_layout?.length ? `схема ${level.obstacle_layout.length}` : level.obstacle_count ? `${level.obstacle_count} випадково` : "немає"} · нагорода ×{level.reward_multiplier}</div>
+           </div>
+           <div className="flex shrink-0 gap-1.5">
+             <button type="button" onClick={() => setEditing(level)} className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-black/30 text-white"><Pencil size={14} /></button>
+@@ -2313,7 +2336,7 @@
+       </div>)}
+     </div>
+ 
+-    {editing && <BonusMatchLevelEditor level={editing} obstacleCatalog={data.obstacles || []} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />}
++    {editing && <BonusMatchLevelEditor level={editing} obstacleCatalog={data.obstacles || []} boardShapeCatalog={data.board_shapes || []} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />}
+   </div>;
+ };
+ 
+--- a/frontend/src/pages/BonusMatch.jsx
++++ b/frontend/src/pages/BonusMatch.jsx
+@@ -45,7 +45,22 @@
+ const cloneBoard = (board) => (board || []).map((row) => row.map((cell) => (cell ? { ...cell } : null)));
+ const PIECE_SHADOW_IMAGE = "/bonus-match/piece-shadow.webp";
+ const HINT_DELAY_MS = 5600;
++const SQUASH_ANTICIPATION_MS = 100;
+ const CASCADE_STEP_MS = [350, 250, 180];
++const BOARD_SHAPES = {
++  full: ["1111111", "1111111", "1111111", "1111111", "1111111", "1111111", "1111111"],
++  rounded: ["0111110", "1111111", "1111111", "1111111", "1111111", "1111111", "0111110"],
++  diamond: ["0011100", "0111110", "1111111", "1111111", "1111111", "0111110", "0011100"],
++  cross: ["0011100", "0011100", "1111111", "1111111", "1111111", "0011100", "0011100"],
++  staircase: ["1111100", "1111110", "1111111", "1111111", "1111111", "0111111", "0011111"],
++};
++const boardShapeForLevel = (level = 1) => {
++  const safeLevel = Math.max(1, Math.min(MAX_LEVEL, Number(level || 1)));
++  if (safeLevel <= 4) return "full";
++  const cycle = ["rounded", "full", "diamond", "rounded", "staircase", "full", "cross", "rounded"];
++  return cycle[Math.floor((safeLevel - 5) / 2) % cycle.length];
++};
++const boardMaskForShape = (shape = "full") => (BOARD_SHAPES[shape] || BOARD_SHAPES.full).map((row) => [...row].map((value) => value === "1"));
+ const cascadeDurationForStep = (step = 0) => {
+   if (step < CASCADE_STEP_MS.length) return CASCADE_STEP_MS[step];
+   return Math.max(125, Math.round(CASCADE_STEP_MS.at(-1) * (0.82 ** (step - CASCADE_STEP_MS.length + 1))));
+@@ -54,7 +69,7 @@
+   const positions = new Map();
+   (board || []).forEach((boardRow, row) => {
+     (boardRow || []).forEach((cell, col) => {
+-      if (cell?.id) positions.set(cell.id, { row, col });
++      if (cell?.id && !cell.void) positions.set(cell.id, { row, col });
+     });
+   });
+   return positions;
+@@ -68,7 +83,7 @@
+ 
+   (after || []).forEach((boardRow, row) => {
+     (boardRow || []).forEach((cell, col) => {
+-      if (!cell?.id) return;
++      if (!cell?.id || cell.void) return;
+       const old = previous.get(cell.id);
+       let rows = old ? row - old.row : 0;
+       const isSpawned = spawned.has(cell.id) || !old;
+@@ -76,7 +91,13 @@
+       if (isSpawned) {
+         order = spawnOrderByColumn.get(col) || 0;
+         spawnOrderByColumn.set(col, order + 1);
+-        rows = row + order + 1.35;
++        let segmentStart = row;
++        while (segmentStart > 0) {
++          const above = after?.[segmentStart - 1]?.[col];
++          if (!above || above.void || above.obstacle) break;
++          segmentStart -= 1;
++        }
++        rows = (row - segmentStart) + order + 1.35;
+       }
+       if (rows <= 0 && !isSpawned) return;
+       result.set(cell.id, {
+@@ -167,16 +188,18 @@
+ 
+ const makeCell = (symbol = null, extras = {}) => ({
+   id: extras.id || `mock-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+-  symbol,
++  symbol: extras.void ? null : symbol,
+   special: extras.special || null,
+   obstacle: extras.obstacle || null,
+   obstacle_hits: extras.obstacle_hits || 0,
+   obstacle_age: extras.obstacle_age || 0,
++  void: Boolean(extras.void),
+ });
+ 
+ const normalizeCell = (cell) => {
+   if (!cell) return null;
+   if (typeof cell === "string") return makeCell(cell);
++  if (cell.void) return makeCell(null, { id: cell.id || `void-${Math.random().toString(36).slice(2, 10)}`, void: true });
+   return {
+     id: cell.id || `cell-${Math.random().toString(36).slice(2, 10)}`,
+     symbol: cell.symbol || null,
+@@ -184,6 +207,7 @@
+     obstacle: cell.obstacle || null,
+     obstacle_hits: Number(cell.obstacle_hits || 0),
+     obstacle_age: Number(cell.obstacle_age || 0),
++    void: Boolean(cell.void),
+   };
+ };
+ 
+@@ -210,8 +234,11 @@
+   let targetCoins = 6 + Math.floor((safeLevel + 1) / 2) + ordinaryStage;
+   if (milestone) targetCoins = Math.floor(targetCoins * 1.3) + 2;
+   const obstacles = OBSTACLE_ORDER.slice(0, stage);
++  const boardShape = boardShapeForLevel(safeLevel);
+   return {
+     level: safeLevel,
++    board_shape: boardShape,
++    board_mask: boardMaskForShape(boardShape),
+     moves,
+     target_score: targetScore,
+     target_coins: targetCoins,
+@@ -225,7 +252,7 @@
+ };
+ 
+ const matchSymbol = (cell) => {
+-  if (!cell || cell.special === "color_bomb") return null;
++  if (!cell || cell.void || cell.special === "color_bomb") return null;
+   if (cell.obstacle && !OVERLAY_OBSTACLES.has(cell.obstacle)) return null;
+   return cell.symbol;
+ };
+@@ -269,7 +296,7 @@
+         if (nextRow >= ROWS || nextCol >= COLS) continue;
+         const a = copy[row]?.[col];
+         const b = copy[nextRow]?.[nextCol];
+-        if (!a || !b || a.obstacle || b.obstacle) continue;
++        if (!a || !b || a.void || b.void || a.obstacle || b.obstacle) continue;
+         if (a.special || b.special) {
+           return { from: { row, col }, to: { row: nextRow, col: nextCol } };
+         }
+@@ -285,13 +312,18 @@
+ 
+ const hasPossibleMove = (board) => Boolean(findHintMove(board));
+ 
+-const makeMockBoard = (level = 1) => {
+-  const config = levelConfig(level);
+-  for (let attempt = 0; attempt < 100; attempt += 1) {
++const makeMockBoard = (level = 1, suppliedConfig = null) => {
++  const config = suppliedConfig || levelConfig(level);
++  const mask = config.board_mask || boardMaskForShape(config.board_shape);
++  for (let attempt = 0; attempt < 140; attempt += 1) {
+     const board = [];
+     for (let row = 0; row < ROWS; row += 1) {
+       board.push([]);
+       for (let col = 0; col < COLS; col += 1) {
++        if (!mask[row]?.[col]) {
++          board[row].push(makeCell(null, { id: `void-${row}-${col}`, void: true }));
++          continue;
++        }
+         const blocked = new Set();
+         if (col >= 2 && matchSymbol(board[row][col - 1]) === matchSymbol(board[row][col - 2])) blocked.add(matchSymbol(board[row][col - 1]));
+         if (row >= 2 && matchSymbol(board[row - 1][col]) === matchSymbol(board[row - 2][col])) blocked.add(matchSymbol(board[row - 1][col]));
+@@ -301,9 +333,15 @@
+     }
+     if (config.obstacles.length) {
+       const count = Math.min(10, 2 + Math.floor(level / 5));
+-      for (let index = 0; index < count; index += 1) {
+-        const row = Math.floor(Math.random() * ROWS);
+-        const col = Math.floor(Math.random() * COLS);
++      const activePositions = [];
++      for (let row = 0; row < ROWS; row += 1) {
++        for (let col = 0; col < COLS; col += 1) {
++          if (!board[row][col]?.void) activePositions.push({ row, col });
++        }
++      }
++      for (let index = 0; index < Math.min(count, activePositions.length); index += 1) {
++        const positionIndex = Math.floor(Math.random() * activePositions.length);
++        const { row, col } = activePositions.splice(positionIndex, 1)[0];
+         const obstacle = config.obstacles[Math.floor(Math.random() * config.obstacles.length)];
+         const hits = obstacle === "core" ? 4 : ["stone", "shield", "metal"].includes(obstacle) ? 3 : obstacle === "web" ? 1 : 2;
+         if (OVERLAY_OBSTACLES.has(obstacle)) {
+@@ -315,22 +353,27 @@
+     }
+     if (!findMatches(board).size && hasPossibleMove(board)) return board;
+   }
+-  return Array.from({ length: ROWS }, (_, row) => Array.from({ length: COLS }, (_, col) => makeCell(SYMBOLS[(row * 2 + col * 3) % SYMBOLS.length])));
++  return Array.from({ length: ROWS }, (_, row) => Array.from({ length: COLS }, (_, col) => (
++    mask[row]?.[col]
++      ? makeCell(SYMBOLS[(row * 2 + col * 3) % SYMBOLS.length])
++      : makeCell(null, { id: `void-${row}-${col}`, void: true })
++  )));
+ };
+ 
++
+ const collapseMockBoard = (board) => {
+   const result = cloneBoard(board);
+   const spawned = [];
+   for (let col = 0; col < COLS; col += 1) {
+     const fixedRows = [];
+-    for (let row = 0; row < ROWS; row += 1) if (result[row][col]?.obstacle) fixedRows.push(row);
++    for (let row = 0; row < ROWS; row += 1) if (result[row][col]?.obstacle || result[row][col]?.void) fixedRows.push(row);
+     const boundaries = [-1, ...fixedRows, ROWS];
+     for (let segment = 0; segment < boundaries.length - 1; segment += 1) {
+       const start = boundaries[segment] + 1;
+       const end = boundaries[segment + 1] - 1;
+       if (start > end) continue;
+       const values = [];
+-      for (let row = start; row <= end; row += 1) if (result[row][col]) values.push(result[row][col]);
++      for (let row = start; row <= end; row += 1) if (result[row][col] && !result[row][col].void) values.push(result[row][col]);
+       let writeRow = end;
+       for (let index = values.length - 1; index >= 0; index -= 1) {
+         result[writeRow][col] = values[index];
+@@ -353,7 +396,7 @@
+   const board = cloneBoard(game.board);
+   const first = board[from.row][from.col];
+   const second = board[to.row][to.col];
+-  if (!first || !second || first.obstacle || second.obstacle) {
++  if (!first || !second || first.void || second.void || first.obstacle || second.obstacle) {
+     return {
+       valid: false,
+       message: "Ця клітинка заблокована",
+@@ -402,7 +445,7 @@
+     const stepScore = Math.floor((clearedCells.length * 100 + Math.max(0, cells.length - 3) * 120) * (1 + (combo - 1) * 0.25));
+     scoreGain += stepScore;
+     coinsGain += coinsThisStep;
+-    clearedCells.forEach(([row, col]) => { board[row][col] = null; });
++    clearedCells.forEach(([row, col]) => { if (!board[row][col]?.void) board[row][col] = null; });
+     const boardAfterClear = cloneBoard(board);
+     const collapsed = collapseMockBoard(board);
+     collapsed.board.forEach((row, rowIndex) => row.forEach((cell, colIndex) => { board[rowIndex][colIndex] = cell; }));
+@@ -425,7 +468,7 @@
+ 
+   let reshuffled = false;
+   if (!hasPossibleMove(board)) {
+-    const fresh = makeMockBoard(game.level);
++    const fresh = makeMockBoard(game.level, game.config);
+     fresh.forEach((row, rowIndex) => row.forEach((cell, colIndex) => { board[rowIndex][colIndex] = cell; }));
+     reshuffled = true;
+   }
+@@ -555,7 +598,7 @@
+   const suppressClickRef = useRef(false);
+   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+ 
+-  if (!cell) return null;
++  if (!cell || cell.void) return null;
+   const obstacle = cell.obstacle ? OBSTACLES[cell.obstacle] || OBSTACLES.stone : null;
+   const special = cell.special ? SPECIALS[cell.special] || SPECIALS.bomb : null;
+   const piece = PIECES[cell.symbol] || PIECES.star;
+@@ -579,7 +622,7 @@
+     : { duration: cell.special === "color_bomb" ? 2.8 : 1.2, repeat: Infinity, ease: "easeInOut" };
+   const fallDuration = reducedMotion ? 0.05 : Math.max(0.12, Math.min(0.34, cascadeDurationMs / 1000 * 0.68));
+   const removalDuration = reducedMotion ? 0.05 : Math.max(0.11, Math.min(0.27, cascadeDurationMs / 1000 * 0.72));
+-  const anticipationDuration = reducedMotion ? 0.05 : Math.max(0.055, Math.min(0.1, cascadeDurationMs / 1000 * 0.26));
++  const anticipationDuration = reducedMotion ? 0.05 : SQUASH_ANTICIPATION_MS / 1000;
+   const celebrationDelay = reducedMotion ? 0 : (row + col) * 0.035;
+   const isSpawned = Boolean(spawned || fall?.spawned);
+   const fallY = fall && !reducedMotion
+@@ -587,7 +630,7 @@
+     : dragOffset.y;
+   const selectedScale = selected ? 1.08 : activated ? 1.08 : 1;
+   const scaleMotion = removing && !obstacle && !reducedMotion
+-    ? [1, 0.91, 1.15]
++    ? [1, 0.86, 1.15]
+     : celebrating && !reducedMotion
+       ? [1, 1.12, 0.96, 1]
+       : selectedScale;
+@@ -743,7 +786,7 @@
+                 }
+                 : { type: "spring", stiffness: 520, damping: 25, bounce: 0.22 },
+             scale: removing && !obstacle && !reducedMotion
+-              ? { duration: anticipationDuration, times: [0, 0.46, 1], ease: ["easeOut", [0.16, 1, 0.3, 1]] }
++              ? { duration: anticipationDuration, times: [0, 0.55, 1], ease: ["easeOut", [0.16, 1, 0.3, 1]] }
+               : celebrating && !reducedMotion
+                 ? { duration: 0.48, delay: celebrationDelay, times: [0, 0.42, 0.72, 1] }
+                 : { type: "spring", stiffness: 450, damping: 23 },
+@@ -775,6 +818,7 @@
+           draggable="false"
+           decoding="async"
+           className="pointer-events-none absolute inset-[1%] z-[2] h-[98%] w-[98%] select-none object-cover"
++          style={{ filter: "drop-shadow(-1px -1px 0 rgba(255,255,255,.32)) drop-shadow(1.5px 2px 0 rgba(0,0,0,.48))" }}
+           animate={pieceArtworkMotion}
+           transition={
+             activated
+@@ -818,7 +862,11 @@
+         }}
+       />
+       {!obstacle && (
+-        <div className="pointer-events-none absolute left-[16%] top-[11%] z-[4] h-[18%] w-[34%] rotate-[-18deg] rounded-full bg-[radial-gradient(ellipse_at_center,rgba(255,255,255,.52),rgba(255,255,255,.16)_45%,transparent_72%)] opacity-80" />
++        <>
++          <div className="pointer-events-none absolute inset-[5%] z-[4] rounded-[16%] border-2 border-l-white/40 border-t-white/40 border-r-black/45 border-b-black/45" />
++          <div className="pointer-events-none absolute left-[14%] top-[9%] z-[5] h-[20%] w-[38%] rotate-[-18deg] rounded-full bg-[radial-gradient(ellipse_at_center,rgba(255,255,255,.72),rgba(255,255,255,.22)_44%,transparent_72%)] opacity-90" />
++          <div className="pointer-events-none absolute bottom-[7%] right-[9%] z-[4] h-[16%] w-[42%] rounded-full bg-black/20 blur-[2px]" />
++        </>
+       )}
+       <div className="pointer-events-none absolute inset-0 z-[4] overflow-hidden rounded-[10px] bg-gradient-to-br from-white/10 via-transparent to-black/16" />
+       {impact && (
+@@ -884,7 +932,7 @@
+       <AnimatePresence>
+         {selected && (
+           <motion.div
+-            className="pointer-events-none absolute inset-[1px] z-[8] rounded-[10px] border-2 border-white"
++            className="pointer-events-none absolute inset-[-2px] z-[8] rounded-[12px] border-2 border-white"
+             initial={{ opacity: 0, scale: 0.86 }}
+             animate={{
+               opacity: reducedMotion ? 1 : [0.58, 1, 0.58],
+@@ -892,8 +940,14 @@
+             }}
+             exit={{ opacity: 0, scale: 0.9 }}
+             transition={{ duration: reducedMotion ? 0.05 : 0.92, repeat: reducedMotion ? 0 : Infinity, ease: "easeInOut" }}
+-            style={{ boxShadow: `0 0 15px ${color}, inset 0 0 12px rgba(255,255,255,.22)` }}
+-          />
++            style={{ boxShadow: `0 0 18px ${color}, 0 0 30px ${color}88, inset 0 0 12px rgba(255,255,255,.3)` }}
++          >
++            <motion.div
++              className="absolute inset-[3px] rounded-[8px] border border-white/70"
++              animate={reducedMotion ? { opacity: 0.8 } : { opacity: [0.25, 0.9, 0.25], scale: [1.04, 0.94, 1.04] }}
++              transition={{ duration: 0.92, repeat: reducedMotion ? 0 : Infinity, ease: "easeInOut" }}
++            />
++          </motion.div>
+         )}
+       </AnimatePresence>
+       {obstacle && (
+@@ -1566,6 +1620,19 @@
+   const levelCatalogMap = useMemo(() => new Map(levelCatalog.map((item) => [Number(item.level), item])), [levelCatalog]);
+   const selectedConfig = levelCatalogMap.get(Number(selectedLevel)) || levelConfig(selectedLevel);
+   const config = game?.config || selectedConfig;
++  const boardMask = useMemo(() => {
++    const supplied = config?.board_mask;
++    if (Array.isArray(supplied) && supplied.length === ROWS) {
++      return supplied.map((row) => Array.from({ length: COLS }, (_, col) => Boolean(row?.[col])));
++    }
++    if (game && !config?.board_shape) {
++      const hasVoidCells = (displayBoard || []).some((row) => (row || []).some((cell) => cell?.void));
++      if (!hasVoidCells) return boardMaskForShape("full");
++      return (displayBoard || []).map((row) => Array.from({ length: COLS }, (_, col) => !row?.[col]?.void));
++    }
++    return boardMaskForShape(config?.board_shape || boardShapeForLevel(game?.level || selectedLevel));
++  }, [config?.board_mask, config?.board_shape, displayBoard, game, selectedLevel]);
++  const lowMoves = Boolean(game?.status === "active" && Number(game?.moves_left) <= 3);
+   const boosterInventory = status?.profile?.boosters || {};
+   const boosterPrice = Number(status?.profile?.booster_price || 50);
+   const scoreProgress = Math.min(100, Math.round(((animatedScore || 0) / Math.max(1, config.target_score)) * 100));
+@@ -1589,7 +1656,7 @@
+     setCelebrating(false);
+     setCascadeMotion({ step: 0, durationMs: CASCADE_STEP_MS[0], token: "idle" });
+     if (mode === "mock") {
+-      const levelBoard = makeMockBoard(level);
++      const levelBoard = makeMockBoard(level, preview);
+       const session = {
+         id: `mock-${Date.now()}`,
+         level,
+@@ -1873,8 +1940,8 @@
+ 
+         // Anticipation: every matched piece squashes, then stretches before the board collapses.
+         await new Promise((resolve) => window.requestAnimationFrame(() => window.requestAnimationFrame(resolve)));
+-        const anticipationMs = Math.max(54, Math.min(92, Math.round(stepDurationMs * 0.24)));
+-        await wait(reducedMotion ? 18 : anticipationMs);
++        const anticipationMs = reducedMotion ? 18 : SQUASH_ANTICIPATION_MS;
++        await wait(anticipationMs);
+ 
+         const collapseFrame = frames[index + 1]?.phase === "collapse" ? frames[index + 1] : null;
+         if (collapseFrame?.board) {
+@@ -2161,11 +2228,11 @@
+     registerBoardInteraction();
+     const cell = displayBoard?.[row]?.[col];
+     if (activeBooster) {
+-      if (!cell) return;
++      if (!cell || cell.void) return;
+       applyBooster(activeBooster, row, col);
+       return;
+     }
+-    if (!cell || cell.obstacle) {
++    if (!cell || cell.void || cell.obstacle) {
+       if (cell?.obstacle) {
+         toast.info(
+           OBSTACLE_HELP[cell.obstacle]
+@@ -2195,7 +2262,7 @@
+     registerBoardInteraction();
+     const source = displayBoard?.[from.row]?.[from.col];
+     const target = displayBoard?.[to.row]?.[to.col];
+-    if (!source || !target || source.obstacle || target.obstacle) return;
++    if (!source || !target || source.void || target.void || source.obstacle || target.obstacle) return;
+     makeMove(from, to);
+   };
+ 
+@@ -2375,7 +2442,18 @@
+ 
+             <div className="grid grid-cols-3 gap-2">
+               <div className="rounded-2xl border border-white/10 bg-black/25 px-2 py-2.5 text-center"><div className="text-[8px] font-black uppercase tracking-wider text-zinc-600">РІВЕНЬ</div><div className="mt-0.5 text-lg font-black text-white">{game.level}</div></div>
+-              <div className="rounded-2xl border border-[#FFB800]/20 bg-[#FFB800]/[.06] px-2 py-2.5 text-center"><div className="text-[8px] font-black uppercase tracking-wider text-zinc-600">ХОДИ</div><div className="mt-0.5 text-lg font-black text-[#FFB800]">{game.moves_left}</div></div>
++              <motion.div
++                className={`rounded-2xl border px-2 py-2.5 text-center ${lowMoves ? "border-[#FF4D55]/70 bg-[#FF4D55]/[.12]" : "border-[#FFB800]/20 bg-[#FFB800]/[.06]"}`}
++                animate={lowMoves && !reducedMotion ? {
++                  scale: [1, 1.055, 1],
++                  borderColor: ["rgba(255,77,85,.5)", "rgba(255,77,85,1)", "rgba(255,77,85,.5)"],
++                  boxShadow: ["0 0 0 rgba(255,77,85,0)", "0 0 20px rgba(255,77,85,.42)", "0 0 0 rgba(255,77,85,0)"],
++                } : { scale: 1 }}
++                transition={{ duration: 0.82, repeat: lowMoves && !reducedMotion ? Infinity : 0, ease: "easeInOut" }}
++              >
++                <div className={`text-[8px] font-black uppercase tracking-wider ${lowMoves ? "text-[#FF9CA2]" : "text-zinc-600"}`}>ХОДИ</div>
++                <div className={`mt-0.5 text-lg font-black ${lowMoves ? "text-[#FF4D55]" : "text-[#FFB800]"}`}>{game.moves_left}</div>
++              </motion.div>
+               <motion.div
+                 ref={scoreRef}
+                 className="rounded-2xl border border-[#B78CFF]/20 bg-[#B78CFF]/[.06] px-2 py-2.5 text-center"
+@@ -2408,12 +2486,17 @@
+               }}
+             >
+               <div className="grid grid-cols-7 gap-1" aria-hidden="true">
+-                {Array.from({ length: ROWS * COLS }, (_, index) => (
+-                  <div
+-                    key={`slot-${index}`}
+-                    className="aspect-square min-w-0 rounded-[10px] border border-white/[.055] bg-[#11101A]"
+-                  />
+-                ))}
++                {Array.from({ length: ROWS * COLS }, (_, index) => {
++                  const row = Math.floor(index / COLS);
++                  const col = index % COLS;
++                  const active = Boolean(boardMask[row]?.[col]);
++                  return (
++                    <div
++                      key={`slot-${index}`}
++                      className={`aspect-square min-w-0 rounded-[10px] ${active ? "border border-white/[.055] bg-[#11101A]" : "pointer-events-none border border-transparent bg-transparent opacity-0"}`}
++                    />
++                  );
++                })}
+               </div>
+ 
+               <LayoutGroup id={`bonus-board-${game.id}`}>
+@@ -2423,7 +2506,7 @@
+                 >
+                   <AnimatePresence initial={false}>
+                     {(displayBoard || []).flatMap((boardRow, row) =>
+-                      (boardRow || []).map((cell, col) => (cell ? (
++                      (boardRow || []).map((cell, col) => (cell && !cell.void ? (
+                         <Piece
+                           key={cell.id}
+                           cell={cell}

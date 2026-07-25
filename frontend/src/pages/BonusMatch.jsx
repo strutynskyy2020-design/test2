@@ -43,6 +43,73 @@ const OVERLAY_OBSTACLES = new Set(["chain", "web"]);
 const wait = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms));
 const coordKey = (row, col) => `${row}:${col}`;
 const cloneBoard = (board) => (board || []).map((row) => row.map((cell) => (cell ? { ...cell } : null)));
+const PIECE_SHADOW_IMAGE = "/bonus-match/piece-shadow.webp";
+const HINT_DELAY_MS = 5600;
+const SQUASH_ANTICIPATION_MS = 100;
+const CASCADE_STEP_MS = [350, 250, 180];
+const BOARD_SHAPES = {
+  full: ["1111111", "1111111", "1111111", "1111111", "1111111", "1111111", "1111111"],
+  rounded: ["0111110", "1111111", "1111111", "1111111", "1111111", "1111111", "0111110"],
+  diamond: ["0011100", "0111110", "1111111", "1111111", "1111111", "0111110", "0011100"],
+  cross: ["0011100", "0011100", "1111111", "1111111", "1111111", "0011100", "0011100"],
+  staircase: ["1111100", "1111110", "1111111", "1111111", "1111111", "0111111", "0011111"],
+};
+const boardShapeForLevel = (level = 1) => {
+  const safeLevel = Math.max(1, Math.min(MAX_LEVEL, Number(level || 1)));
+  if (safeLevel <= 4) return "full";
+  const cycle = ["rounded", "full", "diamond", "rounded", "staircase", "full", "cross", "rounded"];
+  return cycle[Math.floor((safeLevel - 5) / 2) % cycle.length];
+};
+const boardMaskForShape = (shape = "full") => (BOARD_SHAPES[shape] || BOARD_SHAPES.full).map((row) => [...row].map((value) => value === "1"));
+const cascadeDurationForStep = (step = 0) => {
+  if (step < CASCADE_STEP_MS.length) return CASCADE_STEP_MS[step];
+  return Math.max(125, Math.round(CASCADE_STEP_MS.at(-1) * (0.82 ** (step - CASCADE_STEP_MS.length + 1))));
+};
+const boardCellPositions = (board) => {
+  const positions = new Map();
+  (board || []).forEach((boardRow, row) => {
+    (boardRow || []).forEach((cell, col) => {
+      if (cell?.id && !cell.void) positions.set(cell.id, { row, col });
+    });
+  });
+  return positions;
+};
+const buildFallMeta = (before, after, spawnedIds, boardWidth, token) => {
+  const previous = boardCellPositions(before);
+  const pitch = Math.max(38, Number(boardWidth || 350) / COLS);
+  const spawned = new Set(spawnedIds || []);
+  const spawnOrderByColumn = new Map();
+  const result = new Map();
+
+  (after || []).forEach((boardRow, row) => {
+    (boardRow || []).forEach((cell, col) => {
+      if (!cell?.id || cell.void) return;
+      const old = previous.get(cell.id);
+      let rows = old ? row - old.row : 0;
+      const isSpawned = spawned.has(cell.id) || !old;
+      let order = 0;
+      if (isSpawned) {
+        order = spawnOrderByColumn.get(col) || 0;
+        spawnOrderByColumn.set(col, order + 1);
+        let segmentStart = row;
+        while (segmentStart > 0) {
+          const above = after?.[segmentStart - 1]?.[col];
+          if (!above || above.void || above.obstacle) break;
+          segmentStart -= 1;
+        }
+        rows = (row - segmentStart) + order + 1.35;
+      }
+      if (rows <= 0 && !isSpawned) return;
+      result.set(cell.id, {
+        token: `${token}-${cell.id}`,
+        distance: Math.max(pitch * 0.9, rows * pitch),
+        delay: Math.min(0.075, col * 0.006 + (isSpawned ? order * 0.012 : 0)),
+        spawned: isSpawned,
+      });
+    });
+  });
+  return result;
+};
 
 const PIECES = {
   coin: { Icon: Coins, label: "Монета", color: "#FFB800", image: "/bonus-match/pieces/coin.webp" },
@@ -74,6 +141,7 @@ const OBSTACLES = {
 };
 
 const BONUS_MATCH_ARTWORK = [
+  PIECE_SHADOW_IMAGE,
   ...Object.values(PIECES).map((item) => item.image),
   ...Object.values(OBSTACLES).map((item) => item.image),
 ].filter(Boolean);
@@ -120,16 +188,18 @@ const OBSTACLE_HELP = {
 
 const makeCell = (symbol = null, extras = {}) => ({
   id: extras.id || `mock-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
-  symbol,
+  symbol: extras.void ? null : symbol,
   special: extras.special || null,
   obstacle: extras.obstacle || null,
   obstacle_hits: extras.obstacle_hits || 0,
   obstacle_age: extras.obstacle_age || 0,
+  void: Boolean(extras.void),
 });
 
 const normalizeCell = (cell) => {
   if (!cell) return null;
   if (typeof cell === "string") return makeCell(cell);
+  if (cell.void) return makeCell(null, { id: cell.id || `void-${Math.random().toString(36).slice(2, 10)}`, void: true });
   return {
     id: cell.id || `cell-${Math.random().toString(36).slice(2, 10)}`,
     symbol: cell.symbol || null,
@@ -137,6 +207,7 @@ const normalizeCell = (cell) => {
     obstacle: cell.obstacle || null,
     obstacle_hits: Number(cell.obstacle_hits || 0),
     obstacle_age: Number(cell.obstacle_age || 0),
+    void: Boolean(cell.void),
   };
 };
 
@@ -163,8 +234,11 @@ const levelConfig = (level) => {
   let targetCoins = 6 + Math.floor((safeLevel + 1) / 2) + ordinaryStage;
   if (milestone) targetCoins = Math.floor(targetCoins * 1.3) + 2;
   const obstacles = OBSTACLE_ORDER.slice(0, stage);
+  const boardShape = boardShapeForLevel(safeLevel);
   return {
     level: safeLevel,
+    board_shape: boardShape,
+    board_mask: boardMaskForShape(boardShape),
     moves,
     target_score: targetScore,
     target_coins: targetCoins,
@@ -178,7 +252,7 @@ const levelConfig = (level) => {
 };
 
 const matchSymbol = (cell) => {
-  if (!cell || cell.special === "color_bomb") return null;
+  if (!cell || cell.void || cell.special === "color_bomb") return null;
   if (cell.obstacle && !OVERLAY_OBSTACLES.has(cell.obstacle)) return null;
   return cell.symbol;
 };
@@ -212,7 +286,7 @@ const findMatches = (board) => {
   return matched;
 };
 
-const hasPossibleMove = (board) => {
+const findHintMove = (board) => {
   const copy = cloneBoard(board);
   for (let row = 0; row < ROWS; row += 1) {
     for (let col = 0; col < COLS; col += 1) {
@@ -220,27 +294,36 @@ const hasPossibleMove = (board) => {
         const nextRow = row + dr;
         const nextCol = col + dc;
         if (nextRow >= ROWS || nextCol >= COLS) continue;
-        const a = copy[row][col];
-        const b = copy[nextRow][nextCol];
-        if (!a || !b || a.obstacle || b.obstacle) continue;
-        if (a.special || b.special) return true;
+        const a = copy[row]?.[col];
+        const b = copy[nextRow]?.[nextCol];
+        if (!a || !b || a.void || b.void || a.obstacle || b.obstacle) continue;
+        if (a.special || b.special) {
+          return { from: { row, col }, to: { row: nextRow, col: nextCol } };
+        }
         [copy[row][col], copy[nextRow][nextCol]] = [b, a];
         const valid = findMatches(copy).size > 0;
         [copy[row][col], copy[nextRow][nextCol]] = [a, b];
-        if (valid) return true;
+        if (valid) return { from: { row, col }, to: { row: nextRow, col: nextCol } };
       }
     }
   }
-  return false;
+  return null;
 };
 
-const makeMockBoard = (level = 1) => {
-  const config = levelConfig(level);
-  for (let attempt = 0; attempt < 100; attempt += 1) {
+const hasPossibleMove = (board) => Boolean(findHintMove(board));
+
+const makeMockBoard = (level = 1, suppliedConfig = null) => {
+  const config = suppliedConfig || levelConfig(level);
+  const mask = config.board_mask || boardMaskForShape(config.board_shape);
+  for (let attempt = 0; attempt < 140; attempt += 1) {
     const board = [];
     for (let row = 0; row < ROWS; row += 1) {
       board.push([]);
       for (let col = 0; col < COLS; col += 1) {
+        if (!mask[row]?.[col]) {
+          board[row].push(makeCell(null, { id: `void-${row}-${col}`, void: true }));
+          continue;
+        }
         const blocked = new Set();
         if (col >= 2 && matchSymbol(board[row][col - 1]) === matchSymbol(board[row][col - 2])) blocked.add(matchSymbol(board[row][col - 1]));
         if (row >= 2 && matchSymbol(board[row - 1][col]) === matchSymbol(board[row - 2][col])) blocked.add(matchSymbol(board[row - 1][col]));
@@ -250,9 +333,15 @@ const makeMockBoard = (level = 1) => {
     }
     if (config.obstacles.length) {
       const count = Math.min(10, 2 + Math.floor(level / 5));
-      for (let index = 0; index < count; index += 1) {
-        const row = Math.floor(Math.random() * ROWS);
-        const col = Math.floor(Math.random() * COLS);
+      const activePositions = [];
+      for (let row = 0; row < ROWS; row += 1) {
+        for (let col = 0; col < COLS; col += 1) {
+          if (!board[row][col]?.void) activePositions.push({ row, col });
+        }
+      }
+      for (let index = 0; index < Math.min(count, activePositions.length); index += 1) {
+        const positionIndex = Math.floor(Math.random() * activePositions.length);
+        const { row, col } = activePositions.splice(positionIndex, 1)[0];
         const obstacle = config.obstacles[Math.floor(Math.random() * config.obstacles.length)];
         const hits = obstacle === "core" ? 4 : ["stone", "shield", "metal"].includes(obstacle) ? 3 : obstacle === "web" ? 1 : 2;
         if (OVERLAY_OBSTACLES.has(obstacle)) {
@@ -264,22 +353,27 @@ const makeMockBoard = (level = 1) => {
     }
     if (!findMatches(board).size && hasPossibleMove(board)) return board;
   }
-  return Array.from({ length: ROWS }, (_, row) => Array.from({ length: COLS }, (_, col) => makeCell(SYMBOLS[(row * 2 + col * 3) % SYMBOLS.length])));
+  return Array.from({ length: ROWS }, (_, row) => Array.from({ length: COLS }, (_, col) => (
+    mask[row]?.[col]
+      ? makeCell(SYMBOLS[(row * 2 + col * 3) % SYMBOLS.length])
+      : makeCell(null, { id: `void-${row}-${col}`, void: true })
+  )));
 };
+
 
 const collapseMockBoard = (board) => {
   const result = cloneBoard(board);
   const spawned = [];
   for (let col = 0; col < COLS; col += 1) {
     const fixedRows = [];
-    for (let row = 0; row < ROWS; row += 1) if (result[row][col]?.obstacle) fixedRows.push(row);
+    for (let row = 0; row < ROWS; row += 1) if (result[row][col]?.obstacle || result[row][col]?.void) fixedRows.push(row);
     const boundaries = [-1, ...fixedRows, ROWS];
     for (let segment = 0; segment < boundaries.length - 1; segment += 1) {
       const start = boundaries[segment] + 1;
       const end = boundaries[segment + 1] - 1;
       if (start > end) continue;
       const values = [];
-      for (let row = start; row <= end; row += 1) if (result[row][col]) values.push(result[row][col]);
+      for (let row = start; row <= end; row += 1) if (result[row][col] && !result[row][col].void) values.push(result[row][col]);
       let writeRow = end;
       for (let index = values.length - 1; index >= 0; index -= 1) {
         result[writeRow][col] = values[index];
@@ -302,7 +396,7 @@ const runMockMove = (game, from, to) => {
   const board = cloneBoard(game.board);
   const first = board[from.row][from.col];
   const second = board[to.row][to.col];
-  if (!first || !second || first.obstacle || second.obstacle) {
+  if (!first || !second || first.void || second.void || first.obstacle || second.obstacle) {
     return {
       valid: false,
       message: "Ця клітинка заблокована",
@@ -351,7 +445,7 @@ const runMockMove = (game, from, to) => {
     const stepScore = Math.floor((clearedCells.length * 100 + Math.max(0, cells.length - 3) * 120) * (1 + (combo - 1) * 0.25));
     scoreGain += stepScore;
     coinsGain += coinsThisStep;
-    clearedCells.forEach(([row, col]) => { board[row][col] = null; });
+    clearedCells.forEach(([row, col]) => { if (!board[row][col]?.void) board[row][col] = null; });
     const boardAfterClear = cloneBoard(board);
     const collapsed = collapseMockBoard(board);
     collapsed.board.forEach((row, rowIndex) => row.forEach((cell, colIndex) => { board[rowIndex][colIndex] = cell; }));
@@ -374,7 +468,7 @@ const runMockMove = (game, from, to) => {
 
   let reshuffled = false;
   if (!hasPossibleMove(board)) {
-    const fresh = makeMockBoard(game.level);
+    const fresh = makeMockBoard(game.level, game.config);
     fresh.forEach((row, rowIndex) => row.forEach((cell, colIndex) => { board[rowIndex][colIndex] = cell; }));
     reshuffled = true;
   }
@@ -416,6 +510,10 @@ const cellBoxStyle = (row, col, size = 1) => ({
   left: `${((col + 0.5 - size / 2) / COLS) * 100}%`,
   top: `${((row + 0.5 - size / 2) / ROWS) * 100}%`,
 });
+
+const fxTempo = (tempo = 1) => Math.max(0.45, Math.min(1.2, Number(tempo || 1)));
+const fxDuration = (base, tempo = 1, minimum = 0.08) => Math.max(minimum, base * fxTempo(tempo));
+const fxDelay = (base, tempo = 1) => base * fxTempo(tempo);
 
 const boardMotionForFx = (fx, reducedMotion) => {
   if (reducedMotion) return { x: 0, y: 0, scale: 1, rotate: 0 };
@@ -483,13 +581,24 @@ function Piece({
   spawned,
   activated,
   impact,
+  hinted = false,
+  hintDirection = null,
+  fall = null,
+  cascadeDurationMs = 350,
+  celebrating = false,
   removeDelay = 0,
   onClick,
+  onSwipe,
+  swipeEnabled = false,
   row,
   col,
   reducedMotion,
 }) {
-  if (!cell) return null;
+  const gestureRef = useRef(null);
+  const suppressClickRef = useRef(false);
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+
+  if (!cell || cell.void) return null;
   const obstacle = cell.obstacle ? OBSTACLES[cell.obstacle] || OBSTACLES.stone : null;
   const special = cell.special ? SPECIALS[cell.special] || SPECIALS.bomb : null;
   const piece = PIECES[cell.symbol] || PIECES.star;
@@ -499,66 +608,202 @@ function Piece({
   const color = obstacle?.color || special?.color || piece.color;
   const background = "#0A0811";
   const label = obstacle?.label || special?.label || piece.label;
-  const shakeAnimation = shaking && !reducedMotion ? [0, -7, 7, -6, 6, -3, 3, 0] : 0;
+  const shakeAnimation = shaking && !reducedMotion ? [0, -7, 7, -6, 6, -3, 3, 0] : dragOffset.x;
+  const pieceTempo = Math.max(0.55, Math.min(1, cascadeDurationMs / CASCADE_STEP_MS[0]));
   const impactMotion = obstacleImageMotion(cell.obstacle, impact, reducedMotion);
   const impactTransition = impact
-    ? { duration: reducedMotion ? 0.06 : impact.destroyed ? 0.5 : 0.38, ease: [0.22, 1, 0.36, 1] }
+    ? { duration: reducedMotion ? 0.06 : (impact.destroyed ? 0.5 : 0.38) * pieceTempo, ease: [0.22, 1, 0.36, 1] }
     : cell.obstacle === "core" || cell.obstacle === "slime"
       ? { duration: cell.obstacle === "core" ? 1.75 : 1.45, repeat: Infinity, ease: "easeInOut" }
       : { duration: 0.2 };
   const specialMotion = specialIconMotion(cell.special, activated, reducedMotion);
   const specialTransition = activated
-    ? { duration: reducedMotion ? 0.05 : cell.special === "color_bomb" ? 0.34 : 0.28, ease: [0.22, 1, 0.36, 1] }
+    ? { duration: reducedMotion ? 0.05 : (cell.special === "color_bomb" ? 0.34 : 0.28) * pieceTempo, ease: [0.22, 1, 0.36, 1] }
     : { duration: cell.special === "color_bomb" ? 2.8 : 1.2, repeat: Infinity, ease: "easeInOut" };
+  const fallDuration = reducedMotion ? 0.05 : Math.max(0.12, Math.min(0.34, cascadeDurationMs / 1000 * 0.68));
+  const removalDuration = reducedMotion ? 0.05 : Math.max(0.11, Math.min(0.27, cascadeDurationMs / 1000 * 0.72));
+  const anticipationDuration = reducedMotion ? 0.05 : SQUASH_ANTICIPATION_MS / 1000;
+  const celebrationDelay = reducedMotion ? 0 : (row + col) * 0.035;
+  const isSpawned = Boolean(spawned || fall?.spawned);
+  const fallY = fall && !reducedMotion
+    ? [-fall.distance, -Math.max(8, fall.distance * 0.24), isSpawned ? 10 : 8, -4, 0]
+    : dragOffset.y;
+  const selectedScale = selected ? 1.08 : activated ? 1.08 : 1;
+  const scaleMotion = removing && !obstacle && !reducedMotion
+    ? [1, 0.86, 1.15]
+    : celebrating && !reducedMotion
+      ? [1, 1.12, 0.96, 1]
+      : selectedScale;
+  const yMotion = celebrating && !reducedMotion
+    ? [0, -12, 3, 0]
+    : fallY;
+  const pieceArtworkMotion = activated && !reducedMotion
+    ? { scale: [1, 0.9, 1.12], rotate: [0, -3, 3, 0] }
+    : hinted && !reducedMotion
+      ? {
+        x: [0, Number(hintDirection?.dc || 0) * 5, 0],
+        y: [0, Number(hintDirection?.dr || 0) * 5, 0],
+        scale: [1, 1.075, 1],
+      }
+      : { scale: 1, rotate: 0 };
+
+  const resetGesture = () => {
+    gestureRef.current = null;
+    setDragOffset({ x: 0, y: 0 });
+  };
+
+  const handlePointerDown = (event) => {
+    if (!swipeEnabled || event.button !== 0) return;
+    gestureRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+    };
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+  };
+
+  const handlePointerMove = (event) => {
+    const gesture = gestureRef.current;
+    if (!gesture || gesture.pointerId !== event.pointerId) return;
+    const dx = event.clientX - gesture.startX;
+    const dy = event.clientY - gesture.startY;
+    const magnitude = Math.max(Math.abs(dx), Math.abs(dy));
+    if (magnitude > 5) {
+      event.preventDefault();
+      setDragOffset({
+        x: Math.max(-18, Math.min(18, dx * 0.34)),
+        y: Math.max(-18, Math.min(18, dy * 0.34)),
+      });
+    }
+  };
+
+  const handlePointerUp = (event) => {
+    const gesture = gestureRef.current;
+    if (!gesture || gesture.pointerId !== event.pointerId) {
+      resetGesture();
+      return;
+    }
+    const dx = event.clientX - gesture.startX;
+    const dy = event.clientY - gesture.startY;
+    const distance = Math.max(Math.abs(dx), Math.abs(dy));
+    resetGesture();
+    if (distance < 22) return;
+
+    const direction = Math.abs(dx) >= Math.abs(dy)
+      ? { dr: 0, dc: dx > 0 ? 1 : -1 }
+      : { dr: dy > 0 ? 1 : -1, dc: 0 };
+    const to = { row: row + direction.dr, col: col + direction.dc };
+    suppressClickRef.current = true;
+    if (to.row >= 0 && to.row < ROWS && to.col >= 0 && to.col < COLS) {
+      onSwipe?.({ row, col }, to);
+    }
+    window.setTimeout(() => {
+      suppressClickRef.current = false;
+    }, 0);
+  };
+
+  const exitMotion = reducedMotion
+    ? { opacity: 0, transition: { duration: 0.05 } }
+    : cell.obstacle === "slime"
+      ? {
+        opacity: [1, 1, 0],
+        scaleX: [1, 1.45, 1.65],
+        scaleY: [1, 0.22, 0.05],
+        y: [0, 5, 12],
+        transition: { duration: removalDuration, delay: removeDelay, times: [0, 0.35, 1], ease: "easeIn" },
+      }
+      : cell.obstacle === "stone" || cell.obstacle === "metal"
+        ? {
+          opacity: [1, 1, 0],
+          scale: [1, 1.08, 0.54],
+          y: [0, -2, 14],
+          rotate: [0, -2, 9],
+          transition: { duration: removalDuration * 1.18, delay: removeDelay, times: [0, 0.28, 1], ease: "easeIn" },
+        }
+        : {
+          opacity: [1, 1, 0],
+          scale: [1.15, 1.26, 0],
+          rotate: [0, -3, cell.special === "color_bomb" ? 120 : 24],
+          transition: {
+            duration: removalDuration,
+            delay: removeDelay,
+            times: [0, 0.28, 1],
+            ease: ["easeOut", "easeIn"],
+          },
+        };
 
   return (
     <motion.button
-      layout="position"
+      layout={fall ? false : "position"}
       layoutId={`bonus-piece-${cell.id}`}
       type="button"
-      onClick={onClick}
+      onClick={(event) => {
+        if (suppressClickRef.current) {
+          event.preventDefault();
+          return;
+        }
+        onClick?.();
+      }}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={resetGesture}
       disabled={disabled}
       aria-label={`${label}, рядок ${row + 1}, колонка ${col + 1}`}
-      className="relative flex aspect-square min-w-0 touch-manipulation items-center justify-center overflow-hidden rounded-[10px] border border-white/10"
+      className="relative flex aspect-square min-w-0 items-center justify-center overflow-visible rounded-[10px] border border-white/10"
       style={{
         background,
         gridRowStart: row + 1,
         gridColumnStart: col + 1,
+        touchAction: swipeEnabled ? "none" : "manipulation",
       }}
-      initial={spawned && !reducedMotion ? { y: -84, opacity: 0, scale: 0.68 } : { opacity: 1, scale: 1 }}
+      initial={fall?.spawned && !reducedMotion
+        ? { y: -fall.distance, opacity: 0.65, scale: 0.88 }
+        : false}
       animate={{
         x: shakeAnimation,
-        y: 0,
-        opacity: removing ? 0 : 1,
-        scale: removing ? 0.12 : selected ? 1.12 : activated ? 1.08 : 1,
-        rotate: removing ? (cell.obstacle === "slime" ? 0 : 18) : 0,
+        y: yMotion,
+        opacity: 1,
+        scale: scaleMotion,
+        rotate: removing && !obstacle && !reducedMotion ? [0, -1.5, 1.5] : 0,
       }}
-      exit={reducedMotion
-        ? { opacity: 0, transition: { duration: 0.05 } }
-        : cell.obstacle === "slime"
-          ? { opacity: 0, scaleX: 1.45, scaleY: 0.08, y: 10, transition: { duration: 0.34, delay: removeDelay } }
-          : cell.obstacle === "stone" || cell.obstacle === "metal"
-            ? { opacity: 0, scale: 0.62, y: 12, rotate: 8, transition: { duration: 0.42, delay: removeDelay, ease: "easeIn" } }
-            : {
-              opacity: 0,
-              scale: 0,
-              rotate: cell.special === "color_bomb" ? 120 : 28,
-              transition: { duration: 0.32, delay: removeDelay, ease: "easeIn" },
-            }}
-      whileTap={disabled ? undefined : { scale: obstacle && !targetable ? 0.96 : 0.86 }}
+      exit={exitMotion}
+      whileTap={disabled ? undefined : { scale: obstacle && !targetable ? 0.96 : 0.88 }}
       transition={
         shaking
           ? { duration: reducedMotion ? 0.01 : 0.32, ease: "easeInOut" }
           : {
-            layout: { duration: reducedMotion ? 0.05 : 0.3, ease: [0.22, 1, 0.36, 1] },
-            y: { type: "spring", stiffness: 470, damping: 19, bounce: 0.3 },
-            scale: { type: "spring", stiffness: 430, damping: 23, delay: removing ? removeDelay : 0 },
-            opacity: { duration: reducedMotion ? 0.05 : 0.24, delay: removing ? removeDelay : 0 },
-            rotate: { duration: reducedMotion ? 0.05 : 0.3, delay: removing ? removeDelay : 0 },
+            layout: { duration: reducedMotion ? 0.05 : 0.18, ease: [0.2, 0.82, 0.25, 1] },
+            x: dragOffset.x || dragOffset.y ? { duration: 0 } : { type: "spring", stiffness: 520, damping: 27 },
+            y: celebrating && !reducedMotion
+              ? { duration: 0.48, delay: celebrationDelay, times: [0, 0.42, 0.72, 1], ease: ["easeOut", "easeIn", "easeOut"] }
+              : fall && !reducedMotion
+                ? {
+                  duration: fallDuration,
+                  delay: fall.delay,
+                  times: [0, 0.56, 0.8, 0.9, 1],
+                  ease: ["easeIn", "easeOut", "easeInOut", "easeOut"],
+                }
+                : { type: "spring", stiffness: 520, damping: 25, bounce: 0.22 },
+            scale: removing && !obstacle && !reducedMotion
+              ? { duration: anticipationDuration, times: [0, 0.55, 1], ease: ["easeOut", [0.16, 1, 0.3, 1]] }
+              : celebrating && !reducedMotion
+                ? { duration: 0.48, delay: celebrationDelay, times: [0, 0.42, 0.72, 1] }
+                : { type: "spring", stiffness: 450, damping: 23 },
+            opacity: { duration: reducedMotion ? 0.05 : 0.18 },
+            rotate: { duration: anticipationDuration },
           }
       }
     >
-      <div className="absolute inset-0 bg-[#0A0811]" />
+      <div className="absolute inset-0 overflow-hidden rounded-[10px] bg-[#0A0811]" />
+      {!obstacle && (
+        <img
+          src={PIECE_SHADOW_IMAGE}
+          alt=""
+          draggable="false"
+          className="pointer-events-none absolute bottom-[-4%] left-[7%] z-[1] h-[38%] w-[86%] select-none object-fill opacity-75"
+        />
+      )}
       <ArtworkIcon
         className="relative z-[1] opacity-0"
         size={24}
@@ -572,9 +817,16 @@ function Piece({
           alt=""
           draggable="false"
           decoding="async"
-          className="pointer-events-none absolute inset-0 z-[2] h-full w-full select-none object-cover"
-          animate={activated && !reducedMotion ? { scale: [1, 0.9, 1.12], rotate: [0, -3, 3, 0] } : { scale: 1, rotate: 0 }}
-          transition={{ duration: activated ? 0.28 : 0.2 }}
+          className="pointer-events-none absolute inset-[1%] z-[2] h-[98%] w-[98%] select-none object-cover"
+          style={{ filter: "drop-shadow(-1px -1px 0 rgba(255,255,255,.32)) drop-shadow(1.5px 2px 0 rgba(0,0,0,.48))" }}
+          animate={pieceArtworkMotion}
+          transition={
+            activated
+              ? { duration: 0.28 * pieceTempo }
+              : hinted
+                ? { duration: 0.78, repeat: Infinity, ease: "easeInOut" }
+                : { duration: 0.2 }
+          }
         />
       )}
       {overlayObstacle && piece.image && (
@@ -584,8 +836,8 @@ function Piece({
           draggable="false"
           decoding="async"
           className="pointer-events-none absolute inset-[9%] z-[2] h-[82%] w-[82%] select-none object-contain"
-          animate={impact && !reducedMotion ? { scale: [1, 0.9, 1.08, 1] } : { scale: 1 }}
-          transition={{ duration: impact ? 0.42 : 0.2 }}
+          animate={impact && !reducedMotion ? { scale: [1, 0.9, 1.08, 1] } : pieceArtworkMotion}
+          transition={impact ? { duration: 0.42 * pieceTempo } : hinted ? { duration: 0.78, repeat: Infinity } : { duration: 0.2 }}
         />
       )}
       {obstacle?.image && (
@@ -601,14 +853,29 @@ function Piece({
           transition={impactTransition}
         />
       )}
-      <div className="pointer-events-none absolute inset-0 z-[4] bg-gradient-to-br from-white/8 via-transparent to-black/10" />
+      <div
+        className="pointer-events-none absolute inset-[3%] z-[4] rounded-[12%]"
+        style={{
+          boxShadow: obstacle
+            ? "inset 1px 1px 0 rgba(255,255,255,.16), inset -1.5px -1.5px 0 rgba(0,0,0,.28)"
+            : "inset 1.6px 1.6px 0 rgba(255,255,255,.42), inset -2.2px -2.2px 0 rgba(0,0,0,.38)",
+        }}
+      />
+      {!obstacle && (
+        <>
+          <div className="pointer-events-none absolute inset-[5%] z-[4] rounded-[16%] border-2 border-l-white/40 border-t-white/40 border-r-black/45 border-b-black/45" />
+          <div className="pointer-events-none absolute left-[14%] top-[9%] z-[5] h-[20%] w-[38%] rotate-[-18deg] rounded-full bg-[radial-gradient(ellipse_at_center,rgba(255,255,255,.72),rgba(255,255,255,.22)_44%,transparent_72%)] opacity-90" />
+          <div className="pointer-events-none absolute bottom-[7%] right-[9%] z-[4] h-[16%] w-[42%] rounded-full bg-black/20 blur-[2px]" />
+        </>
+      )}
+      <div className="pointer-events-none absolute inset-0 z-[4] overflow-hidden rounded-[10px] bg-gradient-to-br from-white/10 via-transparent to-black/16" />
       {impact && (
         <motion.div
           key={`impact-glint-${impact.token}`}
-          className="pointer-events-none absolute inset-0 z-[5] bg-white"
+          className="pointer-events-none absolute inset-0 z-[5] rounded-[10px] bg-white"
           initial={{ opacity: 0 }}
           animate={{ opacity: [0, impact.destroyed ? 0.38 : 0.22, 0] }}
-          transition={{ duration: reducedMotion ? 0.06 : 0.28 }}
+          transition={{ duration: reducedMotion ? 0.06 : 0.28 * pieceTempo }}
         />
       )}
       {special && (
@@ -618,7 +885,7 @@ function Piece({
           animate={activated && !reducedMotion
             ? { opacity: [0.35, 1, 0.7], scale: [1, 1.08, 1] }
             : reducedMotion ? { opacity: 0.55 } : { opacity: [0.35, 0.85, 0.35] }}
-          transition={activated ? { duration: 0.28 } : { duration: 1.25, repeat: Infinity, ease: "easeInOut" }}
+          transition={activated ? { duration: 0.28 * pieceTempo } : { duration: 1.25, repeat: Infinity, ease: "easeInOut" }}
         />
       )}
       {special && cell.special !== "color_bomb" && SpecialIcon && (
@@ -651,21 +918,43 @@ function Piece({
         </motion.div>
       )}
       <AnimatePresence>
+        {hinted && !selected && (
+          <motion.div
+            className="pointer-events-none absolute inset-[1px] z-[7] rounded-[10px] border-2 border-[#FFB800]"
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: [0.28, 1, 0.28], scale: [0.94, 1.05, 0.94] }}
+            exit={{ opacity: 0, scale: 0.9 }}
+            transition={{ duration: 0.78, repeat: Infinity, ease: "easeInOut" }}
+            style={{ boxShadow: "0 0 14px rgba(255,184,0,.72), inset 0 0 10px rgba(255,184,0,.24)" }}
+          />
+        )}
+      </AnimatePresence>
+      <AnimatePresence>
         {selected && (
           <motion.div
-            className="pointer-events-none absolute inset-[2px] z-[7] rounded-[8px] border-2 border-white"
-            initial={{ opacity: 0, scale: 0.85 }}
-            animate={{ opacity: 0.98, scale: 1 }}
+            className="pointer-events-none absolute inset-[-2px] z-[8] rounded-[12px] border-2 border-white"
+            initial={{ opacity: 0, scale: 0.86 }}
+            animate={{
+              opacity: reducedMotion ? 1 : [0.58, 1, 0.58],
+              scale: reducedMotion ? 1 : [0.96, 1.055, 0.96],
+            }}
             exit={{ opacity: 0, scale: 0.9 }}
-            transition={{ type: "spring", stiffness: 500, damping: 25 }}
-          />
+            transition={{ duration: reducedMotion ? 0.05 : 0.92, repeat: reducedMotion ? 0 : Infinity, ease: "easeInOut" }}
+            style={{ boxShadow: `0 0 18px ${color}, 0 0 30px ${color}88, inset 0 0 12px rgba(255,255,255,.3)` }}
+          >
+            <motion.div
+              className="absolute inset-[3px] rounded-[8px] border border-white/70"
+              animate={reducedMotion ? { opacity: 0.8 } : { opacity: [0.25, 0.9, 0.25], scale: [1.04, 0.94, 1.04] }}
+              transition={{ duration: 0.92, repeat: reducedMotion ? 0 : Infinity, ease: "easeInOut" }}
+            />
+          </motion.div>
         )}
       </AnimatePresence>
       {obstacle && (
         <motion.div
-          className="absolute bottom-0.5 right-0.5 z-[8] flex h-4 min-w-4 items-center justify-center rounded-full border border-white/25 bg-black/85 px-1 text-[8px] font-black text-white"
+          className="absolute bottom-0.5 right-0.5 z-[9] flex h-4 min-w-4 items-center justify-center rounded-full border border-white/25 bg-black/85 px-1 text-[8px] font-black text-white"
           animate={impact && !reducedMotion ? { scale: [1, 1.35, 0.92, 1] } : { scale: 1 }}
-          transition={{ duration: 0.34 }}
+          transition={{ duration: 0.34 * pieceTempo }}
         >
           {cell.obstacle_hits}
         </motion.div>
@@ -696,7 +985,7 @@ function Stars({ count = 0, size = 19, animated = false, reducedMotion = false }
   );
 }
 
-function FxParticles({ row, col, color, count = 8, distance = 34, delay = 0, reducedMotion = false, square = false }) {
+function FxParticles({ row, col, color, count = 8, distance = 34, delay = 0, reducedMotion = false, square = false, tempo = 1 }) {
   if (reducedMotion) return null;
   return Array.from({ length: count }, (_, index) => {
     const angle = ((Math.PI * 2) / count) * index + (index % 2) * 0.17;
@@ -715,37 +1004,38 @@ function FxParticles({ row, col, color, count = 8, distance = 34, delay = 0, red
         }}
         initial={{ x: -4, y: -4, scale: 0.2, opacity: 0 }}
         animate={{ x, y, scale: [0.2, 1.15, 0.1], opacity: [0, 1, 0], rotate: square ? [0, 90, 180] : 0 }}
-        transition={{ duration: 0.48, delay: delay + index * 0.018, ease: "easeOut" }}
+        transition={{ duration: fxDuration(0.48, tempo, 0.18), delay: fxDelay(delay + index * 0.018, tempo), ease: "easeOut" }}
       />
     );
   });
 }
 
-function FxCellFlash({ row, col, color, delay = 0, reducedMotion = false }) {
+function FxCellFlash({ row, col, color, delay = 0, reducedMotion = false, tempo = 1 }) {
   return (
     <motion.div
       className="pointer-events-none absolute z-20 rounded-[10px] border-2"
       style={{ ...cellBoxStyle(row, col), borderColor: color, background: `${color}2E` }}
       initial={{ opacity: 0, scale: reducedMotion ? 1 : 0.55 }}
       animate={{ opacity: [0, 0.95, 0], scale: reducedMotion ? 1 : [0.55, 1.12, 0.88] }}
-      transition={{ duration: reducedMotion ? 0.12 : 0.36, delay, ease: "easeOut" }}
+      transition={{ duration: reducedMotion ? 0.12 : fxDuration(0.36, tempo, 0.14), delay: reducedMotion ? 0 : fxDelay(delay, tempo), ease: "easeOut" }}
     />
   );
 }
 
-function FxRing({ row, col, color, size = 1.7, delay = 0, duration = 0.42, reducedMotion = false, border = 4 }) {
+function FxRing({ row, col, color, size = 1.7, delay = 0, duration = 0.42, reducedMotion = false, border = 4, tempo = 1 }) {
   return (
     <motion.div
       className="pointer-events-none absolute z-20 aspect-square rounded-full"
       style={{ ...cellBoxStyle(row, col, size), border: `${border}px solid ${color}` }}
       initial={{ opacity: 0.95, scale: reducedMotion ? 1 : 0.12 }}
       animate={{ opacity: 0, scale: reducedMotion ? 1 : 1.35 }}
-      transition={{ duration: reducedMotion ? 0.12 : duration, delay, ease: "easeOut" }}
+      transition={{ duration: reducedMotion ? 0.12 : fxDuration(duration, tempo, 0.12), delay: reducedMotion ? 0 : fxDelay(delay, tempo), ease: "easeOut" }}
     />
   );
 }
 
 function FxSpecialCharge({ effect, reducedMotion }) {
+  const tempo = effect.tempo || 1;
   const special = effect.special;
   const color = special === "rocket_col" ? "#00F0FF" : special === "bomb" ? "#FF5C00" : special === "color_bomb" ? "#F64CFF" : "#FFB800";
   const Icon = special === "bomb" ? Bomb : special === "color_bomb" ? CircleDot : Rocket;
@@ -756,18 +1046,18 @@ function FxSpecialCharge({ effect, reducedMotion }) {
         style={{ ...cellBoxStyle(effect.row, effect.col, 1.35), background: `${color}24` }}
         initial={{ scale: 0.5, opacity: 0 }}
         animate={{ scale: reducedMotion ? 1 : [0.5, 1.18, 0.92, 1.08], opacity: [0, 1, 0.85, 0] }}
-        transition={{ duration: reducedMotion ? 0.12 : special === "color_bomb" ? 0.42 : 0.32, ease: "easeOut" }}
+        transition={{ duration: reducedMotion ? 0.12 : fxDuration(special === "color_bomb" ? 0.42 : 0.32, tempo, 0.12), ease: "easeOut" }}
       >
         <motion.span
           className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-white/70 bg-black/75"
           animate={reducedMotion ? undefined : special === "color_bomb" ? { rotate: 360 } : { scale: [0.88, 1.12, 0.88] }}
-          transition={{ duration: special === "color_bomb" ? 0.38 : 0.24, ease: "easeInOut" }}
+          transition={{ duration: fxDuration(special === "color_bomb" ? 0.38 : 0.24, tempo, 0.1), ease: "easeInOut" }}
         >
           <Icon size={21} color={color} strokeWidth={3} />
         </motion.span>
       </motion.div>
-      <FxRing row={effect.row} col={effect.col} color={color} size={1.55} duration={0.35} reducedMotion={reducedMotion} border={2} />
-      <FxRing row={effect.row} col={effect.col} color="#FFFFFF" size={1.15} delay={0.06} duration={0.28} reducedMotion={reducedMotion} border={2} />
+      <FxRing row={effect.row} col={effect.col} color={color} size={1.55} duration={0.35} reducedMotion={reducedMotion} border={2} tempo={tempo} />
+      <FxRing row={effect.row} col={effect.col} color="#FFFFFF" size={1.15} delay={0.06} duration={0.28} reducedMotion={reducedMotion} border={2} tempo={tempo} />
     </>
   );
 }
@@ -793,6 +1083,7 @@ const lightningPath = (fromRow, fromCol, toRow, toCol, index = 0) => {
 };
 
 function FxColorBomb({ effect, reducedMotion }) {
+  const tempo = effect.tempo || 1;
   const targets = (effect.targets || []).filter((target) => target.row !== effect.row || target.col !== effect.col).slice(0, 24);
   return (
     <>
@@ -802,7 +1093,7 @@ function FxColorBomb({ effect, reducedMotion }) {
         preserveAspectRatio="none"
         initial={{ opacity: 0 }}
         animate={{ opacity: [0, 1, 0] }}
-        transition={{ duration: reducedMotion ? 0.16 : 0.72 }}
+        transition={{ duration: reducedMotion ? 0.16 : fxDuration(0.72, tempo, 0.28) }}
       >
         {targets.map((target, index) => (
           <motion.path
@@ -816,12 +1107,12 @@ function FxColorBomb({ effect, reducedMotion }) {
             vectorEffect="non-scaling-stroke"
             initial={{ pathLength: 0, opacity: 0 }}
             animate={{ pathLength: 1, opacity: [0, 1, 0.85, 0] }}
-            transition={{ duration: reducedMotion ? 0.12 : 0.36, delay: reducedMotion ? 0 : Math.floor(index / 5) * 0.07, ease: "easeOut" }}
+            transition={{ duration: reducedMotion ? 0.12 : fxDuration(0.36, tempo, 0.14), delay: reducedMotion ? 0 : fxDelay(Math.floor(index / 5) * 0.07, tempo), ease: "easeOut" }}
           />
         ))}
       </motion.svg>
-      <FxRing row={effect.row} col={effect.col} color="#F64CFF" size={2.1} duration={0.55} reducedMotion={reducedMotion} border={4} />
-      <FxParticles row={effect.row} col={effect.col} color="#F64CFF" count={10} distance={46} reducedMotion={reducedMotion} />
+      <FxRing row={effect.row} col={effect.col} color="#F64CFF" size={2.1} duration={0.55} reducedMotion={reducedMotion} border={4} tempo={tempo} />
+      <FxParticles row={effect.row} col={effect.col} color="#F64CFF" count={10} distance={46} reducedMotion={reducedMotion} tempo={tempo} />
       {targets.map((target, index) => (
         <FxCellFlash
           key={`joker-flash-${target.row}-${target.col}-${index}`}
@@ -830,6 +1121,7 @@ function FxColorBomb({ effect, reducedMotion }) {
           color={index % 2 ? "#00F0FF" : "#F64CFF"}
           delay={reducedMotion ? 0 : Math.floor(index / 5) * 0.07 + 0.08}
           reducedMotion={reducedMotion}
+          tempo={tempo}
         />
       ))}
     </>
@@ -837,6 +1129,7 @@ function FxColorBomb({ effect, reducedMotion }) {
 }
 
 function FxRocket({ effect, reducedMotion }) {
+  const tempo = effect.tempo || 1;
   const rowRocket = effect.special === "rocket_row";
   const color = rowRocket ? "#FFB800" : "#00F0FF";
   const targets = (effect.targets || []).slice(0, 14);
@@ -849,7 +1142,7 @@ function FxRocket({ effect, reducedMotion }) {
           : { left: `${((effect.col + 0.5) / COLS) * 100}%`, background: `linear-gradient(180deg,transparent,${color},#FFFFFF,${color},transparent)` }}
         initial={rowRocket ? { scaleX: 0, opacity: 0 } : { scaleY: 0, opacity: 0 }}
         animate={rowRocket ? { scaleX: 1, opacity: [0, 1, 1, 0] } : { scaleY: 1, opacity: [0, 1, 1, 0] }}
-        transition={{ duration: reducedMotion ? 0.14 : 0.42, ease: [0.22, 1, 0.36, 1] }}
+        transition={{ duration: reducedMotion ? 0.14 : fxDuration(0.42, tempo, 0.16), ease: [0.22, 1, 0.36, 1] }}
       />
       <motion.div
         className="pointer-events-none absolute z-40 flex items-center justify-center"
@@ -858,7 +1151,7 @@ function FxRocket({ effect, reducedMotion }) {
         animate={rowRocket
           ? { opacity: [1, 1, 0], scale: [0.7, 1.2, 0.8], x: [0, reducedMotion ? 0 : 130] }
           : { opacity: [1, 1, 0], scale: [0.7, 1.2, 0.8], y: [0, reducedMotion ? 0 : -130] }}
-        transition={{ duration: reducedMotion ? 0.14 : 0.42, ease: "easeIn" }}
+        transition={{ duration: reducedMotion ? 0.14 : fxDuration(0.42, tempo, 0.16), ease: "easeIn" }}
       >
         <Rocket size={28} color={color} strokeWidth={3.2} style={{ transform: `rotate(${rowRocket ? 45 : -45}deg)` }} />
       </motion.div>
@@ -870,6 +1163,7 @@ function FxRocket({ effect, reducedMotion }) {
           color={color}
           delay={reducedMotion ? 0 : index * 0.022}
           reducedMotion={reducedMotion}
+          tempo={tempo}
         />
       ))}
     </>
@@ -877,6 +1171,7 @@ function FxRocket({ effect, reducedMotion }) {
 }
 
 function FxBomb({ effect, reducedMotion }) {
+  const tempo = effect.tempo || 1;
   const targets = (effect.targets || []).slice(0, 12);
   return (
     <>
@@ -885,11 +1180,11 @@ function FxBomb({ effect, reducedMotion }) {
         style={cellBoxStyle(effect.row, effect.col, 0.75)}
         initial={{ scale: 0.15, opacity: 1 }}
         animate={{ scale: reducedMotion ? 1 : [0.15, 1.2, 0.25], opacity: [1, 0.95, 0] }}
-        transition={{ duration: reducedMotion ? 0.12 : 0.34, ease: "easeOut" }}
+        transition={{ duration: reducedMotion ? 0.12 : fxDuration(0.34, tempo, 0.13), ease: "easeOut" }}
       />
-      <FxRing row={effect.row} col={effect.col} color="#FFB800" size={2.15} duration={0.46} reducedMotion={reducedMotion} border={4} />
-      <FxRing row={effect.row} col={effect.col} color="#FF5C00" size={3.25} delay={0.05} duration={0.52} reducedMotion={reducedMotion} border={5} />
-      <FxParticles row={effect.row} col={effect.col} color="#FF5C00" count={12} distance={54} reducedMotion={reducedMotion} square />
+      <FxRing row={effect.row} col={effect.col} color="#FFB800" size={2.15} duration={0.46} reducedMotion={reducedMotion} border={4} tempo={tempo} />
+      <FxRing row={effect.row} col={effect.col} color="#FF5C00" size={3.25} delay={0.05} duration={0.52} reducedMotion={reducedMotion} border={5} tempo={tempo} />
+      <FxParticles row={effect.row} col={effect.col} color="#FF5C00" count={12} distance={54} reducedMotion={reducedMotion} square tempo={tempo} />
       {targets.map((target, index) => (
         <FxCellFlash
           key={`bomb-target-${target.row}-${target.col}-${index}`}
@@ -898,6 +1193,7 @@ function FxBomb({ effect, reducedMotion }) {
           color={index % 2 ? "#FFB800" : "#FF5C00"}
           delay={reducedMotion ? 0 : (Math.abs(target.row - effect.row) + Math.abs(target.col - effect.col)) * 0.045}
           reducedMotion={reducedMotion}
+          tempo={tempo}
         />
       ))}
     </>
@@ -905,6 +1201,7 @@ function FxBomb({ effect, reducedMotion }) {
 }
 
 function FxObstacle({ effect, reducedMotion }) {
+  const tempo = effect.tempo || 1;
   const obstacle = effect.obstacle;
   if (!obstacle) return null;
   const destroyed = Boolean(effect.destroyed);
@@ -912,8 +1209,8 @@ function FxObstacle({ effect, reducedMotion }) {
   const count = destroyed ? 10 : 5;
   const common = (
     <>
-      <FxCellFlash row={effect.row} col={effect.col} color={color} reducedMotion={reducedMotion} />
-      <FxParticles row={effect.row} col={effect.col} color={color} count={count} distance={destroyed ? 44 : 27} reducedMotion={reducedMotion} square={["crate", "stone", "metal"].includes(obstacle)} />
+      <FxCellFlash row={effect.row} col={effect.col} color={color} reducedMotion={reducedMotion} tempo={tempo} />
+      <FxParticles row={effect.row} col={effect.col} color={color} count={count} distance={destroyed ? 44 : 27} reducedMotion={reducedMotion} square={["crate", "stone", "metal"].includes(obstacle)} tempo={tempo} />
     </>
   );
 
@@ -931,7 +1228,7 @@ function FxObstacle({ effect, reducedMotion }) {
             }}
             initial={{ scaleX: 0, rotate: -58 + line * 54, opacity: 0 }}
             animate={{ scaleX: 1, opacity: [0, 1, 0] }}
-            transition={{ duration: reducedMotion ? 0.12 : 0.34, delay: line * 0.035 }}
+            transition={{ duration: reducedMotion ? 0.12 : fxDuration(0.34, tempo, 0.13), delay: reducedMotion ? 0 : fxDelay(line * 0.035, tempo) }}
           />
         ))}
       </>
@@ -948,7 +1245,7 @@ function FxObstacle({ effect, reducedMotion }) {
             style={{ left: `${((effect.col + 0.5) / COLS) * 100}%`, top: `${((effect.row + 0.5) / ROWS) * 100}%` }}
             initial={{ x: -12, y: -4, opacity: 1, rotate: direction * 18 }}
             animate={{ x: direction * (destroyed ? 44 : 18), y: destroyed ? 12 : 2, opacity: 0, rotate: direction * 75 }}
-            transition={{ duration: reducedMotion ? 0.12 : 0.42, ease: "easeOut" }}
+            transition={{ duration: reducedMotion ? 0.12 : fxDuration(0.42, tempo, 0.16), ease: "easeOut" }}
           />
         ))}
       </>
@@ -956,11 +1253,11 @@ function FxObstacle({ effect, reducedMotion }) {
   }
 
   if (obstacle === "crate") {
-    return <>{common}<FxRing row={effect.row} col={effect.col} color="#FDBA74" size={1.55} duration={0.38} reducedMotion={reducedMotion} border={3} /></>;
+    return <>{common}<FxRing row={effect.row} col={effect.col} color="#FDBA74" size={1.55} duration={0.38} reducedMotion={reducedMotion} border={3} tempo={tempo} /></>;
   }
 
   if (obstacle === "stone") {
-    return <>{common}<FxRing row={effect.row} col={effect.col} color="#D4D4D8" size={1.4} duration={0.35} reducedMotion={reducedMotion} border={5} /></>;
+    return <>{common}<FxRing row={effect.row} col={effect.col} color="#D4D4D8" size={1.4} duration={0.35} reducedMotion={reducedMotion} border={5} tempo={tempo} /></>;
   }
 
   if (obstacle === "crystal") {
@@ -971,7 +1268,7 @@ function FxObstacle({ effect, reducedMotion }) {
           style={cellBoxStyle(effect.row, effect.col, destroyed ? 3 : 1.5)}
           initial={{ opacity: 0, scale: 0.25, rotate: -12 }}
           animate={{ opacity: [0, 1, 0], scale: [0.25, 1.1, 1.32], rotate: 12 }}
-          transition={{ duration: reducedMotion ? 0.14 : 0.52, ease: "easeOut" }}
+          transition={{ duration: reducedMotion ? 0.14 : fxDuration(0.52, tempo, 0.2), ease: "easeOut" }}
         >
           <span className="absolute left-1/2 top-0 h-full w-[5px] -translate-x-1/2 rounded-full bg-gradient-to-b from-transparent via-[#C084FC] to-transparent" />
           <span className="absolute left-0 top-1/2 h-[5px] w-full -translate-y-1/2 rounded-full bg-gradient-to-r from-transparent via-[#C084FC] to-transparent" />
@@ -988,7 +1285,7 @@ function FxObstacle({ effect, reducedMotion }) {
           style={cellBoxStyle(effect.row, effect.col, 1.25)}
           initial={{ scale: 1.25, opacity: 0.9, rotate: 0 }}
           animate={{ scale: destroyed ? 0.05 : 0.75, opacity: 0, rotate: destroyed ? 48 : 18 }}
-          transition={{ duration: reducedMotion ? 0.12 : 0.4, ease: "easeIn" }}
+          transition={{ duration: reducedMotion ? 0.12 : fxDuration(0.4, tempo, 0.15), ease: "easeIn" }}
         />
       </>
     );
@@ -997,8 +1294,8 @@ function FxObstacle({ effect, reducedMotion }) {
   if (obstacle === "shield") {
     return (
       <>{common}
-        <FxRing row={effect.row} col={effect.col} color="#60A5FA" size={1.75} duration={0.45} reducedMotion={reducedMotion} border={4} />
-        <FxRing row={effect.row} col={effect.col} color="#FFFFFF" size={1.25} delay={0.05} duration={0.3} reducedMotion={reducedMotion} border={2} />
+        <FxRing row={effect.row} col={effect.col} color="#60A5FA" size={1.75} duration={0.45} reducedMotion={reducedMotion} border={4} tempo={tempo} />
+        <FxRing row={effect.row} col={effect.col} color="#FFFFFF" size={1.25} delay={0.05} duration={0.3} reducedMotion={reducedMotion} border={2} tempo={tempo} />
       </>
     );
   }
@@ -1013,7 +1310,7 @@ function FxObstacle({ effect, reducedMotion }) {
             style={{ left: `${((effect.col + 0.4 + (bubble % 2) * 0.22) / COLS) * 100}%`, top: `${((effect.row + 0.38 + Math.floor(bubble / 2) * 0.22) / ROWS) * 100}%`, width: 8 + bubble * 2, height: 8 + bubble * 2 }}
             initial={{ scale: 0.2, opacity: 0 }}
             animate={{ scale: [0.2, 1.25, 0], y: -18 - bubble * 4, opacity: [0, 1, 0] }}
-            transition={{ duration: reducedMotion ? 0.12 : 0.48, delay: bubble * 0.04 }}
+            transition={{ duration: reducedMotion ? 0.12 : fxDuration(0.48, tempo, 0.18), delay: reducedMotion ? 0 : fxDelay(bubble * 0.04, tempo) }}
           />
         ))}
       </>
@@ -1030,7 +1327,7 @@ function FxObstacle({ effect, reducedMotion }) {
             style={{ left: `${((effect.col + 0.5) / COLS) * 100}%`, top: `${((effect.row + 0.5) / ROWS) * 100}%` }}
             initial={{ scaleX: 0, rotate: spark * 42, opacity: 0 }}
             animate={{ scaleX: 1, opacity: [0, 1, 0] }}
-            transition={{ duration: reducedMotion ? 0.12 : 0.3, delay: (spark + 1) * 0.03 }}
+            transition={{ duration: reducedMotion ? 0.12 : fxDuration(0.3, tempo, 0.12), delay: reducedMotion ? 0 : fxDelay((spark + 1) * 0.03, tempo) }}
           />
         ))}
       </>
@@ -1045,9 +1342,9 @@ function FxObstacle({ effect, reducedMotion }) {
           style={cellBoxStyle(effect.row, effect.col, destroyed ? 3.4 : 2)}
           initial={{ scale: 0.15, opacity: 1 }}
           animate={{ scale: [0.15, 1.2, 1.45], opacity: [1, 0.8, 0] }}
-          transition={{ duration: reducedMotion ? 0.14 : destroyed ? 0.68 : 0.42, ease: "easeOut" }}
+          transition={{ duration: reducedMotion ? 0.14 : fxDuration(destroyed ? 0.68 : 0.42, tempo, destroyed ? 0.26 : 0.16), ease: "easeOut" }}
         />
-        <FxRing row={effect.row} col={effect.col} color="#FF4D55" size={destroyed ? 3.6 : 2.1} duration={destroyed ? 0.7 : 0.45} reducedMotion={reducedMotion} border={5} />
+        <FxRing row={effect.row} col={effect.col} color="#FF4D55" size={destroyed ? 3.6 : 2.1} duration={destroyed ? 0.7 : 0.45} reducedMotion={reducedMotion} border={5} tempo={tempo} />
       </>
     );
   }
@@ -1056,6 +1353,7 @@ function FxObstacle({ effect, reducedMotion }) {
 }
 
 function FxSpread({ effect, reducedMotion }) {
+  const tempo = effect.tempo || 1;
   const web = effect.effect === "web_spread";
   const color = web ? "#E4E4E7" : "#39FF14";
   const fromX = ((effect.col + 0.5) / COLS) * 100;
@@ -1072,10 +1370,10 @@ function FxSpread({ effect, reducedMotion }) {
         style={{ left: `${fromX}%`, top: `${fromY}%`, width: `${Math.sqrt(dx * dx + dy * dy)}%`, background: color }}
         initial={{ scaleX: 0, opacity: 0.95, rotate: angle }}
         animate={{ scaleX: 1, opacity: web ? [0.95, 0.8, 0] : [0.8, 1, 0], rotate: angle }}
-        transition={{ duration: reducedMotion ? 0.14 : web ? 0.48 : 0.56, ease: "easeOut" }}
+        transition={{ duration: reducedMotion ? 0.14 : fxDuration(web ? 0.48 : 0.56, tempo, 0.18), ease: "easeOut" }}
       />
-      <FxCellFlash row={effect.to_row} col={effect.to_col} color={color} delay={reducedMotion ? 0 : 0.22} reducedMotion={reducedMotion} />
-      {!web && <FxParticles row={effect.to_row} col={effect.to_col} color={color} count={6} distance={26} delay={0.18} reducedMotion={reducedMotion} />}
+      <FxCellFlash row={effect.to_row} col={effect.to_col} color={color} delay={reducedMotion ? 0 : 0.22} reducedMotion={reducedMotion} tempo={tempo} />
+      {!web && <FxParticles row={effect.to_row} col={effect.to_col} color={color} count={6} distance={26} delay={0.18} reducedMotion={reducedMotion} tempo={tempo} />}
     </>
   );
 }
@@ -1138,7 +1436,7 @@ function SpecialEffects({ effects = [], reducedMotion = false }) {
           return (
             <motion.div key={`crystal-${token}`} className="pointer-events-none absolute inset-0 z-30">
               <FxObstacle effect={{ ...effect, obstacle: "crystal", destroyed: true }} reducedMotion={reducedMotion} />
-              {(effect.targets || []).map((target, index) => <FxCellFlash key={`crystal-target-${index}`} row={target.row} col={target.col} color="#C084FC" delay={index * 0.04} reducedMotion={reducedMotion} />)}
+              {(effect.targets || []).map((target, index) => <FxCellFlash key={`crystal-target-${index}`} row={target.row} col={target.col} color="#C084FC" delay={index * 0.04} reducedMotion={reducedMotion} tempo={effect.tempo || 1} />)}
             </motion.div>
           );
         }
@@ -1148,7 +1446,7 @@ function SpecialEffects({ effects = [], reducedMotion = false }) {
           return (
             <motion.div key={`core-${token}`} className="pointer-events-none absolute inset-0 z-30">
               <FxObstacle effect={{ ...effect, obstacle: "core", destroyed: blast }} reducedMotion={reducedMotion} />
-              {blast && (effect.targets || []).map((target, index) => <FxCellFlash key={`core-target-${index}`} row={target.row} col={target.col} color="#FF4D55" delay={index * 0.025} reducedMotion={reducedMotion} />)}
+              {blast && (effect.targets || []).map((target, index) => <FxCellFlash key={`core-target-${index}`} row={target.row} col={target.col} color="#FF4D55" delay={index * 0.025} reducedMotion={reducedMotion} tempo={effect.tempo || 1} />)}
             </motion.div>
           );
         }
@@ -1165,6 +1463,7 @@ function SpecialEffects({ effects = [], reducedMotion = false }) {
             color="#F64CFF"
             delay={targetIndex * 0.012}
             reducedMotion={reducedMotion}
+            tempo={effect.tempo || 1}
           />
         ));
       })}
@@ -1190,6 +1489,8 @@ export default function BonusMatch() {
   const [shakingIds, setShakingIds] = useState(new Set());
   const [removingIds, setRemovingIds] = useState(new Set());
   const [spawnedIds, setSpawnedIds] = useState(new Set());
+  const [fallMeta, setFallMeta] = useState(new Map());
+  const [cascadeMotion, setCascadeMotion] = useState({ step: 0, durationMs: CASCADE_STEP_MS[0], token: "idle" });
   const [activatedIds, setActivatedIds] = useState(new Set());
   const [specialEffects, setSpecialEffects] = useState([]);
   const [obstacleImpacts, setObstacleImpacts] = useState(new Map());
@@ -1202,6 +1503,24 @@ export default function BonusMatch() {
   const [bossPrompt, setBossPrompt] = useState(null);
   const [activeBooster, setActiveBooster] = useState(null);
   const [buyingBooster, setBuyingBooster] = useState(null);
+  const [hintMove, setHintMove] = useState(null);
+  const [activityToken, setActivityToken] = useState(0);
+  const [celebrating, setCelebrating] = useState(false);
+
+  const hintDirections = useMemo(() => {
+    const directions = new Map();
+    if (!hintMove) return directions;
+    const dr = hintMove.to.row - hintMove.from.row;
+    const dc = hintMove.to.col - hintMove.from.col;
+    directions.set(coordKey(hintMove.from.row, hintMove.from.col), { dr, dc });
+    directions.set(coordKey(hintMove.to.row, hintMove.to.col), { dr: -dr, dc: -dc });
+    return directions;
+  }, [hintMove]);
+
+  const registerBoardInteraction = () => {
+    setHintMove(null);
+    setActivityToken((current) => current + 1);
+  };
 
   useEffect(() => {
     const preloaded = BONUS_MATCH_ARTWORK.map((src) => {
@@ -1217,6 +1536,16 @@ export default function BonusMatch() {
       });
     };
   }, []);
+
+  useEffect(() => {
+    setHintMove(null);
+    if (!game || game.status !== "active" || moving || selected || activeBooster || celebrating) return undefined;
+    const timer = window.setTimeout(() => {
+      const move = findHintMove(displayBoard);
+      if (move) setHintMove(move);
+    }, HINT_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [game, moving, selected, activeBooster, celebrating, displayBoard, activityToken]);
 
   const applySessionState = async (rawSession, animation = null) => {
     const session = { ...rawSession, board: normalizeBoard(rawSession?.board) };
@@ -1291,6 +1620,19 @@ export default function BonusMatch() {
   const levelCatalogMap = useMemo(() => new Map(levelCatalog.map((item) => [Number(item.level), item])), [levelCatalog]);
   const selectedConfig = levelCatalogMap.get(Number(selectedLevel)) || levelConfig(selectedLevel);
   const config = game?.config || selectedConfig;
+  const boardMask = useMemo(() => {
+    const supplied = config?.board_mask;
+    if (Array.isArray(supplied) && supplied.length === ROWS) {
+      return supplied.map((row) => Array.from({ length: COLS }, (_, col) => Boolean(row?.[col])));
+    }
+    if (game && !config?.board_shape) {
+      const hasVoidCells = (displayBoard || []).some((row) => (row || []).some((cell) => cell?.void));
+      if (!hasVoidCells) return boardMaskForShape("full");
+      return (displayBoard || []).map((row) => Array.from({ length: COLS }, (_, col) => !row?.[col]?.void));
+    }
+    return boardMaskForShape(config?.board_shape || boardShapeForLevel(game?.level || selectedLevel));
+  }, [config?.board_mask, config?.board_shape, displayBoard, game, selectedLevel]);
+  const lowMoves = Boolean(game?.status === "active" && Number(game?.moves_left) <= 3);
   const boosterInventory = status?.profile?.boosters || {};
   const boosterPrice = Number(status?.profile?.booster_price || 50);
   const scoreProgress = Math.min(100, Math.round(((animatedScore || 0) / Math.max(1, config.target_score)) * 100));
@@ -1309,8 +1651,12 @@ export default function BonusMatch() {
     setFlash("");
     setBoardFx("");
     setCombo(0);
+    setHintMove(null);
+    setFallMeta(new Map());
+    setCelebrating(false);
+    setCascadeMotion({ step: 0, durationMs: CASCADE_STEP_MS[0], token: "idle" });
     if (mode === "mock") {
-      const levelBoard = makeMockBoard(level);
+      const levelBoard = makeMockBoard(level, preview);
       const session = {
         id: `mock-${Date.now()}`,
         level,
@@ -1376,18 +1722,31 @@ export default function BonusMatch() {
     window.setTimeout(() => setScoreFlights((current) => current.filter((item) => item.id !== id)), reducedMotion ? 150 : 720);
   };
 
-  const tickScore = async (start, end) => {
+  const tickScore = async (start, end, totalDurationMs = 190) => {
     if (reducedMotion) {
       setAnimatedScore(end);
       return;
     }
-    const ticks = 5;
+    const ticks = Math.max(3, Math.min(6, Math.round(totalDurationMs / 42)));
+    const delay = Math.max(20, Math.round(totalDurationMs / ticks));
     for (let index = 1; index <= ticks; index += 1) {
       setAnimatedScore(Math.round(start + ((end - start) * index) / ticks));
       setScorePulse(true);
-      await wait(38);
+      await wait(delay);
       setScorePulse(false);
     }
+  };
+
+  const playWinCelebration = async () => {
+    setHintMove(null);
+    setCelebrating(true);
+    setBoardFx("won");
+    setFlash("РІВЕНЬ ПРОЙДЕНО!");
+    await wait(reducedMotion ? 120 : 920);
+    setCelebrating(false);
+    setFlash("");
+    setBoardFx("");
+    if (!reducedMotion) fireConfetti();
   };
 
   const animateServerMove = async (data, baseScore) => {
@@ -1426,6 +1785,9 @@ export default function BonusMatch() {
           : []),
       ];
 
+    setHintMove(null);
+    setFallMeta(new Map());
+
     if (data.move_consumed === false && animation.from_board) {
       setDisplayBoard(normalizeBoard(animation.from_board));
       await wait(reducedMotion ? 20 : 70);
@@ -1434,7 +1796,7 @@ export default function BonusMatch() {
     const swapFrame = frames.find((frame) => frame.phase === "swap");
     if (swapFrame?.board) {
       setDisplayBoard(normalizeBoard(swapFrame.board));
-      await wait(reducedMotion ? 35 : Number(swapFrame.duration_ms || 220));
+      await wait(reducedMotion ? 35 : Math.min(205, Number(swapFrame.duration_ms || 205)));
     }
 
     if (!data.valid) {
@@ -1449,21 +1811,27 @@ export default function BonusMatch() {
         if (secondId) ids.add(secondId);
       }
       setShakingIds(ids);
-      await wait(reducedMotion ? 60 : Number(invalidFrame?.duration_ms || 320));
+      await wait(reducedMotion ? 60 : Number(invalidFrame?.duration_ms || 300));
       setShakingIds(new Set());
       setDisplayBoard(normalizeBoard(invalidFrame?.board || animation.reverted_board || data.session?.board || game.board));
-      await wait(reducedMotion ? 30 : 220);
+      await wait(reducedMotion ? 30 : 180);
       toast.info(data.message || "Спробуй інший хід");
       return;
     }
 
     let runningScore = Number(baseScore || 0);
+    let cascadeIndex = 0;
+
     for (let index = 0; index < frames.length; index += 1) {
       const frame = frames[index];
       if (frame.phase === "swap") continue;
 
       if (frame.phase === "match") {
+        const stepDurationMs = cascadeDurationForStep(cascadeIndex);
+        const tempoRatio = stepDurationMs / CASCADE_STEP_MS[0];
         const before = normalizeBoard(frame.board || displayBoard);
+        const fxToken = `${Date.now()}-${index}-${cascadeIndex}`;
+        setCascadeMotion({ step: cascadeIndex, durationMs: stepDurationMs, token: fxToken });
         setDisplayBoard(before);
 
         const removed = new Set((frame.cleared_ids || []).filter(Boolean));
@@ -1477,7 +1845,6 @@ export default function BonusMatch() {
         const activations = frame.activated_specials || [];
         const changes = frame.obstacle_changes || [];
         const obstacleEvents = frame.obstacle_events || [];
-        const fxToken = `${Date.now()}-${index}`;
         const active = new Set();
         activations.forEach(({ row, col, id }) => {
           const pieceId = id || before?.[row]?.[col]?.id;
@@ -1496,7 +1863,7 @@ export default function BonusMatch() {
         });
         setObstacleImpacts(impactMap);
         setActivatedIds(active);
-        setCombo(frame.combo || 1);
+        setCombo(frame.combo || cascadeIndex + 1);
         setFlash(frame.combo > 1 ? `КОМБО ×${frame.combo}` : "");
 
         const hasColorBomb = activations.some((item) => ["color_bomb", "booster_color_bomb"].includes(item.special));
@@ -1520,17 +1887,24 @@ export default function BonusMatch() {
 
         const chargeEffects = activations
           .filter((item) => ["rocket_row", "rocket_col", "bomb", "color_bomb"].includes(item.special))
-          .map((item, effectIndex) => ({ ...item, stage: "charge", token: `${fxToken}-charge-${effectIndex}` }));
+          .map((item, effectIndex) => ({
+            ...item,
+            stage: "charge",
+            tempo: Math.max(0.55, tempoRatio),
+            token: `${fxToken}-charge-${effectIndex}`,
+          }));
         if (chargeEffects.length) {
           setSpecialEffects(chargeEffects);
           setBoardFx(nextBoardFx);
-          await wait(reducedMotion ? 35 : hasColorBomb ? 180 : 135);
+          const chargeMs = (hasColorBomb ? 180 : 135) * Math.max(0.68, tempoRatio);
+          await wait(reducedMotion ? 30 : Math.round(chargeMs));
         }
 
+        const effectTempo = Math.max(0.55, tempoRatio);
         setSpecialEffects([
-          ...activations.map((item, effectIndex) => ({ ...item, stage: "fire", token: `${fxToken}-special-${effectIndex}` })),
-          ...changes.map((item, effectIndex) => ({ ...item, stage: "fire", token: `${fxToken}-obstacle-${effectIndex}` })),
-          ...obstacleEvents.map((item, effectIndex) => ({ ...item, stage: "fire", token: `${fxToken}-event-${effectIndex}` })),
+          ...activations.map((item, effectIndex) => ({ ...item, stage: "fire", tempo: effectTempo, token: `${fxToken}-special-${effectIndex}` })),
+          ...changes.map((item, effectIndex) => ({ ...item, stage: "fire", tempo: effectTempo, token: `${fxToken}-obstacle-${effectIndex}` })),
+          ...obstacleEvents.map((item, effectIndex) => ({ ...item, stage: "fire", tempo: effectTempo, token: `${fxToken}-event-${effectIndex}` })),
         ]);
         setBoardFx(nextBoardFx);
         setRemovingIds(removed);
@@ -1564,50 +1938,78 @@ export default function BonusMatch() {
         burstAtCells(frame.cleared_cells || [], burstColor);
         launchScoreFlight(frame.cleared_cells || [], frame.score_gain || 0);
 
-        // Give charge, material impact and exit animations a visible first frame.
-        // The server remains authoritative; only its frames are being replayed.
+        // Anticipation: every matched piece squashes, then stretches before the board collapses.
         await new Promise((resolve) => window.requestAnimationFrame(() => window.requestAnimationFrame(resolve)));
-        await wait(reducedMotion ? 20 : activations.length || changes.length ? 90 : 45);
+        const anticipationMs = reducedMotion ? 18 : SQUASH_ANTICIPATION_MS;
+        await wait(anticipationMs);
 
         const collapseFrame = frames[index + 1]?.phase === "collapse" ? frames[index + 1] : null;
         if (collapseFrame?.board) {
-          setSpawnedIds(new Set(
-            (collapseFrame.spawned_ids || collapseFrame.spawned?.map((item) => item.id) || []).filter(Boolean),
-          ));
-          setDisplayBoard(normalizeBoard(collapseFrame.board));
+          const spawnedList = (collapseFrame.spawned_ids || collapseFrame.spawned?.map((item) => item.id) || []).filter(Boolean);
+          const collapsedBoard = normalizeBoard(collapseFrame.board);
+          const fall = buildFallMeta(
+            before,
+            collapsedBoard,
+            spawnedList,
+            boardRef.current?.clientWidth,
+            `${fxToken}-fall`,
+          );
+          setSpawnedIds(new Set(spawnedList));
+          setFallMeta(fall);
+          setDisplayBoard(collapsedBoard);
+
           const nextScore = runningScore + Number(frame.score_gain || 0);
-          const minimumFxDuration = hasColorBomb || hasCoreBlast
+          const baseFxDuration = hasColorBomb || hasCoreBlast
             ? 680
             : hasBomb
               ? 580
               : hasRocket || changes.length
                 ? 500
-                : 430;
+                : stepDurationMs;
+          const scaledFxDuration = Math.round(baseFxDuration * Math.max(0.55, tempoRatio));
+          const visualDuration = Math.max(stepDurationMs, scaledFxDuration);
+          const settleDuration = Math.max(125, visualDuration - anticipationMs);
           await Promise.all([
-            tickScore(runningScore, nextScore),
-            wait(reducedMotion ? 75 : Math.max(Number(collapseFrame.duration_ms || 430), minimumFxDuration)),
+            tickScore(runningScore, nextScore, Math.min(190, Math.max(90, settleDuration * 0.55))),
+            wait(reducedMotion ? 65 : settleDuration),
           ]);
           runningScore = nextScore;
           index += 1;
         } else {
-          await wait(reducedMotion ? 70 : Math.max(Number(frame.duration_ms || 290), 420));
+          await wait(reducedMotion ? 60 : stepDurationMs);
         }
 
         setRemovingIds(new Set());
         setSpawnedIds(new Set());
+        setFallMeta(new Map());
         setActivatedIds(new Set());
         setObstacleImpacts(new Map());
         setSpecialEffects([]);
         setBoardFx("");
         setFlash("");
+        cascadeIndex += 1;
         continue;
       }
 
       if (frame.phase === "collapse" && frame.board) {
-        setSpawnedIds(new Set((frame.spawned_ids || []).filter(Boolean)));
-        setDisplayBoard(normalizeBoard(frame.board));
-        await wait(reducedMotion ? 60 : Number(frame.duration_ms || 430));
+        const stepDurationMs = cascadeDurationForStep(cascadeIndex);
+        const collapsedBoard = normalizeBoard(frame.board);
+        const spawnedList = (frame.spawned_ids || frame.spawned?.map((item) => item.id) || []).filter(Boolean);
+        const fall = buildFallMeta(
+          displayBoard,
+          collapsedBoard,
+          spawnedList,
+          boardRef.current?.clientWidth,
+          `${Date.now()}-orphan-fall`,
+        );
+        setCascadeMotion({ step: cascadeIndex, durationMs: stepDurationMs, token: `${Date.now()}-collapse` });
+        setSpawnedIds(new Set(spawnedList));
+        setFallMeta(fall);
+        setDisplayBoard(collapsedBoard);
+        await wait(reducedMotion ? 55 : stepDurationMs);
         setSpawnedIds(new Set());
+        setFallMeta(new Map());
+        cascadeIndex += 1;
         continue;
       }
 
@@ -1625,7 +2027,7 @@ export default function BonusMatch() {
           setFlash("ПАВУТИНА РОЗРОСЛАСЯ");
           toast.info("Павутина обплутала сусідню фішку");
         }
-        await wait(reducedMotion ? 80 : Math.max(Number(frame.duration_ms || 420), 560));
+        await wait(reducedMotion ? 80 : Math.max(Number(frame.duration_ms || 420), 520));
         setSpecialEffects([]);
         setBoardFx("");
         setFlash("");
@@ -1652,6 +2054,8 @@ export default function BonusMatch() {
     setAnimatedScore(data.session.score || runningScore);
     setDisplayBoard(normalizeBoard(data.session.board));
     setGame({ ...data.session, board: normalizeBoard(data.session.board) });
+    setCascadeMotion({ step: 0, durationMs: CASCADE_STEP_MS[0], token: "idle" });
+    setFallMeta(new Map());
   };
 
   const patchBoosterProfile = (boosters, balance) => {
@@ -1691,6 +2095,7 @@ export default function BonusMatch() {
 
   const applyBooster = async (booster, row = null, col = null) => {
     if (!game || moving || game.status !== "active") return;
+    registerBoardInteraction();
     if (Number(boosterInventory[booster] || 0) <= 0) {
       toast.info("Спочатку придбай цей бонус");
       return;
@@ -1740,8 +2145,7 @@ export default function BonusMatch() {
       toast.success(data.message || `${BOOSTERS[booster].label} використано`);
       if (data.result) {
         setResult(data.result);
-        setBoardFx("won");
-        if (!reducedMotion) fireConfetti();
+        if (data.session?.status === "won") await playWinCelebration();
         await refreshMe().catch(() => {});
         await loadStatus();
       }
@@ -1755,6 +2159,7 @@ export default function BonusMatch() {
 
   const selectBooster = (booster) => {
     if (!game || game.status !== "active" || moving) return;
+    registerBoardInteraction();
     if (Number(boosterInventory[booster] || 0) <= 0) {
       toast.info(`Натисни «+», щоб придбати за ${boosterPrice} Point`);
       return;
@@ -1771,6 +2176,7 @@ export default function BonusMatch() {
 
   const makeMove = async (from, to) => {
     if (!game || moving || game.status !== "active") return;
+    registerBoardInteraction();
     setMoving(true);
     setSelected(null);
     setFlash("");
@@ -1799,8 +2205,7 @@ export default function BonusMatch() {
       if (data.result) {
         setResult(data.result);
         if (data.session.status === "won") {
-          setBoardFx("won");
-          if (!reducedMotion) fireConfetti();
+          await playWinCelebration();
           if (mode !== "mock") await refreshMe().catch(() => {});
         } else {
           setBoardFx("lost");
@@ -1820,13 +2225,14 @@ export default function BonusMatch() {
 
   const handlePiece = (row, col) => {
     if (moving || game?.status !== "active") return;
+    registerBoardInteraction();
     const cell = displayBoard?.[row]?.[col];
     if (activeBooster) {
-      if (!cell) return;
+      if (!cell || cell.void) return;
       applyBooster(activeBooster, row, col);
       return;
     }
-    if (!cell || cell.obstacle) {
+    if (!cell || cell.void || cell.obstacle) {
       if (cell?.obstacle) {
         toast.info(
           OBSTACLE_HELP[cell.obstacle]
@@ -1851,6 +2257,15 @@ export default function BonusMatch() {
     makeMove(selected, { row, col });
   };
 
+  const handleSwipe = (from, to) => {
+    if (moving || game?.status !== "active" || activeBooster) return;
+    registerBoardInteraction();
+    const source = displayBoard?.[from.row]?.[from.col];
+    const target = displayBoard?.[to.row]?.[to.col];
+    if (!source || !target || source.void || target.void || source.obstacle || target.obstacle) return;
+    makeMove(from, to);
+  };
+
   const unlockedLevels = levelCatalog
     .map((item) => Number(item.level))
     .filter((level) => level <= Number(status?.profile?.current_level || 1));
@@ -1871,6 +2286,9 @@ export default function BonusMatch() {
     setResult(null);
     setBoardFx("");
     setActiveBooster(null);
+    setHintMove(null);
+    setFallMeta(new Map());
+    setCelebrating(false);
     loadStatus();
   };
 
@@ -2024,7 +2442,18 @@ export default function BonusMatch() {
 
             <div className="grid grid-cols-3 gap-2">
               <div className="rounded-2xl border border-white/10 bg-black/25 px-2 py-2.5 text-center"><div className="text-[8px] font-black uppercase tracking-wider text-zinc-600">РІВЕНЬ</div><div className="mt-0.5 text-lg font-black text-white">{game.level}</div></div>
-              <div className="rounded-2xl border border-[#FFB800]/20 bg-[#FFB800]/[.06] px-2 py-2.5 text-center"><div className="text-[8px] font-black uppercase tracking-wider text-zinc-600">ХОДИ</div><div className="mt-0.5 text-lg font-black text-[#FFB800]">{game.moves_left}</div></div>
+              <motion.div
+                className={`rounded-2xl border px-2 py-2.5 text-center ${lowMoves ? "border-[#FF4D55]/70 bg-[#FF4D55]/[.12]" : "border-[#FFB800]/20 bg-[#FFB800]/[.06]"}`}
+                animate={lowMoves && !reducedMotion ? {
+                  scale: [1, 1.055, 1],
+                  borderColor: ["rgba(255,77,85,.5)", "rgba(255,77,85,1)", "rgba(255,77,85,.5)"],
+                  boxShadow: ["0 0 0 rgba(255,77,85,0)", "0 0 20px rgba(255,77,85,.42)", "0 0 0 rgba(255,77,85,0)"],
+                } : { scale: 1 }}
+                transition={{ duration: 0.82, repeat: lowMoves && !reducedMotion ? Infinity : 0, ease: "easeInOut" }}
+              >
+                <div className={`text-[8px] font-black uppercase tracking-wider ${lowMoves ? "text-[#FF9CA2]" : "text-zinc-600"}`}>ХОДИ</div>
+                <div className={`mt-0.5 text-lg font-black ${lowMoves ? "text-[#FF4D55]" : "text-[#FFB800]"}`}>{game.moves_left}</div>
+              </motion.div>
               <motion.div
                 ref={scoreRef}
                 className="rounded-2xl border border-[#B78CFF]/20 bg-[#B78CFF]/[.06] px-2 py-2.5 text-center"
@@ -2048,15 +2477,26 @@ export default function BonusMatch() {
               ref={boardRef}
               className="relative mt-3 rounded-[22px] border border-[#7C3AED]/55 bg-[#090711] p-1.5 shadow-[inset_0_0_30px_rgba(124,58,237,.12)]"
               animate={boardMotionForFx(boardFx, reducedMotion)}
-              transition={{ duration: boardFx === "core" ? 0.62 : boardFx === "bomb" || boardFx === "color_bomb" ? 0.5 : 0.42, ease: "easeOut" }}
+              transition={{
+                duration: boardFx === "won"
+                  ? 0.92
+                  : (boardFx === "core" ? 0.62 : boardFx === "bomb" || boardFx === "color_bomb" ? 0.5 : 0.42)
+                    * Math.max(0.55, cascadeMotion.durationMs / CASCADE_STEP_MS[0]),
+                ease: "easeOut",
+              }}
             >
               <div className="grid grid-cols-7 gap-1" aria-hidden="true">
-                {Array.from({ length: ROWS * COLS }, (_, index) => (
-                  <div
-                    key={`slot-${index}`}
-                    className="aspect-square min-w-0 rounded-[10px] border border-white/[.055] bg-[#11101A]"
-                  />
-                ))}
+                {Array.from({ length: ROWS * COLS }, (_, index) => {
+                  const row = Math.floor(index / COLS);
+                  const col = index % COLS;
+                  const active = Boolean(boardMask[row]?.[col]);
+                  return (
+                    <div
+                      key={`slot-${index}`}
+                      className={`aspect-square min-w-0 rounded-[10px] ${active ? "border border-white/[.055] bg-[#11101A]" : "pointer-events-none border border-transparent bg-transparent opacity-0"}`}
+                    />
+                  );
+                })}
               </div>
 
               <LayoutGroup id={`bonus-board-${game.id}`}>
@@ -2066,7 +2506,7 @@ export default function BonusMatch() {
                 >
                   <AnimatePresence initial={false}>
                     {(displayBoard || []).flatMap((boardRow, row) =>
-                      (boardRow || []).map((cell, col) => (cell ? (
+                      (boardRow || []).map((cell, col) => (cell && !cell.void ? (
                         <Piece
                           key={cell.id}
                           cell={cell}
@@ -2078,10 +2518,17 @@ export default function BonusMatch() {
                           removing={removingIds.has(cell.id)}
                           shaking={shakingIds.has(cell.id)}
                           spawned={spawnedIds.has(cell.id)}
+                          fall={fallMeta.get(cell.id)}
+                          cascadeDurationMs={cascadeMotion.durationMs}
+                          celebrating={celebrating}
+                          hinted={hintDirections.has(coordKey(row, col))}
+                          hintDirection={hintDirections.get(coordKey(row, col))}
                           activated={activatedIds.has(cell.id)}
                           impact={obstacleImpacts.get(cell.id)}
-                          removeDelay={(row + col) * 0.012}
+                          removeDelay={(row + col) * Math.max(0.005, Math.min(0.012, cascadeMotion.durationMs / 30000))}
                           reducedMotion={reducedMotion}
+                          swipeEnabled={!moving && !activeBooster && game.status === "active" && !cell.obstacle}
+                          onSwipe={handleSwipe}
                           onClick={() => handlePiece(row, col)}
                         />
                       ) : null)),
@@ -2114,7 +2561,10 @@ export default function BonusMatch() {
                     initial={{ x: flight.x, y: flight.y, opacity: 0, scale: 0.55 }}
                     animate={{ x: flight.targetX, y: flight.targetY, opacity: [0, 1, 1, 0], scale: [0.55, 1.2, 0.9, 0.55] }}
                     exit={{ opacity: 0 }}
-                    transition={{ duration: reducedMotion ? 0.12 : 0.68, ease: [0.22, 1, 0.36, 1] }}
+                    transition={{
+                      duration: reducedMotion ? 0.12 : 0.68 * Math.max(0.55, cascadeMotion.durationMs / CASCADE_STEP_MS[0]),
+                      ease: [0.22, 1, 0.36, 1],
+                    }}
                   >
                     +{flight.amount}
                   </motion.div>
@@ -2165,11 +2615,11 @@ export default function BonusMatch() {
               {activeBooster && <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} className="mt-2 rounded-xl border border-[#B78CFF]/25 bg-[#B78CFF]/10 px-3 py-2 text-center text-[9px] font-black text-[#D8C1FF]">ОБЕРИ КЛІТИНКУ: {BOOSTERS[activeBooster].short}</motion.div>}
             </div>
 
-            <div className="mt-3 flex items-center justify-between px-1 text-[10px] font-bold text-zinc-600"><span>{activeBooster ? "Торкнися цільової клітинки" : "Натисни фішку, потім сусідню"}</span><span>{coinProgress}% монет</span></div>
+            <div className="mt-3 flex items-center justify-between px-1 text-[10px] font-bold text-zinc-600"><span>{activeBooster ? "Торкнися цільової клітинки" : "Свайпни фішку або використай два тапи"}</span><span>{coinProgress}% монет</span></div>
           </motion.section>
 
           <AnimatePresence>
-            {game.status !== "active" && (
+            {game.status !== "active" && !celebrating && (
               <motion.section
                 className={`rounded-3xl border p-5 text-center ${game.status === "won" ? "border-[#39FF14]/35 bg-[#39FF14]/[.07]" : "border-[#FF4D55]/35 bg-[#FF4D55]/[.07]"}`}
                 initial={{ opacity: 0, y: 18, scale: 0.94 }}

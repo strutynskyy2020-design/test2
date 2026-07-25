@@ -2075,11 +2075,12 @@ const BONUS_MATCH_OBSTACLE_STYLE = {
   core: { label: "Ядро", color: "#FF4D55", image: "/bonus-match/obstacles/core.webp" },
 };
 
-const BonusMatchLevelEditor = ({ level, obstacleCatalog, onClose, onSaved }) => {
+const BonusMatchLevelEditor = ({ level, obstacleCatalog, boardShapeCatalog = [], onClose, onSaved }) => {
   const isNew = Boolean(level?._new);
   const [f, setF] = useState({
     level: Number(level?.level || 1),
     title: level?.title || `Рівень ${level?.level || 1}`,
+    board_shape: level?.board_shape || "full",
     moves: Number(level?.moves || 20),
     target_score: Number(level?.target_score || 2500),
     target_coins: Number(level?.target_coins || 10),
@@ -2113,6 +2114,7 @@ const BonusMatchLevelEditor = ({ level, obstacleCatalog, onClose, onSaved }) => 
   };
 
   const paintCell = (row, col) => {
+    if (!boardMask[row]?.[col]) return;
     setF((current) => {
       const without = current.obstacle_layout.filter((item) => !(item.row === row && item.col === col));
       if (paint === "erase") return { ...current, obstacle_layout: without };
@@ -2127,6 +2129,8 @@ const BonusMatchLevelEditor = ({ level, obstacleCatalog, onClose, onSaved }) => 
     });
   };
 
+  const selectedShape = boardShapeCatalog.find((item) => item.id === f.board_shape) || boardShapeCatalog[0] || { id: "full", label: "Повне 7×7", mask: Array.from({ length: 7 }, () => Array(7).fill(true)) };
+  const boardMask = selectedShape.mask || Array.from({ length: 7 }, () => Array(7).fill(true));
   const layoutMap = new Map(f.obstacle_layout.map((item) => [`${item.row}:${item.col}`, item]));
 
   const save = async () => {
@@ -2165,6 +2169,24 @@ const BonusMatchLevelEditor = ({ level, obstacleCatalog, onClose, onSaved }) => 
 
       <label className="block text-[9px] font-black uppercase text-zinc-600">Назва
         <input value={f.title} onChange={(e) => setF((current) => ({ ...current, title: e.target.value }))} className="mt-1 h-11 w-full rounded-xl border border-white/10 bg-[#121318] px-3 text-white outline-none focus:border-[#B78CFF]" />
+      </label>
+
+      <label className="block text-[9px] font-black uppercase text-zinc-600">Форма дошки
+        <select
+          value={f.board_shape}
+          onChange={(e) => {
+            const nextShape = e.target.value;
+            const nextMask = boardShapeCatalog.find((item) => item.id === nextShape)?.mask || Array.from({ length: 7 }, () => Array(7).fill(true));
+            setF((current) => ({
+              ...current,
+              board_shape: nextShape,
+              obstacle_layout: current.obstacle_layout.filter((item) => nextMask[item.row]?.[item.col]),
+            }));
+          }}
+          className="mt-1 h-11 w-full rounded-xl border border-white/10 bg-[#121318] px-3 text-white outline-none focus:border-[#B78CFF]"
+        >
+          {(boardShapeCatalog.length ? boardShapeCatalog : [{ id: "full", label: "Повне 7×7" }]).map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+        </select>
       </label>
 
       <div className="grid grid-cols-2 gap-3">
@@ -2237,10 +2259,11 @@ const BonusMatchLevelEditor = ({ level, obstacleCatalog, onClose, onSaved }) => 
           {Array.from({ length: 49 }, (_, index) => {
             const row = Math.floor(index / 7);
             const col = index % 7;
-            const item = layoutMap.get(`${row}:${col}`);
+            const activeCell = Boolean(boardMask[row]?.[col]);
+            const item = activeCell ? layoutMap.get(`${row}:${col}`) : null;
             const style = item ? BONUS_MATCH_OBSTACLE_STYLE[item.obstacle] : null;
-            return <button key={index} type="button" onClick={() => paintCell(row, col)} className="relative aspect-square overflow-hidden rounded-lg border border-white/10 bg-[#11101A] text-[8px] font-black" style={{ color: style?.color || "#3F3F46" }} title={item ? `${style?.label}: ${item.hits} уд.` : "Порожньо"}>
-              {item && style?.image ? <img src={style.image} alt="" className="absolute inset-0 h-full w-full object-cover" draggable="false" /> : <span className="text-zinc-700">·</span>}
+            return <button key={index} type="button" disabled={!activeCell} onClick={() => paintCell(row, col)} className={`relative aspect-square overflow-hidden rounded-lg text-[8px] font-black ${activeCell ? "border border-white/10 bg-[#11101A]" : "cursor-not-allowed border border-transparent bg-transparent opacity-20"}`} style={{ color: style?.color || "#3F3F46" }} title={!activeCell ? "Клітинка поза формою дошки" : item ? `${style?.label}: ${item.hits} уд.` : "Порожньо"}>
+              {activeCell && item && style?.image ? <img src={style.image} alt="" className="absolute inset-0 h-full w-full object-cover" draggable="false" /> : activeCell ? <span className="text-zinc-700">·</span> : null}
               {item && <span className="absolute bottom-0.5 right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full border border-white/20 bg-black/85 px-1 text-[8px] text-white">{item.hits}</span>}
             </button>;
           })}
@@ -2294,7 +2317,7 @@ const BonusMatchLevelsView = () => {
     <div className="rounded-2xl border border-[#B78CFF]/30 bg-[#B78CFF]/10 p-4">
       <div className="flex items-center gap-3"><Gamepad2 size={22} className="text-[#B78CFF]" /><div><div className="text-sm font-black uppercase text-white">РЕДАКТОР BONUS MATCH</div><div className="mt-1 text-[10px] text-zinc-500">Змінюй складність, цілі, ходи та точне розташування перешкод.</div></div></div>
     </div>
-    <button type="button" onClick={() => setEditing({ _new: true, level: nextLevel, title: `Рівень ${nextLevel}`, moves: 18, target_score: 5000, target_coins: 15, star_thresholds: [5000, 6750, 8600], reward_multiplier: 1, obstacles: [], obstacle_layout: [], active: true })} className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[#FFB800] text-xs font-black uppercase text-[#0A0A0A]"><Plus size={17} />СТВОРИТИ НОВИЙ РІВЕНЬ</button>
+    <button type="button" onClick={() => setEditing({ _new: true, level: nextLevel, title: `Рівень ${nextLevel}`, board_shape: "full", moves: 18, target_score: 5000, target_coins: 15, star_thresholds: [5000, 6750, 8600], reward_multiplier: 1, obstacles: [], obstacle_layout: [], active: true })} className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[#FFB800] text-xs font-black uppercase text-[#0A0A0A]"><Plus size={17} />СТВОРИТИ НОВИЙ РІВЕНЬ</button>
 
     <div className="space-y-2">
       {data.levels.map((level) => <div key={level.level} className={`rounded-2xl border p-3 ${level.active ? "border-white/10 bg-[#1A1A1E]" : "border-[#FF4D55]/20 bg-[#FF4D55]/[.04] opacity-70"}`}>
@@ -2303,7 +2326,7 @@ const BonusMatchLevelsView = () => {
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-1.5"><div className="truncate text-sm font-black text-white">{level.title || `Рівень ${level.level}`}</div>{level.is_boss && <span className="rounded-full bg-[#FF5C00]/15 px-2 py-0.5 text-[8px] font-black text-[#FF7D36]">БОС</span>}{level.custom && <span className="rounded-full bg-[#00F0FF]/10 px-2 py-0.5 text-[8px] font-black text-[#00F0FF]">ЗМІНЕНО</span>}</div>
             <div className="mt-1 text-[10px] font-bold text-zinc-500">{level.moves} ходів · {Number(level.target_score).toLocaleString("uk-UA")} очок · {level.target_coins} монет</div>
-            <div className="mt-1 text-[9px] text-zinc-600">Перешкоди: {level.obstacle_layout?.length ? `схема ${level.obstacle_layout.length}` : level.obstacle_count ? `${level.obstacle_count} випадково` : "немає"} · нагорода ×{level.reward_multiplier}</div>
+            <div className="mt-1 text-[9px] text-zinc-600">Форма: {data.board_shapes?.find((item) => item.id === level.board_shape)?.label || level.board_shape || "Повне 7×7"} · перешкоди: {level.obstacle_layout?.length ? `схема ${level.obstacle_layout.length}` : level.obstacle_count ? `${level.obstacle_count} випадково` : "немає"} · нагорода ×{level.reward_multiplier}</div>
           </div>
           <div className="flex shrink-0 gap-1.5">
             <button type="button" onClick={() => setEditing(level)} className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-black/30 text-white"><Pencil size={14} /></button>
@@ -2313,7 +2336,7 @@ const BonusMatchLevelsView = () => {
       </div>)}
     </div>
 
-    {editing && <BonusMatchLevelEditor level={editing} obstacleCatalog={data.obstacles || []} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />}
+    {editing && <BonusMatchLevelEditor level={editing} obstacleCatalog={data.obstacles || []} boardShapeCatalog={data.board_shapes || []} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />}
   </div>;
 };
 

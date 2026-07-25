@@ -2,7 +2,7 @@
  * Dynamic data is always network-only.
  * App shell uses network-first so new deployments replace old PWA files promptly.
  */
-const VERSION = "tm6-v73";
+const VERSION = "tm6-v75";
 const STATIC_CACHE = `${VERSION}-static`;
 const RUNTIME_CACHE = `${VERSION}-runtime`;
 
@@ -11,6 +11,7 @@ const PRECACHE_URLS = [
   "/icon-192.png",
   "/icon-512.png",
   "/apple-touch-icon.png",
+  "/bonus-match/piece-shadow.webp",
   "/bonus-match/pieces/coin.webp",
   "/bonus-match/pieces/star.webp",
   "/bonus-match/pieces/gift.webp",

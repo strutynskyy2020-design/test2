@@ -2418,6 +2418,54 @@ async def prediction_reveal(user: dict = Depends(get_current_user)):
 # ────────────────────────────────────────────────────────────────────────
 BONUS_MATCH_ROWS = 7
 BONUS_MATCH_COLS = 7
+BONUS_MATCH_BOARD_SHAPES = {
+    "full": [
+        "1111111",
+        "1111111",
+        "1111111",
+        "1111111",
+        "1111111",
+        "1111111",
+        "1111111",
+    ],
+    "rounded": [
+        "0111110",
+        "1111111",
+        "1111111",
+        "1111111",
+        "1111111",
+        "1111111",
+        "0111110",
+    ],
+    "diamond": [
+        "0011100",
+        "0111110",
+        "1111111",
+        "1111111",
+        "1111111",
+        "0111110",
+        "0011100",
+    ],
+    "cross": [
+        "0011100",
+        "0011100",
+        "1111111",
+        "1111111",
+        "1111111",
+        "0011100",
+        "0011100",
+    ],
+    "staircase": [
+        "1111100",
+        "1111110",
+        "1111111",
+        "1111111",
+        "1111111",
+        "0111111",
+        "0011111",
+    ],
+}
+BONUS_MATCH_BOARD_SHAPE_ORDER = ["full", "rounded", "diamond", "cross", "staircase"]
 BONUS_MATCH_DEFAULT_LEVEL_COUNT = 50
 BONUS_MATCH_LEVEL_LIMIT = 200
 BONUS_MATCH_MAX_LEVEL = BONUS_MATCH_LEVEL_LIMIT
@@ -2466,6 +2514,63 @@ BONUS_MATCH_BOOSTERS = {
 }
 
 
+def _bonus_match_default_board_shape(level: int) -> str:
+    """Rotate safe connected board silhouettes as levels progress."""
+    level = max(1, min(BONUS_MATCH_LEVEL_LIMIT, int(level or 1)))
+    if level <= 4:
+        return "full"
+    cycle = ["rounded", "full", "diamond", "rounded", "staircase", "full", "cross", "rounded"]
+    return cycle[((level - 5) // 2) % len(cycle)]
+
+
+def _bonus_match_normalize_board_shape(value, level: int = 1) -> str:
+    shape = str(value or "").strip().lower()
+    return shape if shape in BONUS_MATCH_BOARD_SHAPES else _bonus_match_default_board_shape(level)
+
+
+def _bonus_match_board_mask(shape: str) -> list[list[bool]]:
+    rows = BONUS_MATCH_BOARD_SHAPES[_bonus_match_normalize_board_shape(shape)]
+    return [[char == "1" for char in row] for row in rows]
+
+
+def _bonus_match_cell_void(cell: Optional[dict]) -> bool:
+    return bool(cell and cell.get("void"))
+
+
+def _bonus_match_infer_board_shape(board) -> str:
+    """Infer a persisted silhouette so pre-v75 active sessions stay visually unchanged."""
+    rows = list(board or [])
+    for shape, pattern in BONUS_MATCH_BOARD_SHAPES.items():
+        matches = True
+        for row in range(BONUS_MATCH_ROWS):
+            for col in range(BONUS_MATCH_COLS):
+                cell = rows[row][col] if row < len(rows) and col < len(rows[row] or []) else None
+                should_be_void = pattern[row][col] == "0"
+                if _bonus_match_cell_void(cell) != should_be_void:
+                    matches = False
+                    break
+            if not matches:
+                break
+        if matches:
+            return shape
+    return "full"
+
+
+def _bonus_match_config_with_board_shape(config, level: int, board=None) -> dict:
+    provided = dict(config or {})
+    resolved = {**_bonus_match_level_config(level), **provided}
+    raw_shape = str(provided.get("board_shape") or "").strip().lower()
+    if raw_shape in BONUS_MATCH_BOARD_SHAPES:
+        shape = raw_shape
+    elif board is not None:
+        shape = _bonus_match_infer_board_shape(board)
+    else:
+        shape = _bonus_match_default_board_shape(level)
+    resolved["board_shape"] = shape
+    resolved["board_mask"] = _bonus_match_board_mask(shape)
+    return resolved
+
+
 class BonusMatchStartBody(BaseModel):
     level: int = 1
 
@@ -2492,6 +2597,7 @@ class BonusMatchBoosterUseBody(BaseModel):
 class BonusMatchLevelAdminBody(BaseModel):
     level: Optional[int] = None
     title: str = ""
+    board_shape: str = "full"
     moves: int = Field(default=20, ge=5, le=80)
     target_score: int = Field(default=2500, ge=100, le=10_000_000)
     target_coins: int = Field(default=10, ge=0, le=5000)
@@ -2513,7 +2619,18 @@ def _bonus_match_new_cell(
     obstacle_hits: Optional[int] = None,
     obstacle_age: int = 0,
     cell_id: Optional[str] = None,
+    void: bool = False,
 ) -> dict:
+    if void:
+        return {
+            "id": str(cell_id or f"void-{uuid.uuid4().hex[:12]}"),
+            "symbol": None,
+            "special": None,
+            "obstacle": None,
+            "obstacle_hits": 0,
+            "obstacle_age": 0,
+            "void": True,
+        }
     obstacle = obstacle if obstacle in BONUS_MATCH_OBSTACLE_HITS else None
     if obstacle in BONUS_MATCH_BLOCKING_OBSTACLES:
         symbol = None
@@ -2530,6 +2647,7 @@ def _bonus_match_new_cell(
             else BONUS_MATCH_OBSTACLE_HITS.get(obstacle, 0)
         ),
         "obstacle_age": max(0, int(obstacle_age or 0)),
+        "void": False,
     }
 
 
@@ -2540,6 +2658,8 @@ def _bonus_match_normalize_cell(value) -> Optional[dict]:
         return _bonus_match_new_cell(symbol=value)
     if not isinstance(value, dict):
         return None
+    if value.get("void"):
+        return _bonus_match_new_cell(void=True, cell_id=str(value.get("id") or uuid.uuid4().hex[:14]))
     symbol = value.get("symbol")
     special = value.get("special")
     obstacle = value.get("obstacle")
@@ -2600,7 +2720,7 @@ def _bonus_match_clone_board(board) -> list[list[Optional[dict]]]:
 
 
 def _bonus_match_cell_symbol(cell: Optional[dict]) -> Optional[str]:
-    if not cell or cell.get("special") == "color_bomb":
+    if not cell or _bonus_match_cell_void(cell) or cell.get("special") == "color_bomb":
         return None
     obstacle = cell.get("obstacle")
     if obstacle and obstacle not in BONUS_MATCH_OVERLAY_OBSTACLES:
@@ -2617,6 +2737,8 @@ def _bonus_match_apply_obstacle(
     hits: Optional[int] = None,
 ) -> dict:
     """Place a blocking obstacle or wrap the existing symbol in an overlay."""
+    if _bonus_match_cell_void(board[row][col]):
+        return board[row][col]
     if obstacle in BONUS_MATCH_OVERLAY_OBSTACLES:
         current = _bonus_match_normalize_cell(board[row][col])
         if not current or not _bonus_match_cell_symbol(current):
@@ -2639,6 +2761,7 @@ def _bonus_match_apply_obstacle(
 def _bonus_match_cell_swappable(cell: Optional[dict]) -> bool:
     return bool(
         cell
+        and not _bonus_match_cell_void(cell)
         and not cell.get("obstacle")
         and (cell.get("symbol") or cell.get("special"))
     )
@@ -2689,6 +2812,8 @@ def _bonus_match_level_config(level: int) -> dict:
     return {
         "level": level,
         "title": f"Рівень {level}",
+        "board_shape": _bonus_match_default_board_shape(level),
+        "board_mask": _bonus_match_board_mask(_bonus_match_default_board_shape(level)),
         "moves": moves,
         "target_score": target_score,
         "target_coins": target_coins,
@@ -2764,9 +2889,12 @@ def _bonus_match_merge_level_doc(level: int, doc: Optional[dict]) -> dict:
     is_boss = bool(doc.get("is_boss", base["is_boss"]))
     is_milestone = bool(doc.get("is_milestone", base["is_milestone"]))
     reward_multiplier = max(1, min(10, int(doc.get("reward_multiplier", base["reward_multiplier"]))))
+    board_shape = _bonus_match_normalize_board_shape(doc.get("board_shape"), level)
     return {
         **base,
         "title": str(doc.get("title") or base["title"]).strip()[:80],
+        "board_shape": board_shape,
+        "board_mask": _bonus_match_board_mask(board_shape),
         "moves": max(5, min(80, int(doc.get("moves", base["moves"])))),
         "target_score": target_score,
         "target_coins": max(0, min(5000, int(doc.get("target_coins", base["target_coins"])))),
@@ -3024,13 +3152,17 @@ def _bonus_match_has_move(board: list[list[Optional[dict]]]) -> bool:
     return False
 
 
-def _bonus_match_make_plain_board() -> list[list[Optional[dict]]]:
+def _bonus_match_make_plain_board(board_shape: str = "full") -> list[list[Optional[dict]]]:
     import random as _random
 
+    mask = _bonus_match_board_mask(board_shape)
     board: list[list[Optional[dict]]] = []
     for row in range(BONUS_MATCH_ROWS):
         board.append([])
         for col in range(BONUS_MATCH_COLS):
+            if not mask[row][col]:
+                board[row].append(_bonus_match_new_cell(void=True, cell_id=f"void-{row}-{col}"))
+                continue
             blocked: set[str] = set()
             if col >= 2:
                 left = _bonus_match_cell_symbol(board[row][col - 1])
@@ -3040,13 +3172,8 @@ def _bonus_match_make_plain_board() -> list[list[Optional[dict]]]:
                 above = _bonus_match_cell_symbol(board[row - 1][col])
                 if above and above == _bonus_match_cell_symbol(board[row - 2][col]):
                     blocked.add(above)
-            choices = [
-                symbol for symbol in BONUS_MATCH_SYMBOLS
-                if symbol not in blocked
-            ]
-            board[row].append(
-                _bonus_match_new_cell(symbol=_random.choice(choices))
-            )
+            choices = [symbol for symbol in BONUS_MATCH_SYMBOLS if symbol not in blocked]
+            board[row].append(_bonus_match_new_cell(symbol=_random.choice(choices)))
     return board
 
 
@@ -3057,12 +3184,13 @@ def _bonus_match_make_board(
     import random as _random
 
     config = config or _bonus_match_level_config(level)
+    board_shape = _bonus_match_normalize_board_shape(config.get("board_shape"), level)
     manual_layout = _bonus_match_normalize_obstacle_layout(
         config.get("obstacle_layout")
     )
     last_board = None
     for _ in range(180):
-        board = _bonus_match_make_plain_board()
+        board = _bonus_match_make_plain_board(board_shape)
         last_board = board
         if manual_layout:
             for item in manual_layout:
@@ -3084,6 +3212,7 @@ def _bonus_match_make_board(
                     (row, col)
                     for row in range(BONUS_MATCH_ROWS)
                     for col in range(BONUS_MATCH_COLS)
+                    if not _bonus_match_cell_void(board[row][col])
                 ]
                 _random.shuffle(positions)
                 newest = config.get("new_obstacle")
@@ -3095,7 +3224,7 @@ def _bonus_match_make_board(
                     _bonus_match_apply_obstacle(board, row, col, obstacle)
         if not _bonus_match_find_matches(board) and _bonus_match_has_move(board):
             return board
-    return last_board if manual_layout and last_board else _bonus_match_make_plain_board()
+    return last_board if manual_layout and last_board else _bonus_match_make_plain_board(board_shape)
 
 
 def _bonus_match_shuffle_board(
@@ -3108,7 +3237,7 @@ def _bonus_match_shuffle_board(
         (row, col)
         for row in range(BONUS_MATCH_ROWS)
         for col in range(BONUS_MATCH_COLS)
-        if source[row][col] and not source[row][col].get("obstacle")
+        if _bonus_match_cell_swappable(source[row][col])
     ]
     pieces = [source[row][col] for row, col in positions]
     for _ in range(160):
@@ -3163,7 +3292,7 @@ def _bonus_match_collapse(
             row
             for row in range(rows)
             if board[row][col]
-            and board[row][col].get("obstacle")
+            and (board[row][col].get("obstacle") or _bonus_match_cell_void(board[row][col]))
         ]
         boundaries = [-1] + fixed_rows + [rows]
         for boundary_index in range(len(boundaries) - 1):
@@ -3174,7 +3303,7 @@ def _bonus_match_collapse(
             values = [
                 board[row][col]
                 for row in range(start, end + 1)
-                if board[row][col] is not None
+                if board[row][col] is not None and not _bonus_match_cell_void(board[row][col])
             ]
             write_row = end
             for cell in reversed(values):
@@ -3283,9 +3412,9 @@ def _bonus_match_special_targets(
     rows = len(board)
     cols = len(board[0]) if rows else 0
     if special == "rocket_row":
-        return {(row, current_col) for current_col in range(cols)}
+        return {(row, current_col) for current_col in range(cols) if not _bonus_match_cell_void(board[row][current_col])}
     if special == "rocket_col":
-        return {(current_row, col) for current_row in range(rows)}
+        return {(current_row, col) for current_row in range(rows) if not _bonus_match_cell_void(board[current_row][col])}
     if special == "bomb":
         return {
             (current_row, current_col)
@@ -3297,6 +3426,7 @@ def _bonus_match_special_targets(
                 max(0, col - 1),
                 min(cols, col + 2),
             )
+            if not _bonus_match_cell_void(board[current_row][current_col])
         }
     if special == "color_bomb":
         target = color_symbol
@@ -3820,20 +3950,18 @@ async def _bonus_match_profile(user_id: str) -> dict:
 
 
 def _bonus_match_session_payload(session: dict) -> dict:
+    board = _bonus_match_normalize_board(session["board"])
+    level = int(session["level"])
+    config = _bonus_match_config_with_board_shape(session.get("config"), level, board)
     return {
         "id": session["id"],
-        "level": int(session["level"]),
-        "board": _bonus_match_normalize_board(session["board"]),
+        "level": level,
+        "board": board,
         "moves_left": int(session["moves_left"]),
         "score": int(session.get("score", 0)),
-        "coins_collected": int(
-            session.get("coins_collected", 0)
-        ),
+        "coins_collected": int(session.get("coins_collected", 0)),
         "status": session.get("status", "active"),
-        "config": (
-            session.get("config")
-            or _bonus_match_level_config(session["level"])
-        ),
+        "config": config,
         "cascades": int(session.get("cascades", 0)),
         "created_at": session.get("created_at"),
         "completed_at": session.get("completed_at"),
@@ -4130,6 +4258,7 @@ def _bonus_match_admin_level_doc(level: int, body: BonusMatchLevelAdminBody) -> 
     return {
         "level": level,
         "title": str(payload.get("title") or f"Рівень {level}").strip()[:80],
+        "board_shape": _bonus_match_normalize_board_shape(payload.get("board_shape"), level),
         "moves": max(5, min(80, int(payload.get("moves") or 20))),
         "target_score": target_score,
         "target_coins": max(0, min(5000, int(payload.get("target_coins") or 0))),
@@ -4155,6 +4284,16 @@ async def admin_bonus_match_levels(admin: dict = Depends(get_current_admin)):
         "level_limit": BONUS_MATCH_LEVEL_LIMIT,
         "rows": BONUS_MATCH_ROWS,
         "cols": BONUS_MATCH_COLS,
+        "board_shapes": [
+            {"id": key, "mask": _bonus_match_board_mask(key), "label": {
+                "full": "Повне 7×7",
+                "rounded": "Зрізані кути",
+                "diamond": "Діамант",
+                "cross": "Хрест",
+                "staircase": "Сходинки",
+            }.get(key, key)}
+            for key in BONUS_MATCH_BOARD_SHAPE_ORDER
+        ],
         "obstacles": [
             {
                 "id": key,
@@ -4327,7 +4466,7 @@ def _bonus_match_followup_cascades(
         symbol_cells_cleared = 0
         for row, col in clear_cells:
             cell = board[row][col]
-            if cell and not cell.get("obstacle"):
+            if cell and not _bonus_match_cell_void(cell) and not cell.get("obstacle"):
                 if cell.get("symbol") == "coin":
                     coins_this_step += 1
                 if cell.get("symbol") or cell.get("special"):
@@ -4337,7 +4476,7 @@ def _bonus_match_followup_cascades(
             if (row, col) in protected:
                 continue
             cell = board[row][col]
-            if cell and not cell.get("obstacle"):
+            if cell and not _bonus_match_cell_void(cell) and not cell.get("obstacle"):
                 board[row][col] = None
 
         special_bonus = sum(BONUS_MATCH_SPECIAL_SCORE.get(item["special"], 0) for item in activated_specials)
@@ -4444,7 +4583,7 @@ async def bonus_match_use_booster(
 
     board = _bonus_match_clone_board(session.get("board"))
     original_board = _bonus_match_clone_board(board)
-    config = session.get("config") or _bonus_match_level_config(session["level"])
+    config = _bonus_match_config_with_board_shape(session.get("config"), int(session["level"]), board)
     score_gain = 0
     coins_gain = 0
     cascade_count = 0
@@ -4467,14 +4606,20 @@ async def bonus_match_use_booster(
         if not (0 <= row < BONUS_MATCH_ROWS and 0 <= col < BONUS_MATCH_COLS):
             raise HTTPException(status_code=400, detail="Некоректна клітинка")
         target_cell = board[row][col]
-        if not target_cell:
-            raise HTTPException(status_code=400, detail="Клітинка порожня")
+        if not target_cell or _bonus_match_cell_void(target_cell):
+            raise HTTPException(status_code=400, detail="Ця клітинка не входить до форми дошки")
 
         if booster == "hammer":
             clear_cells: set[tuple[int, int]] = {(row, col)}
         elif booster == "rocket":
-            clear_cells = {(row, current_col) for current_col in range(BONUS_MATCH_COLS)} | {
-                (current_row, col) for current_row in range(BONUS_MATCH_ROWS)
+            clear_cells = {
+                (row, current_col)
+                for current_col in range(BONUS_MATCH_COLS)
+                if not _bonus_match_cell_void(board[row][current_col])
+            } | {
+                (current_row, col)
+                for current_row in range(BONUS_MATCH_ROWS)
+                if not _bonus_match_cell_void(board[current_row][col])
             }
         else:
             symbol = _bonus_match_cell_symbol(target_cell)
@@ -4551,7 +4696,7 @@ async def bonus_match_use_booster(
         symbols_cleared = 0
         for target_row, target_col in clear_cells:
             cell = board[target_row][target_col]
-            if cell and not cell.get("obstacle"):
+            if cell and not _bonus_match_cell_void(cell) and not cell.get("obstacle"):
                 if cell.get("symbol") == "coin":
                     coins_this_step += 1
                 if cell.get("symbol") or cell.get("special"):
@@ -4913,7 +5058,11 @@ async def bonus_match_move(
         }
 
     original_session_board = _bonus_match_clone_board(session.get("board"))
-    session_config = session.get("config") or _bonus_match_level_config(session.get("level", 1))
+    session_config = _bonus_match_config_with_board_shape(
+        session.get("config"),
+        int(session.get("level", 1)),
+        original_session_board,
+    )
     playable_board, auto_reshuffled, reshuffle_method = _bonus_match_ensure_playable_board(
         original_session_board,
         int(session.get("level", 1)),
@@ -5211,7 +5360,7 @@ async def bonus_match_move(
         symbol_cells_cleared = 0
         for row, col in clear_cells:
             cell = board[row][col]
-            if cell and not cell.get("obstacle"):
+            if cell and not _bonus_match_cell_void(cell) and not cell.get("obstacle"):
                 if cell.get("symbol") == "coin":
                     coins_this_step += 1
                 if cell.get("symbol") or cell.get("special"):
@@ -5221,7 +5370,7 @@ async def bonus_match_move(
             if (row, col) in protected:
                 continue
             cell = board[row][col]
-            if cell and not cell.get("obstacle"):
+            if cell and not _bonus_match_cell_void(cell) and not cell.get("obstacle"):
                 board[row][col] = None
 
         special_bonus = sum(
@@ -5261,6 +5410,7 @@ async def bonus_match_move(
             "cleared_cells": [
                 {"row": row, "col": col}
                 for row, col in sorted(clear_cells)
+                if not _bonus_match_cell_void(board_before_clear[row][col])
             ],
             "created_specials": created_specials,
             "activated_specials": activated_specials,
