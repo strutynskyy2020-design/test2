@@ -268,7 +268,7 @@ body {
 @media (max-width:420px) { .generous-cube-meta-grid { grid-template-columns:1fr; } .generous-cube-stage { height:306px; perspective:940px; } .generous-cube-flight { --cube-size:142px; } .generous-cube-grid { grid-template-columns:repeat(3,18px); grid-template-rows:repeat(3,18px); gap:11px; } .generous-cube-dot { width:16px; height:16px; } }
 @media (prefers-reduced-motion:reduce) { .generous-cube-energy,.generous-cube-aura,.generous-cube-platform span,.generous-cube-shadow { animation:none!important; } }
 
-/* Bonus Match v81 production safety guard.
+/* Bonus Match v82 production safety guard.
    The board is sprite/CSS/canvas-only; replaced media nodes are never legitimate here. */
 .bonus-match-board > img,
 .bonus-match-board img,

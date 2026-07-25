@@ -750,9 +750,11 @@ function Piece({
 
   return (
     <div
-      className="absolute left-0 top-0 h-[14.285714%] w-[14.285714%] p-0.5"
+      className="absolute left-1.5 top-1.5 p-0.5"
       style={{
-        transform: `translate3d(${col * 100}%, ${row * 100}%, 0)`,
+        width: "calc((100% - 36px) / 7)",
+        height: "calc((100% - 36px) / 7)",
+        transform: `translate3d(calc(${col * 100}% + ${col * 4}px), calc(${row * 100}% + ${row * 4}px), 0)`,
         transition: fall || reducedMotion
           ? "none"
           : `transform ${positionDurationMs}ms cubic-bezier(.2,.82,.25,1)`,
@@ -1075,9 +1077,8 @@ const BoardPiecesLayer = memo(function BoardPiecesLayer({
 }) {
   const positionDurationMs = Math.max(110, Math.min(190, cascadeDurationMs || OPTIMISTIC_SWAP_MS));
   return (
-    <div className="absolute inset-1.5 overflow-visible" data-bonus-pieces-layer="true">
-      <AnimatePresence initial={false}>
-        {pieces.map(({ cell, row, col }) => {
+    <AnimatePresence initial={false}>
+      {pieces.map(({ cell, row, col }) => {
           const key = coordKey(row, col);
           return (
             <MemoPiece
@@ -1107,9 +1108,8 @@ const BoardPiecesLayer = memo(function BoardPiecesLayer({
               onClick={onPieceClick}
             />
           );
-        })}
-      </AnimatePresence>
-    </div>
+      })}
+    </AnimatePresence>
   );
 });
 
@@ -2802,7 +2802,7 @@ export default function BonusMatch() {
             <motion.div
               ref={boardRef}
               className="bonus-match-board relative isolate mt-3 overflow-hidden rounded-[22px] border border-[#7C3AED]/55 bg-[#090711] p-1.5 shadow-[inset_0_0_30px_rgba(124,58,237,.12)]"
-              data-render-engine="v81"
+              data-render-engine="v82"
               animate={boardMotionForFx(boardFx, reducedMotion)}
               transition={{
                 duration: boardFx === "won"

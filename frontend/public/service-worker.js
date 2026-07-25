@@ -1,9 +1,9 @@
 /* TM6 Bonus — Service Worker
- * v81 removes legacy editor/cache overlays and protects image requests from Netlify's SPA fallback. A missing image must
+ * v82 removes legacy editor/cache overlays and protects image requests from Netlify's SPA fallback. A missing image must
  * never be cached as index.html, otherwise browsers can render a giant broken
  * image element over the board.
  */
-const VERSION = "tm6-v81";
+const VERSION = "tm6-v82";
 const STATIC_CACHE = `${VERSION}-static`;
 const RUNTIME_CACHE = `${VERSION}-runtime`;
 
@@ -12,8 +12,8 @@ const PRECACHE_URLS = [
   "/icon-192.png",
   "/icon-512.png",
   "/apple-touch-icon.png",
-  "/bonus-match/atlas/pieces-v81.webp?v=81",
-  "/bonus-match/atlas/obstacles-v81.webp?v=81",
+  "/bonus-match/atlas/pieces-v82.webp?v=82",
+  "/bonus-match/atlas/obstacles-v82.webp?v=82",
 ];
 
 const isImageRequest = (request, url) => (
