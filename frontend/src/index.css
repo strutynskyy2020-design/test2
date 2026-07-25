@@ -292,3 +292,31 @@ body {
   display: block;
   background: transparent !important;
 }
+
+/* Bonus Match v83: neutralize extension-injected generated content.
+   A browser security extension marks nodes with bis_skin_checked and may attach
+   replaced content through ::before/::after. Generated content is not used by
+   the game board, so it is safe to suppress it inside this isolated surface. */
+.bonus-match-board::before,
+.bonus-match-board::after,
+.bonus-match-board *::before,
+.bonus-match-board *::after {
+  content: none !important;
+  display: none !important;
+  background: none !important;
+  background-image: none !important;
+  border: 0 !important;
+  box-shadow: none !important;
+}
+
+.bonus-match-board {
+  background-color: #090711 !important;
+  background-image: none !important;
+  overflow: hidden !important;
+  color-scheme: dark;
+}
+
+.bonus-match-board[bis_skin_checked],
+.bonus-match-board [bis_skin_checked] {
+  forced-color-adjust: none;
+}

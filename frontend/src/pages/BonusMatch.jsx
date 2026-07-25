@@ -2802,7 +2802,7 @@ export default function BonusMatch() {
             <motion.div
               ref={boardRef}
               className="bonus-match-board relative isolate mt-3 overflow-hidden rounded-[22px] border border-[#7C3AED]/55 bg-[#090711] p-1.5 shadow-[inset_0_0_30px_rgba(124,58,237,.12)]"
-              data-render-engine="v82"
+              data-render-engine="v83"
               animate={boardMotionForFx(boardFx, reducedMotion)}
               transition={{
                 duration: boardFx === "won"

@@ -1,0 +1,147 @@
+diff -ruN /mnt/data/tm6v82-work/BONUS_MATCH_EXTENSION_OVERLAY_FIX_V83.md /mnt/data/tm6v83-work/BONUS_MATCH_EXTENSION_OVERLAY_FIX_V83.md
+--- /mnt/data/tm6v82-work/BONUS_MATCH_EXTENSION_OVERLAY_FIX_V83.md	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/tm6v83-work/BONUS_MATCH_EXTENSION_OVERLAY_FIX_V83.md	2026-07-25 14:40:37.370898087 +0000
+@@ -0,0 +1,18 @@
++# Bonus Match v83
++
++## Confirmed clue
++The production DOM contains `bis_skin_checked="1"`, an attribute injected by a browser security extension. The white board is not a removed React tree: the board and piece nodes remain present, and no large `img`, `object`, `embed`, or `iframe` is returned by `elementsFromPoint()`.
++
++This points to generated/replaced content applied through CSS pseudo-elements or extension styling rather than a normal game element.
++
++## Fix
++- Suppress `::before` and `::after` generated content throughout `.bonus-match-board`.
++- Force the board surface back to the game background with `!important`.
++- Prevent background images and replacement media from covering the board.
++- Keep canvas transparent.
++- Version assets and PWA cache as v83.
++- Set `data-render-engine="v83"` for production verification.
++
++## Verification
++After deployment, inspect `.bonus-match-board` and confirm `data-render-engine="v83"`.
++For a definitive extension test, open the game in an Incognito window with extensions disabled. If the issue disappears there, the extension is the source.
+diff -ruN /mnt/data/tm6v82-work/BONUS_MATCH_EXTENSION_OVERLAY_FIX_V83.patch /mnt/data/tm6v83-work/BONUS_MATCH_EXTENSION_OVERLAY_FIX_V83.patch
+--- /mnt/data/tm6v82-work/BONUS_MATCH_EXTENSION_OVERLAY_FIX_V83.patch	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/tm6v83-work/BONUS_MATCH_EXTENSION_OVERLAY_FIX_V83.patch	2026-07-25 14:40:37.370898087 +0000
+@@ -0,0 +1,22 @@
++diff -ruN /mnt/data/tm6v82-work/BONUS_MATCH_EXTENSION_OVERLAY_FIX_V83.md /mnt/data/tm6v83-work/BONUS_MATCH_EXTENSION_OVERLAY_FIX_V83.md
++--- /mnt/data/tm6v82-work/BONUS_MATCH_EXTENSION_OVERLAY_FIX_V83.md	1970-01-01 00:00:00.000000000 +0000
+++++ /mnt/data/tm6v83-work/BONUS_MATCH_EXTENSION_OVERLAY_FIX_V83.md	2026-07-25 14:40:37.370898087 +0000
++@@ -0,0 +1,18 @@
+++# Bonus Match v83
+++
+++## Confirmed clue
+++The production DOM contains `bis_skin_checked="1"`, an attribute injected by a browser security extension. The white board is not a removed React tree: the board and piece nodes remain present, and no large `img`, `object`, `embed`, or `iframe` is returned by `elementsFromPoint()`.
+++
+++This points to generated/replaced content applied through CSS pseudo-elements or extension styling rather than a normal game element.
+++
+++## Fix
+++- Suppress `::before` and `::after` generated content throughout `.bonus-match-board`.
+++- Force the board surface back to the game background with `!important`.
+++- Prevent background images and replacement media from covering the board.
+++- Keep canvas transparent.
+++- Version assets and PWA cache as v83.
+++- Set `data-render-engine="v83"` for production verification.
+++
+++## Verification
+++After deployment, inspect `.bonus-match-board` and confirm `data-render-engine="v83"`.
+++For a definitive extension test, open the game in an Incognito window with extensions disabled. If the issue disappears there, the extension is the source.
+Binary files /mnt/data/tm6v82-work/frontend/public/bonus-match/atlas/obstacles-v83.webp and /mnt/data/tm6v83-work/frontend/public/bonus-match/atlas/obstacles-v83.webp differ
+Binary files /mnt/data/tm6v82-work/frontend/public/bonus-match/atlas/pieces-v83.webp and /mnt/data/tm6v83-work/frontend/public/bonus-match/atlas/pieces-v83.webp differ
+diff -ruN /mnt/data/tm6v82-work/frontend/public/index.html /mnt/data/tm6v83-work/frontend/public/index.html
+--- /mnt/data/tm6v82-work/frontend/public/index.html	2026-07-25 14:29:55.734924854 +0000
++++ /mnt/data/tm6v83-work/frontend/public/index.html	2026-07-25 14:40:12.954899105 +0000
+@@ -12,8 +12,8 @@
+         <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+ 
+         <!-- Warm the Bonus Match cache after the app shell; the game itself awaits image.decode(). -->
+-        <link rel="prefetch" as="image" type="image/webp" href="/bonus-match/atlas/pieces-v82.webp?v=82" />
+-        <link rel="prefetch" as="image" type="image/webp" href="/bonus-match/atlas/obstacles-v82.webp?v=82" />
++        <link rel="prefetch" as="image" type="image/webp" href="/bonus-match/atlas/pieces-v83.webp?v=83" />
++        <link rel="prefetch" as="image" type="image/webp" href="/bonus-match/atlas/obstacles-v83.webp?v=83" />
+ 
+         <!-- iOS PWA meta -->
+         <meta name="apple-mobile-web-app-capable" content="yes" />
+diff -ruN /mnt/data/tm6v82-work/frontend/public/service-worker.js /mnt/data/tm6v83-work/frontend/public/service-worker.js
+--- /mnt/data/tm6v82-work/frontend/public/service-worker.js	2026-07-25 14:29:55.734924854 +0000
++++ /mnt/data/tm6v83-work/frontend/public/service-worker.js	2026-07-25 14:40:12.954899105 +0000
+@@ -3,7 +3,7 @@
+  * never be cached as index.html, otherwise browsers can render a giant broken
+  * image element over the board.
+  */
+-const VERSION = "tm6-v82";
++const VERSION = "tm6-v83";
+ const STATIC_CACHE = `${VERSION}-static`;
+ const RUNTIME_CACHE = `${VERSION}-runtime`;
+ 
+@@ -12,8 +12,8 @@
+   "/icon-192.png",
+   "/icon-512.png",
+   "/apple-touch-icon.png",
+-  "/bonus-match/atlas/pieces-v82.webp?v=82",
+-  "/bonus-match/atlas/obstacles-v82.webp?v=82",
++  "/bonus-match/atlas/pieces-v83.webp?v=83",
++  "/bonus-match/atlas/obstacles-v83.webp?v=83",
+ ];
+ 
+ const isImageRequest = (request, url) => (
+diff -ruN /mnt/data/tm6v82-work/frontend/src/index.css /mnt/data/tm6v83-work/frontend/src/index.css
+--- /mnt/data/tm6v82-work/frontend/src/index.css	2026-07-25 14:29:55.734924854 +0000
++++ /mnt/data/tm6v83-work/frontend/src/index.css	2026-07-25 14:40:12.494899125 +0000
+@@ -292,3 +292,31 @@
+   display: block;
+   background: transparent !important;
+ }
++
++/* Bonus Match v83: neutralize extension-injected generated content.
++   A browser security extension marks nodes with bis_skin_checked and may attach
++   replaced content through ::before/::after. Generated content is not used by
++   the game board, so it is safe to suppress it inside this isolated surface. */
++.bonus-match-board::before,
++.bonus-match-board::after,
++.bonus-match-board *::before,
++.bonus-match-board *::after {
++  content: none !important;
++  display: none !important;
++  background: none !important;
++  background-image: none !important;
++  border: 0 !important;
++  box-shadow: none !important;
++}
++
++.bonus-match-board {
++  background-color: #090711 !important;
++  background-image: none !important;
++  overflow: hidden !important;
++  color-scheme: dark;
++}
++
++.bonus-match-board[bis_skin_checked],
++.bonus-match-board [bis_skin_checked] {
++  forced-color-adjust: none;
++}
+diff -ruN /mnt/data/tm6v82-work/frontend/src/lib/bonusMatchAssets.js /mnt/data/tm6v83-work/frontend/src/lib/bonusMatchAssets.js
+--- /mnt/data/tm6v82-work/frontend/src/lib/bonusMatchAssets.js	2026-07-25 14:29:55.734924854 +0000
++++ /mnt/data/tm6v83-work/frontend/src/lib/bonusMatchAssets.js	2026-07-25 14:40:12.954899105 +0000
+@@ -1,6 +1,6 @@
+-const ASSET_VERSION = "82";
+-const PIECES_ATLAS = `/bonus-match/atlas/pieces-v82.webp?v=${ASSET_VERSION}`;
+-const OBSTACLES_ATLAS = `/bonus-match/atlas/obstacles-v82.webp?v=${ASSET_VERSION}`;
++const ASSET_VERSION = "83";
++const PIECES_ATLAS = `/bonus-match/atlas/pieces-v83.webp?v=${ASSET_VERSION}`;
++const OBSTACLES_ATLAS = `/bonus-match/atlas/obstacles-v83.webp?v=${ASSET_VERSION}`;
+ 
+ const makeSprite = (atlas, index, columns, rows) => {
+   const column = index % columns;
+diff -ruN /mnt/data/tm6v82-work/frontend/src/pages/BonusMatch.jsx /mnt/data/tm6v83-work/frontend/src/pages/BonusMatch.jsx
+--- /mnt/data/tm6v82-work/frontend/src/pages/BonusMatch.jsx	2026-07-25 14:36:09.602909257 +0000
++++ /mnt/data/tm6v83-work/frontend/src/pages/BonusMatch.jsx	2026-07-25 14:40:12.954899105 +0000
+@@ -2802,7 +2802,7 @@
+             <motion.div
+               ref={boardRef}
+               className="bonus-match-board relative isolate mt-3 overflow-hidden rounded-[22px] border border-[#7C3AED]/55 bg-[#090711] p-1.5 shadow-[inset_0_0_30px_rgba(124,58,237,.12)]"
+-              data-render-engine="v82"
++              data-render-engine="v83"
+               animate={boardMotionForFx(boardFx, reducedMotion)}
+               transition={{
+                 duration: boardFx === "won"
