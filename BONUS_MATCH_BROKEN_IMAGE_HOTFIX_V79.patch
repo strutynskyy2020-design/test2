@@ -1,0 +1,496 @@
+diff -ruN /mnt/data/tm6v78-work/BONUS_MATCH_BROKEN_IMAGE_HOTFIX_V79.md /mnt/data/tm6v79-work/BONUS_MATCH_BROKEN_IMAGE_HOTFIX_V79.md
+--- /mnt/data/tm6v78-work/BONUS_MATCH_BROKEN_IMAGE_HOTFIX_V79.md	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/tm6v79-work/BONUS_MATCH_BROKEN_IMAGE_HOTFIX_V79.md	2026-07-25 13:28:31.579078548 +0000
+@@ -0,0 +1,34 @@
++# TM6 Bonus v79 — broken image overlay hotfix
++
++## Symptom
++
++After several moves a large white rectangle with the browser's broken-image icon could cover the Bonus Match board and extend beyond the application column.
++
++## Root cause addressed
++
++The v78 board still mounted an actual `<img>` element for every piece shadow. If that image request failed or Netlify's SPA rewrite returned `index.html` for the image URL, the browser could render a broken replaced element. The v78 service worker also cached every successful same-origin response for image requests without checking `Content-Type`, so an HTML fallback could be cached under a `.webp` URL.
++
++## Changes
++
++- Removed every `<img>` element from the game board.
++- Replaced the shadow image with a lightweight CSS radial gradient.
++- Added `overflow-hidden` and `isolation` to the board root as a final containment guard.
++- Renamed atlases to versioned files:
++  - `pieces-v79.webp`
++  - `obstacles-v79.webp`
++- Added query versioning to atlas URLs.
++- Changed artwork preload to report decode success.
++- Added Lucide icon fallback when an atlas cannot be decoded.
++- Updated the service worker to:
++  - use cache version `tm6-v79`;
++  - validate image `Content-Type` before caching;
++  - delete invalid cached image responses;
++  - return a transparent image when Netlify returns HTML for an image URL;
++  - avoid one missing static asset aborting the whole service-worker installation.
++- Removed the unused piece-shadow WebP and old unversioned atlas files.
++
++## Deployment
++
++Deploy the frontend. The backend is unchanged.
++
++After the first reload, service worker v79 activates and removes the v78 caches. A second normal reload may be required on a tab that remained open during deployment.
+diff -ruN /mnt/data/tm6v78-work/BONUS_MATCH_BROKEN_IMAGE_HOTFIX_V79.patch /mnt/data/tm6v79-work/BONUS_MATCH_BROKEN_IMAGE_HOTFIX_V79.patch
+--- /mnt/data/tm6v78-work/BONUS_MATCH_BROKEN_IMAGE_HOTFIX_V79.patch	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/tm6v79-work/BONUS_MATCH_BROKEN_IMAGE_HOTFIX_V79.patch	2026-07-25 13:28:31.579078548 +0000
+@@ -0,0 +1,38 @@
++diff -ruN /mnt/data/tm6v78-work/BONUS_MATCH_BROKEN_IMAGE_HOTFIX_V79.md /mnt/data/tm6v79-work/BONUS_MATCH_BROKEN_IMAGE_HOTFIX_V79.md
++--- /mnt/data/tm6v78-work/BONUS_MATCH_BROKEN_IMAGE_HOTFIX_V79.md	1970-01-01 00:00:00.000000000 +0000
+++++ /mnt/data/tm6v79-work/BONUS_MATCH_BROKEN_IMAGE_HOTFIX_V79.md	2026-07-25 13:28:31.579078548 +0000
++@@ -0,0 +1,34 @@
+++# TM6 Bonus v79 — broken image overlay hotfix
+++
+++## Symptom
+++
+++After several moves a large white rectangle with the browser's broken-image icon could cover the Bonus Match board and extend beyond the application column.
+++
+++## Root cause addressed
+++
+++The v78 board still mounted an actual `<img>` element for every piece shadow. If that image request failed or Netlify's SPA rewrite returned `index.html` for the image URL, the browser could render a broken replaced element. The v78 service worker also cached every successful same-origin response for image requests without checking `Content-Type`, so an HTML fallback could be cached under a `.webp` URL.
+++
+++## Changes
+++
+++- Removed every `<img>` element from the game board.
+++- Replaced the shadow image with a lightweight CSS radial gradient.
+++- Added `overflow-hidden` and `isolation` to the board root as a final containment guard.
+++- Renamed atlases to versioned files:
+++  - `pieces-v79.webp`
+++  - `obstacles-v79.webp`
+++- Added query versioning to atlas URLs.
+++- Changed artwork preload to report decode success.
+++- Added Lucide icon fallback when an atlas cannot be decoded.
+++- Updated the service worker to:
+++  - use cache version `tm6-v79`;
+++  - validate image `Content-Type` before caching;
+++  - delete invalid cached image responses;
+++  - return a transparent image when Netlify returns HTML for an image URL;
+++  - avoid one missing static asset aborting the whole service-worker installation.
+++- Removed the unused piece-shadow WebP and old unversioned atlas files.
+++
+++## Deployment
+++
+++Deploy the frontend. The backend is unchanged.
+++
+++After the first reload, service worker v79 activates and removes the v78 caches. A second normal reload may be required on a tab that remained open during deployment.
+Binary files /mnt/data/tm6v78-work/frontend/public/bonus-match/atlas/obstacles-v79.webp and /mnt/data/tm6v79-work/frontend/public/bonus-match/atlas/obstacles-v79.webp differ
+Binary files /mnt/data/tm6v78-work/frontend/public/bonus-match/atlas/obstacles.webp and /mnt/data/tm6v79-work/frontend/public/bonus-match/atlas/obstacles.webp differ
+Binary files /mnt/data/tm6v78-work/frontend/public/bonus-match/atlas/piece-shadow.webp and /mnt/data/tm6v79-work/frontend/public/bonus-match/atlas/piece-shadow.webp differ
+Binary files /mnt/data/tm6v78-work/frontend/public/bonus-match/atlas/pieces-v79.webp and /mnt/data/tm6v79-work/frontend/public/bonus-match/atlas/pieces-v79.webp differ
+Binary files /mnt/data/tm6v78-work/frontend/public/bonus-match/atlas/pieces.webp and /mnt/data/tm6v79-work/frontend/public/bonus-match/atlas/pieces.webp differ
+diff -ruN /mnt/data/tm6v78-work/frontend/public/index.html /mnt/data/tm6v79-work/frontend/public/index.html
+--- /mnt/data/tm6v78-work/frontend/public/index.html	2026-07-25 12:55:35.503160986 +0000
++++ /mnt/data/tm6v79-work/frontend/public/index.html	2026-07-25 13:25:33.103085994 +0000
+@@ -12,9 +12,8 @@
+         <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+ 
+         <!-- Warm the Bonus Match cache after the app shell; the game itself awaits image.decode(). -->
+-        <link rel="prefetch" as="image" type="image/webp" href="/bonus-match/atlas/pieces.webp" />
+-        <link rel="prefetch" as="image" type="image/webp" href="/bonus-match/atlas/obstacles.webp" />
+-        <link rel="prefetch" as="image" type="image/webp" href="/bonus-match/atlas/piece-shadow.webp" />
++        <link rel="prefetch" as="image" type="image/webp" href="/bonus-match/atlas/pieces-v79.webp?v=79" />
++        <link rel="prefetch" as="image" type="image/webp" href="/bonus-match/atlas/obstacles-v79.webp?v=79" />
+ 
+         <!-- iOS PWA meta -->
+         <meta name="apple-mobile-web-app-capable" content="yes" />
+diff -ruN /mnt/data/tm6v78-work/frontend/public/service-worker.js /mnt/data/tm6v79-work/frontend/public/service-worker.js
+--- /mnt/data/tm6v78-work/frontend/public/service-worker.js	2026-07-25 12:51:43.159170678 +0000
++++ /mnt/data/tm6v79-work/frontend/public/service-worker.js	2026-07-25 13:25:32.679086012 +0000
+@@ -1,8 +1,9 @@
+ /* TM6 Bonus — Service Worker
+- * Dynamic data is always network-only.
+- * App shell uses network-first so new deployments replace old PWA files promptly.
++ * v79 protects image requests from Netlify's SPA fallback. A missing image must
++ * never be cached as index.html, otherwise browsers can render a giant broken
++ * image element over the board.
+  */
+-const VERSION = "tm6-v78";
++const VERSION = "tm6-v79";
+ const STATIC_CACHE = `${VERSION}-static`;
+ const RUNTIME_CACHE = `${VERSION}-runtime`;
+ 
+@@ -11,40 +12,65 @@
+   "/icon-192.png",
+   "/icon-512.png",
+   "/apple-touch-icon.png",
+-  "/bonus-match/atlas/pieces.webp",
+-  "/bonus-match/atlas/obstacles.webp",
+-  "/bonus-match/atlas/piece-shadow.webp",
++  "/bonus-match/atlas/pieces-v79.webp?v=79",
++  "/bonus-match/atlas/obstacles-v79.webp?v=79",
+ ];
+ 
++const isImageRequest = (request, url) => (
++  request.destination === "image"
++  || /\.(?:avif|gif|jpe?g|png|svg|webp)$/i.test(url.pathname)
++);
++
++const hasImageContentType = (response) => (
++  Boolean(response)
++  && response.ok
++  && (response.headers.get("content-type") || "").toLowerCase().startsWith("image/")
++);
++
++const transparentImage = () => new Response(
++  '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1" viewBox="0 0 1 1"></svg>',
++  {
++    status: 200,
++    headers: {
++      "Content-Type": "image/svg+xml",
++      "Cache-Control": "no-store",
++    },
++  },
++);
++
+ self.addEventListener("install", (event) => {
+-  event.waitUntil(
+-    caches
+-      .open(STATIC_CACHE)
+-      .then((cache) => cache.addAll(PRECACHE_URLS))
+-      .then(() => self.skipWaiting())
+-  );
++  event.waitUntil((async () => {
++    const cache = await caches.open(STATIC_CACHE);
++    await Promise.allSettled(PRECACHE_URLS.map(async (path) => {
++      const response = await fetch(path, { cache: "reload" });
++      const url = new URL(path, self.location.origin);
++      if (!response.ok) throw new Error(`Precache failed: ${path}`);
++      if (isImageRequest(new Request(url), url) && !hasImageContentType(response)) {
++        throw new Error(`Invalid image response: ${path}`);
++      }
++      await cache.put(path, response);
++    }));
++    await self.skipWaiting();
++  })());
+ });
+ 
+ self.addEventListener("activate", (event) => {
+   event.waitUntil(
+     caches
+       .keys()
+-      .then((keys) =>
+-        Promise.all(
+-          keys
+-            .filter((key) => key !== STATIC_CACHE && key !== RUNTIME_CACHE)
+-            .map((key) => caches.delete(key))
+-        )
+-      )
++      .then((keys) => Promise.all(
++        keys
++          .filter((key) => key !== STATIC_CACHE && key !== RUNTIME_CACHE)
++          .map((key) => caches.delete(key)),
++      ))
+       .then(() => self.clients.claim())
+   );
+ });
+ 
+-const offlineJson = () =>
+-  new Response(JSON.stringify({ success: false, error: "offline" }), {
+-    status: 503,
+-    headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+-  });
++const offlineJson = () => new Response(JSON.stringify({ success: false, error: "offline" }), {
++  status: 503,
++  headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
++});
+ 
+ self.addEventListener("fetch", (event) => {
+   const request = event.request;
+@@ -52,19 +78,13 @@
+ 
+   const url = new URL(request.url);
+   const isSameOrigin = url.origin === self.location.origin;
+-  const isDynamicRequest =
+-    url.pathname.startsWith("/api/") ||
+-    url.pathname.startsWith("/.netlify/functions/");
++  const isDynamicRequest = url.pathname.startsWith("/api/") || url.pathname.startsWith("/.netlify/functions/");
+ 
+-  // Never cache goals, authentication, API, or Netlify Function responses.
+   if (isDynamicRequest) {
+-    event.respondWith(
+-      fetch(request, { cache: "no-store" }).catch(() => offlineJson())
+-    );
++    event.respondWith(fetch(request, { cache: "no-store" }).catch(() => offlineJson()));
+     return;
+   }
+ 
+-  // Navigation: always ask the network first so fresh deployments appear without hard refresh.
+   if (request.mode === "navigate") {
+     event.respondWith(
+       fetch(request, { cache: "no-store" })
+@@ -80,11 +100,7 @@
+     return;
+   }
+ 
+-  // Hashed JS/CSS: network first, cached copy only as an offline fallback.
+-  if (
+-    isSameOrigin &&
+-    (url.pathname.endsWith(".js") || url.pathname.endsWith(".css"))
+-  ) {
++  if (isSameOrigin && (url.pathname.endsWith(".js") || url.pathname.endsWith(".css"))) {
+     event.respondWith(
+       fetch(request, { cache: "no-cache" })
+         .then((response) => {
+@@ -99,18 +115,36 @@
+     return;
+   }
+ 
+-  // Images/icons may be cached for offline use.
++  if (isImageRequest(request, url)) {
++    event.respondWith((async () => {
++      const cached = await caches.match(request);
++      if (hasImageContentType(cached)) return cached;
++      if (cached) {
++        const cache = await caches.open(RUNTIME_CACHE);
++        await cache.delete(request);
++      }
++      try {
++        const response = await fetch(request, { cache: "no-cache" });
++        if (!hasImageContentType(response)) return transparentImage();
++        if (isSameOrigin) {
++          const cache = await caches.open(RUNTIME_CACHE);
++          await cache.put(request, response.clone());
++        }
++        return response;
++      } catch (_) {
++        return transparentImage();
++      }
++    })());
++    return;
++  }
++
+   event.respondWith(
+-    caches.match(request).then(
+-      (cached) =>
+-        cached ||
+-        fetch(request).then((response) => {
+-          if (response.ok && isSameOrigin) {
+-            const copy = response.clone();
+-            caches.open(RUNTIME_CACHE).then((cache) => cache.put(request, copy));
+-          }
+-          return response;
+-        })
+-    )
++    caches.match(request).then((cached) => cached || fetch(request).then((response) => {
++      if (response.ok && isSameOrigin) {
++        const copy = response.clone();
++        caches.open(RUNTIME_CACHE).then((cache) => cache.put(request, copy));
++      }
++      return response;
++    }))
+   );
+ });
+diff -ruN /mnt/data/tm6v78-work/frontend/src/lib/bonusMatchAssets.js /mnt/data/tm6v79-work/frontend/src/lib/bonusMatchAssets.js
+--- /mnt/data/tm6v78-work/frontend/src/lib/bonusMatchAssets.js	2026-07-25 13:19:43.967100559 +0000
++++ /mnt/data/tm6v79-work/frontend/src/lib/bonusMatchAssets.js	2026-07-25 13:23:07.663092061 +0000
+@@ -1,6 +1,6 @@
+-const PIECES_ATLAS = "/bonus-match/atlas/pieces.webp";
+-const OBSTACLES_ATLAS = "/bonus-match/atlas/obstacles.webp";
+-export const PIECE_SHADOW_IMAGE = "/bonus-match/atlas/piece-shadow.webp";
++const ASSET_VERSION = "79";
++const PIECES_ATLAS = `/bonus-match/atlas/pieces-v79.webp?v=${ASSET_VERSION}`;
++const OBSTACLES_ATLAS = `/bonus-match/atlas/obstacles-v79.webp?v=${ASSET_VERSION}`;
+ 
+ const makeSprite = (atlas, index, columns, rows) => {
+   const column = index % columns;
+@@ -27,7 +27,6 @@
+ export const BONUS_MATCH_ARTWORK = Object.freeze([
+   PIECES_ATLAS,
+   OBSTACLES_ATLAS,
+-  PIECE_SHADOW_IMAGE,
+ ]);
+ 
+ let artworkPromise = null;
+@@ -39,16 +38,21 @@
+   image.onload = async () => {
+     try {
+       if (typeof image.decode === "function") await image.decode();
++      resolve({ src, ok: image.naturalWidth > 0 && image.naturalHeight > 0 });
+     } catch (_) {
+-      // onload already guarantees a usable fallback on browsers with flaky decode().
++      resolve({ src, ok: image.naturalWidth > 0 && image.naturalHeight > 0 });
+     }
+-    resolve(image);
+   };
+-  image.onerror = () => resolve(null);
++  image.onerror = () => resolve({ src, ok: false });
+   image.src = src;
+ });
+ 
+ export const preloadBonusMatchArtwork = () => {
+-  if (!artworkPromise) artworkPromise = Promise.all(BONUS_MATCH_ARTWORK.map(decodeImage));
++  if (!artworkPromise) {
++    artworkPromise = Promise.all(BONUS_MATCH_ARTWORK.map(decodeImage)).then((results) => ({
++      ok: results.every((result) => result.ok),
++      results,
++    }));
++  }
+   return artworkPromise;
+ };
+diff -ruN /mnt/data/tm6v78-work/frontend/src/pages/BonusMatch.jsx /mnt/data/tm6v79-work/frontend/src/pages/BonusMatch.jsx
+--- /mnt/data/tm6v78-work/frontend/src/pages/BonusMatch.jsx	2026-07-25 13:19:43.971100559 +0000
++++ /mnt/data/tm6v79-work/frontend/src/pages/BonusMatch.jsx	2026-07-25 13:24:43.491088064 +0000
+@@ -34,7 +34,6 @@
+ import {
+   BONUS_MATCH_OBSTACLE_SPRITES,
+   BONUS_MATCH_PIECE_SPRITES,
+-  PIECE_SHADOW_IMAGE,
+   preloadBonusMatchArtwork,
+ } from "@/lib/bonusMatchAssets";
+ 
+@@ -608,6 +607,7 @@
+   row,
+   col,
+   reducedMotion,
++  artworkFailed = false,
+ }) {
+   const gestureRef = useRef(null);
+   const suppressClickRef = useRef(false);
+@@ -619,6 +619,8 @@
+   const piece = PIECES[cell.symbol] || PIECES.star;
+   const overlayObstacle = Boolean(cell.obstacle && OVERLAY_OBSTACLES.has(cell.obstacle));
+   const SpecialIcon = special?.Icon || null;
++  const PieceIcon = piece?.Icon || Star;
++  const ObstacleIcon = obstacle?.Icon || Shield;
+   const color = obstacle?.color || special?.color || piece.color;
+   const background = "#0A0811";
+   const label = obstacle?.label || special?.label || piece.label;
+@@ -818,14 +820,16 @@
+     >
+       <div className="absolute inset-0 overflow-hidden rounded-[10px] bg-[#0A0811]" />
+       {!obstacle && (
+-        <img
+-          src={PIECE_SHADOW_IMAGE}
+-          alt=""
+-          draggable="false"
+-          className="pointer-events-none absolute bottom-[-4%] left-[7%] z-[1] h-[38%] w-[86%] select-none object-fill opacity-75"
++        <div
++          aria-hidden="true"
++          className="pointer-events-none absolute bottom-[2%] left-[8%] z-[1] h-[24%] w-[84%] select-none rounded-[50%] opacity-70"
++          style={{
++            background: "radial-gradient(ellipse at center, rgba(0,0,0,.72) 0%, rgba(0,0,0,.38) 48%, rgba(0,0,0,0) 76%)",
++            transform: "translateZ(0)",
++          }}
+         />
+       )}
+-      {!obstacle && piece.sprite && (
++      {!obstacle && piece.sprite && !artworkFailed && (
+         <motion.div
+           aria-hidden="true"
+           className="pointer-events-none absolute inset-[1%] z-[2] select-none"
+@@ -840,7 +844,15 @@
+           }
+         />
+       )}
+-      {overlayObstacle && piece.sprite && (
++      {!obstacle && artworkFailed && (
++        <PieceIcon
++          aria-hidden="true"
++          className="pointer-events-none absolute inset-[18%] z-[2] h-[64%] w-[64%]"
++          color={piece.color}
++          strokeWidth={2.4}
++        />
++      )}
++      {overlayObstacle && piece.sprite && !artworkFailed && (
+         <motion.div
+           aria-hidden="true"
+           className="pointer-events-none absolute inset-[9%] z-[2] select-none"
+@@ -849,7 +861,7 @@
+           transition={impact ? { duration: 0.42 * pieceTempo } : hinted ? { duration: 0.78, repeat: Infinity } : { duration: 0.2 }}
+         />
+       )}
+-      {obstacle?.sprite && (
++      {obstacle?.sprite && !artworkFailed && (
+         <motion.div
+           key={`${cell.id}-${impact?.token || "steady"}`}
+           aria-hidden="true"
+@@ -859,6 +871,14 @@
+           transition={impactTransition}
+         />
+       )}
++      {obstacle && artworkFailed && (
++        <ObstacleIcon
++          aria-hidden="true"
++          className={`pointer-events-none absolute z-[3] ${overlayObstacle ? "inset-[20%]" : "inset-[14%]"} h-auto w-auto`}
++          color={obstacle.color}
++          strokeWidth={2.3}
++        />
++      )}
+       <div
+         className="pointer-events-none absolute inset-[3%] z-[4] rounded-[12%]"
+         style={{
+@@ -1018,6 +1038,7 @@
+     && previous.celebrating === next.celebrating
+     && previous.swipeEnabled === next.swipeEnabled
+     && previous.reducedMotion === next.reducedMotion
++    && previous.artworkFailed === next.artworkFailed
+     && (!motionSensitive || (
+       previous.cascadeDurationMs === next.cascadeDurationMs
+       && previous.removeDelay === next.removeDelay
+@@ -1046,6 +1067,7 @@
+   activatedIds,
+   obstacleImpacts,
+   reducedMotion,
++  artworkFailed,
+   onPieceClick,
+   onPieceSwipe,
+ }) {
+@@ -1077,6 +1099,7 @@
+               impact={obstacleImpacts.get(cell.id)}
+               removeDelay={(row + col) * Math.max(0.005, Math.min(0.012, cascadeDurationMs / 30000))}
+               reducedMotion={reducedMotion}
++              artworkFailed={artworkFailed}
+               swipeEnabled={!moving && !activeBooster && gameStatus === "active" && !cell.obstacle}
+               onSwipe={onPieceSwipe}
+               onClick={onPieceClick}
+@@ -1785,6 +1808,7 @@
+   const [result, setResult] = useState(null);
+   const [loading, setLoading] = useState(true);
+   const [artworkReady, setArtworkReady] = useState(false);
++  const [artworkFailed, setArtworkFailed] = useState(false);
+   const [moving, setMoving] = useState(false);
+   const [shakingIds, setShakingIds] = useState(new Set());
+   const [removingIds, setRemovingIds] = useState(new Set());
+@@ -1833,9 +1857,17 @@
+ 
+   useEffect(() => {
+     let mounted = true;
+-    preloadBonusMatchArtwork().finally(() => {
+-      if (mounted) setArtworkReady(true);
+-    });
++    preloadBonusMatchArtwork()
++      .then((result) => {
++        if (!mounted) return;
++        setArtworkFailed(!result?.ok);
++        setArtworkReady(true);
++      })
++      .catch(() => {
++        if (!mounted) return;
++        setArtworkFailed(true);
++        setArtworkReady(true);
++      });
+     return () => {
+       mounted = false;
+     };
+@@ -2753,7 +2785,7 @@
+ 
+             <motion.div
+               ref={boardRef}
+-              className="relative mt-3 rounded-[22px] border border-[#7C3AED]/55 bg-[#090711] p-1.5 shadow-[inset_0_0_30px_rgba(124,58,237,.12)]"
++              className="relative isolate mt-3 overflow-hidden rounded-[22px] border border-[#7C3AED]/55 bg-[#090711] p-1.5 shadow-[inset_0_0_30px_rgba(124,58,237,.12)]"
+               animate={boardMotionForFx(boardFx, reducedMotion)}
+               transition={{
+                 duration: boardFx === "won"
+@@ -2793,6 +2825,7 @@
+                 activatedIds={activatedIds}
+                 obstacleImpacts={obstacleImpacts}
+                 reducedMotion={reducedMotion}
++                artworkFailed={artworkFailed}
+                 onPieceClick={dispatchPieceClick}
+                 onPieceSwipe={dispatchPieceSwipe}
+               />

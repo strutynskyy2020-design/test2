@@ -1,6 +1,6 @@
-const PIECES_ATLAS = "/bonus-match/atlas/pieces.webp";
-const OBSTACLES_ATLAS = "/bonus-match/atlas/obstacles.webp";
-export const PIECE_SHADOW_IMAGE = "/bonus-match/atlas/piece-shadow.webp";
+const ASSET_VERSION = "79";
+const PIECES_ATLAS = `/bonus-match/atlas/pieces-v79.webp?v=${ASSET_VERSION}`;
+const OBSTACLES_ATLAS = `/bonus-match/atlas/obstacles-v79.webp?v=${ASSET_VERSION}`;
 
 const makeSprite = (atlas, index, columns, rows) => {
   const column = index % columns;
@@ -27,7 +27,6 @@ export const BONUS_MATCH_OBSTACLE_SPRITES = Object.freeze(
 export const BONUS_MATCH_ARTWORK = Object.freeze([
   PIECES_ATLAS,
   OBSTACLES_ATLAS,
-  PIECE_SHADOW_IMAGE,
 ]);
 
 let artworkPromise = null;
@@ -39,16 +38,21 @@ const decodeImage = (src) => new Promise((resolve) => {
   image.onload = async () => {
     try {
       if (typeof image.decode === "function") await image.decode();
+      resolve({ src, ok: image.naturalWidth > 0 && image.naturalHeight > 0 });
     } catch (_) {
-      // onload already guarantees a usable fallback on browsers with flaky decode().
+      resolve({ src, ok: image.naturalWidth > 0 && image.naturalHeight > 0 });
     }
-    resolve(image);
   };
-  image.onerror = () => resolve(null);
+  image.onerror = () => resolve({ src, ok: false });
   image.src = src;
 });
 
 export const preloadBonusMatchArtwork = () => {
-  if (!artworkPromise) artworkPromise = Promise.all(BONUS_MATCH_ARTWORK.map(decodeImage));
+  if (!artworkPromise) {
+    artworkPromise = Promise.all(BONUS_MATCH_ARTWORK.map(decodeImage)).then((results) => ({
+      ok: results.every((result) => result.ok),
+      results,
+    }));
+  }
   return artworkPromise;
 };

@@ -34,7 +34,6 @@ import AvatarFrame from "@/components/AvatarFrame";
 import {
   BONUS_MATCH_OBSTACLE_SPRITES,
   BONUS_MATCH_PIECE_SPRITES,
-  PIECE_SHADOW_IMAGE,
   preloadBonusMatchArtwork,
 } from "@/lib/bonusMatchAssets";
 
@@ -608,6 +607,7 @@ function Piece({
   row,
   col,
   reducedMotion,
+  artworkFailed = false,
 }) {
   const gestureRef = useRef(null);
   const suppressClickRef = useRef(false);
@@ -619,6 +619,8 @@ function Piece({
   const piece = PIECES[cell.symbol] || PIECES.star;
   const overlayObstacle = Boolean(cell.obstacle && OVERLAY_OBSTACLES.has(cell.obstacle));
   const SpecialIcon = special?.Icon || null;
+  const PieceIcon = piece?.Icon || Star;
+  const ObstacleIcon = obstacle?.Icon || Shield;
   const color = obstacle?.color || special?.color || piece.color;
   const background = "#0A0811";
   const label = obstacle?.label || special?.label || piece.label;
@@ -818,14 +820,16 @@ function Piece({
     >
       <div className="absolute inset-0 overflow-hidden rounded-[10px] bg-[#0A0811]" />
       {!obstacle && (
-        <img
-          src={PIECE_SHADOW_IMAGE}
-          alt=""
-          draggable="false"
-          className="pointer-events-none absolute bottom-[-4%] left-[7%] z-[1] h-[38%] w-[86%] select-none object-fill opacity-75"
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute bottom-[2%] left-[8%] z-[1] h-[24%] w-[84%] select-none rounded-[50%] opacity-70"
+          style={{
+            background: "radial-gradient(ellipse at center, rgba(0,0,0,.72) 0%, rgba(0,0,0,.38) 48%, rgba(0,0,0,0) 76%)",
+            transform: "translateZ(0)",
+          }}
         />
       )}
-      {!obstacle && piece.sprite && (
+      {!obstacle && piece.sprite && !artworkFailed && (
         <motion.div
           aria-hidden="true"
           className="pointer-events-none absolute inset-[1%] z-[2] select-none"
@@ -840,7 +844,15 @@ function Piece({
           }
         />
       )}
-      {overlayObstacle && piece.sprite && (
+      {!obstacle && artworkFailed && (
+        <PieceIcon
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-[18%] z-[2] h-[64%] w-[64%]"
+          color={piece.color}
+          strokeWidth={2.4}
+        />
+      )}
+      {overlayObstacle && piece.sprite && !artworkFailed && (
         <motion.div
           aria-hidden="true"
           className="pointer-events-none absolute inset-[9%] z-[2] select-none"
@@ -849,7 +861,7 @@ function Piece({
           transition={impact ? { duration: 0.42 * pieceTempo } : hinted ? { duration: 0.78, repeat: Infinity } : { duration: 0.2 }}
         />
       )}
-      {obstacle?.sprite && (
+      {obstacle?.sprite && !artworkFailed && (
         <motion.div
           key={`${cell.id}-${impact?.token || "steady"}`}
           aria-hidden="true"
@@ -857,6 +869,14 @@ function Piece({
           style={{ ...obstacle.sprite, ...(overlayObstacle && cell.obstacle === "web" ? { mixBlendMode: "screen" } : {}) }}
           animate={impactMotion}
           transition={impactTransition}
+        />
+      )}
+      {obstacle && artworkFailed && (
+        <ObstacleIcon
+          aria-hidden="true"
+          className={`pointer-events-none absolute z-[3] ${overlayObstacle ? "inset-[20%]" : "inset-[14%]"} h-auto w-auto`}
+          color={obstacle.color}
+          strokeWidth={2.3}
         />
       )}
       <div
@@ -1018,6 +1038,7 @@ const arePiecePropsEqual = (previous, next) => {
     && previous.celebrating === next.celebrating
     && previous.swipeEnabled === next.swipeEnabled
     && previous.reducedMotion === next.reducedMotion
+    && previous.artworkFailed === next.artworkFailed
     && (!motionSensitive || (
       previous.cascadeDurationMs === next.cascadeDurationMs
       && previous.removeDelay === next.removeDelay
@@ -1046,6 +1067,7 @@ const BoardPiecesLayer = memo(function BoardPiecesLayer({
   activatedIds,
   obstacleImpacts,
   reducedMotion,
+  artworkFailed,
   onPieceClick,
   onPieceSwipe,
 }) {
@@ -1077,6 +1099,7 @@ const BoardPiecesLayer = memo(function BoardPiecesLayer({
               impact={obstacleImpacts.get(cell.id)}
               removeDelay={(row + col) * Math.max(0.005, Math.min(0.012, cascadeDurationMs / 30000))}
               reducedMotion={reducedMotion}
+              artworkFailed={artworkFailed}
               swipeEnabled={!moving && !activeBooster && gameStatus === "active" && !cell.obstacle}
               onSwipe={onPieceSwipe}
               onClick={onPieceClick}
@@ -1785,6 +1808,7 @@ export default function BonusMatch() {
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(true);
   const [artworkReady, setArtworkReady] = useState(false);
+  const [artworkFailed, setArtworkFailed] = useState(false);
   const [moving, setMoving] = useState(false);
   const [shakingIds, setShakingIds] = useState(new Set());
   const [removingIds, setRemovingIds] = useState(new Set());
@@ -1833,9 +1857,17 @@ export default function BonusMatch() {
 
   useEffect(() => {
     let mounted = true;
-    preloadBonusMatchArtwork().finally(() => {
-      if (mounted) setArtworkReady(true);
-    });
+    preloadBonusMatchArtwork()
+      .then((result) => {
+        if (!mounted) return;
+        setArtworkFailed(!result?.ok);
+        setArtworkReady(true);
+      })
+      .catch(() => {
+        if (!mounted) return;
+        setArtworkFailed(true);
+        setArtworkReady(true);
+      });
     return () => {
       mounted = false;
     };
@@ -2753,7 +2785,7 @@ export default function BonusMatch() {
 
             <motion.div
               ref={boardRef}
-              className="relative mt-3 rounded-[22px] border border-[#7C3AED]/55 bg-[#090711] p-1.5 shadow-[inset_0_0_30px_rgba(124,58,237,.12)]"
+              className="relative isolate mt-3 overflow-hidden rounded-[22px] border border-[#7C3AED]/55 bg-[#090711] p-1.5 shadow-[inset_0_0_30px_rgba(124,58,237,.12)]"
               animate={boardMotionForFx(boardFx, reducedMotion)}
               transition={{
                 duration: boardFx === "won"
@@ -2793,6 +2825,7 @@ export default function BonusMatch() {
                 activatedIds={activatedIds}
                 obstacleImpacts={obstacleImpacts}
                 reducedMotion={reducedMotion}
+                artworkFailed={artworkFailed}
                 onPieceClick={dispatchPieceClick}
                 onPieceSwipe={dispatchPieceSwipe}
               />
