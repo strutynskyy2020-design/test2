@@ -1874,6 +1874,20 @@ export default function BonusMatch() {
   }, []);
 
   useEffect(() => {
+    const board = boardRef.current;
+    if (!board || typeof MutationObserver === "undefined") return undefined;
+
+    const removeUnexpectedReplacedElements = () => {
+      board.querySelectorAll("img, picture, object, embed, iframe").forEach((node) => node.remove());
+    };
+
+    removeUnexpectedReplacedElements();
+    const observer = new MutationObserver(removeUnexpectedReplacedElements);
+    observer.observe(board, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, [game?.id, game?.status]);
+
+  useEffect(() => {
     setHintMove(null);
     if (!game || game.status !== "active" || moving || selected || activeBooster || celebrating) return undefined;
     const timer = window.setTimeout(() => {
@@ -2785,7 +2799,7 @@ export default function BonusMatch() {
 
             <motion.div
               ref={boardRef}
-              className="relative isolate mt-3 overflow-hidden rounded-[22px] border border-[#7C3AED]/55 bg-[#090711] p-1.5 shadow-[inset_0_0_30px_rgba(124,58,237,.12)]"
+              className="bonus-match-board relative isolate mt-3 overflow-hidden rounded-[22px] border border-[#7C3AED]/55 bg-[#090711] p-1.5 shadow-[inset_0_0_30px_rgba(124,58,237,.12)]"
               animate={boardMotionForFx(boardFx, reducedMotion)}
               transition={{
                 duration: boardFx === "won"

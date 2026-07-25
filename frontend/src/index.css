@@ -267,3 +267,28 @@ body {
 @keyframes cube-platform-burst { 0%,100% { transform:translate(-50%,-50%) scale(1); opacity:1; } 30% { transform:translate(-50%,-50%) scale(1.8); opacity:.45; } 70% { transform:translate(-50%,-50%) scale(.75); opacity:.85; } }
 @media (max-width:420px) { .generous-cube-meta-grid { grid-template-columns:1fr; } .generous-cube-stage { height:306px; perspective:940px; } .generous-cube-flight { --cube-size:142px; } .generous-cube-grid { grid-template-columns:repeat(3,18px); grid-template-rows:repeat(3,18px); gap:11px; } .generous-cube-dot { width:16px; height:16px; } }
 @media (prefers-reduced-motion:reduce) { .generous-cube-energy,.generous-cube-aura,.generous-cube-platform span,.generous-cube-shadow { animation:none!important; } }
+
+/* Bonus Match v80 production safety guard.
+   The board is sprite/CSS/canvas-only; replaced media nodes are never legitimate here. */
+.bonus-match-board > img,
+.bonus-match-board img,
+.bonus-match-board picture,
+.bonus-match-board object,
+.bonus-match-board embed,
+.bonus-match-board iframe {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  max-width: 0 !important;
+  max-height: 0 !important;
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+.bonus-match-board canvas {
+  display: block;
+  background: transparent !important;
+}

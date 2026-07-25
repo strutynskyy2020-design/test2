@@ -1,0 +1,581 @@
+diff -ruN /mnt/data/tm6v79-work/BONUS_MATCH_PRODUCTION_OVERLAY_FIX_V80.md /mnt/data/tm6v80-work/BONUS_MATCH_PRODUCTION_OVERLAY_FIX_V80.md
+--- /mnt/data/tm6v79-work/BONUS_MATCH_PRODUCTION_OVERLAY_FIX_V80.md	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/tm6v80-work/BONUS_MATCH_PRODUCTION_OVERLAY_FIX_V80.md	2026-07-25 13:52:47.743017801 +0000
+@@ -0,0 +1,38 @@
++# TM6 Bonus v80 — Production overlay fix
++
++## Root cause
++
++The white square was not produced by the match-3 board renderer. The production HTML unconditionally loaded:
++
++`https://assets.emergent.sh/scripts/emergent-main.js`
++
++That visual-edit runtime can inject replaced media nodes over frequently changing UI. The Bonus Match board changes its DOM several times during a cascade, so the injected preview image could lose its source and remain as a large broken-image placeholder clipped by the board.
++
++The accidental `frontend/public/public/` copy also contained another production HTML file with the same visual-edit script.
++
++## Changes
++
++- Removed the visual-edit runtime from production `public/index.html`.
++- Removed the accidental nested `frontend/public/public/` directory.
++- Added the `bonus-match-board` production guard class.
++- Added a board-scoped `MutationObserver` that removes unexpected `img`, `picture`, `object`, `embed`, and `iframe` nodes.
++- Added CSS safety rules that prevent replaced media from covering the board.
++- Canvas remains explicitly transparent.
++- Renamed the atlases to `pieces-v80.webp` and `obstacles-v80.webp`.
++- Updated preload URLs, asset module and Service Worker precache.
++- Bumped Service Worker registration and cache to v80.
++- Added Netlify `_headers` rules so `index.html` and `service-worker.js` are never served from a stale HTTP cache while versioned atlases and static bundles remain immutable.
++
++## Deployment
++
++Deploy the complete `frontend` directory. Backend changes are not required.
++
++After deployment, reload the page once. The v80 Service Worker activates immediately, removes old caches and reloads the open app on `controllerchange`.
++
++## Validation
++
++- JSX and JavaScript parsed through TypeScript transpilation.
++- Service Worker passed `node --check`.
++- Both WebP atlases passed Pillow verification.
++- No production `script src` references the visual-edit runtime.
++- No `img` element is used by the Bonus Match board renderer.
+diff -ruN /mnt/data/tm6v79-work/BONUS_MATCH_PRODUCTION_OVERLAY_FIX_V80.patch /mnt/data/tm6v80-work/BONUS_MATCH_PRODUCTION_OVERLAY_FIX_V80.patch
+--- /mnt/data/tm6v79-work/BONUS_MATCH_PRODUCTION_OVERLAY_FIX_V80.patch	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/tm6v80-work/BONUS_MATCH_PRODUCTION_OVERLAY_FIX_V80.patch	2026-07-25 13:52:47.747017801 +0000
+@@ -0,0 +1,42 @@
++diff -ruN /mnt/data/tm6v79-work/BONUS_MATCH_PRODUCTION_OVERLAY_FIX_V80.md /mnt/data/tm6v80-work/BONUS_MATCH_PRODUCTION_OVERLAY_FIX_V80.md
++--- /mnt/data/tm6v79-work/BONUS_MATCH_PRODUCTION_OVERLAY_FIX_V80.md	1970-01-01 00:00:00.000000000 +0000
+++++ /mnt/data/tm6v80-work/BONUS_MATCH_PRODUCTION_OVERLAY_FIX_V80.md	2026-07-25 13:52:47.743017801 +0000
++@@ -0,0 +1,38 @@
+++# TM6 Bonus v80 — Production overlay fix
+++
+++## Root cause
+++
+++The white square was not produced by the match-3 board renderer. The production HTML unconditionally loaded:
+++
+++`https://assets.emergent.sh/scripts/emergent-main.js`
+++
+++That visual-edit runtime can inject replaced media nodes over frequently changing UI. The Bonus Match board changes its DOM several times during a cascade, so the injected preview image could lose its source and remain as a large broken-image placeholder clipped by the board.
+++
+++The accidental `frontend/public/public/` copy also contained another production HTML file with the same visual-edit script.
+++
+++## Changes
+++
+++- Removed the visual-edit runtime from production `public/index.html`.
+++- Removed the accidental nested `frontend/public/public/` directory.
+++- Added the `bonus-match-board` production guard class.
+++- Added a board-scoped `MutationObserver` that removes unexpected `img`, `picture`, `object`, `embed`, and `iframe` nodes.
+++- Added CSS safety rules that prevent replaced media from covering the board.
+++- Canvas remains explicitly transparent.
+++- Renamed the atlases to `pieces-v80.webp` and `obstacles-v80.webp`.
+++- Updated preload URLs, asset module and Service Worker precache.
+++- Bumped Service Worker registration and cache to v80.
+++- Added Netlify `_headers` rules so `index.html` and `service-worker.js` are never served from a stale HTTP cache while versioned atlases and static bundles remain immutable.
+++
+++## Deployment
+++
+++Deploy the complete `frontend` directory. Backend changes are not required.
+++
+++After deployment, reload the page once. The v80 Service Worker activates immediately, removes old caches and reloads the open app on `controllerchange`.
+++
+++## Validation
+++
+++- JSX and JavaScript parsed through TypeScript transpilation.
+++- Service Worker passed `node --check`.
+++- Both WebP atlases passed Pillow verification.
+++- No production `script src` references the visual-edit runtime.
+++- No `img` element is used by the Bonus Match board renderer.
+diff -ruN /mnt/data/tm6v79-work/frontend/public/_headers /mnt/data/tm6v80-work/frontend/public/_headers
+--- /mnt/data/tm6v79-work/frontend/public/_headers	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/tm6v80-work/frontend/public/_headers	2026-07-25 13:50:41.643023061 +0000
+@@ -0,0 +1,10 @@
++/service-worker.js
++  Cache-Control: no-cache, no-store, must-revalidate
++/index.html
++  Cache-Control: no-cache, no-store, must-revalidate
++/
++  Cache-Control: no-cache, no-store, must-revalidate
++/bonus-match/atlas/*
++  Cache-Control: public, max-age=31536000, immutable
++/static/*
++  Cache-Control: public, max-age=31536000, immutable
+Binary files /mnt/data/tm6v79-work/frontend/public/bonus-match/atlas/obstacles-v79.webp and /mnt/data/tm6v80-work/frontend/public/bonus-match/atlas/obstacles-v79.webp differ
+Binary files /mnt/data/tm6v79-work/frontend/public/bonus-match/atlas/obstacles-v80.webp and /mnt/data/tm6v80-work/frontend/public/bonus-match/atlas/obstacles-v80.webp differ
+Binary files /mnt/data/tm6v79-work/frontend/public/bonus-match/atlas/pieces-v79.webp and /mnt/data/tm6v80-work/frontend/public/bonus-match/atlas/pieces-v79.webp differ
+Binary files /mnt/data/tm6v79-work/frontend/public/bonus-match/atlas/pieces-v80.webp and /mnt/data/tm6v80-work/frontend/public/bonus-match/atlas/pieces-v80.webp differ
+diff -ruN /mnt/data/tm6v79-work/frontend/public/index.html /mnt/data/tm6v80-work/frontend/public/index.html
+--- /mnt/data/tm6v79-work/frontend/public/index.html	2026-07-25 13:25:33.103085994 +0000
++++ /mnt/data/tm6v80-work/frontend/public/index.html	2026-07-25 13:50:41.639023062 +0000
+@@ -12,8 +12,8 @@
+         <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+ 
+         <!-- Warm the Bonus Match cache after the app shell; the game itself awaits image.decode(). -->
+-        <link rel="prefetch" as="image" type="image/webp" href="/bonus-match/atlas/pieces-v79.webp?v=79" />
+-        <link rel="prefetch" as="image" type="image/webp" href="/bonus-match/atlas/obstacles-v79.webp?v=79" />
++        <link rel="prefetch" as="image" type="image/webp" href="/bonus-match/atlas/pieces-v80.webp?v=80" />
++        <link rel="prefetch" as="image" type="image/webp" href="/bonus-match/atlas/obstacles-v80.webp?v=80" />
+ 
+         <!-- iOS PWA meta -->
+         <meta name="apple-mobile-web-app-capable" content="yes" />
+@@ -30,8 +30,14 @@
+         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@600&display=swap" rel="stylesheet" />
+ 
+         <title>TM6 Bonus</title>
++        <script>
++            window.__TM6_PRODUCTION_UI__ = true;
++            // v80: visual-edit overlays must never be mounted in the production game.
++            document.addEventListener("DOMContentLoaded", function () {
++                document.querySelectorAll('script[src*="emergent-main"], script[src*="visual-edits"]').forEach(function (node) { node.remove(); });
++            });
++        </script>
+         <script>window.addEventListener("error",function(e){if(e.error instanceof DOMException&&e.error.name==="DataCloneError"&&e.message&&e.message.includes("PerformanceServerTiming")){e.stopImmediatePropagation();e.preventDefault()}},true);</script>
+-        <script defer src="https://assets.emergent.sh/scripts/emergent-main.js"></script>
+     </head>
+     <body>
+         <noscript>You need to enable JavaScript to run this app.</noscript>
+Binary files /mnt/data/tm6v79-work/frontend/public/public/apple-touch-icon.png and /mnt/data/tm6v80-work/frontend/public/public/apple-touch-icon.png differ
+Binary files /mnt/data/tm6v79-work/frontend/public/public/favicon-64.png and /mnt/data/tm6v80-work/frontend/public/public/favicon-64.png differ
+Binary files /mnt/data/tm6v79-work/frontend/public/public/icon-192.png and /mnt/data/tm6v80-work/frontend/public/public/icon-192.png differ
+Binary files /mnt/data/tm6v79-work/frontend/public/public/icon-512.png and /mnt/data/tm6v80-work/frontend/public/public/icon-512.png differ
+Binary files /mnt/data/tm6v79-work/frontend/public/public/icon-maskable-512.png and /mnt/data/tm6v80-work/frontend/public/public/icon-maskable-512.png differ
+diff -ruN /mnt/data/tm6v79-work/frontend/public/public/index.html /mnt/data/tm6v80-work/frontend/public/public/index.html
+--- /mnt/data/tm6v79-work/frontend/public/public/index.html	2026-07-15 17:02:58.000000000 +0000
++++ /mnt/data/tm6v80-work/frontend/public/public/index.html	1970-01-01 00:00:00.000000000 +0000
+@@ -1,117 +0,0 @@
+-<!doctype html>
+-<html lang="uk">
+-    <head>
+-        <meta charset="utf-8" />
+-        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+-        <meta name="theme-color" content="#0A0A0A" />
+-        <meta name="description" content="TM6 Bonus — мотивація, розвиток і AI-тренування операторів." />
+-
+-        <!-- PWA -->
+-        <link rel="manifest" href="/manifest.json" />
+-        <link rel="icon" type="image/png" sizes="64x64" href="/favicon-64.png" />
+-        <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+-
+-        <!-- iOS PWA meta -->
+-        <meta name="apple-mobile-web-app-capable" content="yes" />
+-        <meta name="mobile-web-app-capable" content="yes" />
+-        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+-        <meta name="apple-mobile-web-app-title" content="TM6 Bonus" />
+-
+-        <!-- iOS Splash screens -->
+-        <link rel="apple-touch-startup-image" href="/splash-750x1334.png" media="(device-width: 375px) and (device-height: 667px)" />
+-        <link rel="apple-touch-startup-image" href="/splash-1125x2436.png" media="(device-width: 375px) and (device-height: 812px) and (-webkit-device-pixel-ratio: 3)" />
+-
+-        <link rel="preconnect" href="https://fonts.googleapis.com" />
+-        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+-        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@600&display=swap" rel="stylesheet" />
+-
+-        <title>TM6 Bonus</title>
+-        <script>window.addEventListener("error",function(e){if(e.error instanceof DOMException&&e.error.name==="DataCloneError"&&e.message&&e.message.includes("PerformanceServerTiming")){e.stopImmediatePropagation();e.preventDefault()}},true);</script>
+-        <script src="https://assets.emergent.sh/scripts/emergent-main.js"></script>
+-    </head>
+-    <body>
+-        <noscript>You need to enable JavaScript to run this app.</noscript>
+-        <div id="root"></div>
+-        <!--
+-      This HTML file is a template.
+-      If you open it directly in the browser, you will see an empty page.
+-
+-      You can add webfonts, meta tags, or analytics to this file.
+-      The build step will place the bundled scripts into the <body> tag.
+-
+-      To begin the development, run `npm start` or `yarn start`.
+-      To create a production bundle, use `npm run build` or `yarn build`.
+-    -->
+-<script>
+-            !(function (t, e) {
+-                var o, n, p, r;
+-                e.__SV ||
+-                    ((window.posthog = e),
+-                    (e._i = []),
+-                    (e.init = function (i, s, a) {
+-                        function g(t, e) {
+-                            var o = e.split(".");
+-                            2 == o.length && ((t = t[o[0]]), (e = o[1])),
+-                                (t[e] = function () {
+-                                    t.push(
+-                                        [e].concat(
+-                                            Array.prototype.slice.call(
+-                                                arguments,
+-                                                0,
+-                                            ),
+-                                        ),
+-                                    );
+-                                });
+-                        }
+-                        ((p = t.createElement("script")).type =
+-                            "text/javascript"),
+-                            (p.crossOrigin = "anonymous"),
+-                            (p.async = !0),
+-                            (p.src =
+-                                s.api_host.replace(
+-                                    ".i.posthog.com",
+-                                    "-assets.i.posthog.com",
+-                                ) + "/static/array.js"),
+-                            (r =
+-                                t.getElementsByTagName(
+-                                    "script",
+-                                )[0]).parentNode.insertBefore(p, r);
+-                        var u = e;
+-                        for (
+-                            void 0 !== a ? (u = e[a] = []) : (a = "posthog"),
+-                                u.people = u.people || [],
+-                                u.toString = function (t) {
+-                                    var e = "posthog";
+-                                    return (
+-                                        "posthog" !== a && (e += "." + a),
+-                                        t || (e += " (stub)"),
+-                                        e
+-                                    );
+-                                },
+-                                u.people.toString = function () {
+-                                    return u.toString(1) + ".people (stub)";
+-                                },
+-                                o =
+-                                    "init me ws ys ps bs capture je Di ks register register_once register_for_session unregister unregister_for_session Ps getFeatureFlag getFeatureFlagPayload isFeatureEnabled reloadFeatureFlags updateEarlyAccessFeatureEnrollment getEarlyAccessFeatures on onFeatureFlags onSurveysLoaded onSessionId getSurveys getActiveMatchingSurveys renderSurvey canRenderSurvey canRenderSurveyAsync identify setPersonProperties group resetGroups setPersonPropertiesForFlags resetPersonPropertiesForFlags setGroupPropertiesForFlags resetGroupPropertiesForFlags reset get_distinct_id getGroups get_session_id get_session_replay_url alias set_config startSessionRecording stopSessionRecording sessionRecordingStarted captureException loadToolbar get_property getSessionProperty Es $s createPersonProfile Is opt_in_capturing opt_out_capturing has_opted_in_capturing has_opted_out_capturing clear_opt_in_out_capturing Ss debug xs getPageViewId captureTraceFeedback captureTraceMetric".split(
+-                                        " ",
+-                                    ),
+-                                n = 0;
+-                            n < o.length;
+-                            n++
+-                        )
+-                            g(u, o[n]);
+-                        e._i.push([i, s, a]);
+-                    }),
+-                    (e.__SV = 1));
+-            })(document, window.posthog || []);
+-            posthog.init("phc_xAvL2Iq4tFmANRE7kzbKwaSqp1HJjN7x48s3vr0CMjs", {
+-                api_host: "https://us.i.posthog.com",
+-                person_profiles: "identified_only", // or 'always' to create profiles for anonymous users as well,
+-                session_recording: {
+-                    recordCrossOriginIframes: true,
+-                    capturePerformance: false,
+-                },
+-            });
+-        </script>
+-    </body>
+-</html>
+diff -ruN /mnt/data/tm6v79-work/frontend/public/public/manifest.json /mnt/data/tm6v80-work/frontend/public/public/manifest.json
+--- /mnt/data/tm6v79-work/frontend/public/public/manifest.json	2026-07-15 17:02:58.000000000 +0000
++++ /mnt/data/tm6v80-work/frontend/public/public/manifest.json	1970-01-01 00:00:00.000000000 +0000
+@@ -1,79 +0,0 @@
+-{
+-  "name": "TM6 Bonus",
+-  "short_name": "TM6 Bonus",
+-  "description": "TM6 Bonus — мотивація, розвиток і AI-тренування операторів.",
+-  "start_url": "/",
+-  "scope": "/",
+-  "display": "standalone",
+-  "orientation": "portrait",
+-  "background_color": "#0A0A0A",
+-  "theme_color": "#0A0A0A",
+-  "lang": "uk",
+-  "dir": "ltr",
+-  "categories": [
+-    "business",
+-    "productivity",
+-    "games"
+-  ],
+-  "icons": [
+-    {
+-      "src": "/icon-192.png",
+-      "sizes": "192x192",
+-      "type": "image/png",
+-      "purpose": "any"
+-    },
+-    {
+-      "src": "/icon-512.png",
+-      "sizes": "512x512",
+-      "type": "image/png",
+-      "purpose": "any"
+-    },
+-    {
+-      "src": "/icon-maskable-512.png",
+-      "sizes": "512x512",
+-      "type": "image/png",
+-      "purpose": "maskable"
+-    },
+-    {
+-      "src": "/apple-touch-icon.png",
+-      "sizes": "180x180",
+-      "type": "image/png",
+-      "purpose": "any"
+-    }
+-  ],
+-  "shortcuts": [
+-    {
+-      "name": "Квести",
+-      "short_name": "Квести",
+-      "url": "/quests",
+-      "icons": [
+-        {
+-          "src": "/icon-192.png",
+-          "sizes": "192x192"
+-        }
+-      ]
+-    },
+-    {
+-      "name": "Магазин",
+-      "short_name": "Магазин",
+-      "url": "/store",
+-      "icons": [
+-        {
+-          "src": "/icon-192.png",
+-          "sizes": "192x192"
+-        }
+-      ]
+-    },
+-    {
+-      "name": "Лідерборд",
+-      "short_name": "Рейтинг",
+-      "url": "/leaderboard",
+-      "icons": [
+-        {
+-          "src": "/icon-192.png",
+-          "sizes": "192x192"
+-        }
+-      ]
+-    }
+-  ]
+-}
+\ No newline at end of file
+diff -ruN /mnt/data/tm6v79-work/frontend/public/public/service-worker.js /mnt/data/tm6v80-work/frontend/public/public/service-worker.js
+--- /mnt/data/tm6v79-work/frontend/public/public/service-worker.js	2026-07-17 14:33:15.000000000 +0000
++++ /mnt/data/tm6v80-work/frontend/public/public/service-worker.js	1970-01-01 00:00:00.000000000 +0000
+@@ -1,113 +0,0 @@
+-/* TM6 Bonus — Service Worker
+- * Dynamic data is always network-only.
+- * App shell uses network-first so new deployments replace old PWA files promptly.
+- */
+-const VERSION = "tm6-v30";
+-const STATIC_CACHE = `${VERSION}-static`;
+-const RUNTIME_CACHE = `${VERSION}-runtime`;
+-
+-const PRECACHE_URLS = [
+-  "/manifest.json",
+-  "/icon-192.png",
+-  "/icon-512.png",
+-  "/apple-touch-icon.png",
+-];
+-
+-self.addEventListener("install", (event) => {
+-  event.waitUntil(
+-    caches
+-      .open(STATIC_CACHE)
+-      .then((cache) => cache.addAll(PRECACHE_URLS))
+-      .then(() => self.skipWaiting())
+-  );
+-});
+-
+-self.addEventListener("activate", (event) => {
+-  event.waitUntil(
+-    caches
+-      .keys()
+-      .then((keys) =>
+-        Promise.all(
+-          keys
+-            .filter((key) => key !== STATIC_CACHE && key !== RUNTIME_CACHE)
+-            .map((key) => caches.delete(key))
+-        )
+-      )
+-      .then(() => self.clients.claim())
+-  );
+-});
+-
+-const offlineJson = () =>
+-  new Response(JSON.stringify({ success: false, error: "offline" }), {
+-    status: 503,
+-    headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+-  });
+-
+-self.addEventListener("fetch", (event) => {
+-  const request = event.request;
+-  if (request.method !== "GET") return;
+-
+-  const url = new URL(request.url);
+-  const isSameOrigin = url.origin === self.location.origin;
+-  const isDynamicRequest =
+-    url.pathname.startsWith("/api/") ||
+-    url.pathname.startsWith("/.netlify/functions/");
+-
+-  // Never cache goals, authentication, API, or Netlify Function responses.
+-  if (isDynamicRequest) {
+-    event.respondWith(
+-      fetch(request, { cache: "no-store" }).catch(() => offlineJson())
+-    );
+-    return;
+-  }
+-
+-  // Navigation: always ask the network first so fresh deployments appear without hard refresh.
+-  if (request.mode === "navigate") {
+-    event.respondWith(
+-      fetch(request, { cache: "no-store" })
+-        .then((response) => {
+-          if (response.ok) {
+-            const copy = response.clone();
+-            caches.open(RUNTIME_CACHE).then((cache) => cache.put("/", copy));
+-          }
+-          return response;
+-        })
+-        .catch(() => caches.match("/"))
+-    );
+-    return;
+-  }
+-
+-  // Hashed JS/CSS: network first, cached copy only as an offline fallback.
+-  if (
+-    isSameOrigin &&
+-    (url.pathname.endsWith(".js") || url.pathname.endsWith(".css"))
+-  ) {
+-    event.respondWith(
+-      fetch(request, { cache: "no-cache" })
+-        .then((response) => {
+-          if (response.ok) {
+-            const copy = response.clone();
+-            caches.open(RUNTIME_CACHE).then((cache) => cache.put(request, copy));
+-          }
+-          return response;
+-        })
+-        .catch(() => caches.match(request))
+-    );
+-    return;
+-  }
+-
+-  // Images/icons may be cached for offline use.
+-  event.respondWith(
+-    caches.match(request).then(
+-      (cached) =>
+-        cached ||
+-        fetch(request).then((response) => {
+-          if (response.ok && isSameOrigin) {
+-            const copy = response.clone();
+-            caches.open(RUNTIME_CACHE).then((cache) => cache.put(request, copy));
+-          }
+-          return response;
+-        })
+-    )
+-  );
+-});
+Binary files /mnt/data/tm6v79-work/frontend/public/public/splash-1125x2436.png and /mnt/data/tm6v80-work/frontend/public/public/splash-1125x2436.png differ
+Binary files /mnt/data/tm6v79-work/frontend/public/public/splash-750x1334.png and /mnt/data/tm6v80-work/frontend/public/public/splash-750x1334.png differ
+diff -ruN /mnt/data/tm6v79-work/frontend/public/service-worker.js /mnt/data/tm6v80-work/frontend/public/service-worker.js
+--- /mnt/data/tm6v79-work/frontend/public/service-worker.js	2026-07-25 13:36:17.887059095 +0000
++++ /mnt/data/tm6v80-work/frontend/public/service-worker.js	2026-07-25 13:50:41.639023062 +0000
+@@ -1,9 +1,9 @@
+ /* TM6 Bonus — Service Worker
+- * v79 protects image requests from Netlify's SPA fallback. A missing image must
++ * v80 removes legacy editor/cache overlays and protects image requests from Netlify's SPA fallback. A missing image must
+  * never be cached as index.html, otherwise browsers can render a giant broken
+  * image element over the board.
+  */
+-const VERSION = "tm6-v79";
++const VERSION = "tm6-v80";
+ const STATIC_CACHE = `${VERSION}-static`;
+ const RUNTIME_CACHE = `${VERSION}-runtime`;
+ 
+@@ -12,8 +12,8 @@
+   "/icon-192.png",
+   "/icon-512.png",
+   "/apple-touch-icon.png",
+-  "/bonus-match/atlas/pieces-v79.webp?v=79",
+-  "/bonus-match/atlas/obstacles-v79.webp?v=79",
++  "/bonus-match/atlas/pieces-v80.webp?v=80",
++  "/bonus-match/atlas/obstacles-v80.webp?v=80",
+ ];
+ 
+ const isImageRequest = (request, url) => (
+diff -ruN /mnt/data/tm6v79-work/frontend/src/index.css /mnt/data/tm6v80-work/frontend/src/index.css
+--- /mnt/data/tm6v79-work/frontend/src/index.css	2026-07-20 08:31:33.000000000 +0000
++++ /mnt/data/tm6v80-work/frontend/src/index.css	2026-07-25 13:50:41.643023061 +0000
+@@ -267,3 +267,28 @@
+ @keyframes cube-platform-burst { 0%,100% { transform:translate(-50%,-50%) scale(1); opacity:1; } 30% { transform:translate(-50%,-50%) scale(1.8); opacity:.45; } 70% { transform:translate(-50%,-50%) scale(.75); opacity:.85; } }
+ @media (max-width:420px) { .generous-cube-meta-grid { grid-template-columns:1fr; } .generous-cube-stage { height:306px; perspective:940px; } .generous-cube-flight { --cube-size:142px; } .generous-cube-grid { grid-template-columns:repeat(3,18px); grid-template-rows:repeat(3,18px); gap:11px; } .generous-cube-dot { width:16px; height:16px; } }
+ @media (prefers-reduced-motion:reduce) { .generous-cube-energy,.generous-cube-aura,.generous-cube-platform span,.generous-cube-shadow { animation:none!important; } }
++
++/* Bonus Match v80 production safety guard.
++   The board is sprite/CSS/canvas-only; replaced media nodes are never legitimate here. */
++.bonus-match-board > img,
++.bonus-match-board img,
++.bonus-match-board picture,
++.bonus-match-board object,
++.bonus-match-board embed,
++.bonus-match-board iframe {
++  display: none !important;
++  width: 0 !important;
++  height: 0 !important;
++  min-width: 0 !important;
++  min-height: 0 !important;
++  max-width: 0 !important;
++  max-height: 0 !important;
++  opacity: 0 !important;
++  visibility: hidden !important;
++  pointer-events: none !important;
++}
++
++.bonus-match-board canvas {
++  display: block;
++  background: transparent !important;
++}
+diff -ruN /mnt/data/tm6v79-work/frontend/src/lib/bonusMatchAssets.js /mnt/data/tm6v80-work/frontend/src/lib/bonusMatchAssets.js
+--- /mnt/data/tm6v79-work/frontend/src/lib/bonusMatchAssets.js	2026-07-25 13:36:17.863059096 +0000
++++ /mnt/data/tm6v80-work/frontend/src/lib/bonusMatchAssets.js	2026-07-25 13:50:41.639023062 +0000
+@@ -1,6 +1,6 @@
+-const ASSET_VERSION = "79";
+-const PIECES_ATLAS = `/bonus-match/atlas/pieces-v79.webp?v=${ASSET_VERSION}`;
+-const OBSTACLES_ATLAS = `/bonus-match/atlas/obstacles-v79.webp?v=${ASSET_VERSION}`;
++const ASSET_VERSION = "80";
++const PIECES_ATLAS = `/bonus-match/atlas/pieces-v80.webp?v=${ASSET_VERSION}`;
++const OBSTACLES_ATLAS = `/bonus-match/atlas/obstacles-v80.webp?v=${ASSET_VERSION}`;
+ 
+ const makeSprite = (atlas, index, columns, rows) => {
+   const column = index % columns;
+diff -ruN /mnt/data/tm6v79-work/frontend/src/lib/pwa.js /mnt/data/tm6v80-work/frontend/src/lib/pwa.js
+--- /mnt/data/tm6v79-work/frontend/src/lib/pwa.js	2026-07-17 14:33:15.000000000 +0000
++++ /mnt/data/tm6v80-work/frontend/src/lib/pwa.js	2026-07-25 13:50:41.639023062 +0000
+@@ -10,7 +10,7 @@
+   window.addEventListener("load", async () => {
+     try {
+       const registration = await navigator.serviceWorker.register(
+-        "/service-worker.js?v=30",
++        "/service-worker.js?v=80",
+         { scope: "/", updateViaCache: "none" }
+       );
+ 
+diff -ruN /mnt/data/tm6v79-work/frontend/src/pages/BonusMatch.jsx /mnt/data/tm6v80-work/frontend/src/pages/BonusMatch.jsx
+--- /mnt/data/tm6v79-work/frontend/src/pages/BonusMatch.jsx	2026-07-25 13:36:17.895059095 +0000
++++ /mnt/data/tm6v80-work/frontend/src/pages/BonusMatch.jsx	2026-07-25 13:50:41.639023062 +0000
+@@ -1874,6 +1874,20 @@
+   }, []);
+ 
+   useEffect(() => {
++    const board = boardRef.current;
++    if (!board || typeof MutationObserver === "undefined") return undefined;
++
++    const removeUnexpectedReplacedElements = () => {
++      board.querySelectorAll("img, picture, object, embed, iframe").forEach((node) => node.remove());
++    };
++
++    removeUnexpectedReplacedElements();
++    const observer = new MutationObserver(removeUnexpectedReplacedElements);
++    observer.observe(board, { childList: true, subtree: true });
++    return () => observer.disconnect();
++  }, [game?.id, game?.status]);
++
++  useEffect(() => {
+     setHintMove(null);
+     if (!game || game.status !== "active" || moving || selected || activeBooster || celebrating) return undefined;
+     const timer = window.setTimeout(() => {
+@@ -2785,7 +2799,7 @@
+ 
+             <motion.div
+               ref={boardRef}
+-              className="relative isolate mt-3 overflow-hidden rounded-[22px] border border-[#7C3AED]/55 bg-[#090711] p-1.5 shadow-[inset_0_0_30px_rgba(124,58,237,.12)]"
++              className="bonus-match-board relative isolate mt-3 overflow-hidden rounded-[22px] border border-[#7C3AED]/55 bg-[#090711] p-1.5 shadow-[inset_0_0_30px_rgba(124,58,237,.12)]"
+               animate={boardMotionForFx(boardFx, reducedMotion)}
+               transition={{
+                 duration: boardFx === "won"
