@@ -1,0 +1,112 @@
+--- /mnt/data/tm6v75-work/backend/server.py	2026-07-25 11:58:21.807304231 +0000
++++ /mnt/data/tm6v76-work/backend/server.py	2026-07-25 12:14:19.803264266 +0000
+@@ -3332,15 +3332,14 @@
+     obstacle_events: Optional[list[dict]] = None,
+     obstacle_board: Optional[list[list[Optional[dict]]]] = None,
+ ) -> list[dict]:
+-    """Build deterministic animation frames from the authoritative server state.
++    """Build semantic animation events from the authoritative server state.
+ 
+     The frontend never recomputes cascades. It receives stable piece ids and
+-    replays: swap -> match/clear metadata -> collapse. Removed pieces can exit
+-    while surviving pieces with the same ids move to their next grid positions.
++    replays swap -> match/clear metadata -> collapse on its own local timeline.
++    Server responses intentionally do not prescribe visual durations.
+     """
+     frames: list[dict] = [{
+         "phase": "swap",
+-        "duration_ms": 220,
+         "board": _bonus_match_clone_board(swapped_board),
+     }]
+ 
+@@ -3357,7 +3356,6 @@
+ 
+         frames.append({
+             "phase": "match",
+-            "duration_ms": 290,
+             "combo": int(step.get("combo", 1)),
+             "score_gain": int(step.get("score_gain", 0)),
+             "coins_gain": int(step.get("coins_gain", 0)),
+@@ -3372,7 +3370,6 @@
+         })
+         frames.append({
+             "phase": "collapse",
+-            "duration_ms": 430,
+             "combo": int(step.get("combo", 1)),
+             "board": _bonus_match_clone_board(
+                 step.get("board_after_collapse") or []
+@@ -3388,7 +3385,6 @@
+     if obstacle_events:
+         frames.append({
+             "phase": "obstacle",
+-            "duration_ms": 420,
+             "board": _bonus_match_clone_board(obstacle_board or final_board),
+             "events": obstacle_events,
+         })
+@@ -3396,7 +3392,6 @@
+     if reshuffled:
+         frames.append({
+             "phase": "reshuffle",
+-            "duration_ms": 360,
+             "board": _bonus_match_clone_board(final_board),
+         })
+ 
+@@ -4789,7 +4784,7 @@
+     fresh_profile = await _bonus_match_profile(user["id"])
+     frames = []
+     if booster == "shuffle":
+-        frames = [{"phase": "reshuffle", "duration_ms": 420, "board": _bonus_match_clone_board(board)}]
++        frames = [{"phase": "reshuffle", "board": _bonus_match_clone_board(board)}]
+     else:
+         frames = _bonus_match_animation_frames(original_board, steps, board, reshuffled)[1:]
+     return {
+@@ -4876,7 +4871,6 @@
+                 "from_board": original_active_board,
+                 "frames": [{
+                     "phase": "reshuffle",
+-                    "duration_ms": 520,
+                     "board": _bonus_match_clone_board(playable_board),
+                 }],
+             }
+@@ -4953,7 +4947,6 @@
+                 "from_board": original_existing_board,
+                 "frames": [{
+                     "phase": "reshuffle",
+-                    "duration_ms": 520,
+                     "board": _bonus_match_clone_board(playable_board),
+                 }],
+             }
+@@ -5092,7 +5085,6 @@
+                 "from_board": original_session_board,
+                 "frames": [{
+                     "phase": "reshuffle",
+-                    "duration_ms": 520,
+                     "board": _bonus_match_clone_board(playable_board),
+                 }],
+             },
+@@ -5176,12 +5168,10 @@
+                 "frames": [
+                     {
+                         "phase": "swap",
+-                        "duration_ms": 120,
+                         "board": original_board,
+                     },
+                     {
+                         "phase": "invalid",
+-                        "duration_ms": 320,
+                         "board": original_board,
+                         "shake_ids": [
+                             str(first_cell.get("id")) if first_cell else "",
+@@ -5246,12 +5236,10 @@
+                 "frames": [
+                     {
+                         "phase": "swap",
+-                        "duration_ms": 220,
+                         "board": swapped_board,
+                     },
+                     {
+                         "phase": "invalid",
+-                        "duration_ms": 320,
+                         "board": original_board,
+                         "shake_ids": [
+                             str(first_cell.get("id")) if first_cell else "",

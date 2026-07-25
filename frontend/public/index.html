@@ -11,6 +11,11 @@
         <link rel="icon" type="image/png" sizes="64x64" href="/favicon-64.png" />
         <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
 
+        <!-- Warm the Bonus Match cache after the app shell; the game itself awaits image.decode(). -->
+        <link rel="prefetch" as="image" type="image/webp" href="/bonus-match/atlas/pieces.webp" />
+        <link rel="prefetch" as="image" type="image/webp" href="/bonus-match/atlas/obstacles.webp" />
+        <link rel="prefetch" as="image" type="image/webp" href="/bonus-match/atlas/piece-shadow.webp" />
+
         <!-- iOS PWA meta -->
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="mobile-web-app-capable" content="yes" />
@@ -27,7 +32,7 @@
 
         <title>TM6 Bonus</title>
         <script>window.addEventListener("error",function(e){if(e.error instanceof DOMException&&e.error.name==="DataCloneError"&&e.message&&e.message.includes("PerformanceServerTiming")){e.stopImmediatePropagation();e.preventDefault()}},true);</script>
-        <script src="https://assets.emergent.sh/scripts/emergent-main.js"></script>
+        <script defer src="https://assets.emergent.sh/scripts/emergent-main.js"></script>
     </head>
     <body>
         <noscript>You need to enable JavaScript to run this app.</noscript>

@@ -1,0 +1,637 @@
+--- a/frontend/src/pages/BonusMatch.jsx
++++ b/frontend/src/pages/BonusMatch.jsx
+@@ -1,4 +1,4 @@
+-import { useEffect, useMemo, useRef, useState } from "react";
++import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+ import { useNavigate } from "react-router-dom";
+ import {
+   ArrowLeft,
+@@ -25,8 +25,7 @@
+   Trophy,
+   Zap,
+ } from "lucide-react";
+-import { AnimatePresence, LayoutGroup, motion, useReducedMotion } from "framer-motion";
+-import confetti from "canvas-confetti";
++import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+ import { toast } from "sonner";
+ import api, { extractError } from "@/lib/api";
+ import { fireConfetti } from "@/lib/confetti";
+@@ -123,6 +122,10 @@
+   return result;
+ };
+ 
++const flattenVisualPieces = (board) => (board || []).flatMap((boardRow, row) =>
++  (boardRow || []).flatMap((cell, col) => (cell && !cell.void ? [{ cell, row, col }] : [])),
++);
++
+ const PIECES = {
+   coin: { Icon: Coins, label: "Монета", color: "#FFB800", image: "/bonus-match/pieces/coin.webp" },
+   star: { Icon: Star, label: "Зірка", color: "#35B8FF", image: "/bonus-match/pieces/star.webp" },
+@@ -597,6 +600,7 @@
+   hintDirection = null,
+   fall = null,
+   cascadeDurationMs = 350,
++  positionDurationMs = OPTIMISTIC_SWAP_MS,
+   celebrating = false,
+   removeDelay = 0,
+   onClick,
+@@ -615,7 +619,6 @@
+   const special = cell.special ? SPECIALS[cell.special] || SPECIALS.bomb : null;
+   const piece = PIECES[cell.symbol] || PIECES.star;
+   const overlayObstacle = Boolean(cell.obstacle && OVERLAY_OBSTACLES.has(cell.obstacle));
+-  const ArtworkIcon = obstacle?.Icon || piece.Icon;
+   const SpecialIcon = special?.Icon || null;
+   const color = obstacle?.color || special?.color || piece.color;
+   const background = "#0A0811";
+@@ -745,16 +748,26 @@
+         };
+ 
+   return (
+-    <motion.button
+-      layout={fall ? false : "position"}
+-      layoutId={`bonus-piece-${cell.id}`}
++    <div
++      className="absolute left-0 top-0 h-[14.285714%] w-[14.285714%] p-0.5"
++      style={{
++        transform: `translate3d(${col * 100}%, ${row * 100}%, 0)`,
++        transition: fall || reducedMotion
++          ? "none"
++          : `transform ${positionDurationMs}ms cubic-bezier(.2,.82,.25,1)`,
++        zIndex: selected ? 24 : removing ? 18 : activated ? 16 : 10,
++        willChange: "transform",
++        contain: "layout style",
++      }}
++    >
++      <motion.button
+       type="button"
+       onClick={(event) => {
+         if (suppressClickRef.current) {
+           event.preventDefault();
+           return;
+         }
+-        onClick?.();
++        onClick?.(row, col);
+       }}
+       onPointerDown={handlePointerDown}
+       onPointerMove={handlePointerMove}
+@@ -762,11 +775,9 @@
+       onPointerCancel={resetGesture}
+       disabled={disabled}
+       aria-label={`${label}, рядок ${row + 1}, колонка ${col + 1}`}
+-      className="relative flex aspect-square min-w-0 items-center justify-center overflow-visible rounded-[10px] border border-white/10"
++      className="relative flex h-full w-full min-w-0 items-center justify-center overflow-visible rounded-[10px] border border-white/10"
+       style={{
+         background,
+-        gridRowStart: row + 1,
+-        gridColumnStart: col + 1,
+         touchAction: swipeEnabled ? "none" : "manipulation",
+       }}
+       initial={fall?.spawned && !reducedMotion
+@@ -785,7 +796,6 @@
+         shaking
+           ? { duration: reducedMotion ? 0.01 : 0.32, ease: "easeInOut" }
+           : {
+-            layout: { duration: reducedMotion ? 0.05 : 0.18, ease: [0.2, 0.82, 0.25, 1] },
+             x: dragOffset.x || dragOffset.y ? { duration: 0 } : { type: "spring", stiffness: 520, damping: 27 },
+             y: celebrating && !reducedMotion
+               ? { duration: 0.48, delay: celebrationDelay, times: [0, 0.42, 0.72, 1], ease: ["easeOut", "easeIn", "easeOut"] }
+@@ -816,13 +826,6 @@
+           className="pointer-events-none absolute bottom-[-4%] left-[7%] z-[1] h-[38%] w-[86%] select-none object-fill opacity-75"
+         />
+       )}
+-      <ArtworkIcon
+-        className="relative z-[1] opacity-0"
+-        size={24}
+-        strokeWidth={2.8}
+-        color={color}
+-        aria-hidden="true"
+-      />
+       {!obstacle && piece.image && (
+         <motion.img
+           src={piece.image}
+@@ -868,19 +871,14 @@
+       <div
+         className="pointer-events-none absolute inset-[3%] z-[4] rounded-[12%]"
+         style={{
++          background: obstacle
++            ? "linear-gradient(145deg,rgba(255,255,255,.10),transparent 42%,rgba(0,0,0,.18))"
++            : "radial-gradient(ellipse at 29% 16%,rgba(255,255,255,.76),rgba(255,255,255,.20) 18%,transparent 38%), radial-gradient(ellipse at 76% 88%,rgba(0,0,0,.24),transparent 42%), linear-gradient(145deg,rgba(255,255,255,.10),transparent 45%,rgba(0,0,0,.16))",
+           boxShadow: obstacle
+             ? "inset 1px 1px 0 rgba(255,255,255,.16), inset -1.5px -1.5px 0 rgba(0,0,0,.28)"
+-            : "inset 1.6px 1.6px 0 rgba(255,255,255,.42), inset -2.2px -2.2px 0 rgba(0,0,0,.38)",
++            : "inset 2px 2px 0 rgba(255,255,255,.48), inset -2.4px -2.4px 0 rgba(0,0,0,.44), inset 0 0 0 1px rgba(255,255,255,.14)",
+         }}
+       />
+-      {!obstacle && (
+-        <>
+-          <div className="pointer-events-none absolute inset-[5%] z-[4] rounded-[16%] border-2 border-l-white/40 border-t-white/40 border-r-black/45 border-b-black/45" />
+-          <div className="pointer-events-none absolute left-[14%] top-[9%] z-[5] h-[20%] w-[38%] rotate-[-18deg] rounded-full bg-[radial-gradient(ellipse_at_center,rgba(255,255,255,.72),rgba(255,255,255,.22)_44%,transparent_72%)] opacity-90" />
+-          <div className="pointer-events-none absolute bottom-[7%] right-[9%] z-[4] h-[16%] w-[42%] rounded-full bg-black/20 blur-[2px]" />
+-        </>
+-      )}
+-      <div className="pointer-events-none absolute inset-0 z-[4] overflow-hidden rounded-[10px] bg-gradient-to-br from-white/10 via-transparent to-black/16" />
+       {impact && (
+         <motion.div
+           key={`impact-glint-${impact.token}`}
+@@ -971,10 +969,134 @@
+           {cell.obstacle_hits}
+         </motion.div>
+       )}
+-    </motion.button>
++      </motion.button>
++    </div>
+   );
+ }
+ 
++const sameCellVisual = (first, second) => (
++  first === second
++  || (
++    first?.id === second?.id
++    && first?.symbol === second?.symbol
++    && first?.special === second?.special
++    && first?.obstacle === second?.obstacle
++    && Number(first?.obstacle_hits || 0) === Number(second?.obstacle_hits || 0)
++    && Number(first?.obstacle_age || 0) === Number(second?.obstacle_age || 0)
++    && Boolean(first?.void) === Boolean(second?.void)
++  )
++);
++
++const sameMotionToken = (first, second) => (
++  first === second
++  || (
++    first?.token === second?.token
++    && first?.distance === second?.distance
++    && first?.delay === second?.delay
++    && first?.spawned === second?.spawned
++  )
++);
++
++const sameDirection = (first, second) => (
++  first === second
++  || (Number(first?.dr || 0) === Number(second?.dr || 0) && Number(first?.dc || 0) === Number(second?.dc || 0))
++);
++
++const arePiecePropsEqual = (previous, next) => {
++  const motionSensitive = Boolean(
++    previous.removing || next.removing
++    || previous.shaking || next.shaking
++    || previous.spawned || next.spawned
++    || previous.activated || next.activated
++    || previous.celebrating || next.celebrating
++    || previous.fall || next.fall
++    || previous.impact || next.impact
++  );
++  return (
++    sameCellVisual(previous.cell, next.cell)
++    && previous.row === next.row
++    && previous.col === next.col
++    && previous.selected === next.selected
++    && previous.disabled === next.disabled
++    && previous.targetable === next.targetable
++    && previous.removing === next.removing
++    && previous.shaking === next.shaking
++    && previous.spawned === next.spawned
++    && previous.activated === next.activated
++    && previous.hinted === next.hinted
++    && previous.celebrating === next.celebrating
++    && previous.swipeEnabled === next.swipeEnabled
++    && previous.reducedMotion === next.reducedMotion
++    && (!motionSensitive || (
++      previous.cascadeDurationMs === next.cascadeDurationMs
++      && previous.removeDelay === next.removeDelay
++    ))
++    && sameMotionToken(previous.fall, next.fall)
++    && sameMotionToken(previous.impact, next.impact)
++    && sameDirection(previous.hintDirection, next.hintDirection)
++  );
++};
++
++const MemoPiece = memo(Piece, arePiecePropsEqual);
++
++const BoardPiecesLayer = memo(function BoardPiecesLayer({
++  pieces,
++  selectedKey,
++  moving,
++  gameStatus,
++  activeBooster,
++  removingIds,
++  shakingIds,
++  spawnedIds,
++  fallMeta,
++  cascadeDurationMs,
++  celebrating,
++  hintDirections,
++  activatedIds,
++  obstacleImpacts,
++  reducedMotion,
++  onPieceClick,
++  onPieceSwipe,
++}) {
++  const positionDurationMs = Math.max(110, Math.min(190, cascadeDurationMs || OPTIMISTIC_SWAP_MS));
++  return (
++    <div className="absolute inset-1.5 overflow-visible" style={{ contain: "layout style" }}>
++      <AnimatePresence initial={false}>
++        {pieces.map(({ cell, row, col }) => {
++          const key = coordKey(row, col);
++          return (
++            <MemoPiece
++              key={cell.id}
++              cell={cell}
++              row={row}
++              col={col}
++              selected={selectedKey === key}
++              disabled={moving || gameStatus !== "active"}
++              targetable={Boolean(activeBooster && activeBooster !== "shuffle")}
++              removing={removingIds.has(cell.id)}
++              shaking={shakingIds.has(cell.id)}
++              spawned={spawnedIds.has(cell.id)}
++              fall={fallMeta.get(cell.id)}
++              cascadeDurationMs={cascadeDurationMs}
++              positionDurationMs={positionDurationMs}
++              celebrating={celebrating}
++              hinted={hintDirections.has(key)}
++              hintDirection={hintDirections.get(key)}
++              activated={activatedIds.has(cell.id)}
++              impact={obstacleImpacts.get(cell.id)}
++              removeDelay={(row + col) * Math.max(0.005, Math.min(0.012, cascadeDurationMs / 30000))}
++              reducedMotion={reducedMotion}
++              swipeEnabled={!moving && !activeBooster && gameStatus === "active" && !cell.obstacle}
++              onSwipe={onPieceSwipe}
++              onClick={onPieceClick}
++            />
++          );
++        })}
++      </AnimatePresence>
++    </div>
++  );
++});
++
+ function Stars({ count = 0, size = 19, animated = false, reducedMotion = false }) {
+   return (
+     <div className="flex items-center gap-1">
+@@ -997,31 +1119,202 @@
+   );
+ }
+ 
+-function FxParticles({ row, col, color, count = 8, distance = 34, delay = 0, reducedMotion = false, square = false, tempo = 1 }) {
+-  if (reducedMotion) return null;
+-  return Array.from({ length: count }, (_, index) => {
+-    const angle = ((Math.PI * 2) / count) * index + (index % 2) * 0.17;
+-    const radius = distance * (0.72 + (index % 3) * 0.14);
+-    const x = Math.cos(angle) * radius;
+-    const y = Math.sin(angle) * radius;
+-    return (
+-      <motion.span
+-        key={`particle-${index}`}
+-        className={`pointer-events-none absolute z-30 ${square ? "h-2.5 w-2.5 rounded-[2px]" : "h-2 w-2 rounded-full"}`}
+-        style={{
+-          left: `${((col + 0.5) / COLS) * 100}%`,
+-          top: `${((row + 0.5) / ROWS) * 100}%`,
+-          background: color,
+-          boxShadow: `0 0 8px ${color}`,
+-        }}
+-        initial={{ x: -4, y: -4, scale: 0.2, opacity: 0 }}
+-        animate={{ x, y, scale: [0.2, 1.15, 0.1], opacity: [0, 1, 0], rotate: square ? [0, 90, 180] : 0 }}
+-        transition={{ duration: fxDuration(0.48, tempo, 0.18), delay: fxDelay(delay + index * 0.018, tempo), ease: "easeOut" }}
+-      />
+-    );
+-  });
++function FxParticles() {
++  // Particle rendering moved to one GPU-friendly canvas layer in v77.
++  return null;
+ }
+ 
++const particleColorForEffect = (effect = {}) => {
++  if (effect.special === "color_bomb" || effect.special === "booster_color_bomb") return "#F64CFF";
++  if (effect.special === "bomb") return "#FF5C00";
++  if (["rocket_row", "rocket_col", "booster_rocket"].includes(effect.special)) return "#FFB800";
++  if (effect.obstacle && OBSTACLES[effect.obstacle]) return OBSTACLES[effect.obstacle].color;
++  if (effect.effect === "core_blast" || effect.effect === "core_pulse") return "#FF4D55";
++  if (effect.effect === "crystal_burst") return "#C084FC";
++  if (effect.effect === "slime_spread") return "#4ADE80";
++  if (effect.effect === "web_spread") return "#E4E4E7";
++  return "#B78CFF";
++};
++
++const BoardEffectsCanvas = forwardRef(function BoardEffectsCanvas({ effects = [], reducedMotion = false }, ref) {
++  const canvasRef = useRef(null);
++  const particlesRef = useRef([]);
++  const seenTokensRef = useRef(new Set());
++  const frameRef = useRef(0);
++  const sizeRef = useRef({ width: 1, height: 1, dpr: 1 });
++
++  const resizeCanvas = useCallback(() => {
++    const canvas = canvasRef.current;
++    if (!canvas) return;
++    const rect = canvas.getBoundingClientRect();
++    const dpr = Math.min(2, window.devicePixelRatio || 1);
++    const width = Math.max(1, Math.round(rect.width));
++    const height = Math.max(1, Math.round(rect.height));
++    if (canvas.width !== Math.round(width * dpr) || canvas.height !== Math.round(height * dpr)) {
++      canvas.width = Math.round(width * dpr);
++      canvas.height = Math.round(height * dpr);
++    }
++    sizeRef.current = { width, height, dpr };
++  }, []);
++
++  const drawFrame = useCallback((now) => {
++    const canvas = canvasRef.current;
++    if (!canvas) return;
++    const context = canvas.getContext("2d", { alpha: true });
++    if (!context) return;
++    const { width, height, dpr } = sizeRef.current;
++    context.setTransform(dpr, 0, 0, dpr, 0, 0);
++    context.clearRect(0, 0, width, height);
++
++    const active = [];
++    for (const particle of particlesRef.current) {
++      if (now < particle.startAt) {
++        active.push(particle);
++        continue;
++      }
++      const progress = (now - particle.startAt) / particle.lifeMs;
++      if (progress >= 1) continue;
++      active.push(particle);
++      const eased = 1 - ((1 - progress) ** 3);
++      const fade = progress < 0.18 ? progress / 0.18 : 1 - ((progress - 0.18) / 0.82);
++      const minSize = Math.min(width, height);
++      const x = particle.x * width + Math.cos(particle.angle) * particle.distance * eased;
++      const y = particle.y * height + Math.sin(particle.angle) * particle.distance * eased + progress * progress * minSize * 0.045;
++      const size = particle.size * (0.72 + Math.sin(Math.PI * progress) * 0.42);
++
++      context.save();
++      context.globalAlpha = Math.max(0, fade);
++      context.translate(x, y);
++      context.rotate(particle.square ? progress * Math.PI * 1.6 : 0);
++      context.fillStyle = particle.color;
++      context.globalCompositeOperation = "lighter";
++      if (particle.square) {
++        context.fillRect(-size / 2, -size / 2, size, size);
++      } else {
++        context.beginPath();
++        context.arc(0, 0, size / 2, 0, Math.PI * 2);
++        context.fill();
++      }
++      context.globalAlpha *= 0.26;
++      context.beginPath();
++      context.arc(0, 0, size * 1.5, 0, Math.PI * 2);
++      context.fill();
++      context.restore();
++    }
++    particlesRef.current = active;
++    frameRef.current = active.length ? window.requestAnimationFrame(drawFrame) : 0;
++  }, []);
++
++  const ensureAnimation = useCallback(() => {
++    if (!frameRef.current && particlesRef.current.length) {
++      frameRef.current = window.requestAnimationFrame(drawFrame);
++    }
++  }, [drawFrame]);
++
++  const emitAt = useCallback((row, col, options = {}) => {
++    if (reducedMotion || row === undefined || col === undefined) return;
++    resizeCanvas();
++    const count = Math.max(3, Math.min(16, Number(options.count || 8)));
++    const distance = Math.max(18, Number(options.distance || 36));
++    const now = performance.now();
++    for (let index = 0; index < count; index += 1) {
++      particlesRef.current.push({
++        x: (Number(col) + 0.5) / COLS,
++        y: (Number(row) + 0.5) / ROWS,
++        angle: ((Math.PI * 2) / count) * index + (index % 2) * 0.19,
++        distance: distance * (0.72 + (index % 4) * 0.105),
++        color: options.color || "#B78CFF",
++        size: Number(options.size || (options.square ? 5.5 : 4.5)),
++        square: Boolean(options.square),
++        startAt: now + Number(options.delayMs || 0) + index * Number(options.staggerMs || 7),
++        lifeMs: Math.max(180, Number(options.lifeMs || 430)),
++      });
++    }
++    if (particlesRef.current.length > 180) particlesRef.current = particlesRef.current.slice(-180);
++    ensureAnimation();
++  }, [ensureAnimation, reducedMotion, resizeCanvas]);
++
++  useImperativeHandle(ref, () => ({
++    burstCells(cells = [], color = "#B78CFF") {
++      if (!cells.length) return;
++      const averageRow = cells.reduce((sum, item) => sum + Number(item.row || 0), 0) / cells.length;
++      const averageCol = cells.reduce((sum, item) => sum + Number(item.col || 0), 0) / cells.length;
++      emitAt(averageRow, averageCol, {
++        color,
++        count: Math.min(16, 7 + cells.length),
++        distance: Math.min(58, 30 + cells.length * 2),
++        lifeMs: 420,
++      });
++    },
++    emit(effect = {}) {
++      const row = effect.to_row ?? effect.row;
++      const col = effect.to_col ?? effect.col;
++      emitAt(row, col, {
++        color: particleColorForEffect(effect),
++        count: effect.special === "bomb" || effect.effect === "core_blast" ? 14 : 8,
++        distance: effect.special === "bomb" || effect.effect === "core_blast" ? 54 : 34,
++        square: ["crate", "stone", "metal"].includes(effect.obstacle),
++      });
++    },
++  }), [emitAt]);
++
++  useEffect(() => {
++    resizeCanvas();
++    const canvas = canvasRef.current;
++    if (!canvas) return undefined;
++    const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(resizeCanvas) : null;
++    observer?.observe(canvas);
++    window.addEventListener("resize", resizeCanvas);
++    return () => {
++      observer?.disconnect();
++      window.removeEventListener("resize", resizeCanvas);
++      if (frameRef.current) window.cancelAnimationFrame(frameRef.current);
++      frameRef.current = 0;
++      particlesRef.current = [];
++    };
++  }, [resizeCanvas]);
++
++  useEffect(() => {
++    for (const effect of effects || []) {
++      const token = effect.token || `${effect.stage}-${effect.special || effect.obstacle || effect.effect}-${effect.row}-${effect.col}`;
++      if (!token || seenTokensRef.current.has(token)) continue;
++      seenTokensRef.current.add(token);
++      if (effect.stage !== "fire") continue;
++      const row = effect.to_row ?? effect.row;
++      const col = effect.to_col ?? effect.col;
++      if (row === undefined || col === undefined) continue;
++      const heavy = effect.special === "bomb" || effect.effect === "core_blast";
++      emitAt(row, col, {
++        color: particleColorForEffect(effect),
++        count: heavy ? 14 : effect.special === "color_bomb" ? 12 : 8,
++        distance: heavy ? 56 : effect.special === "color_bomb" ? 48 : 34,
++        square: ["crate", "stone", "metal"].includes(effect.obstacle),
++        lifeMs: heavy ? 520 : 400,
++      });
++      if (Array.isArray(effect.targets) && effect.targets.length && ["crystal_burst", "core_blast"].includes(effect.effect)) {
++        effect.targets.slice(0, 9).forEach((target, index) => emitAt(target.row, target.col, {
++          color: particleColorForEffect(effect),
++          count: 3,
++          distance: 20,
++          delayMs: index * 12,
++          lifeMs: 300,
++        }));
++      }
++    }
++    if (seenTokensRef.current.size > 320) {
++      seenTokensRef.current = new Set((effects || []).map((item) => item.token).filter(Boolean));
++    }
++  }, [effects, emitAt]);
++
++  return (
++    <canvas
++      ref={canvasRef}
++      className="pointer-events-none absolute inset-1.5 z-30"
++      aria-hidden="true"
++    />
++  );
++});
++
+ function FxCellFlash({ row, col, color, delay = 0, reducedMotion = false, tempo = 1 }) {
+   return (
+     <motion.div
+@@ -1490,6 +1783,9 @@
+   const { user, mode, refreshMe } = useApp();
+   const boardRef = useRef(null);
+   const scoreRef = useRef(null);
++  const effectsCanvasRef = useRef(null);
++  const pieceClickHandlerRef = useRef(null);
++  const pieceSwipeHandlerRef = useRef(null);
+   const [status, setStatus] = useState(null);
+   const [game, setGame] = useState(null);
+   const [displayBoard, setDisplayBoard] = useState([]);
+@@ -1519,6 +1815,15 @@
+   const [activityToken, setActivityToken] = useState(0);
+   const [celebrating, setCelebrating] = useState(false);
+ 
++  const visualPieces = useMemo(() => flattenVisualPieces(displayBoard), [displayBoard]);
++  const selectedKey = selected ? coordKey(selected.row, selected.col) : null;
++  const dispatchPieceClick = useCallback((row, col) => {
++    pieceClickHandlerRef.current?.(row, col);
++  }, []);
++  const dispatchPieceSwipe = useCallback((from, to) => {
++    pieceSwipeHandlerRef.current?.(from, to);
++  }, []);
++
+   const hintDirections = useMemo(() => {
+     const directions = new Map();
+     if (!hintMove) return directions;
+@@ -1700,23 +2005,8 @@
+   };
+ 
+   const burstAtCells = (cells = [], color = "#B78CFF") => {
+-    if (reducedMotion || !boardRef.current || !cells.length) return;
+-    const rect = boardRef.current.getBoundingClientRect();
+-    const averageRow = cells.reduce((sum, item) => sum + item.row, 0) / cells.length;
+-    const averageCol = cells.reduce((sum, item) => sum + item.col, 0) / cells.length;
+-    const originX = (rect.left + ((averageCol + 0.5) / COLS) * rect.width) / window.innerWidth;
+-    const originY = (rect.top + ((averageRow + 0.5) / ROWS) * rect.height) / window.innerHeight;
+-    confetti({
+-      particleCount: Math.min(18, 7 + cells.length),
+-      spread: 28,
+-      startVelocity: 13,
+-      gravity: 0.8,
+-      ticks: 45,
+-      scalar: 0.42,
+-      colors: [color, "#FFB800", "#FFFFFF"],
+-      origin: { x: originX, y: originY },
+-      disableForReducedMotion: true,
+-    });
++    if (reducedMotion || !cells.length) return;
++    effectsCanvasRef.current?.burstCells(cells, color);
+   };
+ 
+   const launchScoreFlight = (cells, amount) => {
+@@ -2263,6 +2553,10 @@
+     makeMove(from, to);
+   };
+ 
++  // Stable dispatchers keep memoized board pieces from receiving fresh callback identities.
++  pieceClickHandlerRef.current = handlePiece;
++  pieceSwipeHandlerRef.current = handleSwipe;
++
+   const unlockedLevels = levelCatalog
+     .map((item) => Number(item.level))
+     .filter((level) => level <= Number(status?.profile?.current_level || 1));
+@@ -2496,45 +2790,28 @@
+                 })}
+               </div>
+ 
+-              <LayoutGroup id={`bonus-board-${game.id}`}>
+-                <div
+-                  className="absolute inset-1.5 grid grid-cols-7 gap-1"
+-                  style={{ gridTemplateRows: `repeat(${ROWS}, minmax(0, 1fr))` }}
+-                >
+-                  <AnimatePresence initial={false}>
+-                    {(displayBoard || []).flatMap((boardRow, row) =>
+-                      (boardRow || []).map((cell, col) => (cell && !cell.void ? (
+-                        <Piece
+-                          key={cell.id}
+-                          cell={cell}
+-                          row={row}
+-                          col={col}
+-                          selected={selected?.row === row && selected?.col === col}
+-                          disabled={moving || game.status !== "active"}
+-                          targetable={Boolean(activeBooster && activeBooster !== "shuffle")}
+-                          removing={removingIds.has(cell.id)}
+-                          shaking={shakingIds.has(cell.id)}
+-                          spawned={spawnedIds.has(cell.id)}
+-                          fall={fallMeta.get(cell.id)}
+-                          cascadeDurationMs={cascadeMotion.durationMs}
+-                          celebrating={celebrating}
+-                          hinted={hintDirections.has(coordKey(row, col))}
+-                          hintDirection={hintDirections.get(coordKey(row, col))}
+-                          activated={activatedIds.has(cell.id)}
+-                          impact={obstacleImpacts.get(cell.id)}
+-                          removeDelay={(row + col) * Math.max(0.005, Math.min(0.012, cascadeMotion.durationMs / 30000))}
+-                          reducedMotion={reducedMotion}
+-                          swipeEnabled={!moving && !activeBooster && game.status === "active" && !cell.obstacle}
+-                          onSwipe={handleSwipe}
+-                          onClick={() => handlePiece(row, col)}
+-                        />
+-                      ) : null)),
+-                    )}
+-                  </AnimatePresence>
+-                </div>
+-              </LayoutGroup>
++              <BoardPiecesLayer
++                pieces={visualPieces}
++                selectedKey={selectedKey}
++                moving={moving}
++                gameStatus={game.status}
++                activeBooster={activeBooster}
++                removingIds={removingIds}
++                shakingIds={shakingIds}
++                spawnedIds={spawnedIds}
++                fallMeta={fallMeta}
++                cascadeDurationMs={cascadeMotion.durationMs}
++                celebrating={celebrating}
++                hintDirections={hintDirections}
++                activatedIds={activatedIds}
++                obstacleImpacts={obstacleImpacts}
++                reducedMotion={reducedMotion}
++                onPieceClick={dispatchPieceClick}
++                onPieceSwipe={dispatchPieceSwipe}
++              />
+ 
+               <SpecialEffects effects={specialEffects} reducedMotion={reducedMotion} />
++              <BoardEffectsCanvas ref={effectsCanvasRef} effects={specialEffects} reducedMotion={reducedMotion} />
+ 
+               <AnimatePresence>
+                 {flash && (
+--- a/frontend/public/service-worker.js
++++ b/frontend/public/service-worker.js
+@@ -2,7 +2,7 @@
+  * Dynamic data is always network-only.
+  * App shell uses network-first so new deployments replace old PWA files promptly.
+  */
+-const VERSION = "tm6-v76";
++const VERSION = "tm6-v77";
+ const STATIC_CACHE = `${VERSION}-static`;
+ const RUNTIME_CACHE = `${VERSION}-runtime`;
+ 

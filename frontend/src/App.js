@@ -1,32 +1,40 @@
 import "@/App.css";
+import { lazy, Suspense } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Toaster } from "sonner";
 import { AppProvider, useApp } from "@/context/AppContext";
 import AppLayout from "@/components/AppLayout";
 import Login from "@/pages/Login";
 import Home from "@/pages/Home";
-import Quests from "@/pages/Quests";
-import Store from "@/pages/Store";
-import Admin from "@/pages/Admin";
-import Leaderboard from "@/pages/Leaderboard";
-import Fun from "@/pages/Fun";
-import History from "@/pages/History";
-import Feed from "@/pages/Feed";
 import Register from "@/pages/Register";
-import Tasks from "@/pages/Tasks";
-import Teams from "@/pages/Teams";
-import AITrainer from "@/pages/AITrainer";
-import Goals from "@/pages/Goals";
-import CreditGoals from "@/pages/CreditGoals";
-import CreditLeaderboard from "@/pages/CreditLeaderboard";
-import DebitLeaderboard from "@/pages/DebitLeaderboard";
-import DebitIssuances from "@/pages/DebitIssuances";
-import BonusMatch from "@/pages/BonusMatch";
+
+const Quests = lazy(() => import("@/pages/Quests"));
+const Store = lazy(() => import("@/pages/Store"));
+const Admin = lazy(() => import("@/pages/Admin"));
+const Leaderboard = lazy(() => import("@/pages/Leaderboard"));
+const Fun = lazy(() => import("@/pages/Fun"));
+const History = lazy(() => import("@/pages/History"));
+const Feed = lazy(() => import("@/pages/Feed"));
+const Tasks = lazy(() => import("@/pages/Tasks"));
+const Teams = lazy(() => import("@/pages/Teams"));
+const AITrainer = lazy(() => import("@/pages/AITrainer"));
+const Goals = lazy(() => import("@/pages/Goals"));
+const CreditGoals = lazy(() => import("@/pages/CreditGoals"));
+const CreditLeaderboard = lazy(() => import("@/pages/CreditLeaderboard"));
+const DebitLeaderboard = lazy(() => import("@/pages/DebitLeaderboard"));
+const DebitIssuances = lazy(() => import("@/pages/DebitIssuances"));
+const BonusMatch = lazy(() => import("@/pages/BonusMatch"));
 
 const Splash = () => (
   <div className="min-h-screen w-full flex items-center justify-center">
     <div className="w-16 h-16 rounded-3xl bg-[#FFB800] animate-pulse glow-yellow" />
   </div>
+);
+
+const LazyPage = ({ children }) => (
+  <Suspense fallback={<div className="px-5 py-12 text-center text-sm font-bold text-zinc-500">Завантаження розділу...</div>}>
+    {children}
+  </Suspense>
 );
 
 const RequireAuth = ({ children }) => {
@@ -58,24 +66,24 @@ function App() {
             }
           >
             <Route path="/" element={<Home />} />
-            <Route path="/quests" element={<Quests />} />
-            <Route path="/tasks" element={<Tasks />} />
-            <Route path="/teams" element={<Teams />} />
-            <Route path="/ai-trainer" element={<AITrainer />} />
-            <Route path="/goals" element={<Goals />} />
-            <Route path="/goals/credit" element={<CreditLeaderboard />} />
-            <Route path="/goals/credit/me" element={<CreditGoals />} />
-            <Route path="/goals/debit" element={<DebitLeaderboard />} />
-            <Route path="/goals/debit/me" element={<DebitIssuances />} />
-            <Route path="/store" element={<Store />} />
-            <Route path="/leaderboard" element={<Leaderboard />} />
-            <Route path="/fun" element={<Fun />} />
-            <Route path="/games/bonus-match" element={<BonusMatch />} />
-            <Route path="/history" element={<History />} />
-            <Route path="/feed" element={<Feed />} />
-            <Route path="/admin" element={<RequireAdmin><Admin /></RequireAdmin>} />
+            <Route path="/quests" element={<LazyPage><Quests /></LazyPage>} />
+            <Route path="/tasks" element={<LazyPage><Tasks /></LazyPage>} />
+            <Route path="/teams" element={<LazyPage><Teams /></LazyPage>} />
+            <Route path="/ai-trainer" element={<LazyPage><AITrainer /></LazyPage>} />
+            <Route path="/goals" element={<LazyPage><Goals /></LazyPage>} />
+            <Route path="/goals/credit" element={<LazyPage><CreditLeaderboard /></LazyPage>} />
+            <Route path="/goals/credit/me" element={<LazyPage><CreditGoals /></LazyPage>} />
+            <Route path="/goals/debit" element={<LazyPage><DebitLeaderboard /></LazyPage>} />
+            <Route path="/goals/debit/me" element={<LazyPage><DebitIssuances /></LazyPage>} />
+            <Route path="/store" element={<LazyPage><Store /></LazyPage>} />
+            <Route path="/leaderboard" element={<LazyPage><Leaderboard /></LazyPage>} />
+            <Route path="/fun" element={<LazyPage><Fun /></LazyPage>} />
+            <Route path="/games/bonus-match" element={<LazyPage><BonusMatch /></LazyPage>} />
+            <Route path="/history" element={<LazyPage><History /></LazyPage>} />
+            <Route path="/feed" element={<LazyPage><Feed /></LazyPage>} />
+            <Route path="/admin" element={<RequireAdmin><LazyPage><Admin /></LazyPage></RequireAdmin>} />
           </Route>
-          <Route path="*" element={<Navigate to="/" replace />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </BrowserRouter>
       <Toaster

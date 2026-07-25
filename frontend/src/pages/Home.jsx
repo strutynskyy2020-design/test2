@@ -6,7 +6,7 @@ import api, { getToken } from "@/lib/api";
 import { resolveAvatarUrl } from "@/lib/avatar";
 import AvatarFrame from "@/components/AvatarFrame";
 import { getAchievements } from "@/lib/achievements";
-import { FeedItem } from "@/pages/Feed";
+import FeedItem from "@/components/FeedItem";
 
 const ICONS = { flame: Flame, trophy: Trophy, "graduation-cap": GraduationCap, sparkles: Sparkles, crown: Crown, award: Award, medal: Medal, star: Star };
 
@@ -67,6 +67,17 @@ const defaultGoals = {
   monthly_bonus_current: 0, monthly_bonus_target: 0,
 };
 
+let bonusMatchWarmup = null;
+const warmBonusMatch = () => {
+  if (!bonusMatchWarmup) {
+    bonusMatchWarmup = Promise.all([
+      import("@/pages/BonusMatch"),
+      import("@/lib/bonusMatchAssets").then(({ preloadBonusMatchArtwork }) => preloadBonusMatchArtwork()),
+    ]).catch(() => null);
+  }
+  return bonusMatchWarmup;
+};
+
 export default function Home() {
   const { user, mode } = useApp();
   const nav = useNavigate();
@@ -74,6 +85,16 @@ export default function Home() {
   const [goals, setGoals] = useState(defaultGoals);
   const [feed, setFeed] = useState([]);
   const [awardedAchievements, setAwardedAchievements] = useState([]);
+
+  useEffect(() => {
+    const schedule = window.requestIdleCallback
+      ? window.requestIdleCallback(() => warmBonusMatch(), { timeout: 2200 })
+      : window.setTimeout(() => warmBonusMatch(), 1500);
+    return () => {
+      if (window.cancelIdleCallback && typeof schedule === "number") window.cancelIdleCallback(schedule);
+      else window.clearTimeout(schedule);
+    };
+  }, []);
 
   useEffect(() => {
     if (!user) return;
@@ -220,7 +241,7 @@ export default function Home() {
     {/* 8. Achievements */}
     <section><div className="mb-3 flex items-center justify-between px-1"><div className="font-display text-lg text-white">Досягнення</div><div className="text-xs font-black text-zinc-500">{achievements.filter(a=>a.unlocked).length} / {achievements.length}</div></div><div className="grid grid-cols-3 gap-3">{achievements.map(a=><Badge key={a.id} ach={a}/>)}</div></section>
 
-    <button type="button" onClick={() => nav("/games/bonus-match")} className="group relative flex w-full items-center gap-4 overflow-hidden rounded-3xl border border-[#7C3AED]/55 bg-gradient-to-r from-[#25103F] via-[#18121F] to-[#101014] p-5 text-left shadow-[0_16px_36px_rgba(124,58,237,.16)] active:scale-[.99]">
+    <button type="button" onPointerEnter={warmBonusMatch} onFocus={warmBonusMatch} onTouchStart={warmBonusMatch} onClick={() => nav("/games/bonus-match")} className="group relative flex w-full items-center gap-4 overflow-hidden rounded-3xl border border-[#7C3AED]/55 bg-gradient-to-r from-[#25103F] via-[#18121F] to-[#101014] p-5 text-left shadow-[0_16px_36px_rgba(124,58,237,.16)] active:scale-[.99]">
       <div className="absolute -right-8 -top-10 h-28 w-28 rounded-full bg-[#7C3AED]/20 blur-2xl" />
       <div className="relative flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-[#B78CFF]/45 bg-[#7C3AED]/25 text-[#C9A7FF] shadow-[0_0_24px_rgba(124,58,237,.22)]"><Gamepad2 size={27} strokeWidth={2.8} /></div>
       <div className="relative min-w-0 flex-1"><div className="flex items-center gap-2"><div className="font-display text-xl text-white">BONUS MATCH</div><Zap size={16} color="#FFB800" fill="#FFB800" /></div><div className="mt-1 text-xs font-bold text-zinc-400">Збирай 3+ фішки та вигравай Point</div></div>

@@ -1,0 +1,560 @@
+diff --git aa/backend/server.py bb/backend/server.py
+index 96ac433..3106ed6 100644
+--- aa/backend/server.py
++++ bb/backend/server.py
+@@ -3332,15 +3332,14 @@ def _bonus_match_animation_frames(
+     obstacle_events: Optional[list[dict]] = None,
+     obstacle_board: Optional[list[list[Optional[dict]]]] = None,
+ ) -> list[dict]:
+-    """Build deterministic animation frames from the authoritative server state.
++    """Build semantic animation events from the authoritative server state.
+ 
+     The frontend never recomputes cascades. It receives stable piece ids and
+-    replays: swap -> match/clear metadata -> collapse. Removed pieces can exit
+-    while surviving pieces with the same ids move to their next grid positions.
++    replays swap -> match/clear metadata -> collapse on its own local timeline.
++    Server responses intentionally do not prescribe visual durations.
+     """
+     frames: list[dict] = [{
+         "phase": "swap",
+-        "duration_ms": 220,
+         "board": _bonus_match_clone_board(swapped_board),
+     }]
+ 
+@@ -3357,7 +3356,6 @@ def _bonus_match_animation_frames(
+ 
+         frames.append({
+             "phase": "match",
+-            "duration_ms": 290,
+             "combo": int(step.get("combo", 1)),
+             "score_gain": int(step.get("score_gain", 0)),
+             "coins_gain": int(step.get("coins_gain", 0)),
+@@ -3372,7 +3370,6 @@ def _bonus_match_animation_frames(
+         })
+         frames.append({
+             "phase": "collapse",
+-            "duration_ms": 430,
+             "combo": int(step.get("combo", 1)),
+             "board": _bonus_match_clone_board(
+                 step.get("board_after_collapse") or []
+@@ -3388,7 +3385,6 @@ def _bonus_match_animation_frames(
+     if obstacle_events:
+         frames.append({
+             "phase": "obstacle",
+-            "duration_ms": 420,
+             "board": _bonus_match_clone_board(obstacle_board or final_board),
+             "events": obstacle_events,
+         })
+@@ -3396,7 +3392,6 @@ def _bonus_match_animation_frames(
+     if reshuffled:
+         frames.append({
+             "phase": "reshuffle",
+-            "duration_ms": 360,
+             "board": _bonus_match_clone_board(final_board),
+         })
+ 
+@@ -4789,7 +4784,7 @@ async def bonus_match_use_booster(
+     fresh_profile = await _bonus_match_profile(user["id"])
+     frames = []
+     if booster == "shuffle":
+-        frames = [{"phase": "reshuffle", "duration_ms": 420, "board": _bonus_match_clone_board(board)}]
++        frames = [{"phase": "reshuffle", "board": _bonus_match_clone_board(board)}]
+     else:
+         frames = _bonus_match_animation_frames(original_board, steps, board, reshuffled)[1:]
+     return {
+@@ -4876,7 +4871,6 @@ async def bonus_match_status(
+                 "from_board": original_active_board,
+                 "frames": [{
+                     "phase": "reshuffle",
+-                    "duration_ms": 520,
+                     "board": _bonus_match_clone_board(playable_board),
+                 }],
+             }
+@@ -4953,7 +4947,6 @@ async def bonus_match_start(
+                 "from_board": original_existing_board,
+                 "frames": [{
+                     "phase": "reshuffle",
+-                    "duration_ms": 520,
+                     "board": _bonus_match_clone_board(playable_board),
+                 }],
+             }
+@@ -5092,7 +5085,6 @@ async def bonus_match_move(
+                 "from_board": original_session_board,
+                 "frames": [{
+                     "phase": "reshuffle",
+-                    "duration_ms": 520,
+                     "board": _bonus_match_clone_board(playable_board),
+                 }],
+             },
+@@ -5176,12 +5168,10 @@ async def bonus_match_move(
+                 "frames": [
+                     {
+                         "phase": "swap",
+-                        "duration_ms": 120,
+                         "board": original_board,
+                     },
+                     {
+                         "phase": "invalid",
+-                        "duration_ms": 320,
+                         "board": original_board,
+                         "shake_ids": [
+                             str(first_cell.get("id")) if first_cell else "",
+@@ -5246,12 +5236,10 @@ async def bonus_match_move(
+                 "frames": [
+                     {
+                         "phase": "swap",
+-                        "duration_ms": 220,
+                         "board": swapped_board,
+                     },
+                     {
+                         "phase": "invalid",
+-                        "duration_ms": 320,
+                         "board": original_board,
+                         "shake_ids": [
+                             str(first_cell.get("id")) if first_cell else "",
+diff --git aa/frontend/src/pages/BonusMatch.jsx bb/frontend/src/pages/BonusMatch.jsx
+index ba408aa..0ceba35 100644
+--- aa/frontend/src/pages/BonusMatch.jsx
++++ bb/frontend/src/pages/BonusMatch.jsx
+@@ -41,12 +41,24 @@ const BOSS_LEVELS = { 25: 2, 40: 2, 50: 3 };
+ const OBSTACLE_ORDER = ["ice", "chain", "crate", "stone", "crystal", "web", "shield", "slime", "metal", "core"];
+ const OVERLAY_OBSTACLES = new Set(["chain", "web"]);
+ const wait = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms));
++const nextPaint = () => new Promise((resolve) => window.requestAnimationFrame(() => window.requestAnimationFrame(resolve)));
++const waitUntil = async (deadline) => {
++  const remaining = deadline - performance.now();
++  if (remaining > 1) await wait(remaining);
++};
+ const coordKey = (row, col) => `${row}:${col}`;
+ const cloneBoard = (board) => (board || []).map((row) => row.map((cell) => (cell ? { ...cell } : null)));
+ const PIECE_SHADOW_IMAGE = "/bonus-match/piece-shadow.webp";
+ const HINT_DELAY_MS = 5600;
+ const SQUASH_ANTICIPATION_MS = 100;
+-const CASCADE_STEP_MS = [350, 250, 180];
++const OPTIMISTIC_SWAP_MS = 165;
++const INVALID_SHAKE_MS = 120;
++const INVALID_RETURN_MS = 135;
++const MATCH_FIRE_LEAD_MS = 58;
++const MATCH_COLLAPSE_LEAD_MS = 100;
++const OBSTACLE_TURN_MS = 240;
++const RESHUFFLE_MS = 330;
++const CASCADE_STEP_MS = [320, 230, 165];
+ const BOARD_SHAPES = {
+   full: ["1111111", "1111111", "1111111", "1111111", "1111111", "1111111", "1111111"],
+   rounded: ["0111110", "1111111", "1111111", "1111111", "1111111", "1111111", "0111110"],
+@@ -63,7 +75,7 @@ const boardShapeForLevel = (level = 1) => {
+ const boardMaskForShape = (shape = "full") => (BOARD_SHAPES[shape] || BOARD_SHAPES.full).map((row) => [...row].map((value) => value === "1"));
+ const cascadeDurationForStep = (step = 0) => {
+   if (step < CASCADE_STEP_MS.length) return CASCADE_STEP_MS[step];
+-  return Math.max(125, Math.round(CASCADE_STEP_MS.at(-1) * (0.82 ** (step - CASCADE_STEP_MS.length + 1))));
++  return Math.max(105, Math.round(CASCADE_STEP_MS.at(-1) * (0.82 ** (step - CASCADE_STEP_MS.length + 1))));
+ };
+ const boardCellPositions = (board) => {
+   const positions = new Map();
+@@ -1563,7 +1575,7 @@ export default function BonusMatch() {
+       await wait(reducedMotion ? 25 : 90);
+       setFlash("ПЕРЕМІШУЄМО");
+       setDisplayBoard(targetBoard);
+-      await wait(reducedMotion ? 70 : Number(finalFrame?.duration_ms || 520));
++      await wait(reducedMotion ? 70 : RESHUFFLE_MS);
+       setFlash("");
+       toast.info("На полі не залишилося ходів. Фішки автоматично перемішано");
+       return session;
+@@ -1749,16 +1761,25 @@ export default function BonusMatch() {
+     if (!reducedMotion) fireConfetti();
+   };
+ 
++  const queueSpecialEffects = (items, lifetimeMs = 720) => {
++    const nextItems = (items || []).filter(Boolean);
++    if (!nextItems.length) return;
++    const tokens = new Set(nextItems.map((item) => item.token).filter(Boolean));
++    setSpecialEffects((current) => [...current.slice(-28), ...nextItems]);
++    window.setTimeout(() => {
++      setSpecialEffects((current) => current.filter((item) => !tokens.has(item.token)));
++    }, reducedMotion ? Math.min(180, lifetimeMs) : lifetimeMs);
++  };
++
+   const animateServerMove = async (data, baseScore) => {
+     const animation = data.animation || {};
+     const frames = Array.isArray(animation.frames) && animation.frames.length
+       ? animation.frames
+       : [
+-        ...(animation.swapped_board ? [{ phase: "swap", board: animation.swapped_board, duration_ms: 220 }] : []),
++        ...(animation.swapped_board ? [{ phase: "swap", board: animation.swapped_board }] : []),
+         ...(animation.steps || []).flatMap((step) => [
+           {
+             phase: "match",
+-            duration_ms: 290,
+             combo: step.combo,
+             score_gain: step.score_gain,
+             coins_gain: step.coins_gain,
+@@ -1773,7 +1794,6 @@ export default function BonusMatch() {
+           },
+           {
+             phase: "collapse",
+-            duration_ms: 430,
+             combo: step.combo,
+             board: step.board_after_collapse,
+             spawned: step.spawned,
+@@ -1781,40 +1801,42 @@ export default function BonusMatch() {
+           },
+         ]),
+         ...(animation.reshuffled && data.session?.board
+-          ? [{ phase: "reshuffle", board: data.session.board, duration_ms: 520 }]
++          ? [{ phase: "reshuffle", board: data.session.board }]
+           : []),
+       ];
+ 
+     setHintMove(null);
+     setFallMeta(new Map());
+ 
+-    if (data.move_consumed === false && animation.from_board) {
+-      setDisplayBoard(normalizeBoard(animation.from_board));
+-      await wait(reducedMotion ? 20 : 70);
+-    }
+-
+     const swapFrame = frames.find((frame) => frame.phase === "swap");
+-    if (swapFrame?.board) {
+-      setDisplayBoard(normalizeBoard(swapFrame.board));
+-      await wait(reducedMotion ? 35 : Math.min(205, Number(swapFrame.duration_ms || 205)));
+-    }
++    let currentBoard = normalizeBoard(
++      swapFrame?.board
++      || animation.swapped_board
++      || displayBoard
++      || data.session?.board,
++    );
+ 
+     if (!data.valid) {
+       const invalidFrame = frames.find((frame) => frame.phase === "invalid");
+       const pair = animation.swap;
+-      const boardForIds = normalizeBoard(animation.swapped_board || displayBoard);
+       const ids = new Set((invalidFrame?.shake_ids || []).filter(Boolean));
+       if (!ids.size && pair) {
+-        const firstId = boardForIds?.[pair.from.row]?.[pair.from.col]?.id;
+-        const secondId = boardForIds?.[pair.to.row]?.[pair.to.col]?.id;
++        const firstId = currentBoard?.[pair.from.row]?.[pair.from.col]?.id;
++        const secondId = currentBoard?.[pair.to.row]?.[pair.to.col]?.id;
+         if (firstId) ids.add(firstId);
+         if (secondId) ids.add(secondId);
+       }
+       setShakingIds(ids);
+-      await wait(reducedMotion ? 60 : Number(invalidFrame?.duration_ms || 300));
++      await wait(reducedMotion ? 45 : INVALID_SHAKE_MS);
+       setShakingIds(new Set());
+-      setDisplayBoard(normalizeBoard(invalidFrame?.board || animation.reverted_board || data.session?.board || game.board));
+-      await wait(reducedMotion ? 30 : 180);
++      const reverted = normalizeBoard(invalidFrame?.board || animation.reverted_board || data.session?.board || game.board);
++      setDisplayBoard(reverted);
++      await wait(reducedMotion ? 35 : INVALID_RETURN_MS);
++      if (data.session) {
++        const session = { ...data.session, board: normalizeBoard(data.session.board) };
++        setGame(session);
++        setAnimatedScore(session.score || 0);
++      }
+       toast.info(data.message || "Спробуй інший хід");
+       return;
+     }
+@@ -1827,9 +1849,11 @@ export default function BonusMatch() {
+       if (frame.phase === "swap") continue;
+ 
+       if (frame.phase === "match") {
+-        const stepDurationMs = cascadeDurationForStep(cascadeIndex);
++        const stepStartedAt = performance.now();
++        const stepDurationMs = reducedMotion ? 80 : cascadeDurationForStep(cascadeIndex);
+         const tempoRatio = stepDurationMs / CASCADE_STEP_MS[0];
+-        const before = normalizeBoard(frame.board || displayBoard);
++        const before = normalizeBoard(frame.board || currentBoard);
++        currentBoard = before;
+         const fxToken = `${Date.now()}-${index}-${cascadeIndex}`;
+         setCascadeMotion({ step: cascadeIndex, durationMs: stepDurationMs, token: fxToken });
+         setDisplayBoard(before);
+@@ -1854,15 +1878,11 @@ export default function BonusMatch() {
+         const impactMap = new Map();
+         changes.forEach((change, changeIndex) => {
+           const pieceId = before?.[change.row]?.[change.col]?.id;
+-          if (pieceId) {
+-            impactMap.set(pieceId, {
+-              ...change,
+-              token: `${fxToken}-impact-${changeIndex}`,
+-            });
+-          }
++          if (pieceId) impactMap.set(pieceId, { ...change, token: `${fxToken}-impact-${changeIndex}` });
+         });
+         setObstacleImpacts(impactMap);
+         setActivatedIds(active);
++        setRemovingIds(removed);
+         setCombo(frame.combo || cascadeIndex + 1);
+         setFlash(frame.combo > 1 ? `КОМБО ×${frame.combo}` : "");
+ 
+@@ -1884,30 +1904,18 @@ export default function BonusMatch() {
+                   : changes.some((item) => item.obstacle === "slime")
+                     ? "slime"
+                     : "match";
++        setBoardFx(nextBoardFx);
+ 
++        const effectTempo = Math.max(0.48, tempoRatio);
+         const chargeEffects = activations
+           .filter((item) => ["rocket_row", "rocket_col", "bomb", "color_bomb"].includes(item.special))
+           .map((item, effectIndex) => ({
+             ...item,
+             stage: "charge",
+-            tempo: Math.max(0.55, tempoRatio),
++            tempo: effectTempo,
+             token: `${fxToken}-charge-${effectIndex}`,
+           }));
+-        if (chargeEffects.length) {
+-          setSpecialEffects(chargeEffects);
+-          setBoardFx(nextBoardFx);
+-          const chargeMs = (hasColorBomb ? 180 : 135) * Math.max(0.68, tempoRatio);
+-          await wait(reducedMotion ? 30 : Math.round(chargeMs));
+-        }
+-
+-        const effectTempo = Math.max(0.55, tempoRatio);
+-        setSpecialEffects([
+-          ...activations.map((item, effectIndex) => ({ ...item, stage: "fire", tempo: effectTempo, token: `${fxToken}-special-${effectIndex}` })),
+-          ...changes.map((item, effectIndex) => ({ ...item, stage: "fire", tempo: effectTempo, token: `${fxToken}-obstacle-${effectIndex}` })),
+-          ...obstacleEvents.map((item, effectIndex) => ({ ...item, stage: "fire", tempo: effectTempo, token: `${fxToken}-event-${effectIndex}` })),
+-        ]);
+-        setBoardFx(nextBoardFx);
+-        setRemovingIds(removed);
++        queueSpecialEffects(chargeEffects, 420);
+ 
+         for (const created of frame.created_specials || []) {
+           toast.success(SPECIAL_TOASTS[created.special] || "Бонусна фішка створена!");
+@@ -1923,11 +1931,20 @@ export default function BonusMatch() {
+         }
+         const crateReward = changes.find((item) => item.effect === "crate_reward");
+         if (crateReward) {
+-          toast.success(
+-            crateReward.replacement_symbol === "coin" ? "У ЯЩИКУ БУЛА МОНЕТА!" : "ЯЩИК ВІДКРИТО!",
+-          );
++          toast.success(crateReward.replacement_symbol === "coin" ? "У ЯЩИКУ БУЛА МОНЕТА!" : "ЯЩИК ВІДКРИТО!");
+         }
+ 
++        // Flush the anticipation frame immediately. The server response never controls timing.
++        await nextPaint();
++        await waitUntil(stepStartedAt + (reducedMotion ? 20 : MATCH_FIRE_LEAD_MS));
++
++        const fireEffects = [
++          ...activations.map((item, effectIndex) => ({ ...item, stage: "fire", tempo: effectTempo, token: `${fxToken}-special-${effectIndex}` })),
++          ...changes.map((item, effectIndex) => ({ ...item, stage: "fire", tempo: effectTempo, token: `${fxToken}-obstacle-${effectIndex}` })),
++          ...obstacleEvents.map((item, effectIndex) => ({ ...item, stage: "fire", tempo: effectTempo, token: `${fxToken}-event-${effectIndex}` })),
++        ];
++        queueSpecialEffects(fireEffects, hasColorBomb || hasCoreBlast ? 760 : hasBomb ? 620 : 520);
++
+         const burstColor = hasBomb || hasCoreBlast
+           ? "#FF5C00"
+           : hasColorBomb
+@@ -1938,53 +1955,31 @@ export default function BonusMatch() {
+         burstAtCells(frame.cleared_cells || [], burstColor);
+         launchScoreFlight(frame.cleared_cells || [], frame.score_gain || 0);
+ 
+-        // Anticipation: every matched piece squashes, then stretches before the board collapses.
+-        await new Promise((resolve) => window.requestAnimationFrame(() => window.requestAnimationFrame(resolve)));
+-        const anticipationMs = reducedMotion ? 18 : SQUASH_ANTICIPATION_MS;
+-        await wait(anticipationMs);
++        await waitUntil(stepStartedAt + (reducedMotion ? 38 : MATCH_COLLAPSE_LEAD_MS));
+ 
+         const collapseFrame = frames[index + 1]?.phase === "collapse" ? frames[index + 1] : null;
+         if (collapseFrame?.board) {
+           const spawnedList = (collapseFrame.spawned_ids || collapseFrame.spawned?.map((item) => item.id) || []).filter(Boolean);
+           const collapsedBoard = normalizeBoard(collapseFrame.board);
+-          const fall = buildFallMeta(
+-            before,
+-            collapsedBoard,
+-            spawnedList,
+-            boardRef.current?.clientWidth,
+-            `${fxToken}-fall`,
+-          );
++          const fall = buildFallMeta(before, collapsedBoard, spawnedList, boardRef.current?.clientWidth, `${fxToken}-fall`);
+           setSpawnedIds(new Set(spawnedList));
+           setFallMeta(fall);
+           setDisplayBoard(collapsedBoard);
++          currentBoard = collapsedBoard;
+ 
+           const nextScore = runningScore + Number(frame.score_gain || 0);
+-          const baseFxDuration = hasColorBomb || hasCoreBlast
+-            ? 680
+-            : hasBomb
+-              ? 580
+-              : hasRocket || changes.length
+-                ? 500
+-                : stepDurationMs;
+-          const scaledFxDuration = Math.round(baseFxDuration * Math.max(0.55, tempoRatio));
+-          const visualDuration = Math.max(stepDurationMs, scaledFxDuration);
+-          const settleDuration = Math.max(125, visualDuration - anticipationMs);
+-          await Promise.all([
+-            tickScore(runningScore, nextScore, Math.min(190, Math.max(90, settleDuration * 0.55))),
+-            wait(reducedMotion ? 65 : settleDuration),
+-          ]);
++          void tickScore(runningScore, nextScore, Math.min(160, Math.max(80, stepDurationMs * 0.46)));
+           runningScore = nextScore;
+           index += 1;
+-        } else {
+-          await wait(reducedMotion ? 60 : stepDurationMs);
+         }
+ 
++        // Match, obstacle effects and falling overlap. Only the step deadline gates the next cascade.
++        await waitUntil(stepStartedAt + stepDurationMs);
+         setRemovingIds(new Set());
+         setSpawnedIds(new Set());
+         setFallMeta(new Map());
+         setActivatedIds(new Set());
+         setObstacleImpacts(new Map());
+-        setSpecialEffects([]);
+         setBoardFx("");
+         setFlash("");
+         cascadeIndex += 1;
+@@ -1992,21 +1987,17 @@ export default function BonusMatch() {
+       }
+ 
+       if (frame.phase === "collapse" && frame.board) {
+-        const stepDurationMs = cascadeDurationForStep(cascadeIndex);
++        const stepStartedAt = performance.now();
++        const stepDurationMs = reducedMotion ? 70 : cascadeDurationForStep(cascadeIndex);
+         const collapsedBoard = normalizeBoard(frame.board);
+         const spawnedList = (frame.spawned_ids || frame.spawned?.map((item) => item.id) || []).filter(Boolean);
+-        const fall = buildFallMeta(
+-          displayBoard,
+-          collapsedBoard,
+-          spawnedList,
+-          boardRef.current?.clientWidth,
+-          `${Date.now()}-orphan-fall`,
+-        );
++        const fall = buildFallMeta(currentBoard, collapsedBoard, spawnedList, boardRef.current?.clientWidth, `${Date.now()}-orphan-fall`);
+         setCascadeMotion({ step: cascadeIndex, durationMs: stepDurationMs, token: `${Date.now()}-collapse` });
+         setSpawnedIds(new Set(spawnedList));
+         setFallMeta(fall);
+         setDisplayBoard(collapsedBoard);
+-        await wait(reducedMotion ? 55 : stepDurationMs);
++        currentBoard = collapsedBoard;
++        await waitUntil(stepStartedAt + stepDurationMs);
+         setSpawnedIds(new Set());
+         setFallMeta(new Map());
+         cascadeIndex += 1;
+@@ -2014,10 +2005,13 @@ export default function BonusMatch() {
+       }
+ 
+       if (frame.phase === "obstacle" && frame.board) {
++        const turnStartedAt = performance.now();
+         const events = frame.events || [];
+         const token = `${Date.now()}-obstacle-turn`;
+-        setSpecialEffects(events.map((item, eventIndex) => ({ ...item, stage: "fire", token: `${token}-${eventIndex}` })));
+-        setDisplayBoard(normalizeBoard(frame.board));
++        queueSpecialEffects(events.map((item, eventIndex) => ({ ...item, stage: "fire", tempo: 0.72, token: `${token}-${eventIndex}` })), 620);
++        const obstacleBoard = normalizeBoard(frame.board);
++        setDisplayBoard(obstacleBoard);
++        currentBoard = obstacleBoard;
+         if (events.some((item) => item.effect === "slime_spread")) {
+           setBoardFx("slime");
+           setFlash("СЛИЗ ПОШИРИВСЯ");
+@@ -2027,33 +2021,32 @@ export default function BonusMatch() {
+           setFlash("ПАВУТИНА РОЗРОСЛАСЯ");
+           toast.info("Павутина обплутала сусідню фішку");
+         }
+-        await wait(reducedMotion ? 80 : Math.max(Number(frame.duration_ms || 420), 520));
+-        setSpecialEffects([]);
++        await waitUntil(turnStartedAt + (reducedMotion ? 80 : OBSTACLE_TURN_MS));
+         setBoardFx("");
+         setFlash("");
+         continue;
+       }
+ 
+       if (frame.phase === "reshuffle" && frame.board) {
++        const shuffleStartedAt = performance.now();
+         setFlash(animation.reason === "manual" ? "ПЕРЕМІШУЄМО" : "ХОДІВ НЕМАЄ");
+-        await wait(reducedMotion ? 20 : 80);
++        await waitUntil(shuffleStartedAt + (reducedMotion ? 20 : 55));
+         setFlash("ПЕРЕМІШУЄМО");
+-        setDisplayBoard(normalizeBoard(frame.board));
+-        await wait(reducedMotion ? 60 : Number(frame.duration_ms || 520));
++        const shuffledBoard = normalizeBoard(frame.board);
++        setDisplayBoard(shuffledBoard);
++        currentBoard = shuffledBoard;
++        await waitUntil(shuffleStartedAt + (reducedMotion ? 80 : RESHUFFLE_MS));
+         setFlash("");
+       }
+     }
+ 
+     if (animation.reshuffled) {
+-      toast.info(
+-        animation.reason === "manual"
+-          ? "Поле перемішано"
+-          : "На полі не залишилося ходів. Фішки автоматично перемішано",
+-      );
++      toast.info(animation.reason === "manual" ? "Поле перемішано" : "На полі не залишилося ходів. Фішки автоматично перемішано");
+     }
+-    setAnimatedScore(data.session.score || runningScore);
+-    setDisplayBoard(normalizeBoard(data.session.board));
+-    setGame({ ...data.session, board: normalizeBoard(data.session.board) });
++    const finalSession = { ...data.session, board: normalizeBoard(data.session.board) };
++    setAnimatedScore(finalSession.score || runningScore);
++    setDisplayBoard(finalSession.board);
++    setGame(finalSession);
+     setCascadeMotion({ step: 0, durationMs: CASCADE_STEP_MS[0], token: "idle" });
+     setFallMeta(new Map());
+   };
+@@ -2180,10 +2173,15 @@ export default function BonusMatch() {
+     setMoving(true);
+     setSelected(null);
+     setFlash("");
++    const startingGame = game;
+     const startingBoard = normalizeBoard(displayBoard.length ? displayBoard : game.board);
+     const optimistic = cloneBoard(startingBoard);
+     [optimistic[from.row][from.col], optimistic[to.row][to.col]] = [optimistic[to.row][to.col], optimistic[from.row][from.col]];
++    const swapStartedAt = performance.now();
++
++    // Input feedback is local and immediate. Network latency no longer sits before the first frame.
+     setDisplayBoard(optimistic);
++    setGame((current) => current ? { ...current, moves_left: Math.max(0, Number(current.moves_left || 0) - 1) } : current);
+ 
+     try {
+       const request = mode === "mock"
+@@ -2196,10 +2194,8 @@ export default function BonusMatch() {
+           to_col: to.col,
+         }).then((response) => response.data);
+ 
+-      const [data] = await Promise.all([
+-        request,
+-        wait(reducedMotion ? 20 : 210),
+-      ]);
++      const data = await request;
++      await waitUntil(swapStartedAt + (reducedMotion ? 25 : OPTIMISTIC_SWAP_MS));
+       await animateServerMove(data, game.score);
+ 
+       if (data.result) {
+@@ -2209,17 +2205,18 @@ export default function BonusMatch() {
+           if (mode !== "mock") await refreshMe().catch(() => {});
+         } else {
+           setBoardFx("lost");
+-          await wait(reducedMotion ? 30 : 420);
++          await wait(reducedMotion ? 30 : 320);
+         }
+         if (mode !== "mock") await loadStatus();
+       }
+     } catch (error) {
+       setDisplayBoard(startingBoard);
++      setGame(startingGame);
+       toast.error(extractError(error, "Не вдалося виконати хід"));
+     } finally {
+       setMoving(false);
+       setCombo(0);
+-      window.setTimeout(() => setFlash(""), 600);
++      window.setTimeout(() => setFlash(""), 420);
+     }
+   };
+ 
+diff --git aa/frontend/public/service-worker.js bb/frontend/public/service-worker.js
+index bff2e1e..058a3e3 100644
+--- aa/frontend/public/service-worker.js
++++ bb/frontend/public/service-worker.js
+@@ -2,7 +2,7 @@
+  * Dynamic data is always network-only.
+  * App shell uses network-first so new deployments replace old PWA files promptly.
+  */
+-const VERSION = "tm6-v75";
++const VERSION = "tm6-v76";
+ const STATIC_CACHE = `${VERSION}-static`;
+ const RUNTIME_CACHE = `${VERSION}-runtime`;
+ 

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
@@ -25,13 +25,18 @@ import {
   Trophy,
   Zap,
 } from "lucide-react";
-import { AnimatePresence, LayoutGroup, motion, useReducedMotion } from "framer-motion";
-import confetti from "canvas-confetti";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { toast } from "sonner";
 import api, { extractError } from "@/lib/api";
 import { fireConfetti } from "@/lib/confetti";
 import { useApp } from "@/context/AppContext";
 import AvatarFrame from "@/components/AvatarFrame";
+import {
+  BONUS_MATCH_OBSTACLE_SPRITES,
+  BONUS_MATCH_PIECE_SPRITES,
+  PIECE_SHADOW_IMAGE,
+  preloadBonusMatchArtwork,
+} from "@/lib/bonusMatchAssets";
 
 const ROWS = 7;
 const COLS = 7;
@@ -41,12 +46,23 @@ const BOSS_LEVELS = { 25: 2, 40: 2, 50: 3 };
 const OBSTACLE_ORDER = ["ice", "chain", "crate", "stone", "crystal", "web", "shield", "slime", "metal", "core"];
 const OVERLAY_OBSTACLES = new Set(["chain", "web"]);
 const wait = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms));
+const nextPaint = () => new Promise((resolve) => window.requestAnimationFrame(() => window.requestAnimationFrame(resolve)));
+const waitUntil = async (deadline) => {
+  const remaining = deadline - performance.now();
+  if (remaining > 1) await wait(remaining);
+};
 const coordKey = (row, col) => `${row}:${col}`;
 const cloneBoard = (board) => (board || []).map((row) => row.map((cell) => (cell ? { ...cell } : null)));
-const PIECE_SHADOW_IMAGE = "/bonus-match/piece-shadow.webp";
 const HINT_DELAY_MS = 5600;
 const SQUASH_ANTICIPATION_MS = 100;
-const CASCADE_STEP_MS = [350, 250, 180];
+const OPTIMISTIC_SWAP_MS = 165;
+const INVALID_SHAKE_MS = 120;
+const INVALID_RETURN_MS = 135;
+const MATCH_FIRE_LEAD_MS = 58;
+const MATCH_COLLAPSE_LEAD_MS = 100;
+const OBSTACLE_TURN_MS = 240;
+const RESHUFFLE_MS = 330;
+const CASCADE_STEP_MS = [320, 230, 165];
 const BOARD_SHAPES = {
   full: ["1111111", "1111111", "1111111", "1111111", "1111111", "1111111", "1111111"],
   rounded: ["0111110", "1111111", "1111111", "1111111", "1111111", "1111111", "0111110"],
@@ -63,7 +79,7 @@ const boardShapeForLevel = (level = 1) => {
 const boardMaskForShape = (shape = "full") => (BOARD_SHAPES[shape] || BOARD_SHAPES.full).map((row) => [...row].map((value) => value === "1"));
 const cascadeDurationForStep = (step = 0) => {
   if (step < CASCADE_STEP_MS.length) return CASCADE_STEP_MS[step];
-  return Math.max(125, Math.round(CASCADE_STEP_MS.at(-1) * (0.82 ** (step - CASCADE_STEP_MS.length + 1))));
+  return Math.max(105, Math.round(CASCADE_STEP_MS.at(-1) * (0.82 ** (step - CASCADE_STEP_MS.length + 1))));
 };
 const boardCellPositions = (board) => {
   const positions = new Map();
@@ -111,13 +127,17 @@ const buildFallMeta = (before, after, spawnedIds, boardWidth, token) => {
   return result;
 };
 
+const flattenVisualPieces = (board) => (board || []).flatMap((boardRow, row) =>
+  (boardRow || []).flatMap((cell, col) => (cell && !cell.void ? [{ cell, row, col }] : [])),
+);
+
 const PIECES = {
-  coin: { Icon: Coins, label: "Монета", color: "#FFB800", image: "/bonus-match/pieces/coin.webp" },
-  star: { Icon: Star, label: "Зірка", color: "#35B8FF", image: "/bonus-match/pieces/star.webp" },
-  gift: { Icon: Gift, label: "Подарунок", color: "#F64CFF", image: "/bonus-match/pieces/gift.webp" },
-  cube: { Icon: Dice5, label: "Куб", color: "#39FF14", image: "/bonus-match/pieces/cube.webp" },
-  zap: { Icon: Zap, label: "Блискавка", color: "#FF5C00", image: "/bonus-match/pieces/zap.webp" },
-  trophy: { Icon: Trophy, label: "Трофей", color: "#B78CFF", image: "/bonus-match/pieces/trophy.webp" },
+  coin: { Icon: Coins, label: "Монета", color: "#FFB800", sprite: BONUS_MATCH_PIECE_SPRITES.coin },
+  star: { Icon: Star, label: "Зірка", color: "#35B8FF", sprite: BONUS_MATCH_PIECE_SPRITES.star },
+  gift: { Icon: Gift, label: "Подарунок", color: "#F64CFF", sprite: BONUS_MATCH_PIECE_SPRITES.gift },
+  cube: { Icon: Dice5, label: "Куб", color: "#39FF14", sprite: BONUS_MATCH_PIECE_SPRITES.cube },
+  zap: { Icon: Zap, label: "Блискавка", color: "#FF5C00", sprite: BONUS_MATCH_PIECE_SPRITES.zap },
+  trophy: { Icon: Trophy, label: "Трофей", color: "#B78CFF", sprite: BONUS_MATCH_PIECE_SPRITES.trophy },
 };
 
 const SPECIALS = {
@@ -128,23 +148,17 @@ const SPECIALS = {
 };
 
 const OBSTACLES = {
-  ice: { Icon: Snowflake, label: "Крига", color: "#7DD3FC", image: "/bonus-match/obstacles/ice.webp" },
-  chain: { Icon: Lock, label: "Ланцюг", color: "#A1A1AA", image: "/bonus-match/obstacles/chain.webp" },
-  crate: { Icon: Box, label: "Ящик", color: "#FDBA74", image: "/bonus-match/obstacles/crate.webp" },
-  stone: { Icon: Shield, label: "Камінь", color: "#D4D4D8", image: "/bonus-match/obstacles/stone.webp" },
-  crystal: { Icon: Gem, label: "Кристал", color: "#C084FC", image: "/bonus-match/obstacles/crystal.webp" },
-  web: { Icon: Sparkles, label: "Павутина", color: "#E4E4E7", image: "/bonus-match/obstacles/web.webp" },
-  shield: { Icon: Shield, label: "Щит", color: "#60A5FA", image: "/bonus-match/obstacles/shield.webp" },
-  slime: { Icon: CircleDot, label: "Слиз", color: "#4ADE80", image: "/bonus-match/obstacles/slime.webp" },
-  metal: { Icon: Shield, label: "Метал", color: "#CBD5E1", image: "/bonus-match/obstacles/metal.webp" },
-  core: { Icon: Zap, label: "Ядро", color: "#FF4D55", image: "/bonus-match/obstacles/core.webp" },
+  ice: { Icon: Snowflake, label: "Крига", color: "#7DD3FC", sprite: BONUS_MATCH_OBSTACLE_SPRITES.ice },
+  chain: { Icon: Lock, label: "Ланцюг", color: "#A1A1AA", sprite: BONUS_MATCH_OBSTACLE_SPRITES.chain },
+  crate: { Icon: Box, label: "Ящик", color: "#FDBA74", sprite: BONUS_MATCH_OBSTACLE_SPRITES.crate },
+  stone: { Icon: Shield, label: "Камінь", color: "#D4D4D8", sprite: BONUS_MATCH_OBSTACLE_SPRITES.stone },
+  crystal: { Icon: Gem, label: "Кристал", color: "#C084FC", sprite: BONUS_MATCH_OBSTACLE_SPRITES.crystal },
+  web: { Icon: Sparkles, label: "Павутина", color: "#E4E4E7", sprite: BONUS_MATCH_OBSTACLE_SPRITES.web },
+  shield: { Icon: Shield, label: "Щит", color: "#60A5FA", sprite: BONUS_MATCH_OBSTACLE_SPRITES.shield },
+  slime: { Icon: CircleDot, label: "Слиз", color: "#4ADE80", sprite: BONUS_MATCH_OBSTACLE_SPRITES.slime },
+  metal: { Icon: Shield, label: "Метал", color: "#CBD5E1", sprite: BONUS_MATCH_OBSTACLE_SPRITES.metal },
+  core: { Icon: Zap, label: "Ядро", color: "#FF4D55", sprite: BONUS_MATCH_OBSTACLE_SPRITES.core },
 };
-
-const BONUS_MATCH_ARTWORK = [
-  PIECE_SHADOW_IMAGE,
-  ...Object.values(PIECES).map((item) => item.image),
-  ...Object.values(OBSTACLES).map((item) => item.image),
-].filter(Boolean);
 
 const SPECIAL_TOASTS = {
   rocket_row: "Ракета створена!",
@@ -585,6 +599,7 @@ function Piece({
   hintDirection = null,
   fall = null,
   cascadeDurationMs = 350,
+  positionDurationMs = OPTIMISTIC_SWAP_MS,
   celebrating = false,
   removeDelay = 0,
   onClick,
@@ -603,7 +618,6 @@ function Piece({
   const special = cell.special ? SPECIALS[cell.special] || SPECIALS.bomb : null;
   const piece = PIECES[cell.symbol] || PIECES.star;
   const overlayObstacle = Boolean(cell.obstacle && OVERLAY_OBSTACLES.has(cell.obstacle));
-  const ArtworkIcon = obstacle?.Icon || piece.Icon;
   const SpecialIcon = special?.Icon || null;
   const color = obstacle?.color || special?.color || piece.color;
   const background = "#0A0811";
@@ -733,16 +747,26 @@ function Piece({
         };
 
   return (
-    <motion.button
-      layout={fall ? false : "position"}
-      layoutId={`bonus-piece-${cell.id}`}
+    <div
+      className="absolute left-0 top-0 h-[14.285714%] w-[14.285714%] p-0.5"
+      style={{
+        transform: `translate3d(${col * 100}%, ${row * 100}%, 0)`,
+        transition: fall || reducedMotion
+          ? "none"
+          : `transform ${positionDurationMs}ms cubic-bezier(.2,.82,.25,1)`,
+        zIndex: selected ? 24 : removing ? 18 : activated ? 16 : 10,
+        willChange: "transform",
+        contain: "layout style",
+      }}
+    >
+      <motion.button
       type="button"
       onClick={(event) => {
         if (suppressClickRef.current) {
           event.preventDefault();
           return;
         }
-        onClick?.();
+        onClick?.(row, col);
       }}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
@@ -750,11 +774,9 @@ function Piece({
       onPointerCancel={resetGesture}
       disabled={disabled}
       aria-label={`${label}, рядок ${row + 1}, колонка ${col + 1}`}
-      className="relative flex aspect-square min-w-0 items-center justify-center overflow-visible rounded-[10px] border border-white/10"
+      className="relative flex h-full w-full min-w-0 items-center justify-center overflow-visible rounded-[10px] border border-white/10"
       style={{
         background,
-        gridRowStart: row + 1,
-        gridColumnStart: col + 1,
         touchAction: swipeEnabled ? "none" : "manipulation",
       }}
       initial={fall?.spawned && !reducedMotion
@@ -773,7 +795,6 @@ function Piece({
         shaking
           ? { duration: reducedMotion ? 0.01 : 0.32, ease: "easeInOut" }
           : {
-            layout: { duration: reducedMotion ? 0.05 : 0.18, ease: [0.2, 0.82, 0.25, 1] },
             x: dragOffset.x || dragOffset.y ? { duration: 0 } : { type: "spring", stiffness: 520, damping: 27 },
             y: celebrating && !reducedMotion
               ? { duration: 0.48, delay: celebrationDelay, times: [0, 0.42, 0.72, 1], ease: ["easeOut", "easeIn", "easeOut"] }
@@ -804,21 +825,11 @@ function Piece({
           className="pointer-events-none absolute bottom-[-4%] left-[7%] z-[1] h-[38%] w-[86%] select-none object-fill opacity-75"
         />
       )}
-      <ArtworkIcon
-        className="relative z-[1] opacity-0"
-        size={24}
-        strokeWidth={2.8}
-        color={color}
-        aria-hidden="true"
-      />
-      {!obstacle && piece.image && (
-        <motion.img
-          src={piece.image}
-          alt=""
-          draggable="false"
-          decoding="async"
-          className="pointer-events-none absolute inset-[1%] z-[2] h-[98%] w-[98%] select-none object-cover"
-          style={{ filter: "drop-shadow(-1px -1px 0 rgba(255,255,255,.32)) drop-shadow(1.5px 2px 0 rgba(0,0,0,.48))" }}
+      {!obstacle && piece.sprite && (
+        <motion.div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-[1%] z-[2] select-none"
+          style={{ ...piece.sprite, filter: "drop-shadow(-1px -1px 0 rgba(255,255,255,.32)) drop-shadow(1.5px 2px 0 rgba(0,0,0,.48))" }}
           animate={pieceArtworkMotion}
           transition={
             activated
@@ -829,26 +840,21 @@ function Piece({
           }
         />
       )}
-      {overlayObstacle && piece.image && (
-        <motion.img
-          src={piece.image}
-          alt=""
-          draggable="false"
-          decoding="async"
-          className="pointer-events-none absolute inset-[9%] z-[2] h-[82%] w-[82%] select-none object-contain"
+      {overlayObstacle && piece.sprite && (
+        <motion.div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-[9%] z-[2] select-none"
+          style={piece.sprite}
           animate={impact && !reducedMotion ? { scale: [1, 0.9, 1.08, 1] } : pieceArtworkMotion}
           transition={impact ? { duration: 0.42 * pieceTempo } : hinted ? { duration: 0.78, repeat: Infinity } : { duration: 0.2 }}
         />
       )}
-      {obstacle?.image && (
-        <motion.img
+      {obstacle?.sprite && (
+        <motion.div
           key={`${cell.id}-${impact?.token || "steady"}`}
-          src={obstacle.image}
-          alt=""
-          draggable="false"
-          decoding="async"
-          className={`pointer-events-none absolute inset-0 z-[3] h-full w-full select-none object-cover ${overlayObstacle ? "opacity-[0.84]" : ""}`}
-          style={overlayObstacle && cell.obstacle === "web" ? { mixBlendMode: "screen" } : undefined}
+          aria-hidden="true"
+          className={`pointer-events-none absolute inset-0 z-[3] select-none ${overlayObstacle ? "opacity-[0.84]" : ""}`}
+          style={{ ...obstacle.sprite, ...(overlayObstacle && cell.obstacle === "web" ? { mixBlendMode: "screen" } : {}) }}
           animate={impactMotion}
           transition={impactTransition}
         />
@@ -856,19 +862,14 @@ function Piece({
       <div
         className="pointer-events-none absolute inset-[3%] z-[4] rounded-[12%]"
         style={{
+          background: obstacle
+            ? "linear-gradient(145deg,rgba(255,255,255,.10),transparent 42%,rgba(0,0,0,.18))"
+            : "radial-gradient(ellipse at 29% 16%,rgba(255,255,255,.76),rgba(255,255,255,.20) 18%,transparent 38%), radial-gradient(ellipse at 76% 88%,rgba(0,0,0,.24),transparent 42%), linear-gradient(145deg,rgba(255,255,255,.10),transparent 45%,rgba(0,0,0,.16))",
           boxShadow: obstacle
             ? "inset 1px 1px 0 rgba(255,255,255,.16), inset -1.5px -1.5px 0 rgba(0,0,0,.28)"
-            : "inset 1.6px 1.6px 0 rgba(255,255,255,.42), inset -2.2px -2.2px 0 rgba(0,0,0,.38)",
+            : "inset 2px 2px 0 rgba(255,255,255,.48), inset -2.4px -2.4px 0 rgba(0,0,0,.44), inset 0 0 0 1px rgba(255,255,255,.14)",
         }}
       />
-      {!obstacle && (
-        <>
-          <div className="pointer-events-none absolute inset-[5%] z-[4] rounded-[16%] border-2 border-l-white/40 border-t-white/40 border-r-black/45 border-b-black/45" />
-          <div className="pointer-events-none absolute left-[14%] top-[9%] z-[5] h-[20%] w-[38%] rotate-[-18deg] rounded-full bg-[radial-gradient(ellipse_at_center,rgba(255,255,255,.72),rgba(255,255,255,.22)_44%,transparent_72%)] opacity-90" />
-          <div className="pointer-events-none absolute bottom-[7%] right-[9%] z-[4] h-[16%] w-[42%] rounded-full bg-black/20 blur-[2px]" />
-        </>
-      )}
-      <div className="pointer-events-none absolute inset-0 z-[4] overflow-hidden rounded-[10px] bg-gradient-to-br from-white/10 via-transparent to-black/16" />
       {impact && (
         <motion.div
           key={`impact-glint-${impact.token}`}
@@ -959,9 +960,133 @@ function Piece({
           {cell.obstacle_hits}
         </motion.div>
       )}
-    </motion.button>
+      </motion.button>
+    </div>
   );
 }
+
+const sameCellVisual = (first, second) => (
+  first === second
+  || (
+    first?.id === second?.id
+    && first?.symbol === second?.symbol
+    && first?.special === second?.special
+    && first?.obstacle === second?.obstacle
+    && Number(first?.obstacle_hits || 0) === Number(second?.obstacle_hits || 0)
+    && Number(first?.obstacle_age || 0) === Number(second?.obstacle_age || 0)
+    && Boolean(first?.void) === Boolean(second?.void)
+  )
+);
+
+const sameMotionToken = (first, second) => (
+  first === second
+  || (
+    first?.token === second?.token
+    && first?.distance === second?.distance
+    && first?.delay === second?.delay
+    && first?.spawned === second?.spawned
+  )
+);
+
+const sameDirection = (first, second) => (
+  first === second
+  || (Number(first?.dr || 0) === Number(second?.dr || 0) && Number(first?.dc || 0) === Number(second?.dc || 0))
+);
+
+const arePiecePropsEqual = (previous, next) => {
+  const motionSensitive = Boolean(
+    previous.removing || next.removing
+    || previous.shaking || next.shaking
+    || previous.spawned || next.spawned
+    || previous.activated || next.activated
+    || previous.celebrating || next.celebrating
+    || previous.fall || next.fall
+    || previous.impact || next.impact
+  );
+  return (
+    sameCellVisual(previous.cell, next.cell)
+    && previous.row === next.row
+    && previous.col === next.col
+    && previous.selected === next.selected
+    && previous.disabled === next.disabled
+    && previous.targetable === next.targetable
+    && previous.removing === next.removing
+    && previous.shaking === next.shaking
+    && previous.spawned === next.spawned
+    && previous.activated === next.activated
+    && previous.hinted === next.hinted
+    && previous.celebrating === next.celebrating
+    && previous.swipeEnabled === next.swipeEnabled
+    && previous.reducedMotion === next.reducedMotion
+    && (!motionSensitive || (
+      previous.cascadeDurationMs === next.cascadeDurationMs
+      && previous.removeDelay === next.removeDelay
+    ))
+    && sameMotionToken(previous.fall, next.fall)
+    && sameMotionToken(previous.impact, next.impact)
+    && sameDirection(previous.hintDirection, next.hintDirection)
+  );
+};
+
+const MemoPiece = memo(Piece, arePiecePropsEqual);
+
+const BoardPiecesLayer = memo(function BoardPiecesLayer({
+  pieces,
+  selectedKey,
+  moving,
+  gameStatus,
+  activeBooster,
+  removingIds,
+  shakingIds,
+  spawnedIds,
+  fallMeta,
+  cascadeDurationMs,
+  celebrating,
+  hintDirections,
+  activatedIds,
+  obstacleImpacts,
+  reducedMotion,
+  onPieceClick,
+  onPieceSwipe,
+}) {
+  const positionDurationMs = Math.max(110, Math.min(190, cascadeDurationMs || OPTIMISTIC_SWAP_MS));
+  return (
+    <div className="absolute inset-1.5 overflow-visible" style={{ contain: "layout style" }}>
+      <AnimatePresence initial={false}>
+        {pieces.map(({ cell, row, col }) => {
+          const key = coordKey(row, col);
+          return (
+            <MemoPiece
+              key={cell.id}
+              cell={cell}
+              row={row}
+              col={col}
+              selected={selectedKey === key}
+              disabled={moving || gameStatus !== "active"}
+              targetable={Boolean(activeBooster && activeBooster !== "shuffle")}
+              removing={removingIds.has(cell.id)}
+              shaking={shakingIds.has(cell.id)}
+              spawned={spawnedIds.has(cell.id)}
+              fall={fallMeta.get(cell.id)}
+              cascadeDurationMs={cascadeDurationMs}
+              positionDurationMs={positionDurationMs}
+              celebrating={celebrating}
+              hinted={hintDirections.has(key)}
+              hintDirection={hintDirections.get(key)}
+              activated={activatedIds.has(cell.id)}
+              impact={obstacleImpacts.get(cell.id)}
+              removeDelay={(row + col) * Math.max(0.005, Math.min(0.012, cascadeDurationMs / 30000))}
+              reducedMotion={reducedMotion}
+              swipeEnabled={!moving && !activeBooster && gameStatus === "active" && !cell.obstacle}
+              onSwipe={onPieceSwipe}
+              onClick={onPieceClick}
+            />
+          );
+        })}
+      </AnimatePresence>
+    </div>
+  );
+});
 
 function Stars({ count = 0, size = 19, animated = false, reducedMotion = false }) {
   return (
@@ -985,30 +1110,201 @@ function Stars({ count = 0, size = 19, animated = false, reducedMotion = false }
   );
 }
 
-function FxParticles({ row, col, color, count = 8, distance = 34, delay = 0, reducedMotion = false, square = false, tempo = 1 }) {
-  if (reducedMotion) return null;
-  return Array.from({ length: count }, (_, index) => {
-    const angle = ((Math.PI * 2) / count) * index + (index % 2) * 0.17;
-    const radius = distance * (0.72 + (index % 3) * 0.14);
-    const x = Math.cos(angle) * radius;
-    const y = Math.sin(angle) * radius;
-    return (
-      <motion.span
-        key={`particle-${index}`}
-        className={`pointer-events-none absolute z-30 ${square ? "h-2.5 w-2.5 rounded-[2px]" : "h-2 w-2 rounded-full"}`}
-        style={{
-          left: `${((col + 0.5) / COLS) * 100}%`,
-          top: `${((row + 0.5) / ROWS) * 100}%`,
-          background: color,
-          boxShadow: `0 0 8px ${color}`,
-        }}
-        initial={{ x: -4, y: -4, scale: 0.2, opacity: 0 }}
-        animate={{ x, y, scale: [0.2, 1.15, 0.1], opacity: [0, 1, 0], rotate: square ? [0, 90, 180] : 0 }}
-        transition={{ duration: fxDuration(0.48, tempo, 0.18), delay: fxDelay(delay + index * 0.018, tempo), ease: "easeOut" }}
-      />
-    );
-  });
+function FxParticles() {
+  // Particle rendering moved to one GPU-friendly canvas layer in v77.
+  return null;
 }
+
+const particleColorForEffect = (effect = {}) => {
+  if (effect.special === "color_bomb" || effect.special === "booster_color_bomb") return "#F64CFF";
+  if (effect.special === "bomb") return "#FF5C00";
+  if (["rocket_row", "rocket_col", "booster_rocket"].includes(effect.special)) return "#FFB800";
+  if (effect.obstacle && OBSTACLES[effect.obstacle]) return OBSTACLES[effect.obstacle].color;
+  if (effect.effect === "core_blast" || effect.effect === "core_pulse") return "#FF4D55";
+  if (effect.effect === "crystal_burst") return "#C084FC";
+  if (effect.effect === "slime_spread") return "#4ADE80";
+  if (effect.effect === "web_spread") return "#E4E4E7";
+  return "#B78CFF";
+};
+
+const BoardEffectsCanvas = forwardRef(function BoardEffectsCanvas({ effects = [], reducedMotion = false }, ref) {
+  const canvasRef = useRef(null);
+  const particlesRef = useRef([]);
+  const seenTokensRef = useRef(new Set());
+  const frameRef = useRef(0);
+  const sizeRef = useRef({ width: 1, height: 1, dpr: 1 });
+
+  const resizeCanvas = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const width = Math.max(1, Math.round(rect.width));
+    const height = Math.max(1, Math.round(rect.height));
+    if (canvas.width !== Math.round(width * dpr) || canvas.height !== Math.round(height * dpr)) {
+      canvas.width = Math.round(width * dpr);
+      canvas.height = Math.round(height * dpr);
+    }
+    sizeRef.current = { width, height, dpr };
+  }, []);
+
+  const drawFrame = useCallback((now) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const context = canvas.getContext("2d", { alpha: true });
+    if (!context) return;
+    const { width, height, dpr } = sizeRef.current;
+    context.setTransform(dpr, 0, 0, dpr, 0, 0);
+    context.clearRect(0, 0, width, height);
+
+    const active = [];
+    for (const particle of particlesRef.current) {
+      if (now < particle.startAt) {
+        active.push(particle);
+        continue;
+      }
+      const progress = (now - particle.startAt) / particle.lifeMs;
+      if (progress >= 1) continue;
+      active.push(particle);
+      const eased = 1 - ((1 - progress) ** 3);
+      const fade = progress < 0.18 ? progress / 0.18 : 1 - ((progress - 0.18) / 0.82);
+      const minSize = Math.min(width, height);
+      const x = particle.x * width + Math.cos(particle.angle) * particle.distance * eased;
+      const y = particle.y * height + Math.sin(particle.angle) * particle.distance * eased + progress * progress * minSize * 0.045;
+      const size = particle.size * (0.72 + Math.sin(Math.PI * progress) * 0.42);
+
+      context.save();
+      context.globalAlpha = Math.max(0, fade);
+      context.translate(x, y);
+      context.rotate(particle.square ? progress * Math.PI * 1.6 : 0);
+      context.fillStyle = particle.color;
+      context.globalCompositeOperation = "lighter";
+      if (particle.square) {
+        context.fillRect(-size / 2, -size / 2, size, size);
+      } else {
+        context.beginPath();
+        context.arc(0, 0, size / 2, 0, Math.PI * 2);
+        context.fill();
+      }
+      context.globalAlpha *= 0.26;
+      context.beginPath();
+      context.arc(0, 0, size * 1.5, 0, Math.PI * 2);
+      context.fill();
+      context.restore();
+    }
+    particlesRef.current = active;
+    frameRef.current = active.length ? window.requestAnimationFrame(drawFrame) : 0;
+  }, []);
+
+  const ensureAnimation = useCallback(() => {
+    if (!frameRef.current && particlesRef.current.length) {
+      frameRef.current = window.requestAnimationFrame(drawFrame);
+    }
+  }, [drawFrame]);
+
+  const emitAt = useCallback((row, col, options = {}) => {
+    if (reducedMotion || row === undefined || col === undefined) return;
+    resizeCanvas();
+    const count = Math.max(3, Math.min(16, Number(options.count || 8)));
+    const distance = Math.max(18, Number(options.distance || 36));
+    const now = performance.now();
+    for (let index = 0; index < count; index += 1) {
+      particlesRef.current.push({
+        x: (Number(col) + 0.5) / COLS,
+        y: (Number(row) + 0.5) / ROWS,
+        angle: ((Math.PI * 2) / count) * index + (index % 2) * 0.19,
+        distance: distance * (0.72 + (index % 4) * 0.105),
+        color: options.color || "#B78CFF",
+        size: Number(options.size || (options.square ? 5.5 : 4.5)),
+        square: Boolean(options.square),
+        startAt: now + Number(options.delayMs || 0) + index * Number(options.staggerMs || 7),
+        lifeMs: Math.max(180, Number(options.lifeMs || 430)),
+      });
+    }
+    if (particlesRef.current.length > 180) particlesRef.current = particlesRef.current.slice(-180);
+    ensureAnimation();
+  }, [ensureAnimation, reducedMotion, resizeCanvas]);
+
+  useImperativeHandle(ref, () => ({
+    burstCells(cells = [], color = "#B78CFF") {
+      if (!cells.length) return;
+      const averageRow = cells.reduce((sum, item) => sum + Number(item.row || 0), 0) / cells.length;
+      const averageCol = cells.reduce((sum, item) => sum + Number(item.col || 0), 0) / cells.length;
+      emitAt(averageRow, averageCol, {
+        color,
+        count: Math.min(16, 7 + cells.length),
+        distance: Math.min(58, 30 + cells.length * 2),
+        lifeMs: 420,
+      });
+    },
+    emit(effect = {}) {
+      const row = effect.to_row ?? effect.row;
+      const col = effect.to_col ?? effect.col;
+      emitAt(row, col, {
+        color: particleColorForEffect(effect),
+        count: effect.special === "bomb" || effect.effect === "core_blast" ? 14 : 8,
+        distance: effect.special === "bomb" || effect.effect === "core_blast" ? 54 : 34,
+        square: ["crate", "stone", "metal"].includes(effect.obstacle),
+      });
+    },
+  }), [emitAt]);
+
+  useEffect(() => {
+    resizeCanvas();
+    const canvas = canvasRef.current;
+    if (!canvas) return undefined;
+    const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(resizeCanvas) : null;
+    observer?.observe(canvas);
+    window.addEventListener("resize", resizeCanvas);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", resizeCanvas);
+      if (frameRef.current) window.cancelAnimationFrame(frameRef.current);
+      frameRef.current = 0;
+      particlesRef.current = [];
+    };
+  }, [resizeCanvas]);
+
+  useEffect(() => {
+    for (const effect of effects || []) {
+      const token = effect.token || `${effect.stage}-${effect.special || effect.obstacle || effect.effect}-${effect.row}-${effect.col}`;
+      if (!token || seenTokensRef.current.has(token)) continue;
+      seenTokensRef.current.add(token);
+      if (effect.stage !== "fire") continue;
+      const row = effect.to_row ?? effect.row;
+      const col = effect.to_col ?? effect.col;
+      if (row === undefined || col === undefined) continue;
+      const heavy = effect.special === "bomb" || effect.effect === "core_blast";
+      emitAt(row, col, {
+        color: particleColorForEffect(effect),
+        count: heavy ? 14 : effect.special === "color_bomb" ? 12 : 8,
+        distance: heavy ? 56 : effect.special === "color_bomb" ? 48 : 34,
+        square: ["crate", "stone", "metal"].includes(effect.obstacle),
+        lifeMs: heavy ? 520 : 400,
+      });
+      if (Array.isArray(effect.targets) && effect.targets.length && ["crystal_burst", "core_blast"].includes(effect.effect)) {
+        effect.targets.slice(0, 9).forEach((target, index) => emitAt(target.row, target.col, {
+          color: particleColorForEffect(effect),
+          count: 3,
+          distance: 20,
+          delayMs: index * 12,
+          lifeMs: 300,
+        }));
+      }
+    }
+    if (seenTokensRef.current.size > 320) {
+      seenTokensRef.current = new Set((effects || []).map((item) => item.token).filter(Boolean));
+    }
+  }, [effects, emitAt]);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      className="pointer-events-none absolute inset-1.5 z-30"
+      aria-hidden="true"
+    />
+  );
+});
 
 function FxCellFlash({ row, col, color, delay = 0, reducedMotion = false, tempo = 1 }) {
   return (
@@ -1478,6 +1774,9 @@ export default function BonusMatch() {
   const { user, mode, refreshMe } = useApp();
   const boardRef = useRef(null);
   const scoreRef = useRef(null);
+  const effectsCanvasRef = useRef(null);
+  const pieceClickHandlerRef = useRef(null);
+  const pieceSwipeHandlerRef = useRef(null);
   const [status, setStatus] = useState(null);
   const [game, setGame] = useState(null);
   const [displayBoard, setDisplayBoard] = useState([]);
@@ -1485,6 +1784,7 @@ export default function BonusMatch() {
   const [selectedLevel, setSelectedLevel] = useState(1);
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [artworkReady, setArtworkReady] = useState(false);
   const [moving, setMoving] = useState(false);
   const [shakingIds, setShakingIds] = useState(new Set());
   const [removingIds, setRemovingIds] = useState(new Set());
@@ -1507,6 +1807,15 @@ export default function BonusMatch() {
   const [activityToken, setActivityToken] = useState(0);
   const [celebrating, setCelebrating] = useState(false);
 
+  const visualPieces = useMemo(() => flattenVisualPieces(displayBoard), [displayBoard]);
+  const selectedKey = selected ? coordKey(selected.row, selected.col) : null;
+  const dispatchPieceClick = useCallback((row, col) => {
+    pieceClickHandlerRef.current?.(row, col);
+  }, []);
+  const dispatchPieceSwipe = useCallback((from, to) => {
+    pieceSwipeHandlerRef.current?.(from, to);
+  }, []);
+
   const hintDirections = useMemo(() => {
     const directions = new Map();
     if (!hintMove) return directions;
@@ -1523,17 +1832,12 @@ export default function BonusMatch() {
   };
 
   useEffect(() => {
-    const preloaded = BONUS_MATCH_ARTWORK.map((src) => {
-      const image = new Image();
-      image.decoding = "async";
-      image.src = src;
-      return image;
+    let mounted = true;
+    preloadBonusMatchArtwork().finally(() => {
+      if (mounted) setArtworkReady(true);
     });
     return () => {
-      preloaded.forEach((image) => {
-        image.onload = null;
-        image.onerror = null;
-      });
+      mounted = false;
     };
   }, []);
 
@@ -1563,7 +1867,7 @@ export default function BonusMatch() {
       await wait(reducedMotion ? 25 : 90);
       setFlash("ПЕРЕМІШУЄМО");
       setDisplayBoard(targetBoard);
-      await wait(reducedMotion ? 70 : Number(finalFrame?.duration_ms || 520));
+      await wait(reducedMotion ? 70 : RESHUFFLE_MS);
       setFlash("");
       toast.info("На полі не залишилося ходів. Фішки автоматично перемішано");
       return session;
@@ -1688,23 +1992,8 @@ export default function BonusMatch() {
   };
 
   const burstAtCells = (cells = [], color = "#B78CFF") => {
-    if (reducedMotion || !boardRef.current || !cells.length) return;
-    const rect = boardRef.current.getBoundingClientRect();
-    const averageRow = cells.reduce((sum, item) => sum + item.row, 0) / cells.length;
-    const averageCol = cells.reduce((sum, item) => sum + item.col, 0) / cells.length;
-    const originX = (rect.left + ((averageCol + 0.5) / COLS) * rect.width) / window.innerWidth;
-    const originY = (rect.top + ((averageRow + 0.5) / ROWS) * rect.height) / window.innerHeight;
-    confetti({
-      particleCount: Math.min(18, 7 + cells.length),
-      spread: 28,
-      startVelocity: 13,
-      gravity: 0.8,
-      ticks: 45,
-      scalar: 0.42,
-      colors: [color, "#FFB800", "#FFFFFF"],
-      origin: { x: originX, y: originY },
-      disableForReducedMotion: true,
-    });
+    if (reducedMotion || !cells.length) return;
+    effectsCanvasRef.current?.burstCells(cells, color);
   };
 
   const launchScoreFlight = (cells, amount) => {
@@ -1749,16 +2038,25 @@ export default function BonusMatch() {
     if (!reducedMotion) fireConfetti();
   };
 
+  const queueSpecialEffects = (items, lifetimeMs = 720) => {
+    const nextItems = (items || []).filter(Boolean);
+    if (!nextItems.length) return;
+    const tokens = new Set(nextItems.map((item) => item.token).filter(Boolean));
+    setSpecialEffects((current) => [...current.slice(-28), ...nextItems]);
+    window.setTimeout(() => {
+      setSpecialEffects((current) => current.filter((item) => !tokens.has(item.token)));
+    }, reducedMotion ? Math.min(180, lifetimeMs) : lifetimeMs);
+  };
+
   const animateServerMove = async (data, baseScore) => {
     const animation = data.animation || {};
     const frames = Array.isArray(animation.frames) && animation.frames.length
       ? animation.frames
       : [
-        ...(animation.swapped_board ? [{ phase: "swap", board: animation.swapped_board, duration_ms: 220 }] : []),
+        ...(animation.swapped_board ? [{ phase: "swap", board: animation.swapped_board }] : []),
         ...(animation.steps || []).flatMap((step) => [
           {
             phase: "match",
-            duration_ms: 290,
             combo: step.combo,
             score_gain: step.score_gain,
             coins_gain: step.coins_gain,
@@ -1773,7 +2071,6 @@ export default function BonusMatch() {
           },
           {
             phase: "collapse",
-            duration_ms: 430,
             combo: step.combo,
             board: step.board_after_collapse,
             spawned: step.spawned,
@@ -1781,40 +2078,42 @@ export default function BonusMatch() {
           },
         ]),
         ...(animation.reshuffled && data.session?.board
-          ? [{ phase: "reshuffle", board: data.session.board, duration_ms: 520 }]
+          ? [{ phase: "reshuffle", board: data.session.board }]
           : []),
       ];
 
     setHintMove(null);
     setFallMeta(new Map());
 
-    if (data.move_consumed === false && animation.from_board) {
-      setDisplayBoard(normalizeBoard(animation.from_board));
-      await wait(reducedMotion ? 20 : 70);
-    }
-
     const swapFrame = frames.find((frame) => frame.phase === "swap");
-    if (swapFrame?.board) {
-      setDisplayBoard(normalizeBoard(swapFrame.board));
-      await wait(reducedMotion ? 35 : Math.min(205, Number(swapFrame.duration_ms || 205)));
-    }
+    let currentBoard = normalizeBoard(
+      swapFrame?.board
+      || animation.swapped_board
+      || displayBoard
+      || data.session?.board,
+    );
 
     if (!data.valid) {
       const invalidFrame = frames.find((frame) => frame.phase === "invalid");
       const pair = animation.swap;
-      const boardForIds = normalizeBoard(animation.swapped_board || displayBoard);
       const ids = new Set((invalidFrame?.shake_ids || []).filter(Boolean));
       if (!ids.size && pair) {
-        const firstId = boardForIds?.[pair.from.row]?.[pair.from.col]?.id;
-        const secondId = boardForIds?.[pair.to.row]?.[pair.to.col]?.id;
+        const firstId = currentBoard?.[pair.from.row]?.[pair.from.col]?.id;
+        const secondId = currentBoard?.[pair.to.row]?.[pair.to.col]?.id;
         if (firstId) ids.add(firstId);
         if (secondId) ids.add(secondId);
       }
       setShakingIds(ids);
-      await wait(reducedMotion ? 60 : Number(invalidFrame?.duration_ms || 300));
+      await wait(reducedMotion ? 45 : INVALID_SHAKE_MS);
       setShakingIds(new Set());
-      setDisplayBoard(normalizeBoard(invalidFrame?.board || animation.reverted_board || data.session?.board || game.board));
-      await wait(reducedMotion ? 30 : 180);
+      const reverted = normalizeBoard(invalidFrame?.board || animation.reverted_board || data.session?.board || game.board);
+      setDisplayBoard(reverted);
+      await wait(reducedMotion ? 35 : INVALID_RETURN_MS);
+      if (data.session) {
+        const session = { ...data.session, board: normalizeBoard(data.session.board) };
+        setGame(session);
+        setAnimatedScore(session.score || 0);
+      }
       toast.info(data.message || "Спробуй інший хід");
       return;
     }
@@ -1827,9 +2126,11 @@ export default function BonusMatch() {
       if (frame.phase === "swap") continue;
 
       if (frame.phase === "match") {
-        const stepDurationMs = cascadeDurationForStep(cascadeIndex);
+        const stepStartedAt = performance.now();
+        const stepDurationMs = reducedMotion ? 80 : cascadeDurationForStep(cascadeIndex);
         const tempoRatio = stepDurationMs / CASCADE_STEP_MS[0];
-        const before = normalizeBoard(frame.board || displayBoard);
+        const before = normalizeBoard(frame.board || currentBoard);
+        currentBoard = before;
         const fxToken = `${Date.now()}-${index}-${cascadeIndex}`;
         setCascadeMotion({ step: cascadeIndex, durationMs: stepDurationMs, token: fxToken });
         setDisplayBoard(before);
@@ -1854,15 +2155,11 @@ export default function BonusMatch() {
         const impactMap = new Map();
         changes.forEach((change, changeIndex) => {
           const pieceId = before?.[change.row]?.[change.col]?.id;
-          if (pieceId) {
-            impactMap.set(pieceId, {
-              ...change,
-              token: `${fxToken}-impact-${changeIndex}`,
-            });
-          }
+          if (pieceId) impactMap.set(pieceId, { ...change, token: `${fxToken}-impact-${changeIndex}` });
         });
         setObstacleImpacts(impactMap);
         setActivatedIds(active);
+        setRemovingIds(removed);
         setCombo(frame.combo || cascadeIndex + 1);
         setFlash(frame.combo > 1 ? `КОМБО ×${frame.combo}` : "");
 
@@ -1884,30 +2181,18 @@ export default function BonusMatch() {
                   : changes.some((item) => item.obstacle === "slime")
                     ? "slime"
                     : "match";
+        setBoardFx(nextBoardFx);
 
+        const effectTempo = Math.max(0.48, tempoRatio);
         const chargeEffects = activations
           .filter((item) => ["rocket_row", "rocket_col", "bomb", "color_bomb"].includes(item.special))
           .map((item, effectIndex) => ({
             ...item,
             stage: "charge",
-            tempo: Math.max(0.55, tempoRatio),
+            tempo: effectTempo,
             token: `${fxToken}-charge-${effectIndex}`,
           }));
-        if (chargeEffects.length) {
-          setSpecialEffects(chargeEffects);
-          setBoardFx(nextBoardFx);
-          const chargeMs = (hasColorBomb ? 180 : 135) * Math.max(0.68, tempoRatio);
-          await wait(reducedMotion ? 30 : Math.round(chargeMs));
-        }
-
-        const effectTempo = Math.max(0.55, tempoRatio);
-        setSpecialEffects([
-          ...activations.map((item, effectIndex) => ({ ...item, stage: "fire", tempo: effectTempo, token: `${fxToken}-special-${effectIndex}` })),
-          ...changes.map((item, effectIndex) => ({ ...item, stage: "fire", tempo: effectTempo, token: `${fxToken}-obstacle-${effectIndex}` })),
-          ...obstacleEvents.map((item, effectIndex) => ({ ...item, stage: "fire", tempo: effectTempo, token: `${fxToken}-event-${effectIndex}` })),
-        ]);
-        setBoardFx(nextBoardFx);
-        setRemovingIds(removed);
+        queueSpecialEffects(chargeEffects, 420);
 
         for (const created of frame.created_specials || []) {
           toast.success(SPECIAL_TOASTS[created.special] || "Бонусна фішка створена!");
@@ -1923,10 +2208,19 @@ export default function BonusMatch() {
         }
         const crateReward = changes.find((item) => item.effect === "crate_reward");
         if (crateReward) {
-          toast.success(
-            crateReward.replacement_symbol === "coin" ? "У ЯЩИКУ БУЛА МОНЕТА!" : "ЯЩИК ВІДКРИТО!",
-          );
+          toast.success(crateReward.replacement_symbol === "coin" ? "У ЯЩИКУ БУЛА МОНЕТА!" : "ЯЩИК ВІДКРИТО!");
         }
+
+        // Flush the anticipation frame immediately. The server response never controls timing.
+        await nextPaint();
+        await waitUntil(stepStartedAt + (reducedMotion ? 20 : MATCH_FIRE_LEAD_MS));
+
+        const fireEffects = [
+          ...activations.map((item, effectIndex) => ({ ...item, stage: "fire", tempo: effectTempo, token: `${fxToken}-special-${effectIndex}` })),
+          ...changes.map((item, effectIndex) => ({ ...item, stage: "fire", tempo: effectTempo, token: `${fxToken}-obstacle-${effectIndex}` })),
+          ...obstacleEvents.map((item, effectIndex) => ({ ...item, stage: "fire", tempo: effectTempo, token: `${fxToken}-event-${effectIndex}` })),
+        ];
+        queueSpecialEffects(fireEffects, hasColorBomb || hasCoreBlast ? 760 : hasBomb ? 620 : 520);
 
         const burstColor = hasBomb || hasCoreBlast
           ? "#FF5C00"
@@ -1938,53 +2232,31 @@ export default function BonusMatch() {
         burstAtCells(frame.cleared_cells || [], burstColor);
         launchScoreFlight(frame.cleared_cells || [], frame.score_gain || 0);
 
-        // Anticipation: every matched piece squashes, then stretches before the board collapses.
-        await new Promise((resolve) => window.requestAnimationFrame(() => window.requestAnimationFrame(resolve)));
-        const anticipationMs = reducedMotion ? 18 : SQUASH_ANTICIPATION_MS;
-        await wait(anticipationMs);
+        await waitUntil(stepStartedAt + (reducedMotion ? 38 : MATCH_COLLAPSE_LEAD_MS));
 
         const collapseFrame = frames[index + 1]?.phase === "collapse" ? frames[index + 1] : null;
         if (collapseFrame?.board) {
           const spawnedList = (collapseFrame.spawned_ids || collapseFrame.spawned?.map((item) => item.id) || []).filter(Boolean);
           const collapsedBoard = normalizeBoard(collapseFrame.board);
-          const fall = buildFallMeta(
-            before,
-            collapsedBoard,
-            spawnedList,
-            boardRef.current?.clientWidth,
-            `${fxToken}-fall`,
-          );
+          const fall = buildFallMeta(before, collapsedBoard, spawnedList, boardRef.current?.clientWidth, `${fxToken}-fall`);
           setSpawnedIds(new Set(spawnedList));
           setFallMeta(fall);
           setDisplayBoard(collapsedBoard);
+          currentBoard = collapsedBoard;
 
           const nextScore = runningScore + Number(frame.score_gain || 0);
-          const baseFxDuration = hasColorBomb || hasCoreBlast
-            ? 680
-            : hasBomb
-              ? 580
-              : hasRocket || changes.length
-                ? 500
-                : stepDurationMs;
-          const scaledFxDuration = Math.round(baseFxDuration * Math.max(0.55, tempoRatio));
-          const visualDuration = Math.max(stepDurationMs, scaledFxDuration);
-          const settleDuration = Math.max(125, visualDuration - anticipationMs);
-          await Promise.all([
-            tickScore(runningScore, nextScore, Math.min(190, Math.max(90, settleDuration * 0.55))),
-            wait(reducedMotion ? 65 : settleDuration),
-          ]);
+          void tickScore(runningScore, nextScore, Math.min(160, Math.max(80, stepDurationMs * 0.46)));
           runningScore = nextScore;
           index += 1;
-        } else {
-          await wait(reducedMotion ? 60 : stepDurationMs);
         }
 
+        // Match, obstacle effects and falling overlap. Only the step deadline gates the next cascade.
+        await waitUntil(stepStartedAt + stepDurationMs);
         setRemovingIds(new Set());
         setSpawnedIds(new Set());
         setFallMeta(new Map());
         setActivatedIds(new Set());
         setObstacleImpacts(new Map());
-        setSpecialEffects([]);
         setBoardFx("");
         setFlash("");
         cascadeIndex += 1;
@@ -1992,21 +2264,17 @@ export default function BonusMatch() {
       }
 
       if (frame.phase === "collapse" && frame.board) {
-        const stepDurationMs = cascadeDurationForStep(cascadeIndex);
+        const stepStartedAt = performance.now();
+        const stepDurationMs = reducedMotion ? 70 : cascadeDurationForStep(cascadeIndex);
         const collapsedBoard = normalizeBoard(frame.board);
         const spawnedList = (frame.spawned_ids || frame.spawned?.map((item) => item.id) || []).filter(Boolean);
-        const fall = buildFallMeta(
-          displayBoard,
-          collapsedBoard,
-          spawnedList,
-          boardRef.current?.clientWidth,
-          `${Date.now()}-orphan-fall`,
-        );
+        const fall = buildFallMeta(currentBoard, collapsedBoard, spawnedList, boardRef.current?.clientWidth, `${Date.now()}-orphan-fall`);
         setCascadeMotion({ step: cascadeIndex, durationMs: stepDurationMs, token: `${Date.now()}-collapse` });
         setSpawnedIds(new Set(spawnedList));
         setFallMeta(fall);
         setDisplayBoard(collapsedBoard);
-        await wait(reducedMotion ? 55 : stepDurationMs);
+        currentBoard = collapsedBoard;
+        await waitUntil(stepStartedAt + stepDurationMs);
         setSpawnedIds(new Set());
         setFallMeta(new Map());
         cascadeIndex += 1;
@@ -2014,10 +2282,13 @@ export default function BonusMatch() {
       }
 
       if (frame.phase === "obstacle" && frame.board) {
+        const turnStartedAt = performance.now();
         const events = frame.events || [];
         const token = `${Date.now()}-obstacle-turn`;
-        setSpecialEffects(events.map((item, eventIndex) => ({ ...item, stage: "fire", token: `${token}-${eventIndex}` })));
-        setDisplayBoard(normalizeBoard(frame.board));
+        queueSpecialEffects(events.map((item, eventIndex) => ({ ...item, stage: "fire", tempo: 0.72, token: `${token}-${eventIndex}` })), 620);
+        const obstacleBoard = normalizeBoard(frame.board);
+        setDisplayBoard(obstacleBoard);
+        currentBoard = obstacleBoard;
         if (events.some((item) => item.effect === "slime_spread")) {
           setBoardFx("slime");
           setFlash("СЛИЗ ПОШИРИВСЯ");
@@ -2027,33 +2298,32 @@ export default function BonusMatch() {
           setFlash("ПАВУТИНА РОЗРОСЛАСЯ");
           toast.info("Павутина обплутала сусідню фішку");
         }
-        await wait(reducedMotion ? 80 : Math.max(Number(frame.duration_ms || 420), 520));
-        setSpecialEffects([]);
+        await waitUntil(turnStartedAt + (reducedMotion ? 80 : OBSTACLE_TURN_MS));
         setBoardFx("");
         setFlash("");
         continue;
       }
 
       if (frame.phase === "reshuffle" && frame.board) {
+        const shuffleStartedAt = performance.now();
         setFlash(animation.reason === "manual" ? "ПЕРЕМІШУЄМО" : "ХОДІВ НЕМАЄ");
-        await wait(reducedMotion ? 20 : 80);
+        await waitUntil(shuffleStartedAt + (reducedMotion ? 20 : 55));
         setFlash("ПЕРЕМІШУЄМО");
-        setDisplayBoard(normalizeBoard(frame.board));
-        await wait(reducedMotion ? 60 : Number(frame.duration_ms || 520));
+        const shuffledBoard = normalizeBoard(frame.board);
+        setDisplayBoard(shuffledBoard);
+        currentBoard = shuffledBoard;
+        await waitUntil(shuffleStartedAt + (reducedMotion ? 80 : RESHUFFLE_MS));
         setFlash("");
       }
     }
 
     if (animation.reshuffled) {
-      toast.info(
-        animation.reason === "manual"
-          ? "Поле перемішано"
-          : "На полі не залишилося ходів. Фішки автоматично перемішано",
-      );
+      toast.info(animation.reason === "manual" ? "Поле перемішано" : "На полі не залишилося ходів. Фішки автоматично перемішано");
     }
-    setAnimatedScore(data.session.score || runningScore);
-    setDisplayBoard(normalizeBoard(data.session.board));
-    setGame({ ...data.session, board: normalizeBoard(data.session.board) });
+    const finalSession = { ...data.session, board: normalizeBoard(data.session.board) };
+    setAnimatedScore(finalSession.score || runningScore);
+    setDisplayBoard(finalSession.board);
+    setGame(finalSession);
     setCascadeMotion({ step: 0, durationMs: CASCADE_STEP_MS[0], token: "idle" });
     setFallMeta(new Map());
   };
@@ -2180,10 +2450,15 @@ export default function BonusMatch() {
     setMoving(true);
     setSelected(null);
     setFlash("");
+    const startingGame = game;
     const startingBoard = normalizeBoard(displayBoard.length ? displayBoard : game.board);
     const optimistic = cloneBoard(startingBoard);
     [optimistic[from.row][from.col], optimistic[to.row][to.col]] = [optimistic[to.row][to.col], optimistic[from.row][from.col]];
+    const swapStartedAt = performance.now();
+
+    // Input feedback is local and immediate. Network latency no longer sits before the first frame.
     setDisplayBoard(optimistic);
+    setGame((current) => current ? { ...current, moves_left: Math.max(0, Number(current.moves_left || 0) - 1) } : current);
 
     try {
       const request = mode === "mock"
@@ -2196,10 +2471,8 @@ export default function BonusMatch() {
           to_col: to.col,
         }).then((response) => response.data);
 
-      const [data] = await Promise.all([
-        request,
-        wait(reducedMotion ? 20 : 210),
-      ]);
+      const data = await request;
+      await waitUntil(swapStartedAt + (reducedMotion ? 25 : OPTIMISTIC_SWAP_MS));
       await animateServerMove(data, game.score);
 
       if (data.result) {
@@ -2209,17 +2482,18 @@ export default function BonusMatch() {
           if (mode !== "mock") await refreshMe().catch(() => {});
         } else {
           setBoardFx("lost");
-          await wait(reducedMotion ? 30 : 420);
+          await wait(reducedMotion ? 30 : 320);
         }
         if (mode !== "mock") await loadStatus();
       }
     } catch (error) {
       setDisplayBoard(startingBoard);
+      setGame(startingGame);
       toast.error(extractError(error, "Не вдалося виконати хід"));
     } finally {
       setMoving(false);
       setCombo(0);
-      window.setTimeout(() => setFlash(""), 600);
+      window.setTimeout(() => setFlash(""), 420);
     }
   };
 
@@ -2266,6 +2540,10 @@ export default function BonusMatch() {
     makeMove(from, to);
   };
 
+  // Stable dispatchers keep memoized board pieces from receiving fresh callback identities.
+  pieceClickHandlerRef.current = handlePiece;
+  pieceSwipeHandlerRef.current = handleSwipe;
+
   const unlockedLevels = levelCatalog
     .map((item) => Number(item.level))
     .filter((level) => level <= Number(status?.profile?.current_level || 1));
@@ -2292,8 +2570,8 @@ export default function BonusMatch() {
     loadStatus();
   };
 
-  if (loading && !status && !game) {
-    return <div className="px-5 py-12 text-center text-sm font-bold text-zinc-500">Завантаження Bonus Match...</div>;
+  if (!artworkReady || (loading && !status && !game)) {
+    return <div className="px-5 py-12 text-center text-sm font-bold text-zinc-500">{artworkReady ? "Завантаження Bonus Match..." : "Готуємо фішки..."}</div>;
   }
 
   return (
@@ -2499,45 +2777,28 @@ export default function BonusMatch() {
                 })}
               </div>
 
-              <LayoutGroup id={`bonus-board-${game.id}`}>
-                <div
-                  className="absolute inset-1.5 grid grid-cols-7 gap-1"
-                  style={{ gridTemplateRows: `repeat(${ROWS}, minmax(0, 1fr))` }}
-                >
-                  <AnimatePresence initial={false}>
-                    {(displayBoard || []).flatMap((boardRow, row) =>
-                      (boardRow || []).map((cell, col) => (cell && !cell.void ? (
-                        <Piece
-                          key={cell.id}
-                          cell={cell}
-                          row={row}
-                          col={col}
-                          selected={selected?.row === row && selected?.col === col}
-                          disabled={moving || game.status !== "active"}
-                          targetable={Boolean(activeBooster && activeBooster !== "shuffle")}
-                          removing={removingIds.has(cell.id)}
-                          shaking={shakingIds.has(cell.id)}
-                          spawned={spawnedIds.has(cell.id)}
-                          fall={fallMeta.get(cell.id)}
-                          cascadeDurationMs={cascadeMotion.durationMs}
-                          celebrating={celebrating}
-                          hinted={hintDirections.has(coordKey(row, col))}
-                          hintDirection={hintDirections.get(coordKey(row, col))}
-                          activated={activatedIds.has(cell.id)}
-                          impact={obstacleImpacts.get(cell.id)}
-                          removeDelay={(row + col) * Math.max(0.005, Math.min(0.012, cascadeMotion.durationMs / 30000))}
-                          reducedMotion={reducedMotion}
-                          swipeEnabled={!moving && !activeBooster && game.status === "active" && !cell.obstacle}
-                          onSwipe={handleSwipe}
-                          onClick={() => handlePiece(row, col)}
-                        />
-                      ) : null)),
-                    )}
-                  </AnimatePresence>
-                </div>
-              </LayoutGroup>
+              <BoardPiecesLayer
+                pieces={visualPieces}
+                selectedKey={selectedKey}
+                moving={moving}
+                gameStatus={game.status}
+                activeBooster={activeBooster}
+                removingIds={removingIds}
+                shakingIds={shakingIds}
+                spawnedIds={spawnedIds}
+                fallMeta={fallMeta}
+                cascadeDurationMs={cascadeMotion.durationMs}
+                celebrating={celebrating}
+                hintDirections={hintDirections}
+                activatedIds={activatedIds}
+                obstacleImpacts={obstacleImpacts}
+                reducedMotion={reducedMotion}
+                onPieceClick={dispatchPieceClick}
+                onPieceSwipe={dispatchPieceSwipe}
+              />
 
               <SpecialEffects effects={specialEffects} reducedMotion={reducedMotion} />
+              <BoardEffectsCanvas ref={effectsCanvasRef} effects={specialEffects} reducedMotion={reducedMotion} />
 
               <AnimatePresence>
                 {flash && (

@@ -2,7 +2,7 @@
  * Dynamic data is always network-only.
  * App shell uses network-first so new deployments replace old PWA files promptly.
  */
-const VERSION = "tm6-v75";
+const VERSION = "tm6-v78";
 const STATIC_CACHE = `${VERSION}-static`;
 const RUNTIME_CACHE = `${VERSION}-runtime`;
 
@@ -11,23 +11,9 @@ const PRECACHE_URLS = [
   "/icon-192.png",
   "/icon-512.png",
   "/apple-touch-icon.png",
-  "/bonus-match/piece-shadow.webp",
-  "/bonus-match/pieces/coin.webp",
-  "/bonus-match/pieces/star.webp",
-  "/bonus-match/pieces/gift.webp",
-  "/bonus-match/pieces/cube.webp",
-  "/bonus-match/pieces/zap.webp",
-  "/bonus-match/pieces/trophy.webp",
-  "/bonus-match/obstacles/ice.webp",
-  "/bonus-match/obstacles/chain.webp",
-  "/bonus-match/obstacles/crate.webp",
-  "/bonus-match/obstacles/stone.webp",
-  "/bonus-match/obstacles/crystal.webp",
-  "/bonus-match/obstacles/web.webp",
-  "/bonus-match/obstacles/shield.webp",
-  "/bonus-match/obstacles/slime.webp",
-  "/bonus-match/obstacles/metal.webp",
-  "/bonus-match/obstacles/core.webp",
+  "/bonus-match/atlas/pieces.webp",
+  "/bonus-match/atlas/obstacles.webp",
+  "/bonus-match/atlas/piece-shadow.webp",
 ];
 
 self.addEventListener("install", (event) => {
