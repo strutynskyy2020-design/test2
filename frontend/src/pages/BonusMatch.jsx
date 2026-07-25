@@ -14,7 +14,10 @@ import {
   Gift,
   Hammer,
   Heart,
+  Home,
   Lock,
+  Maximize2,
+  Minimize2,
   Plus,
   Rocket,
   RotateCcw,
@@ -146,7 +149,7 @@ const SPECIALS = {
   rocket_row: { Icon: Rocket, label: "Ракета по рядку", color: "#FFB800", rotate: 45 },
   rocket_col: { Icon: Rocket, label: "Ракета по колонці", color: "#00F0FF", rotate: -45 },
   bomb: { Icon: Bomb, label: "Бомба", color: "#FF5C00", rotate: 0 },
-  color_bomb: { Icon: CircleDot, label: "Блискавка-джокер", color: "#F64CFF", rotate: 0 },
+  color_bomb: { Icon: CircleDot, label: "Веселковий джокер", color: "#F64CFF", rotate: 0 },
 };
 
 const OBSTACLES = {
@@ -170,10 +173,10 @@ const SPECIAL_TOASTS = {
 };
 
 const BOOSTERS = {
-  hammer: { Icon: Hammer, label: "Молоток", short: "Прибрати одну фішку або перешкоду", color: "#B78CFF" },
-  rocket: { Icon: Rocket, label: "Ракета", short: "Очистити рядок і колонку", color: "#FF5C00" },
-  color_bomb: { Icon: CircleDot, label: "Райдужний джокер", short: "Прибрати всі фішки одного типу", color: "#F64CFF" },
-  shuffle: { Icon: RotateCcw, label: "Перемішати", short: "Повністю перемішати поле", color: "#00F0FF" },
+  hammer: { Icon: Hammer, label: "Молоток", short: "Прибрати одну фішку або перешкоду", color: "#B78CFF", price: 10 },
+  rocket: { Icon: Rocket, label: "Ракета", short: "Очистити рядок і колонку", color: "#FF5C00", price: 20 },
+  color_bomb: { Icon: CircleDot, label: "Веселковий джокер", short: "Прибрати всі фішки одного типу", color: "#F64CFF", price: 50 },
+  shuffle: { Icon: RotateCcw, label: "Перемішати", short: "Повністю перемішати поле", color: "#00F0FF", price: 30 },
 };
 
 const OBSTACLE_NAMES = {
@@ -195,7 +198,7 @@ const OBSTACLE_HELP = {
   crate: "Ящик: розбий двома збігами поруч, усередині буде нова фішка",
   stone: "Камінь: міцний блок, витримує три удари",
   crystal: "Кристал: після руйнування очищує сусідні клітинки хрестом",
-  web: "Павутина: звільни фішку збігом, інакше павутина розростатиметься",
+  web: "Павутина: звільни фішку збігом. Якщо за хід знищено хоча б одну павутину, нова не з’явиться",
   shield: "Щит: спецфішки пробивають одразу два шари",
   slime: "Слиз: поширюється після ходу, якщо його не пошкодити",
   metal: "Метал: пошкоджується тільки спецфішками або бустерами",
@@ -963,17 +966,17 @@ function Piece({
             className="pointer-events-none absolute inset-[-2px] z-[8] rounded-[12px] border-2 border-white"
             initial={{ opacity: 0, scale: 0.86 }}
             animate={{
-              opacity: reducedMotion ? 1 : [0.58, 1, 0.58],
-              scale: reducedMotion ? 1 : [0.96, 1.055, 0.96],
+              opacity: reducedMotion ? 1 : [0.35, 1, 0.72],
+              scale: reducedMotion ? 1 : [0.96, 1.055, 1],
             }}
             exit={{ opacity: 0, scale: 0.9 }}
-            transition={{ duration: reducedMotion ? 0.05 : 0.92, repeat: reducedMotion ? 0 : Infinity, ease: "easeInOut" }}
+            transition={{ duration: reducedMotion ? 0.05 : 0.42, ease: "easeOut" }}
             style={{ boxShadow: `0 0 18px ${color}, 0 0 30px ${color}88, inset 0 0 12px rgba(255,255,255,.3)` }}
           >
             <motion.div
               className="absolute inset-[3px] rounded-[8px] border border-white/70"
-              animate={reducedMotion ? { opacity: 0.8 } : { opacity: [0.25, 0.9, 0.25], scale: [1.04, 0.94, 1.04] }}
-              transition={{ duration: 0.92, repeat: reducedMotion ? 0 : Infinity, ease: "easeInOut" }}
+              animate={reducedMotion ? { opacity: 0.8 } : { opacity: [0.25, 0.9, 0.62], scale: [1.04, 0.94, 1] }}
+              transition={{ duration: 0.42, ease: "easeOut" }}
             />
           </motion.div>
         )}
@@ -1379,7 +1382,7 @@ const BoardEffectsCanvas = forwardRef(function BoardEffectsCanvas({ effects = []
         width: "calc(100% - 0.75rem)",
         height: "calc(100% - 0.75rem)",
       }}
-      data-bonus-effects-canvas="v87"
+      data-bonus-effects-canvas="v88"
       aria-hidden="true"
     />
   );
@@ -1883,11 +1886,15 @@ function BonusMatchScreen() {
   const [bossPrompt, setBossPrompt] = useState(null);
   const [activeBooster, setActiveBooster] = useState(null);
   const [buyingBooster, setBuyingBooster] = useState(null);
+  const [buyingLife, setBuyingLife] = useState(false);
+  const [restarting, setRestarting] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(Boolean(document.fullscreenElement));
   const [hintMove, setHintMove] = useState(null);
   const [activityToken, setActivityToken] = useState(0);
   const [celebrating, setCelebrating] = useState(false);
   const diagnosticsStateRef = useRef({});
 
+  const isAdmin = user?.role === "admin";
   const visualPieces = useMemo(() => flattenVisualPieces(displayBoard), [displayBoard]);
   const selectedKey = selected ? coordKey(selected.row, selected.col) : null;
   diagnosticsStateRef.current = {
@@ -1935,17 +1942,37 @@ function BonusMatchScreen() {
   };
 
   useEffect(() => {
+    if (!isAdmin) return undefined;
     const uninstall = bonusMatchDiagnostics.installGlobalHandlers();
-    bonusMatchDiagnostics.log("bonus_match_mount", { version: "v87" });
+    bonusMatchDiagnostics.log("bonus_match_mount", { version: "v88" });
     return () => {
       bonusMatchDiagnostics.log("bonus_match_unmount");
       bonusMatchDiagnostics.stopWatch();
       uninstall?.();
     };
-  }, []);
+  }, [isAdmin]);
 
   useEffect(() => {
-    if (!game || game.status !== "active") {
+    const handleFullscreenChange = () => setIsFullscreen(Boolean(document.fullscreenElement));
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
+  }, []);
+
+  const toggleFullscreen = async () => {
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      } else {
+        await document.documentElement.requestFullscreen();
+      }
+    } catch (error) {
+      toast.error("Браузер не дозволив повноекранний режим");
+      bonusMatchDiagnostics.log("fullscreen_failed", { error }, "error");
+    }
+  };
+
+  useEffect(() => {
+    if (!isAdmin || !game || game.status !== "active") {
       bonusMatchDiagnostics.stopWatch();
       return undefined;
     }
@@ -1955,7 +1982,7 @@ function BonusMatchScreen() {
     });
     bonusMatchDiagnostics.snapshot("active_session_watch_started", diagnosticsStateRef.current, true);
     return () => bonusMatchDiagnostics.stopWatch();
-  }, [game?.id, game?.status]);
+  }, [game?.id, game?.status, isAdmin]);
 
   useEffect(() => {
     let mounted = true;
@@ -1991,6 +2018,12 @@ function BonusMatchScreen() {
     observer.observe(board, { childList: true, subtree: true });
     return () => observer.disconnect();
   }, [game?.id, game?.status]);
+
+  useEffect(() => {
+    if (!selected || moving || activeBooster) return undefined;
+    const timer = window.setTimeout(() => setSelected(null), 2500);
+    return () => window.clearTimeout(timer);
+  }, [selected, moving, activeBooster]);
 
   useEffect(() => {
     setHintMove(null);
@@ -2033,7 +2066,7 @@ function BonusMatchScreen() {
     bonusMatchDiagnostics.log("status_load_started", { mode });
     if (mode === "mock") {
       const mockStatus = {
-        profile: { current_level: 12, max_level: 50, total_stars: 26, lives: 5, max_lives: 5, next_life_at: null, daily_points: 17, daily_point_cap: 40, balance: 24500, booster_price: 50, boosters: { hammer: 2, rocket: 1, color_bomb: 1, shuffle: 2 } },
+        profile: { current_level: 12, max_level: 50, total_stars: 26, lives: 5, max_lives: 5, next_life_at: null, daily_points: 17, daily_point_cap: 40, balance: 24500, life_price: 10, booster_prices: { hammer: 10, rocket: 20, color_bomb: 50, shuffle: 30 }, boosters: { hammer: 2, rocket: 1, color_bomb: 1, shuffle: 2 } },
         levels: Array.from({ length: 50 }, (_, index) => levelConfig(index + 1)),
         completions: Array.from({ length: 11 }, (_, index) => ({ level: index + 1, stars: index % 3 === 0 ? 3 : 2, best_score: 1600 + index * 300 })),
         active_session: null,
@@ -2093,7 +2126,14 @@ function BonusMatchScreen() {
   }, [config?.board_mask, config?.board_shape, displayBoard, game, selectedLevel]);
   const lowMoves = Boolean(game?.status === "active" && Number(game?.moves_left) <= 3);
   const boosterInventory = status?.profile?.boosters || {};
-  const boosterPrice = Number(status?.profile?.booster_price || 50);
+  const boosterPrices = useMemo(() => {
+    const catalog = new Map((status?.booster_catalog || []).map((item) => [item.id, Number(item.price)]));
+    return Object.fromEntries(Object.entries(BOOSTERS).map(([id, item]) => [
+      id,
+      Number(status?.profile?.booster_prices?.[id] ?? catalog.get(id) ?? item.price),
+    ]));
+  }, [status?.booster_catalog, status?.profile?.booster_prices]);
+  const lifePrice = Number(status?.profile?.life_price || 10);
   const scoreProgress = Math.min(100, Math.round(((animatedScore || 0) / Math.max(1, config.target_score)) * 100));
   const coinProgress = Math.min(100, Math.round(((game?.coins_collected || 0) / Math.max(1, config.target_coins)) * 100));
 
@@ -2502,11 +2542,12 @@ function BonusMatchScreen() {
   const purchaseBooster = async (booster) => {
     if (buyingBooster || moving) return;
     const meta = BOOSTERS[booster];
-    if (!window.confirm(`Придбати «${meta.label}» за ${boosterPrice} Point?`)) return;
+    const price = Number(boosterPrices[booster] ?? meta.price);
+    if (!window.confirm(`Придбати «${meta.label}» за ${price} Point?`)) return;
     if (mode === "mock") {
       const balance = Number(status?.profile?.balance || 0);
-      if (balance < boosterPrice) return toast.error("Недостатньо Point для покупки");
-      patchBoosterProfile({ ...boosterInventory, [booster]: Number(boosterInventory[booster] || 0) + 1 }, balance - boosterPrice);
+      if (balance < price) return toast.error("Недостатньо Point для покупки");
+      patchBoosterProfile({ ...boosterInventory, [booster]: Number(boosterInventory[booster] || 0) + 1 }, balance - price);
       toast.success(`${meta.label} придбано`);
       return;
     }
@@ -2515,11 +2556,55 @@ function BonusMatchScreen() {
       const { data } = await api.post("/games/bonus-match/boosters/purchase", { booster });
       patchBoosterProfile(data.boosters, data.balance);
       await refreshMe().catch(() => {});
-      toast.success(`${meta.label} придбано`, { description: `−${data.price || boosterPrice} Point` });
+      toast.success(`${meta.label} придбано`, { description: `−${data.price || price} Point` });
     } catch (error) {
       toast.error(extractError(error, "Не вдалося придбати бонус"));
     } finally {
       setBuyingBooster(null);
+    }
+  };
+
+  const purchaseLife = async () => {
+    if (buyingLife) return;
+    const lives = Number(status?.profile?.lives || 0);
+    const maxLives = Number(status?.profile?.max_lives || 5);
+    if (lives >= maxLives) return toast.info("У тебе вже максимальна кількість життів");
+    if (!window.confirm(`Придбати 1 життя за ${lifePrice} Point?`)) return;
+
+    if (mode === "mock") {
+      const balance = Number(status?.profile?.balance || 0);
+      if (balance < lifePrice) return toast.error("Недостатньо Point для покупки життя");
+      setStatus((current) => current ? {
+        ...current,
+        profile: {
+          ...current.profile,
+          lives: Math.min(Number(current.profile.max_lives || 5), Number(current.profile.lives || 0) + 1),
+          balance: balance - lifePrice,
+        },
+      } : current);
+      toast.success("Життя придбано");
+      return;
+    }
+
+    setBuyingLife(true);
+    try {
+      const { data } = await api.post("/games/bonus-match/lives/purchase");
+      setStatus((current) => current ? {
+        ...current,
+        profile: {
+          ...current.profile,
+          lives: Number(data.lives),
+          max_lives: Number(data.max_lives || current.profile.max_lives || 5),
+          next_life_at: data.next_life_at,
+          balance: Number(data.balance),
+        },
+      } : current);
+      await refreshMe().catch(() => {});
+      toast.success("Життя придбано", { description: `−${data.price || lifePrice} Point` });
+    } catch (error) {
+      toast.error(extractError(error, "Не вдалося придбати життя"));
+    } finally {
+      setBuyingLife(false);
     }
   };
 
@@ -2591,7 +2676,7 @@ function BonusMatchScreen() {
     if (!game || game.status !== "active" || moving) return;
     registerBoardInteraction();
     if (Number(boosterInventory[booster] || 0) <= 0) {
-      toast.info(`Натисни «+», щоб придбати за ${boosterPrice} Point`);
+      toast.info(`Натисни «+», щоб придбати за ${boosterPrices[booster] ?? BOOSTERS[booster].price} Point`);
       return;
     }
     if (booster === "shuffle") {
@@ -2658,6 +2743,34 @@ function BonusMatchScreen() {
       setMoving(false);
       setCombo(0);
       window.setTimeout(() => setFlash(""), 420);
+    }
+  };
+
+  const restartLevel = async () => {
+    if (!game || game.status !== "active" || moving || restarting) return;
+    const availableLives = Number(status?.profile?.lives || 0);
+    if (availableLives <= 0) {
+      toast.error("Для перегравання потрібне ще одне життя. Вийди в меню та придбай його за 10 Point");
+      return;
+    }
+    if (!window.confirm(`Здатися та почати рівень ${game.level} заново? Буде витрачено 1 життя.`)) return;
+
+    setRestarting(true);
+    const level = Number(game.level);
+    try {
+      if (mode !== "mock") {
+        await api.post("/games/bonus-match/surrender", { session_id: game.id });
+      }
+      setGame(null);
+      setDisplayBoard([]);
+      setResult(null);
+      setSelected(null);
+      setActiveBooster(null);
+      await startGame(level, true);
+    } catch (error) {
+      toast.error(extractError(error, "Не вдалося переграти рівень"));
+    } finally {
+      setRestarting(false);
     }
   };
 
@@ -2737,7 +2850,7 @@ function BonusMatchScreen() {
   if (!artworkReady || (loading && !status && !game)) {
     return (
       <>
-        <BonusMatchDebugOverlay getState={() => diagnosticsStateRef.current} />
+        {isAdmin && <BonusMatchDebugOverlay getState={() => diagnosticsStateRef.current} />}
         <div className="px-5 py-12 text-center text-sm font-bold text-zinc-500">
           {artworkReady ? "Завантаження Bonus Match..." : "Готуємо фішки..."}
         </div>
@@ -2747,11 +2860,11 @@ function BonusMatchScreen() {
 
   return (
     <div className="space-y-4 px-4 pb-8 pt-2" data-testid="bonus-match-page">
-      <BonusMatchDebugOverlay getState={() => diagnosticsStateRef.current} />
+      {isAdmin && <BonusMatchDebugOverlay getState={() => diagnosticsStateRef.current} />}
       <section className="flex items-center gap-3">
         <button
           type="button"
-          onClick={() => (game?.status === "active" ? navigate("/") : game ? leaveBoard() : navigate("/"))}
+          onClick={() => (game ? leaveBoard() : navigate("/"))}
           className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-[#1A1A1E] text-zinc-300 active:scale-95"
           aria-label="Назад"
         >
@@ -2764,6 +2877,15 @@ function BonusMatchScreen() {
           </div>
           <div className="mt-1 text-xs font-bold text-zinc-500">Збирай 3+ фішки та отримуй нагороди</div>
         </div>
+        <button
+          type="button"
+          onClick={toggleFullscreen}
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-[#1A1A1E] text-zinc-300 active:scale-95"
+          aria-label={isFullscreen ? "Вийти з повноекранного режиму" : "Повноекранний режим"}
+          title={isFullscreen ? "Вийти з повноекранного режиму" : "Повноекранний режим"}
+        >
+          {isFullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
+        </button>
         <div className="flex items-center gap-1 rounded-2xl border border-[#FFB800]/25 bg-[#FFB800]/10 px-2.5 py-2 text-[#FFB800]">
           <Coins size={15} />
           <span className="text-sm font-black tabular-nums">{formatNumber(status?.profile?.balance ?? user?.balance)}</span>
@@ -2779,16 +2901,29 @@ function BonusMatchScreen() {
                 <div className="text-[10px] font-black uppercase tracking-[.18em] text-[#B78CFF]">ОБЕРИ РІВЕНЬ</div>
                 <div className="mt-1 text-xs font-bold text-zinc-500">Відкрито до {status?.profile?.current_level || 1} рівня</div>
               </div>
-              <div className="flex items-center gap-1 text-[#FF4D55]">
-                {Array.from({ length: status?.profile?.max_lives || 5 }, (_, index) => (
-                  <Heart
-                    key={index}
-                    size={16}
-                    strokeWidth={2.5}
-                    fill={index < (status?.profile?.lives || 0) ? "#FF4D55" : "transparent"}
-                    color={index < (status?.profile?.lives || 0) ? "#FF4D55" : "#3F3F46"}
-                  />
-                ))}
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1 text-[#FF4D55]">
+                  {Array.from({ length: status?.profile?.max_lives || 5 }, (_, index) => (
+                    <Heart
+                      key={index}
+                      size={16}
+                      strokeWidth={2.5}
+                      fill={index < (status?.profile?.lives || 0) ? "#FF4D55" : "transparent"}
+                      color={index < (status?.profile?.lives || 0) ? "#FF4D55" : "#3F3F46"}
+                    />
+                  ))}
+                </div>
+                {(status?.profile?.lives || 0) < (status?.profile?.max_lives || 5) && (
+                  <button
+                    type="button"
+                    onClick={purchaseLife}
+                    disabled={buyingLife}
+                    className="flex items-center gap-1 rounded-xl border border-[#FF4D55]/35 bg-[#FF4D55]/10 px-2 py-1 text-[9px] font-black text-[#FF858B] disabled:opacity-50"
+                    aria-label={`Придбати життя за ${lifePrice} Point`}
+                  >
+                    <Plus size={11} strokeWidth={3} />1 · {lifePrice}
+                  </button>
+                )}
               </div>
             </div>
 
@@ -2840,7 +2975,14 @@ function BonusMatchScreen() {
               ГРАТИ
               <span className="flex items-center gap-1 border-l border-black/20 pl-3 text-sm font-black"><Heart size={15} fill="#14100A" />1</span>
             </button>
-            {(status?.profile?.lives || 0) <= 0 && <div className="mt-2 text-center text-[11px] font-bold text-zinc-500">Наступне життя відновиться автоматично через 30 хвилин</div>}
+            {(status?.profile?.lives || 0) <= 0 && (
+              <div className="mt-3 grid gap-2">
+                <button type="button" onClick={purchaseLife} disabled={buyingLife} className="flex h-11 items-center justify-center gap-2 rounded-2xl border border-[#FF4D55]/35 bg-[#FF4D55]/10 text-xs font-black text-[#FF858B] disabled:opacity-50">
+                  <Heart size={16} fill="#FF4D55" />{buyingLife ? "КУПУЄМО…" : `КУПИТИ ЖИТТЯ ЗА ${lifePrice} POINT`}
+                </button>
+                <div className="text-center text-[11px] font-bold text-zinc-500">Або зачекай 30 хвилин на автоматичне відновлення</div>
+              </div>
+            )}
           </section>
 
           <section className="grid grid-cols-2 gap-3">
@@ -2915,6 +3057,25 @@ function BonusMatchScreen() {
               </motion.div>
             </div>
 
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={leaveBoard}
+                disabled={moving || restarting}
+                className="flex h-10 items-center justify-center gap-2 rounded-xl border border-white/10 bg-black/25 text-[10px] font-black text-zinc-300 disabled:opacity-40"
+              >
+                <Home size={15} />МЕНЮ ГРИ
+              </button>
+              <button
+                type="button"
+                onClick={restartLevel}
+                disabled={moving || restarting || game.status !== "active"}
+                className="flex h-10 items-center justify-center gap-2 rounded-xl border border-[#FF5C00]/30 bg-[#FF5C00]/10 text-[10px] font-black text-[#FF8A3D] disabled:opacity-40"
+              >
+                <RotateCcw size={15} className={restarting ? "animate-spin" : ""} />{restarting ? "ПЕРЕЗАПУСК…" : "ЗДАТИСЬ / ПЕРЕГРАТИ"}
+              </button>
+            </div>
+
             <div className="mt-3 grid grid-cols-[1fr_auto] items-center gap-3 rounded-2xl border border-white/[.08] bg-black/25 p-3">
               <div>
                 <div className="flex items-center justify-between text-[10px] font-black"><span className="text-zinc-500">Ціль: {formatNumber(config.target_score)}</span><span className="text-[#B78CFF]">{scoreProgress}%</span></div>
@@ -2926,7 +3087,7 @@ function BonusMatchScreen() {
             <motion.div
               ref={boardRef}
               className="bonus-match-board relative isolate mt-3 overflow-hidden rounded-[22px] border border-[#7C3AED]/55 bg-[#090711] p-1.5 shadow-[inset_0_0_30px_rgba(124,58,237,.12)]"
-              data-render-engine="v87"
+              data-render-engine="v88"
               animate={boardMotionForFx(boardFx, reducedMotion)}
               transition={{
                 duration: boardFx === "won"
@@ -3024,7 +3185,7 @@ function BonusMatchScreen() {
               <div className="mb-2 flex items-center justify-between gap-2 px-1">
                 <div>
                   <div className="text-[9px] font-black uppercase tracking-[.16em] text-zinc-500">БОНУСИ</div>
-                  <div className="mt-0.5 text-[8px] font-bold text-zinc-700">Кожен бонус коштує {boosterPrice} Point</div>
+                  <div className="mt-0.5 text-[8px] font-bold text-zinc-700">Ціна вказана на кожному бонусі</div>
                 </div>
                 {activeBooster && <button type="button" onClick={() => setActiveBooster(null)} className="rounded-full border border-[#FF4D55]/30 bg-[#FF4D55]/10 px-2 py-1 text-[8px] font-black uppercase text-[#FF686F]">СКАСУВАТИ</button>}
               </div>
@@ -3039,6 +3200,7 @@ function BonusMatchScreen() {
                         <Icon size={20} color={item.color} strokeWidth={2.8} />
                       </motion.div>
                       <span className="max-w-full truncate text-[7px] font-black uppercase text-zinc-400">{item.label}</span>
+                      <span className="text-[8px] font-black text-[#FFB800]">{boosterPrices[id] ?? item.price} Point</span>
                     </button>
                     <div className="absolute -right-1.5 -top-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#7C3AED] px-1 text-[9px] font-black text-white">{count}</div>
                     <button type="button" disabled={buyingBooster === id || moving} onClick={(event) => { event.stopPropagation(); purchaseBooster(id); }} className="absolute -bottom-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full border border-[#FFB800]/50 bg-[#2C2100] text-[#FFB800] disabled:opacity-50" aria-label={`Придбати ${item.label}`}>
@@ -3123,8 +3285,9 @@ function BonusMatchScreen() {
 }
 
 export default function BonusMatch() {
+  const { user } = useApp();
   return (
-    <BonusMatchErrorBoundary>
+    <BonusMatchErrorBoundary allowDiagnostics={user?.role === "admin"}>
       <BonusMatchScreen />
     </BonusMatchErrorBoundary>
   );

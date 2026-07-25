@@ -2471,6 +2471,7 @@ BONUS_MATCH_LEVEL_LIMIT = 200
 BONUS_MATCH_MAX_LEVEL = BONUS_MATCH_LEVEL_LIMIT
 BONUS_MATCH_MAX_LIVES = 5
 BONUS_MATCH_LIFE_REGEN_MINUTES = 30
+BONUS_MATCH_LIFE_PRICE = 10
 BONUS_MATCH_DAILY_POINT_CAP = 40
 BONUS_MATCH_SYMBOLS = ["coin", "star", "gift", "cube", "zap", "trophy"]
 BONUS_MATCH_SPECIALS = {"rocket_row", "rocket_col", "bomb", "color_bomb"}
@@ -2505,12 +2506,11 @@ BONUS_MATCH_OBSTACLE_SCORE = {
 BONUS_MATCH_SPECIAL_SCORE = {
     "rocket_row": 450, "rocket_col": 450, "bomb": 700, "color_bomb": 1100,
 }
-BONUS_MATCH_BOOSTER_PRICE = 50
 BONUS_MATCH_BOOSTERS = {
-    "hammer": {"label": "Молоток", "score": 250},
-    "rocket": {"label": "Ракета", "score": 850},
-    "color_bomb": {"label": "Райдужний джокер", "score": 1200},
-    "shuffle": {"label": "Перемішування", "score": 0},
+    "hammer": {"label": "Молоток", "score": 250, "price": 10},
+    "rocket": {"label": "Ракета", "score": 850, "price": 20},
+    "color_bomb": {"label": "Веселковий джокер", "score": 1200, "price": 50},
+    "shuffle": {"label": "Перемішати", "score": 0, "price": 30},
 }
 
 
@@ -2585,6 +2585,10 @@ class BonusMatchMoveBody(BaseModel):
 
 class BonusMatchBoosterPurchaseBody(BaseModel):
     booster: Literal["hammer", "rocket", "color_bomb", "shuffle"]
+
+
+class BonusMatchSurrenderBody(BaseModel):
+    session_id: str
 
 
 class BonusMatchBoosterUseBody(BaseModel):
@@ -3775,42 +3779,48 @@ def _bonus_match_advance_obstacles(
     damaged_types = {str(item.get("obstacle")) for item in damage_changes or []}
     events: list[dict] = []
 
-    # Webs remember quiet turns independently. After two untouched moves one
-    # web can spread to a neighbouring ordinary piece.
-    ready_webs: list[tuple[int, int]] = []
-    for row in range(BONUS_MATCH_ROWS):
-        for col in range(BONUS_MATCH_COLS):
-            cell = board[row][col]
-            if not cell or cell.get("obstacle") != "web":
-                continue
-            if (row, col) in damaged_coords:
-                cell["obstacle_age"] = 0
-            else:
-                cell["obstacle_age"] = int(cell.get("obstacle_age", 0) or 0) + 1
-            if cell["obstacle_age"] >= 2:
-                ready_webs.append((row, col))
+    # Webs remember quiet turns independently. If at least one web was
+    # destroyed during this player move, web growth is skipped for the entire
+    # turn. This makes clearing a web a reliable way to stop propagation.
+    web_destroyed = any(
+        str(item.get("obstacle")) == "web" and bool(item.get("destroyed"))
+        for item in damage_changes or []
+    )
+    if not web_destroyed:
+        ready_webs: list[tuple[int, int]] = []
+        for row in range(BONUS_MATCH_ROWS):
+            for col in range(BONUS_MATCH_COLS):
+                cell = board[row][col]
+                if not cell or cell.get("obstacle") != "web":
+                    continue
+                if (row, col) in damaged_coords:
+                    cell["obstacle_age"] = 0
+                else:
+                    cell["obstacle_age"] = int(cell.get("obstacle_age", 0) or 0) + 1
+                if cell["obstacle_age"] >= 2:
+                    ready_webs.append((row, col))
 
-    _random.shuffle(ready_webs)
-    for row, col in ready_webs:
-        candidates = []
-        for target_row, target_col in _bonus_match_nearby_cells(row, col, include_self=False):
-            target = board[target_row][target_col]
-            if target and not target.get("obstacle") and not target.get("special") and _bonus_match_cell_symbol(target):
-                candidates.append((target_row, target_col))
-        if not candidates:
-            continue
-        target_row, target_col = _random.choice(candidates)
-        target = _bonus_match_apply_obstacle(board, target_row, target_col, "web")
-        board[row][col]["obstacle_age"] = 0
-        events.append({
-            "effect": "web_spread",
-            "row": row,
-            "col": col,
-            "to_row": target_row,
-            "to_col": target_col,
-            "id": target.get("id"),
-        })
-        break
+        _random.shuffle(ready_webs)
+        for row, col in ready_webs:
+            candidates = []
+            for target_row, target_col in _bonus_match_nearby_cells(row, col, include_self=False):
+                target = board[target_row][target_col]
+                if target and not target.get("obstacle") and not target.get("special") and _bonus_match_cell_symbol(target):
+                    candidates.append((target_row, target_col))
+            if not candidates:
+                continue
+            target_row, target_col = _random.choice(candidates)
+            target = _bonus_match_apply_obstacle(board, target_row, target_col, "web")
+            board[row][col]["obstacle_age"] = 0
+            events.append({
+                "effect": "web_spread",
+                "row": row,
+                "col": col,
+                "to_row": target_row,
+                "to_col": target_col,
+                "id": target.get("id"),
+            })
+            break
 
     # Slime grows once per untouched move. It consumes a neighbouring ordinary
     # piece and becomes a new two-hit blocking cell.
@@ -4516,16 +4526,79 @@ def _bonus_match_followup_cascades(
     return board, steps, score_gain, coins_gain, cascade_count
 
 
+@api.post("/games/bonus-match/lives/purchase")
+async def bonus_match_purchase_life(
+    user: dict = Depends(get_current_user),
+):
+    profile = await _bonus_match_profile(user["id"])
+    current_lives = int(profile.get("lives", BONUS_MATCH_MAX_LIVES))
+    if current_lives >= BONUS_MATCH_MAX_LIVES:
+        raise HTTPException(status_code=400, detail="У тебе вже максимальна кількість життів")
+
+    charged = await db.users.update_one(
+        {"id": user["id"], "balance": {"$gte": BONUS_MATCH_LIFE_PRICE}},
+        {"$inc": {"balance": -BONUS_MATCH_LIFE_PRICE}},
+    )
+    if not charged.modified_count:
+        raise HTTPException(status_code=400, detail="Недостатньо Point для покупки життя")
+
+    now = now_iso()
+    next_lives = min(BONUS_MATCH_MAX_LIVES, current_lives + 1)
+    profile_update = {
+        "$inc": {"lives": 1},
+        "$set": {"updated_at": now},
+    }
+    if next_lives >= BONUS_MATCH_MAX_LIVES:
+        profile_update["$set"]["lives_updated_at"] = now
+
+    updated = await db.bonus_match_profiles.update_one(
+        {"user_id": user["id"], "lives": {"$lt": BONUS_MATCH_MAX_LIVES}},
+        profile_update,
+    )
+    if not updated.modified_count:
+        await db.users.update_one({"id": user["id"]}, {"$inc": {"balance": BONUS_MATCH_LIFE_PRICE}})
+        raise HTTPException(status_code=409, detail="Життя вже відновилося. Онови сторінку")
+
+    try:
+        await db.transactions.insert_one({
+            "id": str(uuid.uuid4()),
+            "user_id": user["id"],
+            "kind": "bonus_match_life",
+            "amount": -BONUS_MATCH_LIFE_PRICE,
+            "description": "Bonus Match: додаткове життя",
+            "created_at": now,
+            "meta": {"life": 1},
+        })
+    except Exception:
+        await db.bonus_match_profiles.update_one(
+            {"user_id": user["id"], "lives": {"$gt": 0}},
+            {"$inc": {"lives": -1}, "$set": {"updated_at": now}},
+        )
+        await db.users.update_one({"id": user["id"]}, {"$inc": {"balance": BONUS_MATCH_LIFE_PRICE}})
+        raise
+
+    fresh_profile = await _bonus_match_profile(user["id"])
+    fresh_user = await db.users.find_one({"id": user["id"]}, {"_id": 0, "balance": 1}) or user
+    return {
+        "price": BONUS_MATCH_LIFE_PRICE,
+        "lives": int(fresh_profile.get("lives", next_lives)),
+        "max_lives": BONUS_MATCH_MAX_LIVES,
+        "next_life_at": fresh_profile.get("next_life_at"),
+        "balance": int(fresh_user.get("balance", 0)),
+    }
+
+
 @api.post("/games/bonus-match/boosters/purchase")
 async def bonus_match_purchase_booster(
     body: BonusMatchBoosterPurchaseBody,
     user: dict = Depends(get_current_user),
 ):
     booster = body.booster
+    price = int(BONUS_MATCH_BOOSTERS[booster]["price"])
     await _bonus_match_profile(user["id"])
     charged = await db.users.update_one(
-        {"id": user["id"], "balance": {"$gte": BONUS_MATCH_BOOSTER_PRICE}},
-        {"$inc": {"balance": -BONUS_MATCH_BOOSTER_PRICE}},
+        {"id": user["id"], "balance": {"$gte": price}},
+        {"$inc": {"balance": -price}},
     )
     if not charged.modified_count:
         raise HTTPException(status_code=400, detail="Недостатньо Point для покупки")
@@ -4541,19 +4614,19 @@ async def bonus_match_purchase_booster(
             "id": str(uuid.uuid4()),
             "user_id": user["id"],
             "kind": "bonus_match_booster",
-            "amount": -BONUS_MATCH_BOOSTER_PRICE,
+            "amount": -price,
             "description": f"Bonus Match: {BONUS_MATCH_BOOSTERS[booster]['label']}",
             "created_at": now_iso(),
             "meta": {"booster": booster},
         })
     except Exception:
-        await db.users.update_one({"id": user["id"]}, {"$inc": {"balance": BONUS_MATCH_BOOSTER_PRICE}})
+        await db.users.update_one({"id": user["id"]}, {"$inc": {"balance": price}})
         raise
     profile = await _bonus_match_profile(user["id"])
     fresh_user = await db.users.find_one({"id": user["id"]}, {"_id": 0, "balance": 1}) or user
     return {
         "booster": booster,
-        "price": BONUS_MATCH_BOOSTER_PRICE,
+        "price": price,
         "boosters": profile["boosters"],
         "balance": int(fresh_user.get("balance", 0)),
     }
@@ -4886,12 +4959,13 @@ async def bonus_match_status(
             "daily_points": int(daily.get("points_awarded", 0)),
             "daily_point_cap": BONUS_MATCH_DAILY_POINT_CAP,
             "boosters": profile.get("boosters", {key: 0 for key in BONUS_MATCH_BOOSTERS}),
-            "booster_price": BONUS_MATCH_BOOSTER_PRICE,
+            "booster_prices": {key: int(value["price"]) for key, value in BONUS_MATCH_BOOSTERS.items()},
+            "life_price": BONUS_MATCH_LIFE_PRICE,
             "balance": int(fresh_user.get("balance", 0)),
         },
         "levels": levels,
         "booster_catalog": [
-            {"id": key, "label": value["label"], "price": BONUS_MATCH_BOOSTER_PRICE}
+            {"id": key, "label": value["label"], "price": int(value["price"])}
             for key, value in BONUS_MATCH_BOOSTERS.items()
         ],
         "completions": completions,
@@ -5022,6 +5096,29 @@ async def bonus_match_start(
         },
         "resumed": False,
     }
+
+
+@api.post("/games/bonus-match/surrender")
+async def bonus_match_surrender(
+    body: BonusMatchSurrenderBody,
+    user: dict = Depends(get_current_user),
+):
+    session = await db.bonus_match_sessions.find_one(
+        {"id": body.session_id, "user_id": user["id"]},
+        {"_id": 0},
+    )
+    if not session:
+        raise HTTPException(status_code=404, detail="Ігрову сесію не знайдено")
+    if session.get("status") != "active":
+        return {"ok": True, "session": _bonus_match_session_payload(session)}
+
+    now = now_iso()
+    await db.bonus_match_sessions.update_one(
+        {"id": body.session_id, "user_id": user["id"], "status": "active"},
+        {"$set": {"status": "surrendered", "completed_at": now, "updated_at": now}},
+    )
+    session = {**session, "status": "surrendered", "completed_at": now, "updated_at": now}
+    return {"ok": True, "session": _bonus_match_session_payload(session)}
 
 
 @api.post("/games/bonus-match/move")

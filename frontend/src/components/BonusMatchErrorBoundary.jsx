@@ -12,7 +12,7 @@ export default class BonusMatchErrorBoundary extends React.Component {
   }
 
   componentDidCatch(error, info) {
-    bonusMatchDiagnostics.reactError(error, info);
+    if (this.props.allowDiagnostics) bonusMatchDiagnostics.reactError(error, info);
   }
 
   render() {
@@ -20,15 +20,17 @@ export default class BonusMatchErrorBoundary extends React.Component {
     return (
       <div className="mx-4 mt-6 rounded-3xl border border-[#FF4D55]/40 bg-[#2A0B10] p-5 text-center">
         <div className="text-lg font-black text-[#FF7A80]">Bonus Match зупинився</div>
-        <div className="mt-2 text-sm text-zinc-400">Помилка збережена в діагностичному журналі.</div>
-        <div className="mt-4 grid grid-cols-2 gap-2">
-          <button
-            type="button"
-            onClick={() => bonusMatchDiagnostics.download({ source: "react-error-boundary" })}
-            className="h-11 rounded-2xl bg-[#7C3AED] text-sm font-black text-white"
-          >
-            Завантажити лог
-          </button>
+        <div className="mt-2 text-sm text-zinc-400">Онови сторінку та спробуй ще раз.</div>
+        <div className={`mt-4 grid gap-2 ${this.props.allowDiagnostics ? "grid-cols-2" : "grid-cols-1"}`}>
+          {this.props.allowDiagnostics && (
+            <button
+              type="button"
+              onClick={() => bonusMatchDiagnostics.download({ source: "react-error-boundary" })}
+              className="h-11 rounded-2xl bg-[#7C3AED] text-sm font-black text-white"
+            >
+              Завантажити лог
+            </button>
+          )}
           <button
             type="button"
             onClick={() => window.location.reload()}
