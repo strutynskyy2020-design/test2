@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Zap, Gamepad2 } from "lucide-react";
 import { toast } from "sonner";
 import { useApp } from "@/context/AppContext";
+import ThemeToggle from "@/components/ThemeToggle";
 
 export default function Login() {
   const { login, user } = useApp();
@@ -39,6 +40,7 @@ export default function Login() {
 
   return (
     <div className="min-h-screen w-full flex items-center justify-center px-5 py-8">
+      <ThemeToggle compact className="fixed right-4 top-[calc(env(safe-area-inset-top,0px)+16px)] z-40" />
       <div className="w-full max-w-[420px]">
         <div className="flex flex-col items-center mb-8">
           <div className="w-20 h-20 rounded-3xl bg-[#FFB800] flex items-center justify-center glow-yellow border-b-4 border-[#7a5900] mb-4">

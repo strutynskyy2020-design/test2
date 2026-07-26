@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Gamepad2, Zap, ChevronLeft, User, Mail, Phone, Send, Users as UsersIcon } from "lucide-react";
 import { toast } from "sonner";
 import api, { extractError } from "@/lib/api";
+import ThemeToggle from "@/components/ThemeToggle";
 
 const AVATAR_COLORS = ["#FFB800", "#00F0FF", "#39FF14", "#FF5C00", "#B78CFF", "#FF3B8A"];
 
@@ -77,6 +78,7 @@ export default function Register() {
 
   return (
     <div className="min-h-screen w-full flex items-start justify-center px-5 py-8">
+      <ThemeToggle compact className="fixed right-4 top-[calc(env(safe-area-inset-top,0px)+16px)] z-40" />
       <div className="w-full max-w-[420px]">
         <button
           onClick={() => nav("/login")}

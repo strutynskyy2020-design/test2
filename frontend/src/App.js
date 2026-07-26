@@ -1,7 +1,8 @@
 import "@/App.css";
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Toaster } from "sonner";
+import { ThemeProvider, useTheme } from "next-themes";
 import { AppProvider, useApp } from "@/context/AppContext";
 import AppLayout from "@/components/AppLayout";
 import Login from "@/pages/Login";
@@ -37,6 +38,43 @@ const LazyPage = ({ children }) => (
   </Suspense>
 );
 
+
+const AppToaster = () => {
+  const { resolvedTheme } = useTheme();
+  const isLight = resolvedTheme === "light";
+
+  useEffect(() => {
+    const color = isLight ? "#F5F5DC" : "#0A0A0A";
+    document.documentElement.style.colorScheme = isLight ? "light" : "dark";
+    let meta = document.querySelector('meta[name="theme-color"]');
+    if (!meta) {
+      meta = document.createElement("meta");
+      meta.setAttribute("name", "theme-color");
+      document.head.appendChild(meta);
+    }
+    meta.setAttribute("content", color);
+  }, [isLight]);
+
+  return (
+    <Toaster
+      position="top-center"
+      theme={isLight ? "light" : "dark"}
+      offset={{ top: 96 }}
+      mobileOffset={{ top: 88 }}
+      toastOptions={{
+        style: {
+          background: isLight ? "#FFFDF4" : "#1A1A1E",
+          color: isLight ? "#252832" : "#F5F5F5",
+          border: isLight ? "1px solid rgba(104,96,73,.18)" : "1px solid rgba(255,255,255,.1)",
+          boxShadow: isLight ? "0 14px 34px rgba(89,77,48,.14)" : undefined,
+          fontWeight: 900,
+          fontFamily: "'Nunito', sans-serif",
+        },
+      }}
+    />
+  );
+};
+
 const RequireAuth = ({ children }) => {
   const { user, mode } = useApp();
   if (mode === "loading") return <Splash />;
@@ -53,8 +91,15 @@ const RequireAdmin = ({ children }) => {
 
 function App() {
   return (
-    <AppProvider>
-      <BrowserRouter>
+    <ThemeProvider
+      attribute="class"
+      defaultTheme="dark"
+      enableSystem={false}
+      storageKey="tm6-color-theme"
+      disableTransitionOnChange
+    >
+      <AppProvider>
+        <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
@@ -86,22 +131,9 @@ function App() {
             <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </BrowserRouter>
-      <Toaster
-        position="top-center"
-        theme="dark"
-        offset={{ top: 96 }}
-        mobileOffset={{ top: 88 }}
-        toastOptions={{
-          style: {
-            background: "#1A1A1E",
-            color: "#F5F5F5",
-            border: "1px solid rgba(255,255,255,0.1)",
-            fontWeight: 900,
-            fontFamily: "'Nunito', sans-serif",
-          },
-        }}
-      />
-    </AppProvider>
+      <AppToaster />
+      </AppProvider>
+    </ThemeProvider>
   );
 }
 

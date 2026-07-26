@@ -322,14 +322,14 @@ body {
 }
 
 /* Bonus Match light beige interface theme */
-.bonus-match-app-shell {
+html.light .bonus-match-app-shell {
   color: #34302a;
   background:
     radial-gradient(circle at 18% 0%, rgba(255,255,255,.7), transparent 34%),
     linear-gradient(180deg, #f5f5dc 0%, #f3f0df 100%);
 }
 
-.bonus-match-light-theme {
+html.light .bonus-match-light-theme {
   --bm-page: #f5f5dc;
   --bm-card: #faf8ee;
   --bm-card-2: #f0ecdf;
@@ -339,75 +339,413 @@ body {
   color: var(--bm-text);
 }
 
-.bonus-match-light-theme > section:first-of-type button,
-.bonus-match-light-theme [data-fullscreen-mode] button {
+html.light .bonus-match-light-theme > section:first-of-type button,
+html.light .bonus-match-light-theme [data-fullscreen-mode] button {
   box-shadow: 0 5px 14px rgba(92,76,46,.10);
 }
 
-.bonus-match-light-theme > section:first-of-type button,
-.bonus-match-light-theme [data-fullscreen-mode] .bg-\[\#1A1A1E\],
-.bonus-match-light-theme [data-fullscreen-mode] .bg-black\/25,
-.bonus-match-light-theme [data-fullscreen-mode] .bg-black\/20 {
+html.light .bonus-match-light-theme > section:first-of-type button,
+html.light .bonus-match-light-theme [data-fullscreen-mode] .bg-\[\#1A1A1E\],
+html.light .bonus-match-light-theme [data-fullscreen-mode] .bg-black\/25,
+html.light .bonus-match-light-theme [data-fullscreen-mode] .bg-black\/20 {
   background: rgba(250,248,238,.94) !important;
   border-color: var(--bm-line) !important;
   color: var(--bm-text) !important;
 }
 
-.bonus-match-light-theme h1,
-.bonus-match-light-theme .text-white {
+html.light .bonus-match-light-theme h1,
+html.light .bonus-match-light-theme .text-white {
   color: #2f2456 !important;
 }
 
-.bonus-match-light-theme .text-zinc-300,
-.bonus-match-light-theme .text-zinc-400,
-.bonus-match-light-theme .text-zinc-500,
-.bonus-match-light-theme .text-zinc-600 {
+html.light .bonus-match-light-theme .text-zinc-300,
+html.light .bonus-match-light-theme .text-zinc-400,
+html.light .bonus-match-light-theme .text-zinc-500,
+html.light .bonus-match-light-theme .text-zinc-600 {
   color: var(--bm-muted) !important;
 }
 
-.bonus-match-light-theme [data-bonus-game-surface] > div > section,
-.bonus-match-light-theme [data-bonus-game-surface] .from-\[\#201139\] {
+html.light .bonus-match-light-theme [data-bonus-game-surface] > div > section,
+html.light .bonus-match-light-theme [data-bonus-game-surface] .from-\[\#201139\] {
   background: linear-gradient(180deg, rgba(250,248,238,.98), rgba(240,236,223,.98)) !important;
   border-color: var(--bm-line) !important;
   box-shadow: 0 12px 30px rgba(92,76,46,.12) !important;
 }
 
-.bonus-match-light-theme [data-bonus-game-surface] .rounded-2xl,
-.bonus-match-light-theme [data-bonus-game-surface] .rounded-xl {
+html.light .bonus-match-light-theme [data-bonus-game-surface] .rounded-2xl,
+html.light .bonus-match-light-theme [data-bonus-game-surface] .rounded-xl {
   border-color: rgba(194,184,159,.75);
 }
 
-.bonus-match-light-theme [data-bonus-game-surface] .bg-\[\#0A0A0A\] {
+html.light .bonus-match-light-theme [data-bonus-game-surface] .bg-\[\#0A0A0A\] {
   background: #ded8c7 !important;
 }
 
-.bonus-match-light-theme [data-bonus-game-surface] .bg-\[\#FFB800\]\/10 {
+html.light .bonus-match-light-theme [data-bonus-game-surface] .bg-\[\#FFB800\]\/10 {
   background: rgba(255,184,0,.10) !important;
 }
 
 /* Keep the lavender playfield unchanged while removing faux frames from pieces and obstacles. */
-.bonus-match-light-theme .bonus-match-board {
+html.light .bonus-match-light-theme .bonus-match-board {
   background: #b4aff1 !important;
 }
 
-.bonus-match-light-theme .bonus-piece-surface-gloss {
+html.light .bonus-match-light-theme .bonus-piece-surface-gloss {
   display: none !important;
 }
 
+html.light .bonus-match-light-theme [data-bonus-piece] {
+  border-color: transparent !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+html.light .bonus-match-bottom-nav {
+  box-shadow: 0 -8px 24px rgba(92,76,46,.08);
+}
+
+html.light .bonus-match-bottom-nav a {
+  color: #777066;
+}
+
+html.light .bonus-match-bottom-nav a[aria-current="page"] {
+  color: #6d28d9;
+}
+
+
+/* ==========================================================================\n   V94 · APPLICATION-WIDE LIGHT / DARK THEME\n   The existing dark visual remains the default. The light visual is selected\n   by the user and stored by next-themes under `tm6-color-theme`.\n   ========================================================================== */
+
+:root {
+  --background: 0 0% 4%;
+  --foreground: 0 0% 96%;
+  --card: 240 7% 11%;
+  --card-foreground: 0 0% 96%;
+  --popover: 240 7% 11%;
+  --popover-foreground: 0 0% 96%;
+  --primary: 43 100% 50%;
+  --primary-foreground: 0 0% 4%;
+  --secondary: 240 4% 16%;
+  --secondary-foreground: 0 0% 96%;
+  --muted: 240 4% 16%;
+  --muted-foreground: 240 5% 65%;
+  --accent: 240 4% 16%;
+  --accent-foreground: 0 0% 96%;
+  --destructive: 3 100% 59%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 0 0% 18%;
+  --input: 0 0% 18%;
+  --ring: 43 100% 50%;
+  --radius: .875rem;
+  color-scheme: dark;
+}
+
+html.light {
+  --app-bg: #F5F5DC;
+  --surface: #FFFDF4;
+  --surface-elevated: #EEEBDD;
+  --text-primary: #252832;
+  --text-secondary: #707483;
+  --border-default: #D9D4C3;
+  --background: 60 56% 91%;
+  --foreground: 225 15% 17%;
+  --card: 48 65% 97%;
+  --card-foreground: 225 15% 17%;
+  --popover: 48 65% 97%;
+  --popover-foreground: 225 15% 17%;
+  --primary: 43 100% 50%;
+  --primary-foreground: 225 15% 12%;
+  --secondary: 48 24% 91%;
+  --secondary-foreground: 225 15% 22%;
+  --muted: 48 24% 91%;
+  --muted-foreground: 225 8% 46%;
+  --accent: 48 30% 92%;
+  --accent-foreground: 225 15% 22%;
+  --destructive: 3 100% 57%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 45 19% 81%;
+  --input: 45 19% 81%;
+  --ring: 265 72% 52%;
+  color-scheme: light;
+}
+
+html.light,
+html.light body,
+html.light #root {
+  background-color: #F5F5DC;
+  color: #252832;
+}
+
+html.light body {
+  background-image:
+    radial-gradient(circle at 15% -5%, rgba(255,255,255,.78), transparent 36%),
+    radial-gradient(circle at 92% 88%, rgba(124,58,237,.05), transparent 38%),
+    linear-gradient(180deg, #F5F5DC 0%, #F0EEDB 100%);
+}
+
+.app-theme-shell {
+  background: #0A0A0A;
+  border-color: rgba(255,255,255,.05);
+  color: #F5F5F5;
+}
+
+.app-theme-header {
+  background: rgba(10,10,10,.95);
+  border-bottom: 1px solid rgba(255,255,255,.05);
+}
+
+.app-theme-heading { color: #F5F5F5; }
+
+.app-header-action {
+  color: #A1A1AA;
+  background: #1A1A1E;
+  border: 1px solid rgba(255,255,255,.1);
+}
+
+.app-header-action:hover { border-color: rgba(255,255,255,.18); }
+
+.theme-toggle { color: #FFB800; }
+
+.app-theme-bottom-nav {
+  background: #0A0A0A;
+  border-color: rgba(255,255,255,.1);
+}
+
+html.light .app-theme-shell {
+  background:
+    radial-gradient(circle at 15% 0%, rgba(255,255,255,.78), transparent 33%),
+    linear-gradient(180deg, #F5F5DC 0%, #F0EEDB 100%);
+  border-color: rgba(105,96,70,.16);
+  color: #252832;
+  box-shadow: 0 0 60px rgba(70,63,44,.08);
+}
+
+html.light .app-theme-header {
+  background: rgba(245,245,220,.93);
+  border-bottom-color: rgba(105,96,70,.15);
+  box-shadow: 0 8px 28px rgba(82,72,45,.06);
+}
+
+html.light .app-theme-heading { color: #171A22; }
+
+html.light .app-header-action {
+  color: #5F6473;
+  background: rgba(255,253,244,.92);
+  border-color: rgba(105,96,70,.18);
+  box-shadow: 0 6px 16px rgba(82,72,45,.10), inset 0 1px 0 rgba(255,255,255,.85);
+}
+
+html.light .app-header-action:hover { border-color: rgba(109,40,217,.3); }
+html.light .theme-toggle { color: #6D28D9; }
+
+html.light .app-theme-bottom-nav {
+  background: rgba(248,246,229,.96);
+  border-color: rgba(105,96,70,.16);
+  box-shadow: 0 -8px 25px rgba(82,72,45,.08);
+}
+
+/* Map the app's original dark utility surfaces to tactile light surfaces. */
+html.light .bg-\[\#0A0A0A\],
+html.light .bg-\[\#08070D\],
+html.light .bg-\[\#11101A\] {
+  background-color: #F5F5DC !important;
+}
+
+html.light .bg-\[\#0A0A0A\]\/95 {
+  background-color: rgba(245,245,220,.95) !important;
+}
+
+html.light .bg-\[\#1A1A1E\],
+html.light .bg-\[\#151519\],
+html.light .bg-\[\#121318\],
+html.light .bg-\[\#141416\] {
+  background-color: #FFFDF4 !important;
+}
+
+html.light .bg-\[\#27272A\] {
+  background-color: #EEEBDD !important;
+}
+
+html.light .bg-black\/20,
+html.light .bg-black\/25,
+html.light .bg-black\/30,
+html.light .bg-black\/40,
+html.light .bg-black\/45,
+html.light .bg-black\/50 {
+  background-color: rgba(220,216,198,.58) !important;
+}
+
+html.light .bg-white\/5,
+html.light .bg-white\/\[0\.03\] {
+  background-color: rgba(58,62,74,.045) !important;
+}
+
+html.light .bg-white\/20 { background-color: rgba(255,255,255,.58) !important; }
+html.light .bg-white\/75 { background-color: rgba(255,253,244,.82) !important; }
+html.light .bg-white\/90 { background-color: rgba(255,253,244,.94) !important; }
+
+html.light .text-white,
+html.light .text-zinc-100,
+html.light .text-zinc-200,
+html.light .text-zinc-300 {
+  color: #252832 !important;
+}
+
+html.light .text-zinc-400 { color: #616674 !important; }
+html.light .text-zinc-500 { color: #737887 !important; }
+html.light .text-zinc-600,
+html.light .text-zinc-700 { color: #8A8E99 !important; }
+html.light .text-\[\#0A0A0A\] { color: #171A22 !important; }
+
+html.light .placeholder\:text-zinc-600::placeholder,
+html.light input::placeholder,
+html.light textarea::placeholder {
+  color: #9A9DA7 !important;
+  opacity: 1;
+}
+
+html.light .border-white\/5,
+html.light .border-white\/10,
+html.light .border-white\/15,
+html.light .border-white\/20,
+html.light .border-white\/25,
+html.light .border-white\/\[\.07\],
+html.light .border-white\/\[\.08\],
+html.light .border-white\/\[\.12\] {
+  border-color: rgba(101,94,72,.17) !important;
+}
+
+html.light .divide-white\/5 > :not([hidden]) ~ :not([hidden]),
+html.light .divide-white\/10 > :not([hidden]) ~ :not([hidden]) {
+  border-color: rgba(101,94,72,.13) !important;
+}
+
+html.light input,
+html.light textarea,
+html.light select {
+  caret-color: #6D28D9;
+}
+
+html.light input.bg-\[\#0A0A0A\],
+html.light textarea.bg-\[\#0A0A0A\],
+html.light select.bg-\[\#0A0A0A\],
+html.light input.bg-\[\#121318\],
+html.light textarea.bg-\[\#121318\],
+html.light select.bg-\[\#121318\] {
+  background: #FAF8EE !important;
+  color: #252832 !important;
+  box-shadow: inset 0 1px 2px rgba(82,72,45,.05);
+}
+
+/* Dark gradients used as neutral cards become warm-white cards in light mode. */
+html.light .from-\[\#24103F\],
+html.light .from-\[\#201139\],
+html.light .from-\[\#25103F\],
+html.light .from-\[\#2A0F09\],
+html.light .from-\[\#0A0A0A\]\/35 {
+  --tw-gradient-from: #FFFDF4 var(--tw-gradient-from-position) !important;
+  --tw-gradient-to: rgb(255 253 244 / 0) var(--tw-gradient-to-position) !important;
+}
+
+html.light .via-\[\#17131F\],
+html.light .via-\[\#181216\],
+html.light .via-\[\#18121F\],
+html.light .via-\[\#1A1A1E\] {
+  --tw-gradient-to: rgb(239 236 222 / 0) var(--tw-gradient-to-position) !important;
+  --tw-gradient-stops: var(--tw-gradient-from), #EFECDE var(--tw-gradient-via-position), var(--tw-gradient-to) !important;
+}
+
+html.light .to-\[\#1A1A1E\],
+html.light .to-\[\#111114\],
+html.light .to-\[\#0B0B0E\],
+html.light .to-\[\#101014\] {
+  --tw-gradient-to: #EFECDD var(--tw-gradient-to-position) !important;
+}
+
+/* Preserve contrast on intentionally strong coloured actions and badges. */
+html.light .bg-\[\#7C3AED\].text-white,
+html.light .bg-\[\#B78CFF\].text-white,
+html.light .bg-\[\#FF3B30\].text-white,
+html.light .bg-\[\#FF5C00\].text-white,
+html.light .bg-\[\#00F0FF\].text-white,
+html.light .bg-destructive.text-white,
+html.light [class*="bg-[#7C3AED]"] > .text-white,
+html.light [class*="bg-[#FF3B30]"] > .text-white {
+  color: #FFFFFF !important;
+}
+
+/* Modal scrims must continue to dim the page in both themes. */
+html.light .bg-black\/70,
+html.light .bg-black\/75,
+html.light .bg-black\/80,
+html.light .bg-black\/85 {
+  background-color: rgba(24,25,30,.68) !important;
+}
+
+/* Light-mode adaptations for a few custom, non-Tailwind game surfaces. */
+html.light .generous-cube-card {
+  border-color: rgba(57,174,40,.22);
+  background:
+    radial-gradient(circle at 50% 38%,rgba(57,255,20,.10),transparent 38%),
+    linear-gradient(160deg,rgba(255,253,244,.98),rgba(237,234,218,.98));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.82),0 18px 45px rgba(82,72,45,.12);
+}
+
+html.light .generous-cube-info summary,
+html.light .generous-cube-meta,
+html.light .generous-cube-result {
+  color: #575C68;
+  background: rgba(255,253,244,.75);
+  border-color: rgba(90,110,73,.17);
+}
+
+html.light .generous-cube-prizes {
+  background: rgba(255,253,244,.98);
+  border-color: rgba(57,174,40,.2);
+  box-shadow: 0 18px 50px rgba(82,72,45,.18);
+}
+
+html.light .generous-cube-prizes div b { color: #252832; }
+html.light .generous-cube-prizes div em { color: #707483; }
+
+/* Keep Bonus Match's lavender field and frameless pieces exactly as designed. */
+html.light .bonus-match-board {
+  color-scheme: light;
+  background-color: #B4AFF1 !important;
+}
+
+html.dark .bonus-match-board { color-scheme: dark; }
+
+@media (max-width: 370px) {
+  .app-theme-header { padding-left: .55rem; padding-right: .55rem; }
+  .app-theme-heading { font-size: 1rem; }
+}
+
+html.light .app-theme-bottom-nav a { color: #6F7380; }
+html.light .app-theme-bottom-nav a[aria-current="page"] { color: #6D28D9 !important; }
+html.light .app-theme-bottom-nav a[aria-current="page"] > div { background: rgba(109,40,217,.10) !important; }
+
+/* Piece and obstacle art is frameless in both themes. */
+.bonus-match-light-theme .bonus-piece-surface-gloss { display: none !important; }
 .bonus-match-light-theme [data-bonus-piece] {
   border-color: transparent !important;
   background: transparent !important;
   box-shadow: none !important;
 }
 
-.bonus-match-bottom-nav {
-  box-shadow: 0 -8px 24px rgba(92,76,46,.08);
+html.light .text-white\/90 { color: #343741 !important; }
+html.light .border-white\/30,
+html.light .border-white\/40,
+html.light .border-white\/45,
+html.light .border-white\/70,
+html.light .border-white\/80,
+html.light .border-white\/90 {
+  border-color: rgba(101,94,72,.22) !important;
 }
 
-.bonus-match-bottom-nav a {
-  color: #777066;
-}
-
-.bonus-match-bottom-nav a[aria-current="page"] {
-  color: #6d28d9;
+html.light .bg-black\/70.text-white,
+html.light .bg-black\/75.text-white,
+html.light .bg-black\/80.text-white,
+html.light .bg-black\/85.text-white,
+html.light .bg-\[\#171222\].text-white {
+  color: #FFFFFF !important;
 }

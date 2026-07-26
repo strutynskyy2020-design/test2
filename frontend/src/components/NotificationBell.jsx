@@ -74,7 +74,7 @@ export default function NotificationBell() {
       <button
         data-testid="notif-bell"
         onClick={openPanel}
-        className="relative w-12 h-12 touch-manipulation rounded-2xl bg-[#1A1A1E] border border-white/10 flex items-center justify-center text-zinc-300 active:scale-95 transition-transform"
+        className="app-header-action relative w-12 h-12 max-[370px]:w-10 max-[370px]:h-10 touch-manipulation rounded-2xl flex items-center justify-center text-zinc-300 active:scale-95 transition-transform"
         aria-label="Сповіщення"
       >
         <Bell size={18} strokeWidth={2.5} />
