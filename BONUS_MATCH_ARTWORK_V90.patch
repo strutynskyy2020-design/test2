@@ -1,0 +1,359 @@
+diff -ruN /tmp/tm6v89-original/tm6v89-work/BONUS_MATCH_ARTWORK_V90.md /mnt/data/tm6v90-work/tm6v89-work/BONUS_MATCH_ARTWORK_V90.md
+--- /tmp/tm6v89-original/tm6v89-work/BONUS_MATCH_ARTWORK_V90.md	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/tm6v90-work/tm6v89-work/BONUS_MATCH_ARTWORK_V90.md	2026-07-26 01:01:29.352197423 +0000
+@@ -0,0 +1,30 @@
++# Bonus Match v90 — новий комплект PNG-графіки
++
++У релізі підключено завантажені користувачем PNG без повторної генерації та без складання фішок у спільний атлас.
++
++## Замінено
++
++- клітинка ігрового поля;
++- монета;
++- кубок;
++- зірка;
++- шестигранний кубик із крапками;
++- блискавка;
++- подарунок;
++- камінь;
++- дерев'яний ящик;
++- ланцюг;
++- павутина;
++- окремі графічні лічильники ударів `1` і `2`.
++
++## Технічні зміни
++
++- усі нові ресурси лежать окремими PNG у `frontend/public/bonus-match/v90/`;
++- `bonusMatchAssets.js` використовує прямі URL до окремих PNG;
++- темна підкладка фішок прибрана, тому нові прозорі іконки лежать безпосередньо на пастельно-фіолетових клітинках;
++- для перешкод, нових PNG яких не було у комплекті (`ice`, `crystal`, `shield`, `slime`, `metal`, `core`), збережено старий atlas fallback;
++- Service Worker і PWA-реєстрацію оновлено до v90.
++
++## Важливо
++
++Завантажений великий PNG поля містив сітку 8×8, тоді як гра використовує динамічну маску 7×7. Тому з нього акуратно виділено одну клітинку, яка повторюється в активних комірках. Це зберігає підтримку всіх форм поля: full, rounded, diamond, cross і staircase.
+diff -ruN /tmp/tm6v89-original/tm6v89-work/BONUS_MATCH_ARTWORK_V90.patch /mnt/data/tm6v90-work/tm6v89-work/BONUS_MATCH_ARTWORK_V90.patch
+--- /tmp/tm6v89-original/tm6v89-work/BONUS_MATCH_ARTWORK_V90.patch	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/tm6v90-work/tm6v89-work/BONUS_MATCH_ARTWORK_V90.patch	2026-07-26 01:01:29.416197421 +0000
+@@ -0,0 +1,34 @@
++diff -ruN /tmp/tm6v89-original/tm6v89-work/BONUS_MATCH_ARTWORK_V90.md /mnt/data/tm6v90-work/tm6v89-work/BONUS_MATCH_ARTWORK_V90.md
++--- /tmp/tm6v89-original/tm6v89-work/BONUS_MATCH_ARTWORK_V90.md	1970-01-01 00:00:00.000000000 +0000
+++++ /mnt/data/tm6v90-work/tm6v89-work/BONUS_MATCH_ARTWORK_V90.md	2026-07-26 01:01:29.352197423 +0000
++@@ -0,0 +1,30 @@
+++# Bonus Match v90 — новий комплект PNG-графіки
+++
+++У релізі підключено завантажені користувачем PNG без повторної генерації та без складання фішок у спільний атлас.
+++
+++## Замінено
+++
+++- клітинка ігрового поля;
+++- монета;
+++- кубок;
+++- зірка;
+++- шестигранний кубик із крапками;
+++- блискавка;
+++- подарунок;
+++- камінь;
+++- дерев'яний ящик;
+++- ланцюг;
+++- павутина;
+++- окремі графічні лічильники ударів `1` і `2`.
+++
+++## Технічні зміни
+++
+++- усі нові ресурси лежать окремими PNG у `frontend/public/bonus-match/v90/`;
+++- `bonusMatchAssets.js` використовує прямі URL до окремих PNG;
+++- темна підкладка фішок прибрана, тому нові прозорі іконки лежать безпосередньо на пастельно-фіолетових клітинках;
+++- для перешкод, нових PNG яких не було у комплекті (`ice`, `crystal`, `shield`, `slime`, `metal`, `core`), збережено старий atlas fallback;
+++- Service Worker і PWA-реєстрацію оновлено до v90.
+++
+++## Важливо
+++
+++Завантажений великий PNG поля містив сітку 8×8, тоді як гра використовує динамічну маску 7×7. Тому з нього акуратно виділено одну клітинку, яка повторюється в активних комірках. Це зберігає підтримку всіх форм поля: full, rounded, diamond, cross і staircase.
+Binary files /tmp/tm6v89-original/tm6v89-work/frontend/public/bonus-match/v90/board-frame.png and /mnt/data/tm6v90-work/tm6v89-work/frontend/public/bonus-match/v90/board-frame.png differ
+Binary files /tmp/tm6v89-original/tm6v89-work/frontend/public/bonus-match/v90/cell.png and /mnt/data/tm6v90-work/tm6v89-work/frontend/public/bonus-match/v90/cell.png differ
+Binary files /tmp/tm6v89-original/tm6v89-work/frontend/public/bonus-match/v90/chain.png and /mnt/data/tm6v90-work/tm6v89-work/frontend/public/bonus-match/v90/chain.png differ
+Binary files /tmp/tm6v89-original/tm6v89-work/frontend/public/bonus-match/v90/coin.png and /mnt/data/tm6v90-work/tm6v89-work/frontend/public/bonus-match/v90/coin.png differ
+Binary files /tmp/tm6v89-original/tm6v89-work/frontend/public/bonus-match/v90/crate.png and /mnt/data/tm6v90-work/tm6v89-work/frontend/public/bonus-match/v90/crate.png differ
+Binary files /tmp/tm6v89-original/tm6v89-work/frontend/public/bonus-match/v90/cube.png and /mnt/data/tm6v90-work/tm6v89-work/frontend/public/bonus-match/v90/cube.png differ
+Binary files /tmp/tm6v89-original/tm6v89-work/frontend/public/bonus-match/v90/gift.png and /mnt/data/tm6v90-work/tm6v89-work/frontend/public/bonus-match/v90/gift.png differ
+Binary files /tmp/tm6v89-original/tm6v89-work/frontend/public/bonus-match/v90/hit-1.png and /mnt/data/tm6v90-work/tm6v89-work/frontend/public/bonus-match/v90/hit-1.png differ
+Binary files /tmp/tm6v89-original/tm6v89-work/frontend/public/bonus-match/v90/hit-2.png and /mnt/data/tm6v90-work/tm6v89-work/frontend/public/bonus-match/v90/hit-2.png differ
+Binary files /tmp/tm6v89-original/tm6v89-work/frontend/public/bonus-match/v90/star.png and /mnt/data/tm6v90-work/tm6v89-work/frontend/public/bonus-match/v90/star.png differ
+Binary files /tmp/tm6v89-original/tm6v89-work/frontend/public/bonus-match/v90/stone.png and /mnt/data/tm6v90-work/tm6v89-work/frontend/public/bonus-match/v90/stone.png differ
+Binary files /tmp/tm6v89-original/tm6v89-work/frontend/public/bonus-match/v90/trophy.png and /mnt/data/tm6v90-work/tm6v89-work/frontend/public/bonus-match/v90/trophy.png differ
+Binary files /tmp/tm6v89-original/tm6v89-work/frontend/public/bonus-match/v90/web-overlay.png and /mnt/data/tm6v90-work/tm6v89-work/frontend/public/bonus-match/v90/web-overlay.png differ
+Binary files /tmp/tm6v89-original/tm6v89-work/frontend/public/bonus-match/v90/zap.png and /mnt/data/tm6v90-work/tm6v89-work/frontend/public/bonus-match/v90/zap.png differ
+diff -ruN /tmp/tm6v89-original/tm6v89-work/frontend/public/service-worker.js /mnt/data/tm6v90-work/tm6v89-work/frontend/public/service-worker.js
+--- /tmp/tm6v89-original/tm6v89-work/frontend/public/service-worker.js	2026-07-25 19:18:26.000000000 +0000
++++ /mnt/data/tm6v90-work/tm6v89-work/frontend/public/service-worker.js	2026-07-26 00:58:17.632204140 +0000
+@@ -1,10 +1,10 @@
+ /* TM6 Bonus — Service Worker
+- * v89 refreshes the cache for the game-only fullscreen, menu navigation, and transparent chain-overlay release.
++ * v90 refreshes the cache for the game-only fullscreen, menu navigation, and transparent chain-overlay release.
+  * v84 fixes rejected FetchEvent promises, navigation fallback, and stale registration URLs and protects image requests from Netlify's SPA fallback. A missing image must
+  * never be cached as index.html, otherwise browsers can render a giant broken
+  * image element over the board.
+  */
+-const VERSION = "tm6-v89";
++const VERSION = "tm6-v90";
+ const STATIC_CACHE = `${VERSION}-static`;
+ const RUNTIME_CACHE = `${VERSION}-runtime`;
+ 
+@@ -13,7 +13,20 @@
+   "/icon-192.png",
+   "/icon-512.png",
+   "/apple-touch-icon.png",
+-  "/bonus-match/atlas/pieces-v85.webp?v=85",
++  "/bonus-match/v90/cell.png?v=90",
++  "/bonus-match/v90/board-frame.png?v=90",
++  "/bonus-match/v90/coin.png?v=90",
++  "/bonus-match/v90/trophy.png?v=90",
++  "/bonus-match/v90/star.png?v=90",
++  "/bonus-match/v90/cube.png?v=90",
++  "/bonus-match/v90/zap.png?v=90",
++  "/bonus-match/v90/gift.png?v=90",
++  "/bonus-match/v90/stone.png?v=90",
++  "/bonus-match/v90/crate.png?v=90",
++  "/bonus-match/v90/chain.png?v=90",
++  "/bonus-match/v90/web-overlay.png?v=90",
++  "/bonus-match/v90/hit-1.png?v=90",
++  "/bonus-match/v90/hit-2.png?v=90",
+   "/bonus-match/atlas/obstacles-v85.webp?v=85",
+ ];
+ 
+diff -ruN /tmp/tm6v89-original/tm6v89-work/frontend/src/lib/bonusMatchAssets.js /mnt/data/tm6v90-work/tm6v89-work/frontend/src/lib/bonusMatchAssets.js
+--- /tmp/tm6v89-original/tm6v89-work/frontend/src/lib/bonusMatchAssets.js	2026-07-25 15:00:50.000000000 +0000
++++ /mnt/data/tm6v90-work/tm6v89-work/frontend/src/lib/bonusMatchAssets.js	2026-07-26 00:58:17.632204140 +0000
+@@ -1,47 +1,69 @@
+-const ASSET_VERSION = "85";
+-const PIECES_ATLAS = `/bonus-match/atlas/pieces-v85.webp?v=${ASSET_VERSION}`;
+-const OBSTACLES_ATLAS = `/bonus-match/atlas/obstacles-v85.webp?v=${ASSET_VERSION}`;
++const ASSET_VERSION = "90";
++const BASE = `/bonus-match/v90`;
++const LEGACY_OBSTACLES_ATLAS = `/bonus-match/atlas/obstacles-v85.webp?v=85`;
++
++const imageSprite = (name, extra = {}) => Object.freeze({
++  backgroundImage: `url("${BASE}/${name}.png?v=${ASSET_VERSION}")`,
++  backgroundRepeat: "no-repeat",
++  backgroundSize: "contain",
++  backgroundPosition: "center",
++  ...extra,
++});
+ 
+-const makeSprite = (atlas, index, columns, rows) => {
++const makeAtlasSprite = (index, columns = 5, rows = 2) => {
+   const column = index % columns;
+   const row = Math.floor(index / columns);
+   return Object.freeze({
+-    backgroundImage: `url("${atlas}")`,
++    backgroundImage: `url("${LEGACY_OBSTACLES_ATLAS}")`,
+     backgroundRepeat: "no-repeat",
+     backgroundSize: `${columns * 100}% ${rows * 100}%`,
+-    backgroundPosition: `${columns > 1 ? (column / (columns - 1)) * 100 : 0}% ${rows > 1 ? (row / (rows - 1)) * 100 : 0}%`,
++    backgroundPosition: `${(column / (columns - 1)) * 100}% ${(row / (rows - 1)) * 100}%`,
+   });
+ };
+ 
+-const pieceNames = ["coin", "star", "gift", "cube", "zap", "trophy"];
+-const obstacleNames = ["ice", "chain", "crate", "stone", "crystal", "web", "shield", "slime", "metal", "core"];
+-
+-export const BONUS_MATCH_PIECE_SPRITES = Object.freeze(
+-  Object.fromEntries(pieceNames.map((name, index) => [name, makeSprite(PIECES_ATLAS, index, 3, 2)])),
+-);
+-
+-export const BONUS_MATCH_OBSTACLE_SPRITES = Object.freeze(
+-  Object.fromEntries(obstacleNames.map((name, index) => [name, makeSprite(OBSTACLES_ATLAS, index, 5, 2)])),
+-);
++export const BONUS_MATCH_PIECE_SPRITES = Object.freeze({
++  coin: imageSprite("coin"),
++  trophy: imageSprite("trophy"),
++  star: imageSprite("star"),
++  cube: imageSprite("cube"),
++  zap: imageSprite("zap"),
++  gift: imageSprite("gift"),
++});
++
++export const BONUS_MATCH_OBSTACLE_SPRITES = Object.freeze({
++  ice: makeAtlasSprite(0),
++  chain: imageSprite("chain"),
++  crate: imageSprite("crate"),
++  stone: imageSprite("stone"),
++  crystal: makeAtlasSprite(4),
++  web: imageSprite("web-overlay"),
++  shield: makeAtlasSprite(6),
++  slime: makeAtlasSprite(7),
++  metal: makeAtlasSprite(8),
++  core: makeAtlasSprite(9),
++});
++
++export const BONUS_MATCH_CELL_IMAGE = `${BASE}/cell.png?v=${ASSET_VERSION}`;
++export const BONUS_MATCH_BOARD_FRAME_IMAGE = `${BASE}/board-frame.png?v=${ASSET_VERSION}`;
++export const BONUS_MATCH_HIT_BADGES = Object.freeze({
++  1: `${BASE}/hit-1.png?v=${ASSET_VERSION}`,
++  2: `${BASE}/hit-2.png?v=${ASSET_VERSION}`,
++});
+ 
+ export const BONUS_MATCH_ARTWORK = Object.freeze([
+-  PIECES_ATLAS,
+-  OBSTACLES_ATLAS,
++  ...Object.values(BONUS_MATCH_PIECE_SPRITES).map((sprite) => sprite.backgroundImage.match(/url\("(.+)"\)/)?.[1]).filter(Boolean),
++  ...["chain", "crate", "stone", "web-overlay", "cell", "board-frame", "hit-1", "hit-2"].map((name) => `${BASE}/${name}.png?v=${ASSET_VERSION}`),
++  LEGACY_OBSTACLES_ATLAS,
+ ]);
+ 
+ let artworkPromise = null;
+-
+ const decodeImage = (src) => new Promise((resolve) => {
+   const image = new Image();
+   image.decoding = "async";
+   image.fetchPriority = "high";
+   image.onload = async () => {
+-    try {
+-      if (typeof image.decode === "function") await image.decode();
+-      resolve({ src, ok: image.naturalWidth > 0 && image.naturalHeight > 0 });
+-    } catch (_) {
+-      resolve({ src, ok: image.naturalWidth > 0 && image.naturalHeight > 0 });
+-    }
++    try { if (typeof image.decode === "function") await image.decode(); } catch (_) {}
++    resolve({ src, ok: image.naturalWidth > 0 && image.naturalHeight > 0 });
+   };
+   image.onerror = () => resolve({ src, ok: false });
+   image.src = src;
+diff -ruN /tmp/tm6v89-original/tm6v89-work/frontend/src/lib/pwa.js /mnt/data/tm6v90-work/tm6v89-work/frontend/src/lib/pwa.js
+--- /tmp/tm6v89-original/tm6v89-work/frontend/src/lib/pwa.js	2026-07-25 19:13:54.000000000 +0000
++++ /mnt/data/tm6v90-work/tm6v89-work/frontend/src/lib/pwa.js	2026-07-26 00:58:17.632204140 +0000
+@@ -10,7 +10,7 @@
+   window.addEventListener("load", async () => {
+     try {
+       const registration = await navigator.serviceWorker.register(
+-        "/service-worker.js?v=89",
++        "/service-worker.js?v=90",
+         { scope: "/", updateViaCache: "none" }
+       );
+ 
+diff -ruN /tmp/tm6v89-original/tm6v89-work/frontend/src/pages/BonusMatch.jsx /mnt/data/tm6v90-work/tm6v89-work/frontend/src/pages/BonusMatch.jsx
+--- /tmp/tm6v89-original/tm6v89-work/frontend/src/pages/BonusMatch.jsx	2026-07-25 19:18:43.000000000 +0000
++++ /mnt/data/tm6v90-work/tm6v89-work/frontend/src/pages/BonusMatch.jsx	2026-07-26 01:00:45.784198949 +0000
+@@ -40,6 +40,8 @@
+ import {
+   BONUS_MATCH_OBSTACLE_SPRITES,
+   BONUS_MATCH_PIECE_SPRITES,
++  BONUS_MATCH_CELL_IMAGE,
++  BONUS_MATCH_HIT_BADGES,
+   preloadBonusMatchArtwork,
+ } from "@/lib/bonusMatchAssets";
+ 
+@@ -628,7 +630,7 @@
+   const PieceIcon = piece?.Icon || Star;
+   const ObstacleIcon = obstacle?.Icon || Shield;
+   const color = obstacle?.color || special?.color || piece.color;
+-  const background = "#0A0811";
++  const background = "transparent";
+   const label = overlayObstacle
+     ? `${obstacle?.label || "Перешкода"} на фішці ${piece.label}`
+     : obstacle?.label || special?.label || piece.label;
+@@ -788,7 +790,7 @@
+       aria-label={`${label}, рядок ${row + 1}, колонка ${col + 1}`}
+       data-bonus-piece={cell.id}
+       data-piece-symbol={cell.symbol || ""}
+-      className="relative flex h-full w-full min-w-0 items-center justify-center overflow-visible rounded-[10px] border border-white/10"
++      className="relative flex h-full w-full min-w-0 items-center justify-center overflow-visible rounded-[10px] border border-transparent"
+       style={{
+         background,
+         touchAction: swipeEnabled ? "none" : "manipulation",
+@@ -830,7 +832,7 @@
+           }
+       }
+     >
+-      <div className="absolute inset-0 overflow-hidden rounded-[10px] bg-[#0A0811]" />
++      <div className="absolute inset-0 overflow-hidden rounded-[10px] bg-transparent" />
+       {(!obstacle || overlayObstacle) && (
+         <div
+           aria-hidden="true"
+@@ -844,7 +846,7 @@
+       {(!obstacle || overlayObstacle) && piece.sprite && !artworkFailed && (
+         <motion.div
+           aria-hidden="true"
+-          className="pointer-events-none absolute inset-[1%] z-[2] select-none"
++          className="pointer-events-none absolute inset-[3%] z-[2] select-none"
+           style={{ ...piece.sprite, backfaceVisibility: "hidden" }}
+           animate={pieceArtworkMotion}
+           transition={
+@@ -981,11 +983,20 @@
+       </AnimatePresence>
+       {obstacle && (
+         <motion.div
+-          className="absolute bottom-0.5 right-0.5 z-[9] flex h-4 min-w-4 items-center justify-center rounded-full border border-white/25 bg-black/85 px-1 text-[8px] font-black text-white"
++          className="pointer-events-none absolute bottom-[-3px] right-[-3px] z-[9] flex h-[22px] w-[22px] items-center justify-center"
+           animate={impact && !reducedMotion ? { scale: [1, 1.35, 0.92, 1] } : { scale: 1 }}
+           transition={{ duration: 0.34 * pieceTempo }}
+         >
+-          {cell.obstacle_hits}
++          {BONUS_MATCH_HIT_BADGES[cell.obstacle_hits] ? (
++            <img
++              src={BONUS_MATCH_HIT_BADGES[cell.obstacle_hits]}
++              alt=""
++              className="h-full w-full object-contain"
++              draggable="false"
++            />
++          ) : (
++            <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-[#171222] px-1 text-[8px] font-black text-white">{cell.obstacle_hits}</span>
++          )}
+         </motion.div>
+       )}
+       </motion.button>
+@@ -1380,7 +1391,7 @@
+         width: "calc(100% - 0.75rem)",
+         height: "calc(100% - 0.75rem)",
+       }}
+-      data-bonus-effects-canvas="v89"
++      data-bonus-effects-canvas="v90"
+       aria-hidden="true"
+     />
+   );
+@@ -1950,7 +1961,7 @@
+   useEffect(() => {
+     if (!isAdmin) return undefined;
+     const uninstall = bonusMatchDiagnostics.installGlobalHandlers();
+-    bonusMatchDiagnostics.log("bonus_match_mount", { version: "v89" });
++    bonusMatchDiagnostics.log("bonus_match_mount", { version: "v90" });
+     return () => {
+       bonusMatchDiagnostics.log("bonus_match_unmount");
+       bonusMatchDiagnostics.stopWatch();
+@@ -3090,7 +3101,7 @@
+       ) : (
+         <div
+           ref={gameFullscreenRef}
+-          data-bonus-game-surface="v89"
++          data-bonus-game-surface="v90"
+           data-fullscreen-mode={nativeFullscreenElement ? "native" : pseudoFullscreen ? "viewport" : "off"}
+           className={isFullscreen
+             ? "fixed inset-0 z-[140] overflow-y-auto overscroll-contain bg-[#08070D] px-0"
+@@ -3186,8 +3197,8 @@
+ 
+             <motion.div
+               ref={boardRef}
+-              className="bonus-match-board relative isolate mt-3 overflow-hidden rounded-[22px] border border-[#7C3AED]/55 bg-[#090711] p-1.5 shadow-[inset_0_0_30px_rgba(124,58,237,.12)]"
+-              data-render-engine="v89"
++              className="bonus-match-board relative isolate mt-3 overflow-hidden rounded-[24px] bg-[#B4AFF1] p-1.5 shadow-[0_0_18px_rgba(124,58,237,.35),inset_0_0_20px_rgba(255,255,255,.28)]"
++              data-render-engine="v90"
+               animate={boardMotionForFx(boardFx, reducedMotion)}
+               transition={{
+                 duration: boardFx === "won"
+@@ -3205,12 +3216,14 @@
+                   return (
+                     <div
+                       key={`slot-${index}`}
+-                      className={`aspect-square min-w-0 rounded-[10px] ${active ? "border border-white/[.055] bg-[#11101A]" : "pointer-events-none border border-transparent bg-transparent opacity-0"}`}
++                      className={`aspect-square min-w-0 rounded-[11px] ${active ? "bg-cover bg-center" : "pointer-events-none bg-transparent opacity-0"}`}
++                      style={active ? { backgroundImage: `url("${BONUS_MATCH_CELL_IMAGE}")` } : undefined}
+                     />
+                   );
+                 })}
+               </div>
+ 
++
+               <BoardPiecesLayer
+                 pieces={visualPieces}
+                 selectedKey={selectedKey}

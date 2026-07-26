@@ -1,10 +1,10 @@
 /* TM6 Bonus — Service Worker
- * v88 keeps the safe fetch fallbacks and refreshes the cache for the gameplay-controls release.
+ * v90 refreshes the cache for the game-only fullscreen, menu navigation, and transparent chain-overlay release.
  * v84 fixes rejected FetchEvent promises, navigation fallback, and stale registration URLs and protects image requests from Netlify's SPA fallback. A missing image must
  * never be cached as index.html, otherwise browsers can render a giant broken
  * image element over the board.
  */
-const VERSION = "tm6-v88";
+const VERSION = "tm6-v90";
 const STATIC_CACHE = `${VERSION}-static`;
 const RUNTIME_CACHE = `${VERSION}-runtime`;
 
@@ -13,7 +13,20 @@ const PRECACHE_URLS = [
   "/icon-192.png",
   "/icon-512.png",
   "/apple-touch-icon.png",
-  "/bonus-match/atlas/pieces-v85.webp?v=85",
+  "/bonus-match/v90/cell.png?v=90",
+  "/bonus-match/v90/board-frame.png?v=90",
+  "/bonus-match/v90/coin.png?v=90",
+  "/bonus-match/v90/trophy.png?v=90",
+  "/bonus-match/v90/star.png?v=90",
+  "/bonus-match/v90/cube.png?v=90",
+  "/bonus-match/v90/zap.png?v=90",
+  "/bonus-match/v90/gift.png?v=90",
+  "/bonus-match/v90/stone.png?v=90",
+  "/bonus-match/v90/crate.png?v=90",
+  "/bonus-match/v90/chain.png?v=90",
+  "/bonus-match/v90/web-overlay.png?v=90",
+  "/bonus-match/v90/hit-1.png?v=90",
+  "/bonus-match/v90/hit-2.png?v=90",
   "/bonus-match/atlas/obstacles-v85.webp?v=85",
 ];
 

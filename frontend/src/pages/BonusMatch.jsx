@@ -40,6 +40,8 @@ import { bonusMatchDiagnostics } from "@/lib/bonusMatchDiagnostics";
 import {
   BONUS_MATCH_OBSTACLE_SPRITES,
   BONUS_MATCH_PIECE_SPRITES,
+  BONUS_MATCH_CELL_IMAGE,
+  BONUS_MATCH_HIT_BADGES,
   preloadBonusMatchArtwork,
 } from "@/lib/bonusMatchAssets";
 
@@ -628,8 +630,10 @@ function Piece({
   const PieceIcon = piece?.Icon || Star;
   const ObstacleIcon = obstacle?.Icon || Shield;
   const color = obstacle?.color || special?.color || piece.color;
-  const background = "#0A0811";
-  const label = obstacle?.label || special?.label || piece.label;
+  const background = "transparent";
+  const label = overlayObstacle
+    ? `${obstacle?.label || "Перешкода"} на фішці ${piece.label}`
+    : obstacle?.label || special?.label || piece.label;
   const shakeAnimation = shaking && !reducedMotion ? [0, -7, 7, -6, 6, -3, 3, 0] : dragOffset.x;
   const pieceTempo = Math.max(0.55, Math.min(1, cascadeDurationMs / CASCADE_STEP_MS[0]));
   const impactMotion = obstacleImageMotion(cell.obstacle, impact, reducedMotion);
@@ -786,7 +790,7 @@ function Piece({
       aria-label={`${label}, рядок ${row + 1}, колонка ${col + 1}`}
       data-bonus-piece={cell.id}
       data-piece-symbol={cell.symbol || ""}
-      className="relative flex h-full w-full min-w-0 items-center justify-center overflow-visible rounded-[10px] border border-white/10"
+      className="relative flex h-full w-full min-w-0 items-center justify-center overflow-visible rounded-[10px] border border-transparent"
       style={{
         background,
         touchAction: swipeEnabled ? "none" : "manipulation",
@@ -828,8 +832,8 @@ function Piece({
           }
       }
     >
-      <div className="absolute inset-0 overflow-hidden rounded-[10px] bg-[#0A0811]" />
-      {!obstacle && (
+      <div className="absolute inset-0 overflow-hidden rounded-[10px] bg-transparent" />
+      {(!obstacle || overlayObstacle) && (
         <div
           aria-hidden="true"
           className="pointer-events-none absolute bottom-[2%] left-[8%] z-[1] h-[24%] w-[84%] select-none rounded-[50%] opacity-70"
@@ -839,10 +843,10 @@ function Piece({
           }}
         />
       )}
-      {!obstacle && piece.sprite && !artworkFailed && (
+      {(!obstacle || overlayObstacle) && piece.sprite && !artworkFailed && (
         <motion.div
           aria-hidden="true"
-          className="pointer-events-none absolute inset-[1%] z-[2] select-none"
+          className="pointer-events-none absolute inset-[3%] z-[2] select-none"
           style={{ ...piece.sprite, backfaceVisibility: "hidden" }}
           animate={pieceArtworkMotion}
           transition={
@@ -854,7 +858,7 @@ function Piece({
           }
         />
       )}
-      {!obstacle && artworkFailed && (
+      {(!obstacle || overlayObstacle) && artworkFailed && (
         <PieceIcon
           aria-hidden="true"
           className="pointer-events-none absolute inset-[18%] z-[2] h-[64%] w-[64%]"
@@ -862,21 +866,17 @@ function Piece({
           strokeWidth={2.4}
         />
       )}
-      {overlayObstacle && piece.sprite && !artworkFailed && (
-        <motion.div
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-[9%] z-[2] select-none"
-          style={piece.sprite}
-          animate={impact && !reducedMotion ? { scale: [1, 0.9, 1.08, 1] } : pieceArtworkMotion}
-          transition={impact ? { duration: 0.42 * pieceTempo } : hinted ? { duration: 0.78, repeat: Infinity } : { duration: 0.2 }}
-        />
-      )}
       {obstacle?.sprite && !artworkFailed && (
         <motion.div
           key={`${cell.id}-${impact?.token || "steady"}`}
           aria-hidden="true"
-          className={`pointer-events-none absolute inset-0 z-[3] select-none ${overlayObstacle ? "opacity-[0.84]" : ""}`}
-          style={{ ...obstacle.sprite, ...(overlayObstacle && cell.obstacle === "web" ? { mixBlendMode: "screen" } : {}) }}
+          className="pointer-events-none absolute inset-0 z-[3] select-none"
+          style={{
+            ...obstacle.sprite,
+            ...(cell.obstacle === "chain" || cell.obstacle === "web"
+              ? { mixBlendMode: "screen", opacity: cell.obstacle === "chain" ? 0.9 : 0.84 }
+              : {}),
+          }}
           animate={impactMotion}
           transition={impactTransition}
         />
@@ -892,10 +892,10 @@ function Piece({
       <div
         className="pointer-events-none absolute inset-[3%] z-[4] rounded-[12%]"
         style={{
-          background: obstacle
+          background: obstacle && !overlayObstacle
             ? "linear-gradient(145deg,rgba(255,255,255,.10),transparent 42%,rgba(0,0,0,.18))"
             : "radial-gradient(ellipse at 29% 16%,rgba(255,255,255,.76),rgba(255,255,255,.20) 18%,transparent 38%), radial-gradient(ellipse at 76% 88%,rgba(0,0,0,.24),transparent 42%), linear-gradient(145deg,rgba(255,255,255,.10),transparent 45%,rgba(0,0,0,.16))",
-          boxShadow: obstacle
+          boxShadow: obstacle && !overlayObstacle
             ? "inset 1px 1px 0 rgba(255,255,255,.16), inset -1.5px -1.5px 0 rgba(0,0,0,.28)"
             : "inset 2px 2px 0 rgba(255,255,255,.48), inset -2.4px -2.4px 0 rgba(0,0,0,.44), inset 0 0 0 1px rgba(255,255,255,.14)",
         }}
@@ -983,11 +983,20 @@ function Piece({
       </AnimatePresence>
       {obstacle && (
         <motion.div
-          className="absolute bottom-0.5 right-0.5 z-[9] flex h-4 min-w-4 items-center justify-center rounded-full border border-white/25 bg-black/85 px-1 text-[8px] font-black text-white"
+          className="pointer-events-none absolute bottom-[-3px] right-[-3px] z-[9] flex h-[22px] w-[22px] items-center justify-center"
           animate={impact && !reducedMotion ? { scale: [1, 1.35, 0.92, 1] } : { scale: 1 }}
           transition={{ duration: 0.34 * pieceTempo }}
         >
-          {cell.obstacle_hits}
+          {BONUS_MATCH_HIT_BADGES[cell.obstacle_hits] ? (
+            <img
+              src={BONUS_MATCH_HIT_BADGES[cell.obstacle_hits]}
+              alt=""
+              className="h-full w-full object-contain"
+              draggable="false"
+            />
+          ) : (
+            <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-[#171222] px-1 text-[8px] font-black text-white">{cell.obstacle_hits}</span>
+          )}
         </motion.div>
       )}
       </motion.button>
@@ -1382,7 +1391,7 @@ const BoardEffectsCanvas = forwardRef(function BoardEffectsCanvas({ effects = []
         width: "calc(100% - 0.75rem)",
         height: "calc(100% - 0.75rem)",
       }}
-      data-bonus-effects-canvas="v88"
+      data-bonus-effects-canvas="v90"
       aria-hidden="true"
     />
   );
@@ -1888,13 +1897,20 @@ function BonusMatchScreen() {
   const [buyingBooster, setBuyingBooster] = useState(null);
   const [buyingLife, setBuyingLife] = useState(false);
   const [restarting, setRestarting] = useState(false);
-  const [isFullscreen, setIsFullscreen] = useState(Boolean(document.fullscreenElement));
+  const [nativeFullscreenElement, setNativeFullscreenElement] = useState(
+    () => document.fullscreenElement || document.webkitFullscreenElement || null,
+  );
+  const [pseudoFullscreen, setPseudoFullscreen] = useState(false);
   const [hintMove, setHintMove] = useState(null);
   const [activityToken, setActivityToken] = useState(0);
   const [celebrating, setCelebrating] = useState(false);
   const diagnosticsStateRef = useRef({});
+  const gameFullscreenRef = useRef(null);
+  const autoResumeSessionRef = useRef(true);
+  const fullscreenScrollRef = useRef(0);
 
   const isAdmin = user?.role === "admin";
+  const isFullscreen = Boolean(nativeFullscreenElement || pseudoFullscreen);
   const visualPieces = useMemo(() => flattenVisualPieces(displayBoard), [displayBoard]);
   const selectedKey = selected ? coordKey(selected.row, selected.col) : null;
   diagnosticsStateRef.current = {
@@ -1918,6 +1934,7 @@ function BonusMatchScreen() {
     specialEffectCount: specialEffects.length,
     artworkReady,
     artworkFailed,
+    fullscreenMode: nativeFullscreenElement ? "native" : pseudoFullscreen ? "viewport" : "off",
   };
   const dispatchPieceClick = useCallback((row, col) => {
     pieceClickHandlerRef.current?.(row, col);
@@ -1944,7 +1961,7 @@ function BonusMatchScreen() {
   useEffect(() => {
     if (!isAdmin) return undefined;
     const uninstall = bonusMatchDiagnostics.installGlobalHandlers();
-    bonusMatchDiagnostics.log("bonus_match_mount", { version: "v88" });
+    bonusMatchDiagnostics.log("bonus_match_mount", { version: "v90" });
     return () => {
       bonusMatchDiagnostics.log("bonus_match_unmount");
       bonusMatchDiagnostics.stopWatch();
@@ -1953,22 +1970,79 @@ function BonusMatchScreen() {
   }, [isAdmin]);
 
   useEffect(() => {
-    const handleFullscreenChange = () => setIsFullscreen(Boolean(document.fullscreenElement));
+    const handleFullscreenChange = () => {
+      setNativeFullscreenElement(document.fullscreenElement || document.webkitFullscreenElement || null);
+    };
     document.addEventListener("fullscreenchange", handleFullscreenChange);
-    return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
+    document.addEventListener("webkitfullscreenchange", handleFullscreenChange);
+    return () => {
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
+      document.removeEventListener("webkitfullscreenchange", handleFullscreenChange);
+    };
   }, []);
 
-  const toggleFullscreen = async () => {
-    try {
-      if (document.fullscreenElement) {
-        await document.exitFullscreen();
-      } else {
-        await document.documentElement.requestFullscreen();
+  useEffect(() => {
+    if (!pseudoFullscreen) return undefined;
+    fullscreenScrollRef.current = window.scrollY;
+    const previous = {
+      htmlOverflow: document.documentElement.style.overflow,
+      bodyOverflow: document.body.style.overflow,
+      bodyPosition: document.body.style.position,
+      bodyTop: document.body.style.top,
+      bodyWidth: document.body.style.width,
+    };
+    document.documentElement.style.overflow = "hidden";
+    document.body.style.overflow = "hidden";
+    document.body.style.position = "fixed";
+    document.body.style.top = `-${fullscreenScrollRef.current}px`;
+    document.body.style.width = "100%";
+    return () => {
+      document.documentElement.style.overflow = previous.htmlOverflow;
+      document.body.style.overflow = previous.bodyOverflow;
+      document.body.style.position = previous.bodyPosition;
+      document.body.style.top = previous.bodyTop;
+      document.body.style.width = previous.bodyWidth;
+      window.scrollTo(0, fullscreenScrollRef.current);
+    };
+  }, [pseudoFullscreen]);
+
+  const exitGameFullscreen = async () => {
+    if (pseudoFullscreen) setPseudoFullscreen(false);
+    const fullscreenElement = document.fullscreenElement || document.webkitFullscreenElement;
+    if (!fullscreenElement) return;
+    const exit = document.exitFullscreen || document.webkitExitFullscreen;
+    if (typeof exit === "function") {
+      try {
+        await exit.call(document);
+      } catch (error) {
+        bonusMatchDiagnostics.log("fullscreen_exit_failed", { error }, "warn");
       }
-    } catch (error) {
-      toast.error("Браузер не дозволив повноекранний режим");
-      bonusMatchDiagnostics.log("fullscreen_failed", { error }, "error");
     }
+  };
+
+  const toggleFullscreen = async () => {
+    if (!game) return;
+    if (isFullscreen) {
+      await exitGameFullscreen();
+      return;
+    }
+
+    const target = gameFullscreenRef.current;
+    const request = target?.requestFullscreen || target?.webkitRequestFullscreen;
+    if (typeof request === "function") {
+      try {
+        await request.call(target);
+        bonusMatchDiagnostics.log("fullscreen_native_entered", { target: "bonus-game-surface" });
+        return;
+      } catch (error) {
+        bonusMatchDiagnostics.log("fullscreen_native_failed_fallback", { error }, "warn");
+      }
+    }
+
+    setPseudoFullscreen(true);
+    bonusMatchDiagnostics.log("fullscreen_pseudo_entered", {
+      reason: typeof request === "function" ? "native-request-failed" : "fullscreen-api-unavailable",
+    });
   };
 
   useEffect(() => {
@@ -2062,8 +2136,8 @@ function BonusMatchScreen() {
     return session;
   };
 
-  const loadStatus = async () => {
-    bonusMatchDiagnostics.log("status_load_started", { mode });
+  const loadStatus = async ({ restoreActiveSession = autoResumeSessionRef.current } = {}) => {
+    bonusMatchDiagnostics.log("status_load_started", { mode, restoreActiveSession });
     if (mode === "mock") {
       const mockStatus = {
         profile: { current_level: 12, max_level: 50, total_stars: 26, lives: 5, max_lives: 5, next_life_at: null, daily_points: 17, daily_point_cap: 40, balance: 24500, life_price: 10, booster_prices: { hammer: 10, rocket: 20, color_bomb: 50, shuffle: 30 }, boosters: { hammer: 2, rocket: 1, color_bomb: 1, shuffle: 2 } },
@@ -2087,7 +2161,7 @@ function BonusMatchScreen() {
       bonusMatchDiagnostics.log("status_load_succeeded", { hasActiveSession: Boolean(data.active_session), level: data.profile?.current_level });
       setStatus(data);
       setSelectedLevel(Number(data.profile.current_level || 1));
-      if (data.active_session) {
+      if (restoreActiveSession && data.active_session) {
         await applySessionState(data.active_session, data.active_session_animation);
       }
     } catch (error) {
@@ -2138,6 +2212,7 @@ function BonusMatchScreen() {
   const coinProgress = Math.min(100, Math.round(((game?.coins_collected || 0) / Math.max(1, config.target_coins)) * 100));
 
   const startGame = async (level = selectedLevel, confirmed = false) => {
+    autoResumeSessionRef.current = true;
     bonusMatchDiagnostics.log("game_start_requested", { level, confirmed, mode });
     const preview = levelCatalogMap.get(Number(level)) || levelConfig(level);
     if (preview.is_boss && !confirmed) {
@@ -2834,17 +2909,24 @@ function BonusMatchScreen() {
     setSelectedLevel(unlockedLevels[nextIndex]);
   };
 
-  const leaveBoard = () => {
+  const leaveBoard = async () => {
+    const savedLevel = Number(game?.level || selectedLevel || 1);
+    bonusMatchDiagnostics.log("game_menu_requested", { sessionId: game?.id || null, level: savedLevel, status: game?.status || null });
     if (game?.status === "active") toast.info("Рівень збережено. Ти зможеш продовжити пізніше");
+    autoResumeSessionRef.current = false;
+    await exitGameFullscreen();
     setGame(null);
     setDisplayBoard([]);
     setResult(null);
+    setSelected(null);
     setBoardFx("");
     setActiveBooster(null);
     setHintMove(null);
     setFallMeta(new Map());
     setCelebrating(false);
-    loadStatus();
+    setSelectedLevel(savedLevel);
+    await loadStatus({ restoreActiveSession: false });
+    window.requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "smooth" }));
   };
 
   if (!artworkReady || (loading && !status && !game)) {
@@ -2877,15 +2959,17 @@ function BonusMatchScreen() {
           </div>
           <div className="mt-1 text-xs font-bold text-zinc-500">Збирай 3+ фішки та отримуй нагороди</div>
         </div>
-        <button
-          type="button"
-          onClick={toggleFullscreen}
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-[#1A1A1E] text-zinc-300 active:scale-95"
-          aria-label={isFullscreen ? "Вийти з повноекранного режиму" : "Повноекранний режим"}
-          title={isFullscreen ? "Вийти з повноекранного режиму" : "Повноекранний режим"}
-        >
-          {isFullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
-        </button>
+        {game && (
+          <button
+            type="button"
+            onClick={toggleFullscreen}
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-[#1A1A1E] text-zinc-300 active:scale-95"
+            aria-label={isFullscreen ? "Вийти з повноекранного режиму" : "Відкрити гру на повний екран"}
+            title={isFullscreen ? "Вийти з повноекранного режиму" : "Відкрити тільки гру на повний екран"}
+          >
+            {isFullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
+          </button>
+        )}
         <div className="flex items-center gap-1 rounded-2xl border border-[#FFB800]/25 bg-[#FFB800]/10 px-2.5 py-2 text-[#FFB800]">
           <Coins size={15} />
           <span className="text-sm font-black tabular-nums">{formatNumber(status?.profile?.balance ?? user?.balance)}</span>
@@ -3015,7 +3099,34 @@ function BonusMatchScreen() {
           </section>
         </>
       ) : (
-        <>
+        <div
+          ref={gameFullscreenRef}
+          data-bonus-game-surface="v90"
+          data-fullscreen-mode={nativeFullscreenElement ? "native" : pseudoFullscreen ? "viewport" : "off"}
+          className={isFullscreen
+            ? "fixed inset-0 z-[140] overflow-y-auto overscroll-contain bg-[#08070D] px-0"
+            : ""}
+          style={isFullscreen ? {
+            width: "100vw",
+            height: "100dvh",
+            minHeight: "100vh",
+            paddingTop: "max(8px, env(safe-area-inset-top))",
+            paddingBottom: "max(10px, env(safe-area-inset-bottom))",
+            WebkitOverflowScrolling: "touch",
+          } : undefined}
+        >
+          <div className={isFullscreen ? "mx-auto min-h-full w-full max-w-[560px] px-2 sm:px-4" : ""}>
+            {isFullscreen && (
+              <div className="sticky top-0 z-[180] mb-2 flex justify-end pt-1">
+                <button
+                  type="button"
+                  onClick={toggleFullscreen}
+                  className="flex h-10 items-center gap-2 rounded-xl border border-white/15 bg-black/85 px-3 text-[10px] font-black text-white shadow-lg backdrop-blur"
+                >
+                  <Minimize2 size={16} />ВИЙТИ З ПОВНОГО ЕКРАНА
+                </button>
+              </div>
+            )}
           <motion.section
             className="rounded-3xl border border-[#7C3AED]/40 bg-gradient-to-br from-[#201139] to-[#111114] p-3 shadow-[0_18px_45px_rgba(124,58,237,.18)]"
             animate={
@@ -3086,8 +3197,8 @@ function BonusMatchScreen() {
 
             <motion.div
               ref={boardRef}
-              className="bonus-match-board relative isolate mt-3 overflow-hidden rounded-[22px] border border-[#7C3AED]/55 bg-[#090711] p-1.5 shadow-[inset_0_0_30px_rgba(124,58,237,.12)]"
-              data-render-engine="v88"
+              className="bonus-match-board relative isolate mt-3 overflow-hidden rounded-[24px] bg-[#B4AFF1] p-1.5 shadow-[0_0_18px_rgba(124,58,237,.35),inset_0_0_20px_rgba(255,255,255,.28)]"
+              data-render-engine="v90"
               animate={boardMotionForFx(boardFx, reducedMotion)}
               transition={{
                 duration: boardFx === "won"
@@ -3105,11 +3216,13 @@ function BonusMatchScreen() {
                   return (
                     <div
                       key={`slot-${index}`}
-                      className={`aspect-square min-w-0 rounded-[10px] ${active ? "border border-white/[.055] bg-[#11101A]" : "pointer-events-none border border-transparent bg-transparent opacity-0"}`}
+                      className={`aspect-square min-w-0 rounded-[11px] ${active ? "bg-cover bg-center" : "pointer-events-none bg-transparent opacity-0"}`}
+                      style={active ? { backgroundImage: `url("${BONUS_MATCH_CELL_IMAGE}")` } : undefined}
                     />
                   );
                 })}
               </div>
+
 
               <BoardPiecesLayer
                 pieces={visualPieces}
@@ -3234,13 +3347,14 @@ function BonusMatchScreen() {
                   </div>
                 )}
                 <div className="mt-4 grid grid-cols-2 gap-2">
-                  <button type="button" onClick={() => { setGame(null); setDisplayBoard([]); setResult(null); setBoardFx(""); loadStatus(); }} className="flex h-12 items-center justify-center rounded-2xl border border-white/10 bg-[#1A1A1E] text-sm font-black text-zinc-300 active:scale-95"><RotateCcw size={17} className="mr-2" />РІВНІ</button>
+                  <button type="button" onClick={leaveBoard} className="flex h-12 items-center justify-center rounded-2xl border border-white/10 bg-[#1A1A1E] text-sm font-black text-zinc-300 active:scale-95"><RotateCcw size={17} className="mr-2" />РІВНІ</button>
                   <button type="button" onClick={() => startGame(game.status === "won" ? (result?.current_level || game.level) : game.level)} className="flex h-12 items-center justify-center rounded-2xl bg-[#7C3AED] text-sm font-black text-white active:scale-95">{game.status === "won" ? "ДАЛІ" : "ЩЕ РАЗ"}<ChevronRight size={17} className="ml-1" /></button>
                 </div>
               </motion.section>
             )}
           </AnimatePresence>
-        </>
+          </div>
+        </div>
       )}
 
       <AnimatePresence>

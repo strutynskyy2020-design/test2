@@ -1,4 +1,4 @@
-const STORAGE_KEY = "tm6_bonus_match_diagnostics_v88";
+const STORAGE_KEY = "tm6_bonus_match_diagnostics_v89";
 const MAX_EVENTS = 1200;
 const MAX_PERSISTED = 420;
 const WATCH_INTERVAL_MS = 500;
@@ -220,7 +220,7 @@ const summarizeState = (state = {}) => {
 
 class BonusMatchDiagnostics {
   constructor() {
-    this.version = "v88";
+    this.version = "v89";
     this.events = [];
     this.sessionId = `bm-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
     this.installed = false;
@@ -752,7 +752,7 @@ class BonusMatchDiagnostics {
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `bonus-match-diagnostics-v88-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
+    anchor.download = `bonus-match-diagnostics-v89-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();

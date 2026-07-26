@@ -1,0 +1,592 @@
+--- tm6v88-work/README.md	2026-07-25 18:55:51.421423066 +0000
++++ tm6v89-work/README.md	2026-07-25 19:13:54.529462231 +0000
+@@ -1 +1 @@
+-# TM6 Bonus v88
++# TM6 Bonus v89
+--- tm6v88-work/frontend/public/service-worker.js	2026-07-25 18:55:51.837423081 +0000
++++ tm6v89-work/frontend/public/service-worker.js	2026-07-25 19:18:26.949472082 +0000
+@@ -1,10 +1,10 @@
+ /* TM6 Bonus — Service Worker
+- * v88 keeps the safe fetch fallbacks and refreshes the cache for the gameplay-controls release.
++ * v89 refreshes the cache for the game-only fullscreen, menu navigation, and transparent chain-overlay release.
+  * v84 fixes rejected FetchEvent promises, navigation fallback, and stale registration URLs and protects image requests from Netlify's SPA fallback. A missing image must
+  * never be cached as index.html, otherwise browsers can render a giant broken
+  * image element over the board.
+  */
+-const VERSION = "tm6-v88";
++const VERSION = "tm6-v89";
+ const STATIC_CACHE = `${VERSION}-static`;
+ const RUNTIME_CACHE = `${VERSION}-runtime`;
+ 
+--- tm6v88-work/frontend/src/lib/pwa.js	2026-07-25 18:51:09.429412869 +0000
++++ tm6v89-work/frontend/src/lib/pwa.js	2026-07-25 19:13:54.529462231 +0000
+@@ -10,7 +10,7 @@
+   window.addEventListener("load", async () => {
+     try {
+       const registration = await navigator.serviceWorker.register(
+-        "/service-worker.js?v=88",
++        "/service-worker.js?v=89",
+         { scope: "/", updateViaCache: "none" }
+       );
+ 
+--- tm6v88-work/frontend/src/lib/bonusMatchDiagnostics.js	2026-07-25 18:49:04.921408367 +0000
++++ tm6v89-work/frontend/src/lib/bonusMatchDiagnostics.js	2026-07-25 19:13:54.529462231 +0000
+@@ -1,4 +1,4 @@
+-const STORAGE_KEY = "tm6_bonus_match_diagnostics_v88";
++const STORAGE_KEY = "tm6_bonus_match_diagnostics_v89";
+ const MAX_EVENTS = 1200;
+ const MAX_PERSISTED = 420;
+ const WATCH_INTERVAL_MS = 500;
+@@ -220,7 +220,7 @@
+ 
+ class BonusMatchDiagnostics {
+   constructor() {
+-    this.version = "v88";
++    this.version = "v89";
+     this.events = [];
+     this.sessionId = `bm-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+     this.installed = false;
+@@ -752,7 +752,7 @@
+     const url = URL.createObjectURL(blob);
+     const anchor = document.createElement("a");
+     anchor.href = url;
+-    anchor.download = `bonus-match-diagnostics-v88-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
++    anchor.download = `bonus-match-diagnostics-v89-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
+     document.body.appendChild(anchor);
+     anchor.click();
+     anchor.remove();
+--- tm6v88-work/frontend/src/components/BonusMatchDebugOverlay.jsx	2026-07-25 18:49:04.921408367 +0000
++++ tm6v89-work/frontend/src/components/BonusMatchDebugOverlay.jsx	2026-07-25 19:13:54.529462231 +0000
+@@ -19,7 +19,7 @@
+   const [summary, setSummary] = useState(() => bonusMatchDiagnostics.getSummary());
+ 
+   useEffect(() => {
+-    document.documentElement.dataset.bonusDiagnostics = "v88";
++    document.documentElement.dataset.bonusDiagnostics = "v89";
+     const refresh = () => setSummary(bonusMatchDiagnostics.getSummary());
+     const timer = window.setInterval(refresh, 700);
+     const onAlert = (event) => {
+@@ -117,7 +117,7 @@
+         >
+           <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+             <div>
+-              <div style={{ color: "#B78CFF", fontSize: 12, fontWeight: 1000, letterSpacing: ".08em" }}>🐞 BONUS DEBUG v88</div>
++              <div style={{ color: "#B78CFF", fontSize: 12, fontWeight: 1000, letterSpacing: ".08em" }}>🐞 BONUS DEBUG v89</div>
+               <div style={{ marginTop: 4, color: "#71717A", fontSize: 10 }}>Alt + Shift + B відкриває панель</div>
+             </div>
+             <button
+@@ -199,7 +199,7 @@
+           cursor: "pointer",
+         }}
+       >
+-        🐞 DEBUG {summary.errorCount ? `(${summary.errorCount})` : "v88"}
++        🐞 DEBUG {summary.errorCount ? `(${summary.errorCount})` : "v89"}
+       </button>
+     </div>,
+     document.body,
+--- tm6v88-work/frontend/src/pages/BonusMatch.jsx	2026-07-25 19:06:13.533445562 +0000
++++ tm6v89-work/frontend/src/pages/BonusMatch.jsx	2026-07-25 19:18:43.865472694 +0000
+@@ -629,7 +629,9 @@
+   const ObstacleIcon = obstacle?.Icon || Shield;
+   const color = obstacle?.color || special?.color || piece.color;
+   const background = "#0A0811";
+-  const label = obstacle?.label || special?.label || piece.label;
++  const label = overlayObstacle
++    ? `${obstacle?.label || "Перешкода"} на фішці ${piece.label}`
++    : obstacle?.label || special?.label || piece.label;
+   const shakeAnimation = shaking && !reducedMotion ? [0, -7, 7, -6, 6, -3, 3, 0] : dragOffset.x;
+   const pieceTempo = Math.max(0.55, Math.min(1, cascadeDurationMs / CASCADE_STEP_MS[0]));
+   const impactMotion = obstacleImageMotion(cell.obstacle, impact, reducedMotion);
+@@ -829,7 +831,7 @@
+       }
+     >
+       <div className="absolute inset-0 overflow-hidden rounded-[10px] bg-[#0A0811]" />
+-      {!obstacle && (
++      {(!obstacle || overlayObstacle) && (
+         <div
+           aria-hidden="true"
+           className="pointer-events-none absolute bottom-[2%] left-[8%] z-[1] h-[24%] w-[84%] select-none rounded-[50%] opacity-70"
+@@ -839,7 +841,7 @@
+           }}
+         />
+       )}
+-      {!obstacle && piece.sprite && !artworkFailed && (
++      {(!obstacle || overlayObstacle) && piece.sprite && !artworkFailed && (
+         <motion.div
+           aria-hidden="true"
+           className="pointer-events-none absolute inset-[1%] z-[2] select-none"
+@@ -854,7 +856,7 @@
+           }
+         />
+       )}
+-      {!obstacle && artworkFailed && (
++      {(!obstacle || overlayObstacle) && artworkFailed && (
+         <PieceIcon
+           aria-hidden="true"
+           className="pointer-events-none absolute inset-[18%] z-[2] h-[64%] w-[64%]"
+@@ -862,21 +864,17 @@
+           strokeWidth={2.4}
+         />
+       )}
+-      {overlayObstacle && piece.sprite && !artworkFailed && (
+-        <motion.div
+-          aria-hidden="true"
+-          className="pointer-events-none absolute inset-[9%] z-[2] select-none"
+-          style={piece.sprite}
+-          animate={impact && !reducedMotion ? { scale: [1, 0.9, 1.08, 1] } : pieceArtworkMotion}
+-          transition={impact ? { duration: 0.42 * pieceTempo } : hinted ? { duration: 0.78, repeat: Infinity } : { duration: 0.2 }}
+-        />
+-      )}
+       {obstacle?.sprite && !artworkFailed && (
+         <motion.div
+           key={`${cell.id}-${impact?.token || "steady"}`}
+           aria-hidden="true"
+-          className={`pointer-events-none absolute inset-0 z-[3] select-none ${overlayObstacle ? "opacity-[0.84]" : ""}`}
+-          style={{ ...obstacle.sprite, ...(overlayObstacle && cell.obstacle === "web" ? { mixBlendMode: "screen" } : {}) }}
++          className="pointer-events-none absolute inset-0 z-[3] select-none"
++          style={{
++            ...obstacle.sprite,
++            ...(cell.obstacle === "chain" || cell.obstacle === "web"
++              ? { mixBlendMode: "screen", opacity: cell.obstacle === "chain" ? 0.9 : 0.84 }
++              : {}),
++          }}
+           animate={impactMotion}
+           transition={impactTransition}
+         />
+@@ -892,10 +890,10 @@
+       <div
+         className="pointer-events-none absolute inset-[3%] z-[4] rounded-[12%]"
+         style={{
+-          background: obstacle
++          background: obstacle && !overlayObstacle
+             ? "linear-gradient(145deg,rgba(255,255,255,.10),transparent 42%,rgba(0,0,0,.18))"
+             : "radial-gradient(ellipse at 29% 16%,rgba(255,255,255,.76),rgba(255,255,255,.20) 18%,transparent 38%), radial-gradient(ellipse at 76% 88%,rgba(0,0,0,.24),transparent 42%), linear-gradient(145deg,rgba(255,255,255,.10),transparent 45%,rgba(0,0,0,.16))",
+-          boxShadow: obstacle
++          boxShadow: obstacle && !overlayObstacle
+             ? "inset 1px 1px 0 rgba(255,255,255,.16), inset -1.5px -1.5px 0 rgba(0,0,0,.28)"
+             : "inset 2px 2px 0 rgba(255,255,255,.48), inset -2.4px -2.4px 0 rgba(0,0,0,.44), inset 0 0 0 1px rgba(255,255,255,.14)",
+         }}
+@@ -1382,7 +1380,7 @@
+         width: "calc(100% - 0.75rem)",
+         height: "calc(100% - 0.75rem)",
+       }}
+-      data-bonus-effects-canvas="v88"
++      data-bonus-effects-canvas="v89"
+       aria-hidden="true"
+     />
+   );
+@@ -1888,13 +1886,20 @@
+   const [buyingBooster, setBuyingBooster] = useState(null);
+   const [buyingLife, setBuyingLife] = useState(false);
+   const [restarting, setRestarting] = useState(false);
+-  const [isFullscreen, setIsFullscreen] = useState(Boolean(document.fullscreenElement));
++  const [nativeFullscreenElement, setNativeFullscreenElement] = useState(
++    () => document.fullscreenElement || document.webkitFullscreenElement || null,
++  );
++  const [pseudoFullscreen, setPseudoFullscreen] = useState(false);
+   const [hintMove, setHintMove] = useState(null);
+   const [activityToken, setActivityToken] = useState(0);
+   const [celebrating, setCelebrating] = useState(false);
+   const diagnosticsStateRef = useRef({});
++  const gameFullscreenRef = useRef(null);
++  const autoResumeSessionRef = useRef(true);
++  const fullscreenScrollRef = useRef(0);
+ 
+   const isAdmin = user?.role === "admin";
++  const isFullscreen = Boolean(nativeFullscreenElement || pseudoFullscreen);
+   const visualPieces = useMemo(() => flattenVisualPieces(displayBoard), [displayBoard]);
+   const selectedKey = selected ? coordKey(selected.row, selected.col) : null;
+   diagnosticsStateRef.current = {
+@@ -1918,6 +1923,7 @@
+     specialEffectCount: specialEffects.length,
+     artworkReady,
+     artworkFailed,
++    fullscreenMode: nativeFullscreenElement ? "native" : pseudoFullscreen ? "viewport" : "off",
+   };
+   const dispatchPieceClick = useCallback((row, col) => {
+     pieceClickHandlerRef.current?.(row, col);
+@@ -1944,7 +1950,7 @@
+   useEffect(() => {
+     if (!isAdmin) return undefined;
+     const uninstall = bonusMatchDiagnostics.installGlobalHandlers();
+-    bonusMatchDiagnostics.log("bonus_match_mount", { version: "v88" });
++    bonusMatchDiagnostics.log("bonus_match_mount", { version: "v89" });
+     return () => {
+       bonusMatchDiagnostics.log("bonus_match_unmount");
+       bonusMatchDiagnostics.stopWatch();
+@@ -1953,22 +1959,79 @@
+   }, [isAdmin]);
+ 
+   useEffect(() => {
+-    const handleFullscreenChange = () => setIsFullscreen(Boolean(document.fullscreenElement));
++    const handleFullscreenChange = () => {
++      setNativeFullscreenElement(document.fullscreenElement || document.webkitFullscreenElement || null);
++    };
+     document.addEventListener("fullscreenchange", handleFullscreenChange);
+-    return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
++    document.addEventListener("webkitfullscreenchange", handleFullscreenChange);
++    return () => {
++      document.removeEventListener("fullscreenchange", handleFullscreenChange);
++      document.removeEventListener("webkitfullscreenchange", handleFullscreenChange);
++    };
+   }, []);
+ 
++  useEffect(() => {
++    if (!pseudoFullscreen) return undefined;
++    fullscreenScrollRef.current = window.scrollY;
++    const previous = {
++      htmlOverflow: document.documentElement.style.overflow,
++      bodyOverflow: document.body.style.overflow,
++      bodyPosition: document.body.style.position,
++      bodyTop: document.body.style.top,
++      bodyWidth: document.body.style.width,
++    };
++    document.documentElement.style.overflow = "hidden";
++    document.body.style.overflow = "hidden";
++    document.body.style.position = "fixed";
++    document.body.style.top = `-${fullscreenScrollRef.current}px`;
++    document.body.style.width = "100%";
++    return () => {
++      document.documentElement.style.overflow = previous.htmlOverflow;
++      document.body.style.overflow = previous.bodyOverflow;
++      document.body.style.position = previous.bodyPosition;
++      document.body.style.top = previous.bodyTop;
++      document.body.style.width = previous.bodyWidth;
++      window.scrollTo(0, fullscreenScrollRef.current);
++    };
++  }, [pseudoFullscreen]);
++
++  const exitGameFullscreen = async () => {
++    if (pseudoFullscreen) setPseudoFullscreen(false);
++    const fullscreenElement = document.fullscreenElement || document.webkitFullscreenElement;
++    if (!fullscreenElement) return;
++    const exit = document.exitFullscreen || document.webkitExitFullscreen;
++    if (typeof exit === "function") {
++      try {
++        await exit.call(document);
++      } catch (error) {
++        bonusMatchDiagnostics.log("fullscreen_exit_failed", { error }, "warn");
++      }
++    }
++  };
++
+   const toggleFullscreen = async () => {
+-    try {
+-      if (document.fullscreenElement) {
+-        await document.exitFullscreen();
+-      } else {
+-        await document.documentElement.requestFullscreen();
++    if (!game) return;
++    if (isFullscreen) {
++      await exitGameFullscreen();
++      return;
++    }
++
++    const target = gameFullscreenRef.current;
++    const request = target?.requestFullscreen || target?.webkitRequestFullscreen;
++    if (typeof request === "function") {
++      try {
++        await request.call(target);
++        bonusMatchDiagnostics.log("fullscreen_native_entered", { target: "bonus-game-surface" });
++        return;
++      } catch (error) {
++        bonusMatchDiagnostics.log("fullscreen_native_failed_fallback", { error }, "warn");
+       }
+-    } catch (error) {
+-      toast.error("Браузер не дозволив повноекранний режим");
+-      bonusMatchDiagnostics.log("fullscreen_failed", { error }, "error");
+     }
++
++    setPseudoFullscreen(true);
++    bonusMatchDiagnostics.log("fullscreen_pseudo_entered", {
++      reason: typeof request === "function" ? "native-request-failed" : "fullscreen-api-unavailable",
++    });
+   };
+ 
+   useEffect(() => {
+@@ -2062,8 +2125,8 @@
+     return session;
+   };
+ 
+-  const loadStatus = async () => {
+-    bonusMatchDiagnostics.log("status_load_started", { mode });
++  const loadStatus = async ({ restoreActiveSession = autoResumeSessionRef.current } = {}) => {
++    bonusMatchDiagnostics.log("status_load_started", { mode, restoreActiveSession });
+     if (mode === "mock") {
+       const mockStatus = {
+         profile: { current_level: 12, max_level: 50, total_stars: 26, lives: 5, max_lives: 5, next_life_at: null, daily_points: 17, daily_point_cap: 40, balance: 24500, life_price: 10, booster_prices: { hammer: 10, rocket: 20, color_bomb: 50, shuffle: 30 }, boosters: { hammer: 2, rocket: 1, color_bomb: 1, shuffle: 2 } },
+@@ -2087,7 +2150,7 @@
+       bonusMatchDiagnostics.log("status_load_succeeded", { hasActiveSession: Boolean(data.active_session), level: data.profile?.current_level });
+       setStatus(data);
+       setSelectedLevel(Number(data.profile.current_level || 1));
+-      if (data.active_session) {
++      if (restoreActiveSession && data.active_session) {
+         await applySessionState(data.active_session, data.active_session_animation);
+       }
+     } catch (error) {
+@@ -2138,6 +2201,7 @@
+   const coinProgress = Math.min(100, Math.round(((game?.coins_collected || 0) / Math.max(1, config.target_coins)) * 100));
+ 
+   const startGame = async (level = selectedLevel, confirmed = false) => {
++    autoResumeSessionRef.current = true;
+     bonusMatchDiagnostics.log("game_start_requested", { level, confirmed, mode });
+     const preview = levelCatalogMap.get(Number(level)) || levelConfig(level);
+     if (preview.is_boss && !confirmed) {
+@@ -2834,17 +2898,24 @@
+     setSelectedLevel(unlockedLevels[nextIndex]);
+   };
+ 
+-  const leaveBoard = () => {
++  const leaveBoard = async () => {
++    const savedLevel = Number(game?.level || selectedLevel || 1);
++    bonusMatchDiagnostics.log("game_menu_requested", { sessionId: game?.id || null, level: savedLevel, status: game?.status || null });
+     if (game?.status === "active") toast.info("Рівень збережено. Ти зможеш продовжити пізніше");
++    autoResumeSessionRef.current = false;
++    await exitGameFullscreen();
+     setGame(null);
+     setDisplayBoard([]);
+     setResult(null);
++    setSelected(null);
+     setBoardFx("");
+     setActiveBooster(null);
+     setHintMove(null);
+     setFallMeta(new Map());
+     setCelebrating(false);
+-    loadStatus();
++    setSelectedLevel(savedLevel);
++    await loadStatus({ restoreActiveSession: false });
++    window.requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "smooth" }));
+   };
+ 
+   if (!artworkReady || (loading && !status && !game)) {
+@@ -2877,15 +2948,17 @@
+           </div>
+           <div className="mt-1 text-xs font-bold text-zinc-500">Збирай 3+ фішки та отримуй нагороди</div>
+         </div>
+-        <button
+-          type="button"
+-          onClick={toggleFullscreen}
+-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-[#1A1A1E] text-zinc-300 active:scale-95"
+-          aria-label={isFullscreen ? "Вийти з повноекранного режиму" : "Повноекранний режим"}
+-          title={isFullscreen ? "Вийти з повноекранного режиму" : "Повноекранний режим"}
+-        >
+-          {isFullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
+-        </button>
++        {game && (
++          <button
++            type="button"
++            onClick={toggleFullscreen}
++            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-[#1A1A1E] text-zinc-300 active:scale-95"
++            aria-label={isFullscreen ? "Вийти з повноекранного режиму" : "Відкрити гру на повний екран"}
++            title={isFullscreen ? "Вийти з повноекранного режиму" : "Відкрити тільки гру на повний екран"}
++          >
++            {isFullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
++          </button>
++        )}
+         <div className="flex items-center gap-1 rounded-2xl border border-[#FFB800]/25 bg-[#FFB800]/10 px-2.5 py-2 text-[#FFB800]">
+           <Coins size={15} />
+           <span className="text-sm font-black tabular-nums">{formatNumber(status?.profile?.balance ?? user?.balance)}</span>
+@@ -3015,7 +3088,34 @@
+           </section>
+         </>
+       ) : (
+-        <>
++        <div
++          ref={gameFullscreenRef}
++          data-bonus-game-surface="v89"
++          data-fullscreen-mode={nativeFullscreenElement ? "native" : pseudoFullscreen ? "viewport" : "off"}
++          className={isFullscreen
++            ? "fixed inset-0 z-[140] overflow-y-auto overscroll-contain bg-[#08070D] px-0"
++            : ""}
++          style={isFullscreen ? {
++            width: "100vw",
++            height: "100dvh",
++            minHeight: "100vh",
++            paddingTop: "max(8px, env(safe-area-inset-top))",
++            paddingBottom: "max(10px, env(safe-area-inset-bottom))",
++            WebkitOverflowScrolling: "touch",
++          } : undefined}
++        >
++          <div className={isFullscreen ? "mx-auto min-h-full w-full max-w-[560px] px-2 sm:px-4" : ""}>
++            {isFullscreen && (
++              <div className="sticky top-0 z-[180] mb-2 flex justify-end pt-1">
++                <button
++                  type="button"
++                  onClick={toggleFullscreen}
++                  className="flex h-10 items-center gap-2 rounded-xl border border-white/15 bg-black/85 px-3 text-[10px] font-black text-white shadow-lg backdrop-blur"
++                >
++                  <Minimize2 size={16} />ВИЙТИ З ПОВНОГО ЕКРАНА
++                </button>
++              </div>
++            )}
+           <motion.section
+             className="rounded-3xl border border-[#7C3AED]/40 bg-gradient-to-br from-[#201139] to-[#111114] p-3 shadow-[0_18px_45px_rgba(124,58,237,.18)]"
+             animate={
+@@ -3087,7 +3187,7 @@
+             <motion.div
+               ref={boardRef}
+               className="bonus-match-board relative isolate mt-3 overflow-hidden rounded-[22px] border border-[#7C3AED]/55 bg-[#090711] p-1.5 shadow-[inset_0_0_30px_rgba(124,58,237,.12)]"
+-              data-render-engine="v88"
++              data-render-engine="v89"
+               animate={boardMotionForFx(boardFx, reducedMotion)}
+               transition={{
+                 duration: boardFx === "won"
+@@ -3234,13 +3334,14 @@
+                   </div>
+                 )}
+                 <div className="mt-4 grid grid-cols-2 gap-2">
+-                  <button type="button" onClick={() => { setGame(null); setDisplayBoard([]); setResult(null); setBoardFx(""); loadStatus(); }} className="flex h-12 items-center justify-center rounded-2xl border border-white/10 bg-[#1A1A1E] text-sm font-black text-zinc-300 active:scale-95"><RotateCcw size={17} className="mr-2" />РІВНІ</button>
++                  <button type="button" onClick={leaveBoard} className="flex h-12 items-center justify-center rounded-2xl border border-white/10 bg-[#1A1A1E] text-sm font-black text-zinc-300 active:scale-95"><RotateCcw size={17} className="mr-2" />РІВНІ</button>
+                   <button type="button" onClick={() => startGame(game.status === "won" ? (result?.current_level || game.level) : game.level)} className="flex h-12 items-center justify-center rounded-2xl bg-[#7C3AED] text-sm font-black text-white active:scale-95">{game.status === "won" ? "ДАЛІ" : "ЩЕ РАЗ"}<ChevronRight size={17} className="ml-1" /></button>
+                 </div>
+               </motion.section>
+             )}
+           </AnimatePresence>
+-        </>
++          </div>
++        </div>
+       )}
+ 
+       <AnimatePresence>
+--- /dev/null	2026-07-25 18:39:46.397388170 +0000
++++ tm6v89-work/tests/test_bonus_match_v89_regression.py	2026-07-25 19:15:56.473466641 +0000
+@@ -0,0 +1,139 @@
++"""Dependency-free regression checks for Bonus Match v89."""
++from __future__ import annotations
++
++import ast
++import copy
++from pathlib import Path
++
++ROOT = Path(__file__).resolve().parents[1]
++SERVER = ROOT / "backend" / "server.py"
++FRONTEND = ROOT / "frontend" / "src" / "pages" / "BonusMatch.jsx"
++
++
++def _server_tree() -> ast.Module:
++    return ast.parse(SERVER.read_text(encoding="utf-8"))
++
++
++def _assignment(name: str):
++    for node in _server_tree().body:
++        if isinstance(node, ast.Assign):
++            for target in node.targets:
++                if isinstance(target, ast.Name) and target.id == name:
++                    return ast.literal_eval(node.value)
++    raise AssertionError(f"Missing assignment: {name}")
++
++
++def test_prices_and_labels() -> None:
++    assert _assignment("BONUS_MATCH_LIFE_PRICE") == 10
++    boosters = _assignment("BONUS_MATCH_BOOSTERS")
++    assert {key: item["price"] for key, item in boosters.items()} == {
++        "hammer": 10,
++        "rocket": 20,
++        "color_bomb": 50,
++        "shuffle": 30,
++    }
++    assert boosters["color_bomb"]["label"] == "Веселковий джокер"
++
++
++def _load_advance_obstacles():
++    tree = _server_tree()
++    function = next(
++        node for node in tree.body
++        if isinstance(node, ast.FunctionDef) and node.name == "_bonus_match_advance_obstacles"
++    )
++    module = ast.Module(body=[function], type_ignores=[])
++    ast.fix_missing_locations(module)
++
++    def nearby(row, col, include_self=True):
++        cells = {(row - 1, col), (row + 1, col), (row, col - 1), (row, col + 1)}
++        if include_self:
++            cells.add((row, col))
++        return {(r, c) for r, c in cells if 0 <= r < 7 and 0 <= c < 7}
++
++    def cell_symbol(cell):
++        return cell.get("symbol") if cell else None
++
++    def apply_obstacle(board, row, col, obstacle):
++        board[row][col]["obstacle"] = obstacle
++        board[row][col]["obstacle_hits"] = 1
++        board[row][col]["obstacle_age"] = 0
++        return board[row][col]
++
++    namespace = {
++        "Optional": object,
++        "BONUS_MATCH_ROWS": 7,
++        "BONUS_MATCH_COLS": 7,
++        "_bonus_match_clone_board": copy.deepcopy,
++        "_bonus_match_nearby_cells": nearby,
++        "_bonus_match_cell_symbol": cell_symbol,
++        "_bonus_match_apply_obstacle": apply_obstacle,
++    }
++    exec(compile(module, str(SERVER), "exec"), namespace)
++    return namespace["_bonus_match_advance_obstacles"]
++
++
++def _web_board():
++    board = [[None for _ in range(7)] for _ in range(7)]
++    board[3][3] = {
++        "id": "web-source",
++        "symbol": "star",
++        "special": None,
++        "obstacle": "web",
++        "obstacle_hits": 1,
++        "obstacle_age": 2,
++    }
++    board[3][4] = {
++        "id": "target",
++        "symbol": "coin",
++        "special": None,
++        "obstacle": None,
++        "obstacle_hits": 0,
++        "obstacle_age": 0,
++    }
++    return board
++
++
++def test_destroyed_web_stops_spread_for_turn() -> None:
++    advance = _load_advance_obstacles()
++    board, events = advance(
++        _web_board(),
++        [{"row": 1, "col": 1, "obstacle": "web", "destroyed": True}],
++    )
++    assert not any(event.get("effect") == "web_spread" for event in events)
++    assert board[3][4].get("obstacle") is None
++
++
++def test_untouched_ready_web_can_still_spread() -> None:
++    advance = _load_advance_obstacles()
++    board, events = advance(_web_board(), [])
++    assert any(event.get("effect") == "web_spread" for event in events)
++    assert board[3][4].get("obstacle") == "web"
++
++
++def test_frontend_features_are_wired() -> None:
++    source = FRONTEND.read_text(encoding="utf-8")
++    required = [
++        'user?.role === "admin"',
++        'data-bonus-game-surface="v89"',
++        'target?.requestFullscreen || target?.webkitRequestFullscreen',
++        'setPseudoFullscreen(true)',
++        'loadStatus({ restoreActiveSession: false })',
++        'api.post("/games/bonus-match/lives/purchase")',
++        'api.post("/games/bonus-match/surrender"',
++        'data-render-engine="v89"',
++        'label: "Веселковий джокер"',
++        'cell.obstacle === "chain" || cell.obstacle === "web"',
++        'mixBlendMode: "screen"',
++    ]
++    for token in required:
++        assert token in source, token
++    assert 'document.documentElement.requestFullscreen()' not in source
++    assert 'if (restoreActiveSession && data.active_session)' in source
++
++
++if __name__ == "__main__":
++    test_prices_and_labels()
++    test_destroyed_web_stops_spread_for_turn()
++    test_untouched_ready_web_can_still_spread()
++    test_frontend_features_are_wired()
++    print("Bonus Match v89 regression checks passed")
