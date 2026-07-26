@@ -37,6 +37,7 @@ import AvatarFrame from "@/components/AvatarFrame";
 import BonusMatchErrorBoundary from "@/components/BonusMatchErrorBoundary";
 import BonusMatchDebugOverlay from "@/components/BonusMatchDebugOverlay";
 import { bonusMatchDiagnostics } from "@/lib/bonusMatchDiagnostics";
+import authoredBonusMatchLevels from "@/data/bonusMatchLevels.json";
 import {
   BONUS_MATCH_OBSTACLE_SPRITES,
   BONUS_MATCH_PIECE_SPRITES,
@@ -236,41 +237,38 @@ const normalizeBoard = (board) => (board || []).map((row) => row.map(normalizeCe
 
 const levelConfig = (level) => {
   const safeLevel = Math.max(1, Math.min(MAX_LEVEL, Number(level || 1)));
+  const authored = safeLevel <= 50 ? authoredBonusMatchLevels.find((item) => Number(item.level) === safeLevel) : null;
+  if (authored) {
+    const boardShape = BOARD_SHAPES[authored.board_shape] ? authored.board_shape : "full";
+    const obstacleLayout = Array.isArray(authored.obstacle_layout) ? authored.obstacle_layout : [];
+    return {
+      ...authored,
+      level: safeLevel,
+      board_shape: boardShape,
+      board_mask: boardMaskForShape(boardShape),
+      obstacle_layout: obstacleLayout,
+      obstacle_count: obstacleLayout.length,
+      obstacles: [...new Set(obstacleLayout.map((item) => item.obstacle).filter(Boolean))],
+    };
+  }
+
   const milestone = safeLevel % 5 === 0;
   const stage = Math.floor(safeLevel / 5);
-  const ordinaryStage = Math.floor((safeLevel - 1) / 5);
   const baseTarget = 900 + safeLevel * 260;
-  let targetScore = Math.floor(baseTarget * (1 + ordinaryStage * 0.1));
-  if (milestone) {
-    const previousBase = 900 + (safeLevel - 1) * 260;
-    const previousTarget = previousBase * (1 + Math.max(0, stage - 1) * 0.1);
-    const challengeMultiplier = Math.min(2.5, 1.8 + Math.max(0, stage - 1) * 0.08);
-    targetScore = Math.max(targetScore, Math.floor(previousTarget * challengeMultiplier));
-  }
+  const targetScore = Math.floor(baseTarget * (1 + Math.floor((safeLevel - 1) / 5) * 0.1));
   const rewardMultiplier = BOSS_LEVELS[safeLevel] || 1;
-  if (rewardMultiplier > 1) targetScore = Math.floor(targetScore * 1.12);
-  let moves = Math.max(15, 24 - Math.floor((safeLevel - 1) / 7));
-  if (milestone) moves = Math.max(12, moves - 2);
-  if (rewardMultiplier > 1) moves = Math.max(11, moves - 1);
-  let targetCoins = 6 + Math.floor((safeLevel + 1) / 2) + ordinaryStage;
-  if (milestone) targetCoins = Math.floor(targetCoins * 1.3) + 2;
-  const obstacles = OBSTACLE_ORDER.slice(0, stage);
+  const moves = Math.max(18, 30 - Math.floor((safeLevel - 1) / 10));
+  const obstacles = OBSTACLE_ORDER.slice(0, Math.min(OBSTACLE_ORDER.length, stage));
   const boardShape = boardShapeForLevel(safeLevel);
   return {
-    level: safeLevel,
-    board_shape: boardShape,
-    board_mask: boardMaskForShape(boardShape),
-    moves,
-    target_score: targetScore,
-    target_coins: targetCoins,
+    level: safeLevel, board_shape: boardShape, board_mask: boardMaskForShape(boardShape),
+    moves, target_score: targetScore, target_coins: 8 + Math.floor((safeLevel + 1) / 3),
     star_thresholds: [targetScore, Math.floor(targetScore * 1.35), Math.floor(targetScore * 1.72)],
-    is_milestone: milestone,
-    is_boss: rewardMultiplier > 1,
-    reward_multiplier: rewardMultiplier,
-    new_obstacle: milestone ? obstacles.at(-1) : null,
-    obstacles,
+    is_milestone: milestone, is_boss: rewardMultiplier > 1, reward_multiplier: rewardMultiplier,
+    new_obstacle: milestone ? obstacles.at(-1) : null, obstacles, obstacle_layout: [], obstacle_count: Math.min(10, 2 + stage),
   };
 };
+
 
 const matchSymbol = (cell) => {
   if (!cell || cell.void || cell.special === "color_bomb") return null;
@@ -352,24 +350,31 @@ const makeMockBoard = (level = 1, suppliedConfig = null) => {
         board[row].push(makeCell(options[Math.floor(Math.random() * options.length)]));
       }
     }
-    if (config.obstacles.length) {
-      const count = Math.min(10, 2 + Math.floor(level / 5));
-      const activePositions = [];
-      for (let row = 0; row < ROWS; row += 1) {
-        for (let col = 0; col < COLS; col += 1) {
-          if (!board[row][col]?.void) activePositions.push({ row, col });
-        }
-      }
-      for (let index = 0; index < Math.min(count, activePositions.length); index += 1) {
-        const positionIndex = Math.floor(Math.random() * activePositions.length);
-        const { row, col } = activePositions.splice(positionIndex, 1)[0];
-        const obstacle = config.obstacles[Math.floor(Math.random() * config.obstacles.length)];
-        const hits = obstacle === "core" ? 4 : ["stone", "shield", "metal"].includes(obstacle) ? 3 : obstacle === "web" ? 1 : 2;
+    const manualLayout = Array.isArray(config.obstacle_layout) ? config.obstacle_layout : [];
+    if (manualLayout.length) {
+      manualLayout.forEach((item) => {
+        const row = Number(item.row);
+        const col = Number(item.col);
+        const obstacle = item.obstacle;
+        if (!board[row]?.[col] || board[row][col].void || !OBSTACLE_ORDER.includes(obstacle)) return;
+        const hits = Number(item.hits || (obstacle === "core" ? 4 : ["stone", "shield", "metal"].includes(obstacle) ? 3 : obstacle === "web" ? 1 : 2));
         if (OVERLAY_OBSTACLES.has(obstacle)) {
           board[row][col] = { ...board[row][col], obstacle, obstacle_hits: hits, obstacle_age: 0, special: null };
         } else {
           board[row][col] = makeCell(null, { obstacle, obstacle_hits: hits });
         }
+      });
+    } else if (config.obstacles.length) {
+      const count = Math.min(10, Number(config.obstacle_count || 2 + Math.floor(level / 5)));
+      const activePositions = [];
+      for (let row = 0; row < ROWS; row += 1) for (let col = 0; col < COLS; col += 1) if (!board[row][col]?.void) activePositions.push({ row, col });
+      for (let index = 0; index < Math.min(count, activePositions.length); index += 1) {
+        const positionIndex = Math.floor(Math.random() * activePositions.length);
+        const { row, col } = activePositions.splice(positionIndex, 1)[0];
+        const obstacle = config.obstacles[index % config.obstacles.length];
+        const hits = obstacle === "core" ? 4 : ["stone", "shield", "metal"].includes(obstacle) ? 3 : obstacle === "web" ? 1 : 2;
+        if (OVERLAY_OBSTACLES.has(obstacle)) board[row][col] = { ...board[row][col], obstacle, obstacle_hits: hits, obstacle_age: 0, special: null };
+        else board[row][col] = makeCell(null, { obstacle, obstacle_hits: hits });
       }
     }
     if (!findMatches(board).size && hasPossibleMove(board)) return board;
@@ -511,9 +516,9 @@ const runMockMove = (game, from, to) => {
     animation: { swapped_board: swapped, steps, reshuffled, reason: reshuffled ? "no_moves" : null },
     result: status === "active" ? null : {
       stars,
-      points_awarded: won ? [0, 2, 4, 7][stars] + 5 : 0,
-      xp_awarded: won ? [0, 5, 10, 15][stars] : 0,
-      first_win_bonus: won ? 5 : 0,
+      points_awarded: won ? 10 : 0,
+      xp_awarded: won ? 10 : 0,
+      first_win_bonus: 0,
       lives: won ? 5 : 4,
       current_level: won ? Math.min(MAX_LEVEL, game.level + 1) : game.level,
       total_stars: won ? stars : 0,
@@ -890,7 +895,7 @@ function Piece({
         />
       )}
       <div
-        className="pointer-events-none absolute inset-[3%] z-[4] rounded-[12%]"
+        className="bonus-piece-surface-gloss pointer-events-none absolute inset-[3%] z-[4] rounded-[12%]"
         style={{
           background: obstacle && !overlayObstacle
             ? "linear-gradient(145deg,rgba(255,255,255,.10),transparent 42%,rgba(0,0,0,.18))"
@@ -2140,9 +2145,9 @@ function BonusMatchScreen() {
     bonusMatchDiagnostics.log("status_load_started", { mode, restoreActiveSession });
     if (mode === "mock") {
       const mockStatus = {
-        profile: { current_level: 12, max_level: 50, total_stars: 26, lives: 5, max_lives: 5, next_life_at: null, daily_points: 17, daily_point_cap: 40, balance: 24500, life_price: 10, booster_prices: { hammer: 10, rocket: 20, color_bomb: 50, shuffle: 30 }, boosters: { hammer: 2, rocket: 1, color_bomb: 1, shuffle: 2 } },
+        profile: { current_level: 1, max_level: 50, total_stars: 0, lives: 5, max_lives: 5, next_life_at: null, daily_points: 0, daily_point_cap: null, balance: 24500, life_price: 10, booster_prices: { hammer: 10, rocket: 20, color_bomb: 50, shuffle: 30 }, boosters: { hammer: 2, rocket: 1, color_bomb: 1, shuffle: 2 } },
         levels: Array.from({ length: 50 }, (_, index) => levelConfig(index + 1)),
-        completions: Array.from({ length: 11 }, (_, index) => ({ level: index + 1, stars: index % 3 === 0 ? 3 : 2, best_score: 1600 + index * 300 })),
+        completions: [],
         active_session: null,
         top_today: [
           { rank: 1, name: "Максим Д.", score: 25680, level: 14, avatar_initials: "МД", avatar_color: "#00F0FF", avatar_rarity: "legendary" },
@@ -2941,7 +2946,7 @@ function BonusMatchScreen() {
   }
 
   return (
-    <div className="space-y-4 px-4 pb-8 pt-2" data-testid="bonus-match-page">
+    <div className="bonus-match-light-theme space-y-4 px-4 pb-8 pt-2" data-testid="bonus-match-page">
       {isAdmin && <BonusMatchDebugOverlay getState={() => diagnosticsStateRef.current} />}
       <section className="flex items-center gap-3">
         <button
@@ -3072,8 +3077,10 @@ function BonusMatchScreen() {
           <section className="grid grid-cols-2 gap-3">
             <div className="rounded-3xl border border-[#FFB800]/25 bg-[#1A1A1E] p-4">
               <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-wider text-[#FFB800]"><Star size={15} fill="#FFB800" />ЩОДЕННА НАГОРОДА</div>
-              <div className="mt-3 h-3 overflow-hidden rounded-full bg-black/40"><div className="h-full rounded-full bg-gradient-to-r from-[#FFB800] to-[#FF5C00]" style={{ width: `${Math.min(100, ((status?.profile?.daily_points || 0) / Math.max(1, status?.profile?.daily_point_cap || 40)) * 100)}%` }} /></div>
-              <div className="mt-2 flex justify-between text-xs font-black"><span className="text-white">{status?.profile?.daily_points || 0}</span><span className="text-zinc-600">/ {status?.profile?.daily_point_cap || 40} Point</span></div>
+              <div className="mt-3 flex items-end justify-between gap-3">
+                <div><div className="font-display text-3xl text-white">{status?.profile?.daily_points || 0}</div><div className="text-xs font-bold text-zinc-500">Point сьогодні</div></div>
+                <div className="rounded-full border border-[#FFB800]/25 bg-[#FFB800]/10 px-3 py-1 text-[10px] font-black uppercase tracking-wider text-[#FFB800]">Без ліміту</div>
+              </div>
             </div>
             <div className="rounded-3xl border border-[#B78CFF]/25 bg-[#1A1A1E] p-4">
               <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-wider text-[#B78CFF]"><Sparkles size={15} />МІЙ ПРОГРЕС</div>
@@ -3197,7 +3204,7 @@ function BonusMatchScreen() {
 
             <motion.div
               ref={boardRef}
-              className="bonus-match-board relative isolate mt-3 overflow-hidden rounded-[24px] bg-[#B4AFF1] p-1.5 shadow-[0_0_18px_rgba(124,58,237,.35),inset_0_0_20px_rgba(255,255,255,.28)]"
+              className="bonus-match-board relative isolate mt-3 overflow-hidden rounded-[24px] bg-[#B4AFF1] p-1.5 shadow-[0_0_18px_rgba(124,58,237,.26),inset_0_0_20px_rgba(255,255,255,.28)]"
               data-render-engine="v90"
               animate={boardMotionForFx(boardFx, reducedMotion)}
               transition={{

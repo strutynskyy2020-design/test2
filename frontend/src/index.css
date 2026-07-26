@@ -320,3 +320,94 @@ body {
 .bonus-match-board [bis_skin_checked] {
   forced-color-adjust: none;
 }
+
+/* Bonus Match light beige interface theme */
+.bonus-match-app-shell {
+  color: #34302a;
+  background:
+    radial-gradient(circle at 18% 0%, rgba(255,255,255,.7), transparent 34%),
+    linear-gradient(180deg, #f5f5dc 0%, #f3f0df 100%);
+}
+
+.bonus-match-light-theme {
+  --bm-page: #f5f5dc;
+  --bm-card: #faf8ee;
+  --bm-card-2: #f0ecdf;
+  --bm-line: #ddd6c2;
+  --bm-text: #34302a;
+  --bm-muted: #777066;
+  color: var(--bm-text);
+}
+
+.bonus-match-light-theme > section:first-of-type button,
+.bonus-match-light-theme [data-fullscreen-mode] button {
+  box-shadow: 0 5px 14px rgba(92,76,46,.10);
+}
+
+.bonus-match-light-theme > section:first-of-type button,
+.bonus-match-light-theme [data-fullscreen-mode] .bg-\[\#1A1A1E\],
+.bonus-match-light-theme [data-fullscreen-mode] .bg-black\/25,
+.bonus-match-light-theme [data-fullscreen-mode] .bg-black\/20 {
+  background: rgba(250,248,238,.94) !important;
+  border-color: var(--bm-line) !important;
+  color: var(--bm-text) !important;
+}
+
+.bonus-match-light-theme h1,
+.bonus-match-light-theme .text-white {
+  color: #2f2456 !important;
+}
+
+.bonus-match-light-theme .text-zinc-300,
+.bonus-match-light-theme .text-zinc-400,
+.bonus-match-light-theme .text-zinc-500,
+.bonus-match-light-theme .text-zinc-600 {
+  color: var(--bm-muted) !important;
+}
+
+.bonus-match-light-theme [data-bonus-game-surface] > div > section,
+.bonus-match-light-theme [data-bonus-game-surface] .from-\[\#201139\] {
+  background: linear-gradient(180deg, rgba(250,248,238,.98), rgba(240,236,223,.98)) !important;
+  border-color: var(--bm-line) !important;
+  box-shadow: 0 12px 30px rgba(92,76,46,.12) !important;
+}
+
+.bonus-match-light-theme [data-bonus-game-surface] .rounded-2xl,
+.bonus-match-light-theme [data-bonus-game-surface] .rounded-xl {
+  border-color: rgba(194,184,159,.75);
+}
+
+.bonus-match-light-theme [data-bonus-game-surface] .bg-\[\#0A0A0A\] {
+  background: #ded8c7 !important;
+}
+
+.bonus-match-light-theme [data-bonus-game-surface] .bg-\[\#FFB800\]\/10 {
+  background: rgba(255,184,0,.10) !important;
+}
+
+/* Keep the lavender playfield unchanged while removing faux frames from pieces and obstacles. */
+.bonus-match-light-theme .bonus-match-board {
+  background: #b4aff1 !important;
+}
+
+.bonus-match-light-theme .bonus-piece-surface-gloss {
+  display: none !important;
+}
+
+.bonus-match-light-theme [data-bonus-piece] {
+  border-color: transparent !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.bonus-match-bottom-nav {
+  box-shadow: 0 -8px 24px rgba(92,76,46,.08);
+}
+
+.bonus-match-bottom-nav a {
+  color: #777066;
+}
+
+.bonus-match-bottom-nav a[aria-current="page"] {
+  color: #6d28d9;
+}

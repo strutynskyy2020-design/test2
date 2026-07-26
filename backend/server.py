@@ -9,6 +9,7 @@ ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
 
 import os
+import json
 import uuid
 import logging
 import shutil
@@ -2472,11 +2473,12 @@ BONUS_MATCH_MAX_LEVEL = BONUS_MATCH_LEVEL_LIMIT
 BONUS_MATCH_MAX_LIVES = 5
 BONUS_MATCH_LIFE_REGEN_MINUTES = 30
 BONUS_MATCH_LIFE_PRICE = 10
-BONUS_MATCH_DAILY_POINT_CAP = 40
+BONUS_MATCH_DAILY_POINT_CAP = None  # No daily Point cap for Bonus Match
 BONUS_MATCH_SYMBOLS = ["coin", "star", "gift", "cube", "zap", "trophy"]
 BONUS_MATCH_SPECIALS = {"rocket_row", "rocket_col", "bomb", "color_bomb"}
-BONUS_MATCH_POINT_REWARD = {1: 2, 2: 4, 3: 7}
-BONUS_MATCH_XP_REWARD = {1: 5, 2: 10, 3: 15}
+BONUS_MATCH_FIRST_CLEAR_POINTS = 10
+BONUS_MATCH_FIRST_CLEAR_XP = 10
+BONUS_MATCH_REPLAY_XP = 5
 BONUS_MATCH_BOSS_LEVELS = {25: 2, 40: 2, 50: 3}
 BONUS_MATCH_OBSTACLE_ORDER = [
     "ice", "chain", "crate", "stone", "crystal",
@@ -2512,6 +2514,18 @@ BONUS_MATCH_BOOSTERS = {
     "color_bomb": {"label": "Веселковий джокер", "score": 1200, "price": 50},
     "shuffle": {"label": "Перемішати", "score": 0, "price": 30},
 }
+
+BONUS_MATCH_AUTHORED_LEVELS_PATH = ROOT_DIR / "bonus_match_levels.json"
+try:
+    BONUS_MATCH_AUTHORED_LEVELS = {
+        int(item["level"]): item
+        for item in json.loads(BONUS_MATCH_AUTHORED_LEVELS_PATH.read_text(encoding="utf-8"))
+        if 1 <= int(item.get("level", 0)) <= BONUS_MATCH_DEFAULT_LEVEL_COUNT
+    }
+except (OSError, ValueError, TypeError, KeyError) as exc:
+    logger.warning("Could not load authored Bonus Match levels: %s", exc)
+    BONUS_MATCH_AUTHORED_LEVELS = {}
+
 
 
 def _bonus_match_default_board_shape(level: int) -> str:
@@ -2772,71 +2786,68 @@ def _bonus_match_cell_swappable(cell: Optional[dict]) -> bool:
 
 
 def _bonus_match_level_config(level: int) -> dict:
-    """Return the built-in difficulty curve for a level.
+    """Return an authored, beatable level config for the first 50 levels.
 
-    MongoDB overrides are merged by ``_bonus_match_get_level_config``. Keeping
-    this function synchronous is useful for board helpers and old sessions.
+    Every built-in level has a deliberate obstacle pattern. Levels above 50
+    retain the procedural curve so the admin can extend the catalog safely.
     """
     level = max(1, min(BONUS_MATCH_LEVEL_LIMIT, int(level or 1)))
+    authored = BONUS_MATCH_AUTHORED_LEVELS.get(level)
+    if authored:
+        board_shape = _bonus_match_normalize_board_shape(authored.get("board_shape"), level)
+        target_score = max(100, int(authored.get("target_score", 1000)))
+        thresholds = [max(target_score, int(value)) for value in authored.get("star_thresholds", [])[:3]]
+        while len(thresholds) < 3:
+            thresholds.append([target_score, int(target_score * 1.28), int(target_score * 1.58)][len(thresholds)])
+        layout = _bonus_match_normalize_obstacle_layout(authored.get("obstacle_layout"))
+        obstacles = list(dict.fromkeys(
+            item["obstacle"] for item in layout if item.get("obstacle") in BONUS_MATCH_OBSTACLE_HITS
+        ))
+        return {
+            "level": level,
+            "title": str(authored.get("title") or f"Рівень {level}"),
+            "board_shape": board_shape,
+            "board_mask": _bonus_match_board_mask(board_shape),
+            "moves": max(5, min(80, int(authored.get("moves", 28)))),
+            "target_score": target_score,
+            "target_coins": max(0, min(5000, int(authored.get("target_coins", 10)))),
+            "star_thresholds": sorted(thresholds),
+            "is_milestone": bool(authored.get("is_milestone", level % 5 == 0)),
+            "is_boss": bool(authored.get("is_boss", level in BONUS_MATCH_BOSS_LEVELS)),
+            "reward_multiplier": max(1, min(10, int(authored.get("reward_multiplier", BONUS_MATCH_BOSS_LEVELS.get(level, 1))))),
+            "challenge_title": "РІВЕНЬ-ВИКЛИК!" if authored.get("is_milestone", level % 5 == 0) else None,
+            "boss_title": "БОС-РІВЕНЬ" if authored.get("is_boss", level in BONUS_MATCH_BOSS_LEVELS) else None,
+            "obstacles": obstacles,
+            "new_obstacle": authored.get("new_obstacle") if authored.get("new_obstacle") in BONUS_MATCH_OBSTACLE_HITS else None,
+            "obstacle_count": len(layout),
+            "obstacle_layout": layout,
+            "active": bool(authored.get("active", True)),
+            "custom": False,
+            "design_note": str(authored.get("design_note") or authored.get("title") or ""),
+        }
+
+    # Safe procedural fallback for optional levels 51-200.
     milestone = level % 5 == 0
     stage = min(len(BONUS_MATCH_OBSTACLE_ORDER), level // 5)
-    base_target = 900 + level * 260
-    ordinary_stage = (level - 1) // 5
-    target_score = int(base_target * (1 + ordinary_stage * 0.10))
-
-    if milestone:
-        previous_base = 900 + (level - 1) * 260
-        previous_target = previous_base * (1 + max(0, stage - 1) * 0.10)
-        challenge_multiplier = min(2.5, 1.8 + max(0, stage - 1) * 0.08)
-        target_score = max(target_score, int(previous_target * challenge_multiplier))
-
     boss_multiplier = BONUS_MATCH_BOSS_LEVELS.get(level, 1)
-    if boss_multiplier > 1:
-        target_score = int(target_score * 1.12)
-
-    moves = max(15, 24 - ((level - 1) // 7))
-    if milestone:
-        moves = max(12, moves - 2)
-    if boss_multiplier > 1:
-        moves = max(11, moves - 1)
-
-    target_coins = 6 + ((level + 1) // 2) + ordinary_stage
-    if milestone:
-        target_coins = int(target_coins * 1.3) + 2
-
+    target_score = int((900 + level * 260) * (1 + ((level - 1) // 5) * 0.10))
+    moves = max(18, 30 - ((level - 1) // 10))
+    target_coins = 8 + ((level + 1) // 3)
     unlocked_obstacles = BONUS_MATCH_OBSTACLE_ORDER[:stage]
-    obstacle_count = 0
-    if unlocked_obstacles:
-        obstacle_count = min(
-            14,
-            2 + stage + (2 if milestone else 0) + (2 if boss_multiplier > 1 else 0),
-        )
-
-    newest_obstacle = unlocked_obstacles[-1] if unlocked_obstacles else None
     return {
-        "level": level,
-        "title": f"Рівень {level}",
+        "level": level, "title": f"Рівень {level}",
         "board_shape": _bonus_match_default_board_shape(level),
         "board_mask": _bonus_match_board_mask(_bonus_match_default_board_shape(level)),
-        "moves": moves,
-        "target_score": target_score,
-        "target_coins": target_coins,
-        "star_thresholds": [
-            target_score,
-            int(target_score * 1.35),
-            int(target_score * 1.72),
-        ],
-        "is_milestone": milestone,
-        "is_boss": boss_multiplier > 1,
+        "moves": moves, "target_score": target_score, "target_coins": target_coins,
+        "star_thresholds": [target_score, int(target_score * 1.35), int(target_score * 1.72)],
+        "is_milestone": milestone, "is_boss": boss_multiplier > 1,
         "reward_multiplier": boss_multiplier,
         "challenge_title": "РІВЕНЬ-ВИКЛИК!" if milestone else None,
         "boss_title": "БОС-РІВЕНЬ" if boss_multiplier > 1 else None,
         "obstacles": unlocked_obstacles,
-        "new_obstacle": newest_obstacle if milestone else None,
-        "obstacle_count": obstacle_count,
-        "obstacle_layout": [],
-        "active": True,
-        "custom": False,
+        "new_obstacle": unlocked_obstacles[-1] if milestone and unlocked_obstacles else None,
+        "obstacle_count": min(10, 2 + stage), "obstacle_layout": [],
+        "active": True, "custom": False,
     }
 
 
@@ -4043,17 +4054,19 @@ async def _bonus_match_reward_win(
     session: dict,
     stars: int,
 ) -> dict:
+    """Award deterministic Bonus Match rewards.
+
+    First clear of a level: +10 Point and +10 XP.
+    Every replay clear: +0 Point and +5 XP.
+    There is intentionally no daily Point cap.
+    """
     level = int(session["level"])
     now = now_iso()
     existing = await db.bonus_match_completions.find_one(
         {"user_id": user["id"], "level": level},
         {"_id": 0},
     )
-    previous_stars = (
-        int(existing.get("stars", 0))
-        if existing
-        else 0
-    )
+    previous_stars = int(existing.get("stars", 0)) if existing else 0
     first_completion = existing is None
     best_stars = max(previous_stars, stars)
     star_delta = max(0, best_stars - previous_stars)
@@ -4064,9 +4077,7 @@ async def _bonus_match_reward_win(
             "$set": {
                 "stars": best_stars,
                 "best_score": max(
-                    int(existing.get("best_score", 0))
-                    if existing
-                    else 0,
+                    int(existing.get("best_score", 0)) if existing else 0,
                     int(session.get("score", 0)),
                 ),
                 "updated_at": now,
@@ -4086,156 +4097,77 @@ async def _bonus_match_reward_win(
     active_numbers = [int(item["level"]) for item in catalog]
     next_levels = [number for number in active_numbers if number > level]
     unlocked_level = min(next_levels) if next_levels else level
-    refunded_lives = min(
-        BONUS_MATCH_MAX_LIVES,
-        int(profile.get("lives", 0)) + 1,
-    )
+    refunded_lives = min(BONUS_MATCH_MAX_LIVES, int(profile.get("lives", 0)) + 1)
     profile_updates: dict = {
-        "$max": {
-            "current_level": unlocked_level
-        },
-        "$set": {
-            "lives": refunded_lives,
-            "updated_at": now,
-        },
+        "$max": {"current_level": unlocked_level},
+        "$set": {"lives": refunded_lives, "updated_at": now},
     }
     if refunded_lives >= BONUS_MATCH_MAX_LIVES:
         profile_updates["$set"]["lives_updated_at"] = now
     if star_delta:
-        profile_updates["$inc"] = {
-            "total_stars": star_delta
-        }
-    await db.bonus_match_profiles.update_one(
-        {"user_id": user["id"]},
-        profile_updates,
+        profile_updates["$inc"] = {"total_stars": star_delta}
+    await db.bonus_match_profiles.update_one({"user_id": user["id"]}, profile_updates)
+
+    points_awarded = BONUS_MATCH_FIRST_CLEAR_POINTS if first_completion else 0
+    xp_awarded = BONUS_MATCH_FIRST_CLEAR_XP if first_completion else BONUS_MATCH_REPLAY_XP
+    date_key = kyiv_today_key()
+
+    # Daily rows remain useful for analytics, but they do not limit rewards.
+    await db.bonus_match_daily.update_one(
+        {"user_id": user["id"], "date": date_key},
+        {
+            "$inc": {
+                "wins": 1,
+                "points_awarded": points_awarded,
+                "xp_awarded": xp_awarded,
+            },
+            "$set": {"updated_at": now},
+            "$setOnInsert": {"created_at": now},
+        },
+        upsert=True,
     )
 
-    points_awarded = 0
-    xp_awarded = 0
-    first_win_bonus = 0
-    reward_multiplier = int(
-        (session.get("config") or {}).get(
-            "reward_multiplier",
-            BONUS_MATCH_BOSS_LEVELS.get(level, 1),
-        ) or 1
-    )
-
-    if first_completion:
-        date_key = kyiv_today_key()
-        daily = await db.bonus_match_daily.find_one(
-            {
-                "user_id": user["id"],
-                "date": date_key,
-            },
-            {"_id": 0},
-        ) or {}
-        points_today = int(
-            daily.get("points_awarded", 0)
-        )
-        first_win_bonus = (
-            5
-            if int(daily.get("wins", 0)) == 0
-            else 0
-        )
-        raw_points = (
-            BONUS_MATCH_POINT_REWARD.get(stars, 0)
-            * reward_multiplier
-            + first_win_bonus
-        )
-        points_awarded = max(
-            0,
-            min(
-                raw_points,
-                BONUS_MATCH_DAILY_POINT_CAP - points_today,
-            ),
-        )
-        xp_awarded = (
-            BONUS_MATCH_XP_REWARD.get(stars, 0)
-            * reward_multiplier
-        )
-
-        await db.bonus_match_daily.update_one(
-            {
-                "user_id": user["id"],
-                "date": date_key,
-            },
-            {
-                "$inc": {
-                    "wins": 1,
-                    "points_awarded": points_awarded,
-                    "xp_awarded": xp_awarded,
-                },
-                "$set": {"updated_at": now},
-                "$setOnInsert": {"created_at": now},
-            },
-            upsert=True,
-        )
-        if points_awarded or xp_awarded:
-            await db.users.update_one(
-                {"id": user["id"]},
-                {"$inc": {
-                    "balance": points_awarded,
-                    "total_earned": points_awarded,
-                    "total_xp": xp_awarded,
-                }},
-            )
-            await db.transactions.insert_one({
-                "id": str(uuid.uuid4()),
-                "user_id": user["id"],
-                "kind": "bonus_match",
-                "amount": points_awarded,
-                "description": (
-                    f"Bonus Match: рівень {level}, "
-                    f"{stars} зірки, +{xp_awarded} XP"
-                ),
-                "created_at": now,
-                "meta": {
-                    "level": level,
-                    "stars": stars,
-                    "xp": xp_awarded,
-                    "first_win_bonus": first_win_bonus,
-                    "reward_multiplier": reward_multiplier,
-                },
-            })
-
-    fresh_user = await db.users.find_one(
+    await db.users.update_one(
         {"id": user["id"]},
-        {"_id": 0},
+        {"$inc": {
+            "balance": points_awarded,
+            "total_earned": points_awarded,
+            "total_xp": xp_awarded,
+        }},
     )
+    await db.transactions.insert_one({
+        "id": str(uuid.uuid4()),
+        "user_id": user["id"],
+        "kind": "bonus_match",
+        "amount": points_awarded,
+        "description": (
+            f"Bonus Match: рівень {level}, {stars} зірки, "
+            f"+{points_awarded} Point, +{xp_awarded} XP"
+        ),
+        "created_at": now,
+        "meta": {
+            "level": level,
+            "stars": stars,
+            "xp": xp_awarded,
+            "first_completion": first_completion,
+            "reward_policy": "v93_first_10_points_10_xp_replay_5_xp",
+        },
+    })
+
+    fresh_user = await db.users.find_one({"id": user["id"]}, {"_id": 0})
     fresh_profile = await _bonus_match_profile(user["id"])
     return {
         "first_completion": first_completion,
         "stars": stars,
         "points_awarded": points_awarded,
         "xp_awarded": xp_awarded,
-        "first_win_bonus": (
-            first_win_bonus
-            if points_awarded
-            else 0
-        ),
-        "reward_multiplier": reward_multiplier,
-        "new_balance": (
-            int(fresh_user.get("balance", 0))
-            if fresh_user
-            else int(user.get("balance", 0))
-        ),
-        "total_xp": (
-            int(fresh_user.get("total_xp", 0))
-            if fresh_user
-            else int(user.get("total_xp", 0))
-        ),
-        "current_level": int(
-            fresh_profile.get("current_level", level + 1)
-        ),
-        "total_stars": int(
-            fresh_profile.get("total_stars", 0)
-        ),
-        "lives": int(
-            fresh_profile.get(
-                "lives",
-                BONUS_MATCH_MAX_LIVES,
-            )
-        ),
+        "first_win_bonus": 0,
+        "reward_multiplier": 1,
+        "new_balance": int(fresh_user.get("balance", 0)) if fresh_user else int(user.get("balance", 0)),
+        "total_xp": int(fresh_user.get("total_xp", 0)) if fresh_user else int(user.get("total_xp", 0)),
+        "current_level": int(fresh_profile.get("current_level", level + 1)),
+        "total_stars": int(fresh_profile.get("total_stars", 0)),
+        "lives": int(fresh_profile.get("lives", BONUS_MATCH_MAX_LIVES)),
     }
 
 
@@ -6358,6 +6290,56 @@ SEED_TEAMS = [
 ]
 
 
+BONUS_MATCH_RESET_MIGRATION_ID = "bonus_match_v93_reset_all_to_level_1"
+
+
+async def migrate_bonus_match_v93_reset() -> None:
+    """One-time production migration that restarts every player at level 1.
+
+    Completion history is removed so each level can grant its new first-clear
+    reward exactly once. Wallet and XP balances earned elsewhere are preserved.
+    """
+    already_done = await db.system_migrations.find_one({"id": BONUS_MATCH_RESET_MIGRATION_ID})
+    if already_done:
+        return
+
+    now = now_iso()
+    completion_result = await db.bonus_match_completions.delete_many({})
+    session_result = await db.bonus_match_sessions.delete_many({})
+    daily_result = await db.bonus_match_daily.delete_many({})
+    profile_result = await db.bonus_match_profiles.update_many(
+        {},
+        {
+            "$set": {
+                "current_level": 1,
+                "total_stars": 0,
+                "lives": BONUS_MATCH_MAX_LIVES,
+                "lives_updated_at": now,
+                "next_life_at": None,
+                "updated_at": now,
+            }
+        },
+    )
+    await db.system_migrations.insert_one({
+        "id": BONUS_MATCH_RESET_MIGRATION_ID,
+        "applied_at": now,
+        "details": {
+            "profiles_reset": profile_result.modified_count,
+            "completions_deleted": completion_result.deleted_count,
+            "sessions_deleted": session_result.deleted_count,
+            "daily_rows_deleted": daily_result.deleted_count,
+        },
+    })
+    logger.warning(
+        "Applied %s: profiles=%s completions=%s sessions=%s daily=%s",
+        BONUS_MATCH_RESET_MIGRATION_ID,
+        profile_result.modified_count,
+        completion_result.deleted_count,
+        session_result.deleted_count,
+        daily_result.deleted_count,
+    )
+
+
 async def seed_all():
     # Indexes
     await db.users.create_index("email", unique=True)
@@ -7017,6 +6999,7 @@ async def seed_phase2():
 @app.on_event("startup")
 async def on_startup():
     await seed_all()
+    await migrate_bonus_match_v93_reset()
     await seed_phase2()
 
 

@@ -1,0 +1,3125 @@
+[
+  {
+    "level": 1,
+    "title": "Перші комбінації",
+    "board_shape": "full",
+    "moves": 28,
+    "target_score": 1255,
+    "target_coins": 7,
+    "star_thresholds": [
+      1255,
+      1606,
+      1982
+    ],
+    "is_milestone": false,
+    "is_boss": false,
+    "reward_multiplier": 1,
+    "obstacles": [],
+    "new_obstacle": null,
+    "obstacle_count": 0,
+    "obstacle_layout": [],
+    "active": true,
+    "design_note": "Перші комбінації"
+  },
+  {
+    "level": 2,
+    "title": "Широкі лінії",
+    "board_shape": "full",
+    "moves": 27,
+    "target_score": 1410,
+    "target_coins": 8,
+    "star_thresholds": [
+      1410,
+      1804,
+      2227
+    ],
+    "is_milestone": false,
+    "is_boss": false,
+    "reward_multiplier": 1,
+    "obstacles": [],
+    "new_obstacle": null,
+    "obstacle_count": 0,
+    "obstacle_layout": [],
+    "active": true,
+    "design_note": "Широкі лінії"
+  },
+  {
+    "level": 3,
+    "title": "Кути поля",
+    "board_shape": "rounded",
+    "moves": 27,
+    "target_score": 1565,
+    "target_coins": 9,
+    "star_thresholds": [
+      1565,
+      2003,
+      2472
+    ],
+    "is_milestone": false,
+    "is_boss": false,
+    "reward_multiplier": 1,
+    "obstacles": [],
+    "new_obstacle": null,
+    "obstacle_count": 0,
+    "obstacle_layout": [],
+    "active": true,
+    "design_note": "Кути поля"
+  },
+  {
+    "level": 4,
+    "title": "Підготовка до холоду",
+    "board_shape": "full",
+    "moves": 26,
+    "target_score": 1720,
+    "target_coins": 10,
+    "star_thresholds": [
+      1720,
+      2201,
+      2717
+    ],
+    "is_milestone": false,
+    "is_boss": false,
+    "reward_multiplier": 1,
+    "obstacles": [],
+    "new_obstacle": null,
+    "obstacle_count": 0,
+    "obstacle_layout": [],
+    "active": true,
+    "design_note": "Підготовка до холоду"
+  },
+  {
+    "level": 5,
+    "title": "Крижаний ромб",
+    "board_shape": "diamond",
+    "moves": 28,
+    "target_score": 2640,
+    "target_coins": 9,
+    "star_thresholds": [
+      2640,
+      3379,
+      4171
+    ],
+    "is_milestone": true,
+    "is_boss": false,
+    "reward_multiplier": 1,
+    "obstacles": [
+      "ice"
+    ],
+    "new_obstacle": "ice",
+    "obstacle_count": 6,
+    "obstacle_layout": [
+      {
+        "row": 1,
+        "col": 3,
+        "obstacle": "ice",
+        "hits": 2
+      },
+      {
+        "row": 2,
+        "col": 2,
+        "obstacle": "ice",
+        "hits": 2
+      },
+      {
+        "row": 2,
+        "col": 4,
+        "obstacle": "ice",
+        "hits": 2
+      },
+      {
+        "row": 3,
+        "col": 1,
+        "obstacle": "ice",
+        "hits": 2
+      },
+      {
+        "row": 3,
+        "col": 5,
+        "obstacle": "ice",
+        "hits": 2
+      },
+      {
+        "row": 4,
+        "col": 2,
+        "obstacle": "ice",
+        "hits": 2
+      }
+    ],
+    "active": true,
+    "design_note": "Крижаний ромб"
+  },
+  {
+    "level": 6,
+    "title": "Ланцюгова доріжка",
+    "board_shape": "full",
+    "moves": 28,
+    "target_score": 2410,
+    "target_coins": 10,
+    "star_thresholds": [
+      2410,
+      3084,
+      3807
+    ],
+    "is_milestone": false,
+    "is_boss": false,
+    "reward_multiplier": 1,
+    "obstacles": [
+      "chain"
+    ],
+    "new_obstacle": null,
+    "obstacle_count": 4,
+    "obstacle_layout": [
+      {
+        "row": 1,
+        "col": 1,
+        "obstacle": "chain",
+        "hits": 2
+      },
+      {
+        "row": 2,
+        "col": 2,
+        "obstacle": "chain",
+        "hits": 2
+      },
+      {
+        "row": 3,
+        "col": 3,
+        "obstacle": "chain",
+        "hits": 2
+      },
+      {
+        "row": 4,
+        "col": 4,
+        "obstacle": "chain",
+        "hits": 2
+      }
+    ],
+    "active": true,
+    "design_note": "Ланцюгова доріжка"
+  },
+  {
+    "level": 7,
+    "title": "Дві діагоналі",
+    "board_shape": "rounded",
+    "moves": 28,
+    "target_score": 2850,
+    "target_coins": 11,
+    "star_thresholds": [
+      2850,
+      3648,
+      4503
+    ],
+    "is_milestone": false,
+    "is_boss": false,
+    "reward_multiplier": 1,
+    "obstacles": [
+      "chain"
+    ],
+    "new_obstacle": null,
+    "obstacle_count": 7,
+    "obstacle_layout": [
+      {
+        "row": 1,
+        "col": 1,
+        "obstacle": "chain",
+        "hits": 2
+      },
+      {
+        "row": 2,
+        "col": 2,
+        "obstacle": "chain",
+        "hits": 2
+      },
+      {
+        "row": 3,
+        "col": 3,
+        "obstacle": "chain",
+        "hits": 2
+      },
+      {
+        "row": 4,
+        "col": 4,
+        "obstacle": "chain",
+        "hits": 2
+      },
+      {
+        "row": 1,
+        "col": 5,
+        "obstacle": "chain",
+        "hits": 2
+      },
+      {
+        "row": 2,
+        "col": 4,
+        "obstacle": "chain",
+        "hits": 2
+      },
+      {
+        "row": 4,
+        "col": 2,
+        "obstacle": "chain",
+        "hits": 2
+      }
+    ],
+    "active": true,
+    "design_note": "Дві діагоналі"
+  },
+  {
+    "level": 8,
+    "title": "Сходи свободи",
+    "board_shape": "staircase",
+    "moves": 29,
+    "target_score": 2910,
+    "target_coins": 11,
+    "star_thresholds": [
+      2910,
+      3724,
+      4597
+    ],
+    "is_milestone": false,
+    "is_boss": false,
+    "reward_multiplier": 1,
+    "obstacles": [
+      "chain"
+    ],
+    "new_obstacle": null,
+    "obstacle_count": 6,
+    "obstacle_layout": [
+      {
+        "row": 1,
+        "col": 2,
+        "obstacle": "chain",
+        "hits": 2
+      },
+      {
+        "row": 2,
+        "col": 2,
+        "obstacle": "chain",
+        "hits": 2
+      },
+      {
+        "row": 4,
+        "col": 2,
+        "obstacle": "chain",
+        "hits": 2
+      },
+      {
+        "row": 5,
+        "col": 2,
+        "obstacle": "chain",
+        "hits": 2
+      },
+      {
+        "row": 1,
+        "col": 4,
+        "obstacle": "chain",
+        "hits": 2
+      },
+      {
+        "row": 2,
+        "col": 4,
+        "obstacle": "chain",
+        "hits": 2
+      }
+    ],
+    "active": true,
+    "design_note": "Сходи свободи"
+  },
+  {
+    "level": 9,
+    "title": "Крига під замком",
+    "board_shape": "full",
+    "moves": 30,
+    "target_score": 3255,
+    "target_coins": 12,
+    "star_thresholds": [
+      3255,
+      4166,
+      5142
+    ],
+    "is_milestone": false,
+    "is_boss": false,
+    "reward_multiplier": 1,
+    "obstacles": [
+      "ice",
+      "chain"
+    ],
+    "new_obstacle": null,
+    "obstacle_count": 8,
+    "obstacle_layout": [
+      {
+        "row": 1,
+        "col": 1,
+        "obstacle": "ice",
+        "hits": 2
+      },
+      {
+        "row": 1,
+        "col": 5,
+        "obstacle": "ice",
+        "hits": 2
+      },
+      {
+        "row": 5,
+        "col": 1,
+        "obstacle": "ice",
+        "hits": 2
+      },
+      {
+        "row": 5,
+        "col": 5,
+        "obstacle": "ice",
+        "hits": 2
+      },
+      {
+        "row": 2,
+        "col": 3,
+        "obstacle": "chain",
+        "hits": 2
+      },
+      {
+        "row": 3,
+        "col": 2,
+        "obstacle": "chain",
+        "hits": 2
+      },
+      {
+        "row": 3,
+        "col": 4,
+        "obstacle": "chain",
+        "hits": 2
+      },
+      {
+        "row": 4,
+        "col": 3,
+        "obstacle": "chain",
+        "hits": 2
+      }
+    ],
+    "active": true,
+    "design_note": "Крига під замком"
+  },
+  {
+    "level": 10,
+    "title": "Ланцюговий хрест",
+    "board_shape": "cross",
+    "moves": 31,
+    "target_score": 3682,
+    "target_coins": 12,
+    "star_thresholds": [
+      3682,
+      4712,
+      5817
+    ],
+    "is_milestone": true,
+    "is_boss": false,
+    "reward_multiplier": 1,
+    "obstacles": [
+      "chain"
+    ],
+    "new_obstacle": "chain",
+    "obstacle_count": 8,
+    "obstacle_layout": [
+      {
+        "row": 1,
+        "col": 3,
+        "obstacle": "chain",
+        "hits": 2
+      },
+      {
+        "row": 2,
+        "col": 3,
+        "obstacle": "chain",
+        "hits": 2
+      },
+      {
+        "row": 3,
+        "col": 1,
+        "obstacle": "chain",
+        "hits": 2
+      },
+      {
+        "row": 3,
+        "col": 2,
+        "obstacle": "chain",
+        "hits": 2
+      },
+      {
+        "row": 3,
+        "col": 4,
+        "obstacle": "chain",
+        "hits": 2
+      },
+      {
+        "row": 3,
+        "col": 5,
+        "obstacle": "chain",
+        "hits": 2
+      },
+      {
+        "row": 4,
+        "col": 3,
+        "obstacle": "chain",
+        "hits": 2
+      },
+      {
+        "row": 5,
+        "col": 3,
+        "obstacle": "chain",
+        "hits": 2
+      }
+    ],
+    "active": true,
+    "design_note": "Ланцюговий хрест"
+  },
+  {
+    "level": 11,
+    "title": "Ящики по кутах",
+    "board_shape": "full",
+    "moves": 29,
+    "target_score": 3185,
+    "target_coins": 12,
+    "star_thresholds": [
+      3185,
+      4076,
+      5032
+    ],
+    "is_milestone": false,
+    "is_boss": false,
+    "reward_multiplier": 1,
+    "obstacles": [
+      "crate"
+    ],
+    "new_obstacle": null,
+    "obstacle_count": 4,
+    "obstacle_layout": [
+      {
+        "row": 1,
+        "col": 1,
+        "obstacle": "crate",
+        "hits": 2
+      },
+      {
+        "row": 1,
+        "col": 5,
+        "obstacle": "crate",
+        "hits": 2
+      },
+      {
+        "row": 5,
+        "col": 1,
+        "obstacle": "crate",
+        "hits": 2
+      },
+      {
+        "row": 5,
+        "col": 5,
+        "obstacle": "crate",
+        "hits": 2
+      }
+    ],
+    "active": true,
+    "design_note": "Ящики по кутах"
+  },
+  {
+    "level": 12,
+    "title": "Відкрий ворота",
+    "board_shape": "rounded",
+    "moves": 30,
+    "target_score": 3530,
+    "target_coins": 13,
+    "star_thresholds": [
+      3530,
+      4518,
+      5577
+    ],
+    "is_milestone": false,
+    "is_boss": false,
+    "reward_multiplier": 1,
+    "obstacles": [
+      "crate"
+    ],
+    "new_obstacle": null,
+    "obstacle_count": 6,
+    "obstacle_layout": [
+      {
+        "row": 1,
+        "col": 2,
+        "obstacle": "crate",
+        "hits": 2
+      },
+      {
+        "row": 2,
+        "col": 2,
+        "obstacle": "crate",
+        "hits": 2
+      },
+      {
+        "row": 4,
+        "col": 2,
+        "obstacle": "crate",
+        "hits": 2
+      },
+      {
+        "row": 5,
+        "col": 2,
+        "obstacle": "crate",
+        "hits": 2
+      },
+      {
+        "row": 1,
+        "col": 4,
+        "obstacle": "crate",
+        "hits": 2
+      },
+      {
+        "row": 2,
+        "col": 4,
+        "obstacle": "crate",
+        "hits": 2
+      }
+    ],
+    "active": true,
+    "design_note": "Відкрий ворота"
+  },
+  {
+    "level": 13,
+    "title": "Склад у центрі",
+    "board_shape": "diamond",
+    "moves": 30,
+    "target_score": 3780,
+    "target_coins": 13,
+    "star_thresholds": [
+      3780,
+      4838,
+      5972
+    ],
+    "is_milestone": false,
+    "is_boss": false,
+    "reward_multiplier": 1,
+    "obstacles": [
+      "crate",
+      "chain"
+    ],
+    "new_obstacle": null,
+    "obstacle_count": 7,
+    "obstacle_layout": [
+      {
+        "row": 2,
+        "col": 3,
+        "obstacle": "crate",
+        "hits": 2
+      },
+      {
+        "row": 3,
+        "col": 2,
+        "obstacle": "crate",
+        "hits": 2
+      },
+      {
+        "row": 3,
+        "col": 4,
+        "obstacle": "crate",
+        "hits": 2
+      },
+      {
+        "row": 4,
+        "col": 3,
+        "obstacle": "crate",
+        "hits": 2
+      },
+      {
+        "row": 0,
+        "col": 3,
+        "obstacle": "chain",
+        "hits": 2
+      },
+      {
+        "row": 3,
+        "col": 0,
+        "obstacle": "chain",
+        "hits": 2
+      },
+      {
+        "row": 3,
+        "col": 6,
+        "obstacle": "chain",
+        "hits": 2
+      }
+    ],
+    "active": true,
+    "design_note": "Склад у центрі"
+  },
+  {
+    "level": 14,
+    "title": "Подвійний склад",
+    "board_shape": "full",
+    "moves": 31,
+    "target_score": 4030,
+    "target_coins": 14,
+    "star_thresholds": [
+      4030,
+      5158,
+      6367
+    ],
+    "is_milestone": false,
+    "is_boss": false,
+    "reward_multiplier": 1,
+    "obstacles": [
+      "crate"
+    ],
+    "new_obstacle": null,
+    "obstacle_count": 8,
+    "obstacle_layout": [
+      {
+        "row": 1,
+        "col": 1,
+        "obstacle": "crate",
+        "hits": 2
+      },
+      {
+        "row": 1,
+        "col": 2,
+        "obstacle": "crate",
+        "hits": 2
+      },
+      {
+        "row": 1,
+        "col": 4,
+        "obstacle": "crate",
+        "hits": 2
+      },
+      {
+        "row": 1,
+        "col": 5,
+        "obstacle": "crate",
+        "hits": 2
+      },
+      {
+        "row": 5,
+        "col": 1,
+        "obstacle": "crate",
+        "hits": 2
+      },
+      {
+        "row": 5,
+        "col": 2,
+        "obstacle": "crate",
+        "hits": 2
+      },
+      {
+        "row": 5,
+        "col": 4,
+        "obstacle": "crate",
+        "hits": 2
+      },
+      {
+        "row": 5,
+        "col": 5,
+        "obstacle": "crate",
+        "hits": 2
+      }
+    ],
+    "active": true,
+    "design_note": "Подвійний склад"
+  },
+  {
+    "level": 15,
+    "title": "Ящиковий лабіринт",
+    "board_shape": "staircase",
+    "moves": 32,
+    "target_score": 4622,
+    "target_coins": 14,
+    "star_thresholds": [
+      4622,
+      5916,
+      7302
+    ],
+    "is_milestone": true,
+    "is_boss": false,
+    "reward_multiplier": 1,
+    "obstacles": [
+      "crate"
+    ],
+    "new_obstacle": "crate",
+    "obstacle_count": 9,
+    "obstacle_layout": [
+      {
+        "row": 1,
+        "col": 1,
+        "obstacle": "crate",
+        "hits": 2
+      },
+      {
+        "row": 1,
+        "col": 2,
+        "obstacle": "crate",
+        "hits": 2
+      },
+      {
+        "row": 1,
+        "col": 3,
+        "obstacle": "crate",
+        "hits": 2
+      },
+      {
+        "row": 1,
+        "col": 4,
+        "obstacle": "crate",
+        "hits": 2
+      },
+      {
+        "row": 2,
+        "col": 4,
+        "obstacle": "crate",
+        "hits": 2
+      },
+      {
+        "row": 3,
+        "col": 4,
+        "obstacle": "crate",
+        "hits": 2
+      },
+      {
+        "row": 4,
+        "col": 4,
+        "obstacle": "crate",
+        "hits": 2
+      },
+      {
+        "row": 4,
+        "col": 3,
+        "obstacle": "crate",
+        "hits": 2
+      },
+      {
+        "row": 4,
+        "col": 2,
+        "obstacle": "crate",
+        "hits": 2
+      }
+    ],
+    "active": true,
+    "design_note": "Ящиковий лабіринт"
+  },
+  {
+    "level": 16,
+    "title": "Кам’яні колони",
+    "board_shape": "full",
+    "moves": 30,
+    "target_score": 4150,
+    "target_coins": 14,
+    "star_thresholds": [
+      4150,
+      5312,
+      6557
+    ],
+    "is_milestone": false,
+    "is_boss": false,
+    "reward_multiplier": 1,
+    "obstacles": [
+      "stone"
+    ],
+    "new_obstacle": null,
+    "obstacle_count": 6,
+    "obstacle_layout": [
+      {
+        "row": 1,
+        "col": 1,
+        "obstacle": "stone",
+        "hits": 3
+      },
+      {
+        "row": 2,
+        "col": 1,
+        "obstacle": "stone",
+        "hits": 3
+      },
+      {
+        "row": 4,
+        "col": 1,
+        "obstacle": "stone",
+        "hits": 3
+      },
+      {
+        "row": 5,
+        "col": 1,
+        "obstacle": "stone",
+        "hits": 3
+      },
+      {
+        "row": 1,
+        "col": 5,
+        "obstacle": "stone",
+        "hits": 3
+      },
+      {
+        "row": 2,
+        "col": 5,
+        "obstacle": "stone",
+        "hits": 3
+      }
+    ],
+    "active": true,
+    "design_note": "Кам’яні колони"
+  },
+  {
+    "level": 17,
+    "title": "Розколоти кільце",
+    "board_shape": "rounded",
+    "moves": 31,
+    "target_score": 4305,
+    "target_coins": 15,
+    "star_thresholds": [
+      4305,
+      5510,
+      6801
+    ],
+    "is_milestone": false,
+    "is_boss": false,
+    "reward_multiplier": 1,
+    "obstacles": [
+      "stone"
+    ],
+    "new_obstacle": null,
+    "obstacle_count": 6,
+    "obstacle_layout": [
+      {
+        "row": 1,
+        "col": 2,
+        "obstacle": "stone",
+        "hits": 3
+      },
+      {
+        "row": 1,
+        "col": 3,
+        "obstacle": "stone",
+        "hits": 3
+      },
+      {
+        "row": 1,
+        "col": 4,
+        "obstacle": "stone",
+        "hits": 3
+      },
+      {
+        "row": 2,
+        "col": 1,
+        "obstacle": "stone",
+        "hits": 3
+      },
+      {
+        "row": 2,
+        "col": 5,
+        "obstacle": "stone",
+        "hits": 3
+      },
+      {
+        "row": 4,
+        "col": 1,
+        "obstacle": "stone",
+        "hits": 3
+      }
+    ],
+    "active": true,
+    "design_note": "Розколоти кільце"
+  },
+  {
+    "level": 18,
+    "title": "Кам’яний діамант",
+    "board_shape": "diamond",
+    "moves": 31,
+    "target_score": 4460,
+    "target_coins": 15,
+    "star_thresholds": [
+      4460,
+      5708,
+      7046
+    ],
+    "is_milestone": false,
+    "is_boss": false,
+    "reward_multiplier": 1,
+    "obstacles": [
+      "stone"
+    ],
+    "new_obstacle": null,
+    "obstacle_count": 6,
+    "obstacle_layout": [
+      {
+        "row": 1,
+        "col": 3,
+        "obstacle": "stone",
+        "hits": 3
+      },
+      {
+        "row": 2,
+        "col": 2,
+        "obstacle": "stone",
+        "hits": 3
+      },
+      {
+        "row": 2,
+        "col": 4,
+        "obstacle": "stone",
+        "hits": 3
+      },
+      {
+        "row": 3,
+        "col": 1,
+        "obstacle": "stone",
+        "hits": 3
+      },
+      {
+        "row": 3,
+        "col": 5,
+        "obstacle": "stone",
+        "hits": 3
+      },
+      {
+        "row": 4,
+        "col": 2,
+        "obstacle": "stone",
+        "hits": 3
+      }
+    ],
+    "active": true,
+    "design_note": "Кам’яний діамант"
+  },
+  {
+    "level": 19,
+    "title": "Ящики біля мурів",
+    "board_shape": "full",
+    "moves": 32,
+    "target_score": 4805,
+    "target_coins": 16,
+    "star_thresholds": [
+      4805,
+      6150,
+      7591
+    ],
+    "is_milestone": false,
+    "is_boss": false,
+    "reward_multiplier": 1,
+    "obstacles": [
+      "stone",
+      "crate"
+    ],
+    "new_obstacle": null,
+    "obstacle_count": 8,
+    "obstacle_layout": [
+      {
+        "row": 1,
+        "col": 1,
+        "obstacle": "stone",
+        "hits": 3
+      },
+      {
+        "row": 1,
+        "col": 5,
+        "obstacle": "stone",
+        "hits": 3
+      },
+      {
+        "row": 5,
+        "col": 1,
+        "obstacle": "stone",
+        "hits": 3
+      },
+      {
+        "row": 5,
+        "col": 5,
+        "obstacle": "stone",
+        "hits": 3
+      },
+      {
+        "row": 2,
+        "col": 3,
+        "obstacle": "crate",
+        "hits": 2
+      },
+      {
+        "row": 3,
+        "col": 2,
+        "obstacle": "crate",
+        "hits": 2
+      },
+      {
+        "row": 3,
+        "col": 4,
+        "obstacle": "crate",
+        "hits": 2
+      },
+      {
+        "row": 4,
+        "col": 3,
+        "obstacle": "crate",
+        "hits": 2
+      }
+    ],
+    "active": true,
+    "design_note": "Ящики біля мурів"
+  },
+  {
+    "level": 20,
+    "title": "Фортеця",
+    "board_shape": "cross",
+    "moves": 34,
+    "target_score": 5356,
+    "target_coins": 16,
+    "star_thresholds": [
+      5356,
+      6855,
+      8462
+    ],
+    "is_milestone": true,
+    "is_boss": false,
+    "reward_multiplier": 1,
+    "obstacles": [
+      "stone"
+    ],
+    "new_obstacle": "stone",
+    "obstacle_count": 8,
+    "obstacle_layout": [
+      {
+        "row": 1,
+        "col": 2,
+        "obstacle": "stone",
+        "hits": 3
+      },
+      {
+        "row": 1,
+        "col": 4,
+        "obstacle": "stone",
+        "hits": 3
+      },
+      {
+        "row": 2,
+        "col": 1,
+        "obstacle": "stone",
+        "hits": 3
+      },
+      {
+        "row": 2,
+        "col": 5,
+        "obstacle": "stone",
+        "hits": 3
+      },
+      {
+        "row": 4,
+        "col": 1,
+        "obstacle": "stone",
+        "hits": 3
+      },
+      {
+        "row": 4,
+        "col": 5,
+        "obstacle": "stone",
+        "hits": 3
+      },
+      {
+        "row": 5,
+        "col": 2,
+        "obstacle": "stone",
+        "hits": 3
+      },
+      {
+        "row": 5,
+        "col": 4,
+        "obstacle": "stone",
+        "hits": 3
+      }
+    ],
+    "active": true,
+    "design_note": "Фортеця"
+  },
+  {
+    "level": 21,
+    "title": "Кристальний хрест",
+    "board_shape": "full",
+    "moves": 30,
+    "target_score": 4735,
+    "target_coins": 15,
+    "star_thresholds": [
+      4735,
+      6060,
+      7481
+    ],
+    "is_milestone": false,
+    "is_boss": false,
+    "reward_multiplier": 1,
+    "obstacles": [
+      "crystal"
+    ],
+    "new_obstacle": null,
+    "obstacle_count": 4,
+    "obstacle_layout": [
+      {
+        "row": 2,
+        "col": 3,
+        "obstacle": "crystal",
+        "hits": 2
+      },
+      {
+        "row": 3,
+        "col": 2,
+        "obstacle": "crystal",
+        "hits": 2
+      },
+      {
+        "row": 3,
+        "col": 4,
+        "obstacle": "crystal",
+        "hits": 2
+      },
+      {
+        "row": 4,
+        "col": 3,
+        "obstacle": "crystal",
+        "hits": 2
+      }
+    ],
+    "active": true,
+    "design_note": "Кристальний хрест"
+  },
+  {
+    "level": 22,
+    "title": "Кристальні кути",
+    "board_shape": "rounded",
+    "moves": 30,
+    "target_score": 5270,
+    "target_coins": 16,
+    "star_thresholds": [
+      5270,
+      6745,
+      8326
+    ],
+    "is_milestone": false,
+    "is_boss": false,
+    "reward_multiplier": 1,
+    "obstacles": [
+      "crystal",
+      "ice"
+    ],
+    "new_obstacle": null,
+    "obstacle_count": 8,
+    "obstacle_layout": [
+      {
+        "row": 1,
+        "col": 1,
+        "obstacle": "crystal",
+        "hits": 2
+      },
+      {
+        "row": 1,
+        "col": 5,
+        "obstacle": "crystal",
+        "hits": 2
+      },
+      {
+        "row": 5,
+        "col": 1,
+        "obstacle": "crystal",
+        "hits": 2
+      },
+      {
+        "row": 5,
+        "col": 5,
+        "obstacle": "crystal",
+        "hits": 2
+      },
+      {
+        "row": 0,
+        "col": 3,
+        "obstacle": "ice",
+        "hits": 2
+      },
+      {
+        "row": 3,
+        "col": 0,
+        "obstacle": "ice",
+        "hits": 2
+      },
+      {
+        "row": 3,
+        "col": 6,
+        "obstacle": "ice",
+        "hits": 2
+      },
+      {
+        "row": 6,
+        "col": 3,
+        "obstacle": "ice",
+        "hits": 2
+      }
+    ],
+    "active": true,
+    "design_note": "Кристальні кути"
+  },
+  {
+    "level": 23,
+    "title": "Ланцюгова реакція",
+    "board_shape": "diamond",
+    "moves": 31,
+    "target_score": 5235,
+    "target_coins": 16,
+    "star_thresholds": [
+      5235,
+      6700,
+      8271
+    ],
+    "is_milestone": false,
+    "is_boss": false,
+    "reward_multiplier": 1,
+    "obstacles": [
+      "crystal"
+    ],
+    "new_obstacle": null,
+    "obstacle_count": 6,
+    "obstacle_layout": [
+      {
+        "row": 1,
+        "col": 3,
+        "obstacle": "crystal",
+        "hits": 2
+      },
+      {
+        "row": 2,
+        "col": 2,
+        "obstacle": "crystal",
+        "hits": 2
+      },
+      {
+        "row": 2,
+        "col": 4,
+        "obstacle": "crystal",
+        "hits": 2
+      },
+      {
+        "row": 3,
+        "col": 1,
+        "obstacle": "crystal",
+        "hits": 2
+      },
+      {
+        "row": 3,
+        "col": 5,
+        "obstacle": "crystal",
+        "hits": 2
+      },
+      {
+        "row": 4,
+        "col": 2,
+        "obstacle": "crystal",
+        "hits": 2
+      }
+    ],
+    "active": true,
+    "design_note": "Ланцюгова реакція"
+  },
+  {
+    "level": 24,
+    "title": "Сяючі ворота",
+    "board_shape": "full",
+    "moves": 32,
+    "target_score": 5770,
+    "target_coins": 17,
+    "star_thresholds": [
+      5770,
+      7385,
+      9116
+    ],
+    "is_milestone": false,
+    "is_boss": false,
+    "reward_multiplier": 1,
+    "obstacles": [
+      "crystal",
+      "stone"
+    ],
+    "new_obstacle": null,
+    "obstacle_count": 10,
+    "obstacle_layout": [
+      {
+        "row": 1,
+        "col": 2,
+        "obstacle": "crystal",
+        "hits": 2
+      },
+      {
+        "row": 2,
+        "col": 2,
+        "obstacle": "crystal",
+        "hits": 2
+      },
+      {
+        "row": 4,
+        "col": 2,
+        "obstacle": "crystal",
+        "hits": 2
+      },
+      {
+        "row": 5,
+        "col": 2,
+        "obstacle": "crystal",
+        "hits": 2
+      },
+      {
+        "row": 1,
+        "col": 4,
+        "obstacle": "crystal",
+        "hits": 2
+      },
+      {
+        "row": 2,
+        "col": 4,
+        "obstacle": "crystal",
+        "hits": 2
+      },
+      {
+        "row": 1,
+        "col": 1,
+        "obstacle": "stone",
+        "hits": 3
+      },
+      {
+        "row": 1,
+        "col": 5,
+        "obstacle": "stone",
+        "hits": 3
+      },
+      {
+        "row": 5,
+        "col": 1,
+        "obstacle": "stone",
+        "hits": 3
+      },
+      {
+        "row": 5,
+        "col": 5,
+        "obstacle": "stone",
+        "hits": 3
+      }
+    ],
+    "active": true,
+    "design_note": "Сяючі ворота"
+  },
+  {
+    "level": 25,
+    "title": "Кристальна корона",
+    "board_shape": "cross",
+    "moves": 34,
+    "target_score": 6467,
+    "target_coins": 17,
+    "star_thresholds": [
+      6467,
+      8277,
+      10217
+    ],
+    "is_milestone": true,
+    "is_boss": true,
+    "reward_multiplier": 2,
+    "obstacles": [
+      "crystal"
+    ],
+    "new_obstacle": "crystal",
+    "obstacle_count": 6,
+    "obstacle_layout": [
+      {
+        "row": 2,
+        "col": 2,
+        "obstacle": "crystal",
+        "hits": 2
+      },
+      {
+        "row": 1,
+        "col": 3,
+        "obstacle": "crystal",
+        "hits": 2
+      },
+      {
+        "row": 2,
+        "col": 4,
+        "obstacle": "crystal",
+        "hits": 2
+      },
+      {
+        "row": 3,
+        "col": 2,
+        "obstacle": "crystal",
+        "hits": 2
+      },
+      {
+        "row": 3,
+        "col": 3,
+        "obstacle": "crystal",
+        "hits": 2
+      },
+      {
+        "row": 3,
+        "col": 4,
+        "obstacle": "crystal",
+        "hits": 2
+      }
+    ],
+    "active": true,
+    "design_note": "Кристальна корона"
+  },
+  {
+    "level": 26,
+    "title": "Перша павутина",
+    "board_shape": "full",
+    "moves": 29,
+    "target_score": 5510,
+    "target_coins": 16,
+    "star_thresholds": [
+      5510,
+      7052,
+      8705
+    ],
+    "is_milestone": false,
+    "is_boss": false,
+    "reward_multiplier": 1,
+    "obstacles": [
+      "web"
+    ],
+    "new_obstacle": null,
+    "obstacle_count": 4,
+    "obstacle_layout": [
+      {
+        "row": 1,
+        "col": 1,
+        "obstacle": "web",
+        "hits": 1
+      },
+      {
+        "row": 1,
+        "col": 5,
+        "obstacle": "web",
+        "hits": 1
+      },
+      {
+        "row": 5,
+        "col": 1,
+        "obstacle": "web",
+        "hits": 1
+      },
+      {
+        "row": 5,
+        "col": 5,
+        "obstacle": "web",
+        "hits": 1
+      }
+    ],
+    "active": true,
+    "design_note": "Перша павутина"
+  },
+  {
+    "level": 27,
+    "title": "Павутинні лінії",
+    "board_shape": "rounded",
+    "moves": 30,
+    "target_score": 6140,
+    "target_coins": 17,
+    "star_thresholds": [
+      6140,
+      7859,
+      9701
+    ],
+    "is_milestone": false,
+    "is_boss": false,
+    "reward_multiplier": 1,
+    "obstacles": [
+      "web"
+    ],
+    "new_obstacle": null,
+    "obstacle_count": 9,
+    "obstacle_layout": [
+      {
+        "row": 1,
+        "col": 1,
+        "obstacle": "web",
+        "hits": 1
+      },
+      {
+        "row": 2,
+        "col": 2,
+        "obstacle": "web",
+        "hits": 1
+      },
+      {
+        "row": 3,
+        "col": 3,
+        "obstacle": "web",
+        "hits": 1
+      },
+      {
+        "row": 4,
+        "col": 4,
+        "obstacle": "web",
+        "hits": 1
+      },
+      {
+        "row": 5,
+        "col": 5,
+        "obstacle": "web",
+        "hits": 1
+      },
+      {
+        "row": 1,
+        "col": 5,
+        "obstacle": "web",
+        "hits": 1
+      },
+      {
+        "row": 2,
+        "col": 4,
+        "obstacle": "web",
+        "hits": 1
+      },
+      {
+        "row": 4,
+        "col": 2,
+        "obstacle": "web",
+        "hits": 1
+      },
+      {
+        "row": 5,
+        "col": 1,
+        "obstacle": "web",
+        "hits": 1
+      }
+    ],
+    "active": true,
+    "design_note": "Павутинні лінії"
+  },
+  {
+    "level": 28,
+    "title": "Пастка на сходах",
+    "board_shape": "staircase",
+    "moves": 31,
+    "target_score": 6200,
+    "target_coins": 17,
+    "star_thresholds": [
+      6200,
+      7936,
+      9796
+    ],
+    "is_milestone": false,
+    "is_boss": false,
+    "reward_multiplier": 1,
+    "obstacles": [
+      "web"
+    ],
+    "new_obstacle": null,
+    "obstacle_count": 8,
+    "obstacle_layout": [
+      {
+        "row": 1,
+        "col": 2,
+        "obstacle": "web",
+        "hits": 1
+      },
+      {
+        "row": 2,
+        "col": 2,
+        "obstacle": "web",
+        "hits": 1
+      },
+      {
+        "row": 4,
+        "col": 2,
+        "obstacle": "web",
+        "hits": 1
+      },
+      {
+        "row": 5,
+        "col": 2,
+        "obstacle": "web",
+        "hits": 1
+      },
+      {
+        "row": 1,
+        "col": 4,
+        "obstacle": "web",
+        "hits": 1
+      },
+      {
+        "row": 2,
+        "col": 4,
+        "obstacle": "web",
+        "hits": 1
+      },
+      {
+        "row": 4,
+        "col": 4,
+        "obstacle": "web",
+        "hits": 1
+      },
+      {
+        "row": 5,
+        "col": 4,
+        "obstacle": "web",
+        "hits": 1
+      }
+    ],
+    "active": true,
+    "design_note": "Пастка на сходах"
+  },
+  {
+    "level": 29,
+    "title": "Павутина й кристали",
+    "board_shape": "full",
+    "moves": 32,
+    "target_score": 6545,
+    "target_coins": 18,
+    "star_thresholds": [
+      6545,
+      8377,
+      10341
+    ],
+    "is_milestone": false,
+    "is_boss": false,
+    "reward_multiplier": 1,
+    "obstacles": [
+      "web",
+      "crystal"
+    ],
+    "new_obstacle": null,
+    "obstacle_count": 10,
+    "obstacle_layout": [
+      {
+        "row": 1,
+        "col": 2,
+        "obstacle": "web",
+        "hits": 1
+      },
+      {
+        "row": 1,
+        "col": 3,
+        "obstacle": "web",
+        "hits": 1
+      },
+      {
+        "row": 1,
+        "col": 4,
+        "obstacle": "web",
+        "hits": 1
+      },
+      {
+        "row": 2,
+        "col": 1,
+        "obstacle": "web",
+        "hits": 1
+      },
+      {
+        "row": 2,
+        "col": 5,
+        "obstacle": "web",
+        "hits": 1
+      },
+      {
+        "row": 4,
+        "col": 1,
+        "obstacle": "web",
+        "hits": 1
+      },
+      {
+        "row": 2,
+        "col": 3,
+        "obstacle": "crystal",
+        "hits": 2
+      },
+      {
+        "row": 3,
+        "col": 2,
+        "obstacle": "crystal",
+        "hits": 2
+      },
+      {
+        "row": 3,
+        "col": 4,
+        "obstacle": "crystal",
+        "hits": 2
+      },
+      {
+        "row": 4,
+        "col": 3,
+        "obstacle": "crystal",
+        "hits": 2
+      }
+    ],
+    "active": true,
+    "design_note": "Павутина й кристали"
+  },
+  {
+    "level": 30,
+    "title": "Серце павутини",
+    "board_shape": "cross",
+    "moves": 34,
+    "target_score": 7030,
+    "target_coins": 18,
+    "star_thresholds": [
+      7030,
+      8998,
+      11107
+    ],
+    "is_milestone": true,
+    "is_boss": false,
+    "reward_multiplier": 1,
+    "obstacles": [
+      "web"
+    ],
+    "new_obstacle": "web",
+    "obstacle_count": 8,
+    "obstacle_layout": [
+      {
+        "row": 1,
+        "col": 3,
+        "obstacle": "web",
+        "hits": 1
+      },
+      {
+        "row": 2,
+        "col": 3,
+        "obstacle": "web",
+        "hits": 1
+      },
+      {
+        "row": 3,
+        "col": 1,
+        "obstacle": "web",
+        "hits": 1
+      },
+      {
+        "row": 3,
+        "col": 2,
+        "obstacle": "web",
+        "hits": 1
+      },
+      {
+        "row": 3,
+        "col": 4,
+        "obstacle": "web",
+        "hits": 1
+      },
+      {
+        "row": 3,
+        "col": 5,
+        "obstacle": "web",
+        "hits": 1
+      },
+      {
+        "row": 4,
+        "col": 3,
+        "obstacle": "web",
+        "hits": 1
+      },
+      {
+        "row": 5,
+        "col": 3,
+        "obstacle": "web",
+        "hits": 1
+      }
+    ],
+    "active": true,
+    "design_note": "Серце павутини"
+  },
+  {
+    "level": 31,
+    "title": "Щити вартових",
+    "board_shape": "full",
+    "moves": 31,
+    "target_score": 6285,
+    "target_coins": 17,
+    "star_thresholds": [
+      6285,
+      8044,
+      9930
+    ],
+    "is_milestone": false,
+    "is_boss": false,
+    "reward_multiplier": 1,
+    "obstacles": [
+      "shield"
+    ],
+    "new_obstacle": null,
+    "obstacle_count": 4,
+    "obstacle_layout": [
+      {
+        "row": 1,
+        "col": 1,
+        "obstacle": "shield",
+        "hits": 3
+      },
+      {
+        "row": 1,
+        "col": 5,
+        "obstacle": "shield",
+        "hits": 3
+      },
+      {
+        "row": 5,
+        "col": 1,
+        "obstacle": "shield",
+        "hits": 3
+      },
+      {
+        "row": 5,
+        "col": 5,
+        "obstacle": "shield",
+        "hits": 3
+      }
+    ],
+    "active": true,
+    "design_note": "Щити вартових"
+  },
+  {
+    "level": 32,
+    "title": "Щитові ворота",
+    "board_shape": "rounded",
+    "moves": 32,
+    "target_score": 6630,
+    "target_coins": 18,
+    "star_thresholds": [
+      6630,
+      8486,
+      10475
+    ],
+    "is_milestone": false,
+    "is_boss": false,
+    "reward_multiplier": 1,
+    "obstacles": [
+      "shield"
+    ],
+    "new_obstacle": null,
+    "obstacle_count": 6,
+    "obstacle_layout": [
+      {
+        "row": 1,
+        "col": 2,
+        "obstacle": "shield",
+        "hits": 3
+      },
+      {
+        "row": 2,
+        "col": 2,
+        "obstacle": "shield",
+        "hits": 3
+      },
+      {
+        "row": 4,
+        "col": 2,
+        "obstacle": "shield",
+        "hits": 3
+      },
+      {
+        "row": 5,
+        "col": 2,
+        "obstacle": "shield",
+        "hits": 3
+      },
+      {
+        "row": 1,
+        "col": 4,
+        "obstacle": "shield",
+        "hits": 3
+      },
+      {
+        "row": 2,
+        "col": 4,
+        "obstacle": "shield",
+        "hits": 3
+      }
+    ],
+    "active": true,
+    "design_note": "Щитові ворота"
+  },
+  {
+    "level": 33,
+    "title": "Пробий ромб",
+    "board_shape": "diamond",
+    "moves": 33,
+    "target_score": 6785,
+    "target_coins": 18,
+    "star_thresholds": [
+      6785,
+      8684,
+      10720
+    ],
+    "is_milestone": false,
+    "is_boss": false,
+    "reward_multiplier": 1,
+    "obstacles": [
+      "shield"
+    ],
+    "new_obstacle": null,
+    "obstacle_count": 6,
+    "obstacle_layout": [
+      {
+        "row": 1,
+        "col": 3,
+        "obstacle": "shield",
+        "hits": 3
+      },
+      {
+        "row": 2,
+        "col": 2,
+        "obstacle": "shield",
+        "hits": 3
+      },
+      {
+        "row": 2,
+        "col": 4,
+        "obstacle": "shield",
+        "hits": 3
+      },
+      {
+        "row": 3,
+        "col": 1,
+        "obstacle": "shield",
+        "hits": 3
+      },
+      {
+        "row": 3,
+        "col": 5,
+        "obstacle": "shield",
+        "hits": 3
+      },
+      {
+        "row": 4,
+        "col": 2,
+        "obstacle": "shield",
+        "hits": 3
+      }
+    ],
+    "active": true,
+    "design_note": "Пробий ромб"
+  },
+  {
+    "level": 34,
+    "title": "Щит і ланцюг",
+    "board_shape": "full",
+    "moves": 34,
+    "target_score": 7320,
+    "target_coins": 19,
+    "star_thresholds": [
+      7320,
+      9369,
+      11565
+    ],
+    "is_milestone": false,
+    "is_boss": false,
+    "reward_multiplier": 1,
+    "obstacles": [
+      "shield",
+      "chain"
+    ],
+    "new_obstacle": null,
+    "obstacle_count": 10,
+    "obstacle_layout": [
+      {
+        "row": 1,
+        "col": 1,
+        "obstacle": "shield",
+        "hits": 3
+      },
+      {
+        "row": 2,
+        "col": 1,
+        "obstacle": "shield",
+        "hits": 3
+      },
+      {
+        "row": 4,
+        "col": 1,
+        "obstacle": "shield",
+        "hits": 3
+      },
+      {
+        "row": 5,
+        "col": 1,
+        "obstacle": "shield",
+        "hits": 3
+      },
+      {
+        "row": 1,
+        "col": 5,
+        "obstacle": "shield",
+        "hits": 3
+      },
+      {
+        "row": 2,
+        "col": 5,
+        "obstacle": "shield",
+        "hits": 3
+      },
+      {
+        "row": 2,
+        "col": 3,
+        "obstacle": "chain",
+        "hits": 2
+      },
+      {
+        "row": 3,
+        "col": 2,
+        "obstacle": "chain",
+        "hits": 2
+      },
+      {
+        "row": 3,
+        "col": 4,
+        "obstacle": "chain",
+        "hits": 2
+      },
+      {
+        "row": 4,
+        "col": 3,
+        "obstacle": "chain",
+        "hits": 2
+      }
+    ],
+    "active": true,
+    "design_note": "Щит і ланцюг"
+  },
+  {
+    "level": 35,
+    "title": "Королівська варта",
+    "board_shape": "cross",
+    "moves": 36,
+    "target_score": 7662,
+    "target_coins": 19,
+    "star_thresholds": [
+      7662,
+      9807,
+      12105
+    ],
+    "is_milestone": true,
+    "is_boss": false,
+    "reward_multiplier": 1,
+    "obstacles": [
+      "shield"
+    ],
+    "new_obstacle": "shield",
+    "obstacle_count": 6,
+    "obstacle_layout": [
+      {
+        "row": 2,
+        "col": 2,
+        "obstacle": "shield",
+        "hits": 3
+      },
+      {
+        "row": 1,
+        "col": 3,
+        "obstacle": "shield",
+        "hits": 3
+      },
+      {
+        "row": 2,
+        "col": 4,
+        "obstacle": "shield",
+        "hits": 3
+      },
+      {
+        "row": 3,
+        "col": 2,
+        "obstacle": "shield",
+        "hits": 3
+      },
+      {
+        "row": 3,
+        "col": 3,
+        "obstacle": "shield",
+        "hits": 3
+      },
+      {
+        "row": 3,
+        "col": 4,
+        "obstacle": "shield",
+        "hits": 3
+      }
+    ],
+    "active": true,
+    "design_note": "Королівська варта"
+  },
+  {
+    "level": 36,
+    "title": "Осередки слизу",
+    "board_shape": "full",
+    "moves": 31,
+    "target_score": 7060,
+    "target_coins": 18,
+    "star_thresholds": [
+      7060,
+      9036,
+      11154
+    ],
+    "is_milestone": false,
+    "is_boss": false,
+    "reward_multiplier": 1,
+    "obstacles": [
+      "slime"
+    ],
+    "new_obstacle": null,
+    "obstacle_count": 4,
+    "obstacle_layout": [
+      {
+        "row": 1,
+        "col": 1,
+        "obstacle": "slime",
+        "hits": 2
+      },
+      {
+        "row": 1,
+        "col": 5,
+        "obstacle": "slime",
+        "hits": 2
+      },
+      {
+        "row": 5,
+        "col": 1,
+        "obstacle": "slime",
+        "hits": 2
+      },
+      {
+        "row": 5,
+        "col": 5,
+        "obstacle": "slime",
+        "hits": 2
+      }
+    ],
+    "active": true,
+    "design_note": "Осередки слизу"
+  },
+  {
+    "level": 37,
+    "title": "Зупини поширення",
+    "board_shape": "rounded",
+    "moves": 32,
+    "target_score": 7595,
+    "target_coins": 19,
+    "star_thresholds": [
+      7595,
+      9721,
+      12000
+    ],
+    "is_milestone": false,
+    "is_boss": false,
+    "reward_multiplier": 1,
+    "obstacles": [
+      "slime",
+      "web"
+    ],
+    "new_obstacle": null,
+    "obstacle_count": 8,
+    "obstacle_layout": [
+      {
+        "row": 0,
+        "col": 3,
+        "obstacle": "slime",
+        "hits": 2
+      },
+      {
+        "row": 3,
+        "col": 0,
+        "obstacle": "slime",
+        "hits": 2
+      },
+      {
+        "row": 3,
+        "col": 6,
+        "obstacle": "slime",
+        "hits": 2
+      },
+      {
+        "row": 6,
+        "col": 3,
+        "obstacle": "slime",
+        "hits": 2
+      },
+      {
+        "row": 2,
+        "col": 3,
+        "obstacle": "web",
+        "hits": 1
+      },
+      {
+        "row": 3,
+        "col": 2,
+        "obstacle": "web",
+        "hits": 1
+      },
+      {
+        "row": 3,
+        "col": 4,
+        "obstacle": "web",
+        "hits": 1
+      },
+      {
+        "row": 4,
+        "col": 3,
+        "obstacle": "web",
+        "hits": 1
+      }
+    ],
+    "active": true,
+    "design_note": "Зупини поширення"
+  },
+  {
+    "level": 38,
+    "title": "Слизькі сходи",
+    "board_shape": "staircase",
+    "moves": 33,
+    "target_score": 7465,
+    "target_coins": 19,
+    "star_thresholds": [
+      7465,
+      9555,
+      11794
+    ],
+    "is_milestone": false,
+    "is_boss": false,
+    "reward_multiplier": 1,
+    "obstacles": [
+      "slime"
+    ],
+    "new_obstacle": null,
+    "obstacle_count": 5,
+    "obstacle_layout": [
+      {
+        "row": 1,
+        "col": 1,
+        "obstacle": "slime",
+        "hits": 2
+      },
+      {
+        "row": 2,
+        "col": 2,
+        "obstacle": "slime",
+        "hits": 2
+      },
+      {
+        "row": 3,
+        "col": 3,
+        "obstacle": "slime",
+        "hits": 2
+      },
+      {
+        "row": 4,
+        "col": 4,
+        "obstacle": "slime",
+        "hits": 2
+      },
+      {
+        "row": 5,
+        "col": 5,
+        "obstacle": "slime",
+        "hits": 2
+      }
+    ],
+    "active": true,
+    "design_note": "Слизькі сходи"
+  },
+  {
+    "level": 39,
+    "title": "Подвійний фронт",
+    "board_shape": "full",
+    "moves": 34,
+    "target_score": 7905,
+    "target_coins": 20,
+    "star_thresholds": [
+      7905,
+      10118,
+      12489
+    ],
+    "is_milestone": false,
+    "is_boss": false,
+    "reward_multiplier": 1,
+    "obstacles": [
+      "slime"
+    ],
+    "new_obstacle": null,
+    "obstacle_count": 8,
+    "obstacle_layout": [
+      {
+        "row": 1,
+        "col": 1,
+        "obstacle": "slime",
+        "hits": 2
+      },
+      {
+        "row": 1,
+        "col": 2,
+        "obstacle": "slime",
+        "hits": 2
+      },
+      {
+        "row": 1,
+        "col": 4,
+        "obstacle": "slime",
+        "hits": 2
+      },
+      {
+        "row": 1,
+        "col": 5,
+        "obstacle": "slime",
+        "hits": 2
+      },
+      {
+        "row": 5,
+        "col": 1,
+        "obstacle": "slime",
+        "hits": 2
+      },
+      {
+        "row": 5,
+        "col": 2,
+        "obstacle": "slime",
+        "hits": 2
+      },
+      {
+        "row": 5,
+        "col": 4,
+        "obstacle": "slime",
+        "hits": 2
+      },
+      {
+        "row": 5,
+        "col": 5,
+        "obstacle": "slime",
+        "hits": 2
+      }
+    ],
+    "active": true,
+    "design_note": "Подвійний фронт"
+  },
+  {
+    "level": 40,
+    "title": "Карантин",
+    "board_shape": "cross",
+    "moves": 37,
+    "target_score": 9400,
+    "target_coins": 20,
+    "star_thresholds": [
+      9400,
+      12032,
+      14852
+    ],
+    "is_milestone": true,
+    "is_boss": true,
+    "reward_multiplier": 2,
+    "obstacles": [
+      "slime"
+    ],
+    "new_obstacle": "slime",
+    "obstacle_count": 8,
+    "obstacle_layout": [
+      {
+        "row": 1,
+        "col": 2,
+        "obstacle": "slime",
+        "hits": 2
+      },
+      {
+        "row": 1,
+        "col": 3,
+        "obstacle": "slime",
+        "hits": 2
+      },
+      {
+        "row": 1,
+        "col": 4,
+        "obstacle": "slime",
+        "hits": 2
+      },
+      {
+        "row": 2,
+        "col": 1,
+        "obstacle": "slime",
+        "hits": 2
+      },
+      {
+        "row": 2,
+        "col": 5,
+        "obstacle": "slime",
+        "hits": 2
+      },
+      {
+        "row": 4,
+        "col": 1,
+        "obstacle": "slime",
+        "hits": 2
+      },
+      {
+        "row": 4,
+        "col": 5,
+        "obstacle": "slime",
+        "hits": 2
+      },
+      {
+        "row": 5,
+        "col": 3,
+        "obstacle": "slime",
+        "hits": 2
+      }
+    ],
+    "active": true,
+    "design_note": "Карантин"
+  },
+  {
+    "level": 41,
+    "title": "Металеві кути",
+    "board_shape": "full",
+    "moves": 33,
+    "target_score": 7835,
+    "target_coins": 19,
+    "star_thresholds": [
+      7835,
+      10028,
+      12379
+    ],
+    "is_milestone": false,
+    "is_boss": false,
+    "reward_multiplier": 1,
+    "obstacles": [
+      "metal"
+    ],
+    "new_obstacle": null,
+    "obstacle_count": 4,
+    "obstacle_layout": [
+      {
+        "row": 1,
+        "col": 1,
+        "obstacle": "metal",
+        "hits": 3
+      },
+      {
+        "row": 1,
+        "col": 5,
+        "obstacle": "metal",
+        "hits": 3
+      },
+      {
+        "row": 5,
+        "col": 1,
+        "obstacle": "metal",
+        "hits": 3
+      },
+      {
+        "row": 5,
+        "col": 5,
+        "obstacle": "metal",
+        "hits": 3
+      }
+    ],
+    "active": true,
+    "design_note": "Металеві кути"
+  },
+  {
+    "level": 42,
+    "title": "Металеві колони",
+    "board_shape": "rounded",
+    "moves": 34,
+    "target_score": 8180,
+    "target_coins": 20,
+    "star_thresholds": [
+      8180,
+      10470,
+      12924
+    ],
+    "is_milestone": false,
+    "is_boss": false,
+    "reward_multiplier": 1,
+    "obstacles": [
+      "metal"
+    ],
+    "new_obstacle": null,
+    "obstacle_count": 6,
+    "obstacle_layout": [
+      {
+        "row": 1,
+        "col": 1,
+        "obstacle": "metal",
+        "hits": 3
+      },
+      {
+        "row": 2,
+        "col": 1,
+        "obstacle": "metal",
+        "hits": 3
+      },
+      {
+        "row": 4,
+        "col": 1,
+        "obstacle": "metal",
+        "hits": 3
+      },
+      {
+        "row": 5,
+        "col": 1,
+        "obstacle": "metal",
+        "hits": 3
+      },
+      {
+        "row": 1,
+        "col": 5,
+        "obstacle": "metal",
+        "hits": 3
+      },
+      {
+        "row": 2,
+        "col": 5,
+        "obstacle": "metal",
+        "hits": 3
+      }
+    ],
+    "active": true,
+    "design_note": "Металеві колони"
+  },
+  {
+    "level": 43,
+    "title": "Сталевий ромб",
+    "board_shape": "diamond",
+    "moves": 35,
+    "target_score": 8335,
+    "target_coins": 20,
+    "star_thresholds": [
+      8335,
+      10668,
+      13169
+    ],
+    "is_milestone": false,
+    "is_boss": false,
+    "reward_multiplier": 1,
+    "obstacles": [
+      "metal"
+    ],
+    "new_obstacle": null,
+    "obstacle_count": 6,
+    "obstacle_layout": [
+      {
+        "row": 1,
+        "col": 3,
+        "obstacle": "metal",
+        "hits": 3
+      },
+      {
+        "row": 2,
+        "col": 2,
+        "obstacle": "metal",
+        "hits": 3
+      },
+      {
+        "row": 2,
+        "col": 4,
+        "obstacle": "metal",
+        "hits": 3
+      },
+      {
+        "row": 3,
+        "col": 1,
+        "obstacle": "metal",
+        "hits": 3
+      },
+      {
+        "row": 3,
+        "col": 5,
+        "obstacle": "metal",
+        "hits": 3
+      },
+      {
+        "row": 4,
+        "col": 2,
+        "obstacle": "metal",
+        "hits": 3
+      }
+    ],
+    "active": true,
+    "design_note": "Сталевий ромб"
+  },
+  {
+    "level": 44,
+    "title": "Спецудар",
+    "board_shape": "full",
+    "moves": 36,
+    "target_score": 8870,
+    "target_coins": 21,
+    "star_thresholds": [
+      8870,
+      11353,
+      14014
+    ],
+    "is_milestone": false,
+    "is_boss": false,
+    "reward_multiplier": 1,
+    "obstacles": [
+      "metal",
+      "crystal"
+    ],
+    "new_obstacle": null,
+    "obstacle_count": 10,
+    "obstacle_layout": [
+      {
+        "row": 1,
+        "col": 2,
+        "obstacle": "metal",
+        "hits": 3
+      },
+      {
+        "row": 2,
+        "col": 2,
+        "obstacle": "metal",
+        "hits": 3
+      },
+      {
+        "row": 4,
+        "col": 2,
+        "obstacle": "metal",
+        "hits": 3
+      },
+      {
+        "row": 5,
+        "col": 2,
+        "obstacle": "metal",
+        "hits": 3
+      },
+      {
+        "row": 1,
+        "col": 4,
+        "obstacle": "metal",
+        "hits": 3
+      },
+      {
+        "row": 2,
+        "col": 4,
+        "obstacle": "metal",
+        "hits": 3
+      },
+      {
+        "row": 2,
+        "col": 3,
+        "obstacle": "crystal",
+        "hits": 2
+      },
+      {
+        "row": 3,
+        "col": 2,
+        "obstacle": "crystal",
+        "hits": 2
+      },
+      {
+        "row": 3,
+        "col": 4,
+        "obstacle": "crystal",
+        "hits": 2
+      },
+      {
+        "row": 4,
+        "col": 3,
+        "obstacle": "crystal",
+        "hits": 2
+      }
+    ],
+    "active": true,
+    "design_note": "Спецудар"
+  },
+  {
+    "level": 45,
+    "title": "Броньована фортеця",
+    "board_shape": "cross",
+    "moves": 39,
+    "target_score": 9541,
+    "target_coins": 21,
+    "star_thresholds": [
+      9541,
+      12212,
+      15074
+    ],
+    "is_milestone": true,
+    "is_boss": false,
+    "reward_multiplier": 1,
+    "obstacles": [
+      "metal"
+    ],
+    "new_obstacle": "metal",
+    "obstacle_count": 8,
+    "obstacle_layout": [
+      {
+        "row": 1,
+        "col": 2,
+        "obstacle": "metal",
+        "hits": 3
+      },
+      {
+        "row": 1,
+        "col": 4,
+        "obstacle": "metal",
+        "hits": 3
+      },
+      {
+        "row": 2,
+        "col": 1,
+        "obstacle": "metal",
+        "hits": 3
+      },
+      {
+        "row": 2,
+        "col": 5,
+        "obstacle": "metal",
+        "hits": 3
+      },
+      {
+        "row": 4,
+        "col": 1,
+        "obstacle": "metal",
+        "hits": 3
+      },
+      {
+        "row": 4,
+        "col": 5,
+        "obstacle": "metal",
+        "hits": 3
+      },
+      {
+        "row": 5,
+        "col": 2,
+        "obstacle": "metal",
+        "hits": 3
+      },
+      {
+        "row": 5,
+        "col": 4,
+        "obstacle": "metal",
+        "hits": 3
+      }
+    ],
+    "active": true,
+    "design_note": "Броньована фортеця"
+  },
+  {
+    "level": 46,
+    "title": "Пробудження ядра",
+    "board_shape": "full",
+    "moves": 35,
+    "target_score": 8705,
+    "target_coins": 20,
+    "star_thresholds": [
+      8705,
+      11142,
+      13753
+    ],
+    "is_milestone": false,
+    "is_boss": false,
+    "reward_multiplier": 1,
+    "obstacles": [
+      "core",
+      "shield"
+    ],
+    "new_obstacle": null,
+    "obstacle_count": 5,
+    "obstacle_layout": [
+      {
+        "row": 3,
+        "col": 3,
+        "obstacle": "core",
+        "hits": 4
+      },
+      {
+        "row": 1,
+        "col": 1,
+        "obstacle": "shield",
+        "hits": 3
+      },
+      {
+        "row": 1,
+        "col": 5,
+        "obstacle": "shield",
+        "hits": 3
+      },
+      {
+        "row": 5,
+        "col": 1,
+        "obstacle": "shield",
+        "hits": 3
+      },
+      {
+        "row": 5,
+        "col": 5,
+        "obstacle": "shield",
+        "hits": 3
+      }
+    ],
+    "active": true,
+    "design_note": "Пробудження ядра"
+  },
+  {
+    "level": 47,
+    "title": "Два реактори",
+    "board_shape": "rounded",
+    "moves": 36,
+    "target_score": 8955,
+    "target_coins": 21,
+    "star_thresholds": [
+      8955,
+      11462,
+      14148
+    ],
+    "is_milestone": false,
+    "is_boss": false,
+    "reward_multiplier": 1,
+    "obstacles": [
+      "core",
+      "metal"
+    ],
+    "new_obstacle": null,
+    "obstacle_count": 6,
+    "obstacle_layout": [
+      {
+        "row": 1,
+        "col": 1,
+        "obstacle": "core",
+        "hits": 4
+      },
+      {
+        "row": 2,
+        "col": 2,
+        "obstacle": "core",
+        "hits": 4
+      },
+      {
+        "row": 0,
+        "col": 3,
+        "obstacle": "metal",
+        "hits": 3
+      },
+      {
+        "row": 3,
+        "col": 0,
+        "obstacle": "metal",
+        "hits": 3
+      },
+      {
+        "row": 3,
+        "col": 6,
+        "obstacle": "metal",
+        "hits": 3
+      },
+      {
+        "row": 6,
+        "col": 3,
+        "obstacle": "metal",
+        "hits": 3
+      }
+    ],
+    "active": true,
+    "design_note": "Два реактори"
+  },
+  {
+    "level": 48,
+    "title": "Ядро в кристалах",
+    "board_shape": "diamond",
+    "moves": 37,
+    "target_score": 9205,
+    "target_coins": 21,
+    "star_thresholds": [
+      9205,
+      11782,
+      14543
+    ],
+    "is_milestone": false,
+    "is_boss": false,
+    "reward_multiplier": 1,
+    "obstacles": [
+      "core",
+      "crystal"
+    ],
+    "new_obstacle": null,
+    "obstacle_count": 7,
+    "obstacle_layout": [
+      {
+        "row": 3,
+        "col": 3,
+        "obstacle": "core",
+        "hits": 4
+      },
+      {
+        "row": 1,
+        "col": 3,
+        "obstacle": "crystal",
+        "hits": 2
+      },
+      {
+        "row": 2,
+        "col": 2,
+        "obstacle": "crystal",
+        "hits": 2
+      },
+      {
+        "row": 2,
+        "col": 4,
+        "obstacle": "crystal",
+        "hits": 2
+      },
+      {
+        "row": 3,
+        "col": 1,
+        "obstacle": "crystal",
+        "hits": 2
+      },
+      {
+        "row": 3,
+        "col": 5,
+        "obstacle": "crystal",
+        "hits": 2
+      },
+      {
+        "row": 4,
+        "col": 2,
+        "obstacle": "crystal",
+        "hits": 2
+      }
+    ],
+    "active": true,
+    "design_note": "Ядро в кристалах"
+  },
+  {
+    "level": 49,
+    "title": "Нестабільна решітка",
+    "board_shape": "full",
+    "moves": 39,
+    "target_score": 9455,
+    "target_coins": 22,
+    "star_thresholds": [
+      9455,
+      12102,
+      14938
+    ],
+    "is_milestone": false,
+    "is_boss": false,
+    "reward_multiplier": 1,
+    "obstacles": [
+      "core",
+      "web"
+    ],
+    "new_obstacle": null,
+    "obstacle_count": 8,
+    "obstacle_layout": [
+      {
+        "row": 2,
+        "col": 3,
+        "obstacle": "core",
+        "hits": 4
+      },
+      {
+        "row": 3,
+        "col": 2,
+        "obstacle": "core",
+        "hits": 4
+      },
+      {
+        "row": 3,
+        "col": 4,
+        "obstacle": "core",
+        "hits": 4
+      },
+      {
+        "row": 4,
+        "col": 3,
+        "obstacle": "core",
+        "hits": 4
+      },
+      {
+        "row": 1,
+        "col": 1,
+        "obstacle": "web",
+        "hits": 1
+      },
+      {
+        "row": 1,
+        "col": 5,
+        "obstacle": "web",
+        "hits": 1
+      },
+      {
+        "row": 5,
+        "col": 1,
+        "obstacle": "web",
+        "hits": 1
+      },
+      {
+        "row": 5,
+        "col": 5,
+        "obstacle": "web",
+        "hits": 1
+      }
+    ],
+    "active": true,
+    "design_note": "Нестабільна решітка"
+  },
+  {
+    "level": 50,
+    "title": "Фінальне ядро",
+    "board_shape": "cross",
+    "moves": 42,
+    "target_score": 11098,
+    "target_coins": 22,
+    "star_thresholds": [
+      11098,
+      14205,
+      17534
+    ],
+    "is_milestone": true,
+    "is_boss": true,
+    "reward_multiplier": 3,
+    "obstacles": [
+      "core"
+    ],
+    "new_obstacle": "core",
+    "obstacle_count": 7,
+    "obstacle_layout": [
+      {
+        "row": 3,
+        "col": 3,
+        "obstacle": "core",
+        "hits": 4
+      },
+      {
+        "row": 2,
+        "col": 2,
+        "obstacle": "core",
+        "hits": 4
+      },
+      {
+        "row": 2,
+        "col": 4,
+        "obstacle": "core",
+        "hits": 4
+      },
+      {
+        "row": 4,
+        "col": 2,
+        "obstacle": "core",
+        "hits": 4
+      },
+      {
+        "row": 4,
+        "col": 4,
+        "obstacle": "core",
+        "hits": 4
+      },
+      {
+        "row": 1,
+        "col": 3,
+        "obstacle": "core",
+        "hits": 4
+      },
+      {
+        "row": 5,
+        "col": 3,
+        "obstacle": "core",
+        "hits": 4
+      }
+    ],
+    "active": true,
+    "design_note": "Фінальне ядро"
+  }
+]

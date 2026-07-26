@@ -102,19 +102,20 @@ export default function AppLayout() {
   if (!user) return null;
   const isAdmin = ["admin", "editor"].includes(user.role);
   const isAdminRoute = loc.pathname.startsWith("/admin");
+  const isBonusMatchRoute = loc.pathname === "/games/bonus-match";
 
   return (
     <div className="min-h-screen w-full flex justify-center">
       <div
-        className={`relative w-full min-h-screen flex flex-col bg-[#0A0A0A] border-x border-white/5 ${isAdminRoute ? "app-shell app-shell-admin" : "app-shell"}`}
+        className={`relative w-full min-h-screen flex flex-col border-x ${isBonusMatchRoute ? "bonus-match-app-shell bg-[#F5F5DC] border-[#E1DCC8]" : "bg-[#0A0A0A] border-white/5"} ${isAdminRoute ? "app-shell app-shell-admin" : "app-shell"}`}
         style={{ maxWidth: isAdminRoute ? "1500px" : "480px" }}
       >
         <header
-          className="sticky top-0 z-30 bg-[#0A0A0A]/95 backdrop-blur-sm border-b border-white/5 px-5 pb-4 flex items-center justify-between"
+          className={`sticky top-0 z-30 backdrop-blur-sm px-5 pb-4 flex items-center justify-between ${isBonusMatchRoute ? "bg-[#F5F5DC]/95 border-b border-[#E1DCC8]" : "bg-[#0A0A0A]/95 border-b border-white/5"}`}
           style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 14px)", minHeight: "calc(74px + env(safe-area-inset-top, 0px))" }}
         >
           <div className="min-w-0">
-            <div className="font-display text-[22px] text-white leading-none tracking-tight whitespace-nowrap">
+            <div className={`font-display text-[22px] leading-none tracking-tight whitespace-nowrap ${isBonusMatchRoute ? "text-[#171717]" : "text-white"}`}>
               TM6 <span className="text-[#FFB800]">BONUS</span>
             </div>
           </div>
@@ -123,7 +124,7 @@ export default function AppLayout() {
             <button
               data-testid="nav-teams"
               onClick={() => nav("/teams")}
-              className="w-12 h-12 touch-manipulation rounded-2xl bg-[#1A1A1E] border border-white/10 flex items-center justify-center text-[#00F0FF] active:scale-95 transition-transform"
+              className={`w-12 h-12 touch-manipulation rounded-2xl flex items-center justify-center active:scale-95 transition-transform ${isBonusMatchRoute ? "bg-[#FAF8EE] border border-[#DDD6C2] text-[#6D28D9] shadow-[0_5px_14px_rgba(92,76,46,.12)]" : "bg-[#1A1A1E] border border-white/10 text-[#00F0FF]"}`}
               aria-label="Команди"
             >
               <UsersRound size={18} strokeWidth={2.5} />
@@ -141,7 +142,7 @@ export default function AppLayout() {
             <button
               data-testid="logout-btn"
               onClick={() => { logout(); nav("/login"); }}
-              className="w-12 h-12 touch-manipulation rounded-2xl bg-[#1A1A1E] border border-white/10 flex items-center justify-center text-zinc-400 active:scale-95 transition-transform"
+              className={`w-12 h-12 touch-manipulation rounded-2xl flex items-center justify-center active:scale-95 transition-transform ${isBonusMatchRoute ? "bg-[#FAF8EE] border border-[#DDD6C2] text-[#111827] shadow-[0_5px_14px_rgba(92,76,46,.12)]" : "bg-[#1A1A1E] border border-white/10 text-zinc-400"}`}
               aria-label="Вийти"
             >
               <LogOut size={18} strokeWidth={2.5} />
@@ -157,7 +158,7 @@ export default function AppLayout() {
 
         <nav
           data-testid="bottom-nav"
-          className={`fixed bottom-0 left-1/2 -translate-x-1/2 w-full bg-[#0A0A0A] border-t border-white/10 items-stretch z-40 px-1 max-w-[480px] flex ${isAdminRoute ? "admin-bottom-nav" : ""}`}
+          className={`fixed bottom-0 left-1/2 -translate-x-1/2 w-full items-stretch z-40 px-1 max-w-[480px] flex ${isBonusMatchRoute ? "bonus-match-bottom-nav bg-[#F7F3E5] border-t border-[#DED7C3]" : "bg-[#0A0A0A] border-t border-white/10"} ${isAdminRoute ? "admin-bottom-nav" : ""}`}
           style={{ height: "5rem", paddingBottom: "env(safe-area-inset-bottom)" }}
         >
           <NavItem to="/" icon={Home} label="Головна" testId="nav-home" />
