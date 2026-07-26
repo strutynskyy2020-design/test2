@@ -782,3 +782,26 @@ html.light .status-xp,
 html.light [data-tone="xp"] { color: #8B5CF6 !important; }
 html.light .status-point,
 html.light [data-tone="point"] { color: #F5A623 !important; }
+
+
+/* V97 interaction and fullscreen polish */
+html.light { --operator-divider: #E6E3EF; }
+html.dark { --operator-divider: rgba(255,255,255,.09); }
+.credit-operator-row:first-child { border-top: 0; }
+.bonus-match-fullscreen { overscroll-behavior: none; touch-action: none; }
+.bonus-match-fullscreen > div { height: 100%; overflow: hidden; }
+@media (max-height: 900px) {
+  .bonus-match-fullscreen > div > section {
+    transform: scale(.86);
+    transform-origin: top center;
+    width: 116.28%;
+    margin-left: -8.14%;
+  }
+}
+@media (max-height: 760px) {
+  .bonus-match-fullscreen > div > section {
+    transform: scale(.76);
+    width: 131.58%;
+    margin-left: -15.79%;
+  }
+}

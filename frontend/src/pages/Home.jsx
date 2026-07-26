@@ -7,6 +7,7 @@ import { resolveAvatarUrl } from "@/lib/avatar";
 import AvatarFrame from "@/components/AvatarFrame";
 import { getAchievements } from "@/lib/achievements";
 import FeedItem from "@/components/FeedItem";
+import ThemeToggle from "@/components/ThemeToggle";
 
 const ICONS = { flame: Flame, trophy: Trophy, "graduation-cap": GraduationCap, sparkles: Sparkles, crown: Crown, award: Award, medal: Medal, star: Star };
 
@@ -191,8 +192,9 @@ export default function Home() {
     {mode === "mock" && <div className="rounded-2xl border border-[#FF5C00]/40 bg-[#FF5C00]/10 px-3 py-2 text-[11px] font-black text-[#FF5C00]">ОФЛАЙН РЕЖИМ • використовуються демо-дані</div>}
 
     {/* 1. Avatar / profile */}
-    <section className="rounded-3xl border border-white/10 bg-[#1A1A1E] p-5">
-      <div className="flex items-center gap-4">
+    <section className="relative rounded-3xl border border-white/10 bg-[#1A1A1E] p-5">
+      <ThemeToggle className="absolute right-4 top-4 z-10" compact />
+      <div className="flex items-center gap-4 pr-14">
         <div className="relative shrink-0">
           <button type="button" onClick={() => nav("/store")} className="relative block active:scale-95" aria-label="Відкрити магазин аватарок">
             <AvatarFrame

@@ -199,9 +199,9 @@ function OperatorRow({ operator, rank, isCurrent }) {
   const overallTheme = getStatus(operator.overall);
   return (
     <article
-      className="border-t px-3 py-3"
+      className="credit-operator-row border-t px-3 py-4"
       style={{
-        borderColor: "rgba(255,255,255,.075)",
+        borderColor: "var(--operator-divider, rgba(255,255,255,.075))",
         background: isCurrent ? "linear-gradient(90deg, rgba(124,58,237,.22), rgba(26,26,30,.94))" : "transparent",
       }}
     >

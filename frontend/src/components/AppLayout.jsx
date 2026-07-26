@@ -5,7 +5,6 @@ import { useApp } from "@/context/AppContext";
 import api from "@/lib/api";
 import InstallPrompt from "@/components/InstallPrompt";
 import NotificationBell from "@/components/NotificationBell";
-import ThemeToggle from "@/components/ThemeToggle";
 
 const PAGE_LABELS = {
   "/": "Головна",
@@ -122,7 +121,6 @@ export default function AppLayout() {
           </div>
           <div className="flex items-center gap-1 min-[390px]:gap-1.5 shrink-0">
             <NotificationBell />
-            <ThemeToggle />
             <button
               data-testid="nav-teams"
               onClick={() => nav("/teams")}

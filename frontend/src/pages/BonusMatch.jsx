@@ -1966,7 +1966,7 @@ function BonusMatchScreen() {
   useEffect(() => {
     if (!isAdmin) return undefined;
     const uninstall = bonusMatchDiagnostics.installGlobalHandlers();
-    bonusMatchDiagnostics.log("bonus_match_mount", { version: "v90" });
+    bonusMatchDiagnostics.log("bonus_match_mount", { version: "v97" });
     return () => {
       bonusMatchDiagnostics.log("bonus_match_unmount");
       bonusMatchDiagnostics.stopWatch();
@@ -2113,6 +2113,13 @@ function BonusMatchScreen() {
     }, HINT_DELAY_MS);
     return () => window.clearTimeout(timer);
   }, [game, moving, selected, activeBooster, celebrating, displayBoard, activityToken]);
+
+  // A hint is ephemeral. Clear it after one pulse so old highlighted pieces can never accumulate.
+  useEffect(() => {
+    if (!hintMove) return undefined;
+    const clearTimer = window.setTimeout(() => setHintMove(null), 1350);
+    return () => window.clearTimeout(clearTimer);
+  }, [hintMove]);
 
   const applySessionState = async (rawSession, animation = null) => {
     bonusMatchDiagnostics.log("apply_session_state", { sessionId: rawSession?.id, status: rawSession?.status, reshuffled: Boolean(animation?.reshuffled) });
@@ -3108,10 +3115,10 @@ function BonusMatchScreen() {
       ) : (
         <div
           ref={gameFullscreenRef}
-          data-bonus-game-surface="v90"
+          data-bonus-game-surface="v97"
           data-fullscreen-mode={nativeFullscreenElement ? "native" : pseudoFullscreen ? "viewport" : "off"}
           className={isFullscreen
-            ? "fixed inset-0 z-[140] overflow-y-auto overscroll-contain bg-[#08070D] px-0"
+            ? "bonus-match-fullscreen fixed inset-0 z-[140] overflow-hidden overscroll-none bg-[#08070D] px-0"
             : ""}
           style={isFullscreen ? {
             width: "100vw",
@@ -3119,7 +3126,8 @@ function BonusMatchScreen() {
             minHeight: "100vh",
             paddingTop: "max(8px, env(safe-area-inset-top))",
             paddingBottom: "max(10px, env(safe-area-inset-bottom))",
-            WebkitOverflowScrolling: "touch",
+            WebkitOverflowScrolling: "auto",
+            touchAction: "none",
           } : undefined}
         >
           <div className={isFullscreen ? "mx-auto min-h-full w-full max-w-[560px] px-2 sm:px-4" : ""}>
@@ -3202,10 +3210,31 @@ function BonusMatchScreen() {
               <div className="flex min-w-[72px] items-center justify-center gap-1.5 rounded-xl border border-[#FFB800]/25 bg-[#FFB800]/10 px-2 py-2 text-[#FFB800]"><Coins size={15} /><span className="text-sm font-black">{game.coins_collected}/{config.target_coins}</span></div>
             </div>
 
+            <AnimatePresence>
+              {game.status !== "active" && !celebrating && (
+                <motion.div
+                  className={`mt-3 rounded-2xl border p-3 text-center ${game.status === "won" ? "border-[#22C55E]/35 bg-[#22C55E]/[.08]" : "border-[#EF5350]/35 bg-[#EF5350]/[.08]"}`}
+                  initial={{ opacity: 0, y: -10, scale: 0.98 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -8 }}
+                >
+                  <div className={`font-display text-xl ${game.status === "won" ? "text-[#22C55E]" : "text-[#EF5350]"}`}>{game.status === "won" ? "РІВЕНЬ ПРОЙДЕНО!" : "ХОДИ ЗАКІНЧИЛИСЯ"}</div>
+                  <div className="mt-2 flex items-center justify-center gap-3">
+                    <Stars count={result?.stars || 0} size={22} animated={game.status === "won"} reducedMotion={reducedMotion} />
+                    <span className="text-xs font-black text-zinc-500">Рахунок: {formatNumber(game.score)}</span>
+                  </div>
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    <button type="button" onClick={leaveBoard} className="flex h-10 items-center justify-center rounded-xl border border-white/10 bg-[#1A1A1E] text-xs font-black text-zinc-300"><RotateCcw size={15} className="mr-1.5" />РІВНІ</button>
+                    <button type="button" onClick={() => startGame(game.status === "won" ? (result?.current_level || game.level) : game.level)} className="flex h-10 items-center justify-center rounded-xl bg-[#7C3AED] text-xs font-black text-white">{game.status === "won" ? "НАСТУПНИЙ РІВЕНЬ" : "ЩЕ РАЗ"}<ChevronRight size={15} className="ml-1" /></button>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
             <motion.div
               ref={boardRef}
               className="bonus-match-board relative isolate mt-3 overflow-hidden rounded-[24px] bg-[#B4AFF1] p-1.5 shadow-[0_0_18px_rgba(124,58,237,.26),inset_0_0_20px_rgba(255,255,255,.28)]"
-              data-render-engine="v90"
+              data-render-engine="v97"
               animate={boardMotionForFx(boardFx, reducedMotion)}
               transition={{
                 duration: boardFx === "won"
@@ -3335,31 +3364,7 @@ function BonusMatchScreen() {
             <div className="mt-3 flex items-center justify-between px-1 text-[10px] font-bold text-zinc-600"><span>{activeBooster ? "Торкнися цільової клітинки" : "Свайпни фішку або використай два тапи"}</span><span>{coinProgress}% монет</span></div>
           </motion.section>
 
-          <AnimatePresence>
-            {game.status !== "active" && !celebrating && (
-              <motion.section
-                className={`rounded-3xl border p-5 text-center ${game.status === "won" ? "border-[#39FF14]/35 bg-[#39FF14]/[.07]" : "border-[#FF4D55]/35 bg-[#FF4D55]/[.07]"}`}
-                initial={{ opacity: 0, y: 18, scale: 0.94 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.94 }}
-                transition={{ type: "spring", stiffness: 320, damping: 24 }}
-              >
-                <div className={`font-display text-[27px] ${game.status === "won" ? "text-[#39FF14]" : "text-[#FF4D55]"}`}>{game.status === "won" ? "РІВЕНЬ ПРОЙДЕНО!" : "ХОДИ ЗАКІНЧИЛИСЯ"}</div>
-                <div className="mt-3 flex justify-center"><Stars count={result?.stars || 0} size={30} animated={game.status === "won"} reducedMotion={reducedMotion} /></div>
-                <div className="mt-3 text-sm font-bold text-zinc-400">Рахунок: <span className="font-black text-white">{formatNumber(game.score)}</span></div>
-                {game.status === "won" && (
-                  <div className="mt-4 grid grid-cols-2 gap-2">
-                    <div className="rounded-2xl border border-[#FFB800]/25 bg-[#FFB800]/10 p-3"><div className="text-[9px] font-black uppercase text-zinc-600">НАГОРОДА</div><div className="mt-1 text-xl font-black text-[#FFB800]">+{result?.points_awarded || 0} Point</div></div>
-                    <div className="rounded-2xl border border-[#00F0FF]/25 bg-[#00F0FF]/10 p-3"><div className="text-[9px] font-black uppercase text-zinc-600">ДОСВІД</div><div className="mt-1 text-xl font-black text-[#00F0FF]">+{result?.xp_awarded || 0} XP</div></div>
-                  </div>
-                )}
-                <div className="mt-4 grid grid-cols-2 gap-2">
-                  <button type="button" onClick={leaveBoard} className="flex h-12 items-center justify-center rounded-2xl border border-white/10 bg-[#1A1A1E] text-sm font-black text-zinc-300 active:scale-95"><RotateCcw size={17} className="mr-2" />РІВНІ</button>
-                  <button type="button" onClick={() => startGame(game.status === "won" ? (result?.current_level || game.level) : game.level)} className="flex h-12 items-center justify-center rounded-2xl bg-[#7C3AED] text-sm font-black text-white active:scale-95">{game.status === "won" ? "ДАЛІ" : "ЩЕ РАЗ"}<ChevronRight size={17} className="ml-1" /></button>
-                </div>
-              </motion.section>
-            )}
-          </AnimatePresence>
+
           </div>
         </div>
       )}
