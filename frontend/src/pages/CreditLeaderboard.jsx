@@ -69,12 +69,12 @@ const getStatus = (value) => {
     return { color: "#71717A", bg: "rgba(113,113,122,.08)", border: "rgba(113,113,122,.22)", label: "Немає даних" };
   }
   if (value >= 100) {
-    return { color: "#39FF14", bg: "rgba(57,255,20,.09)", border: "rgba(57,255,20,.28)", label: "Виконано" };
+    return { color: "#22C55E", bg: "rgba(34,197,94,.09)", border: "rgba(34,197,94,.28)", label: "Виконано" };
   }
-  if (value >= 90) {
-    return { color: "#FFB800", bg: "rgba(255,184,0,.09)", border: "rgba(255,184,0,.28)", label: "Зона росту" };
+  if (value >= 80) {
+    return { color: "#F4B740", bg: "rgba(244,183,64,.10)", border: "rgba(244,183,64,.30)", label: "Зона росту" };
   }
-  return { color: "#FF4D55", bg: "rgba(255,77,85,.09)", border: "rgba(255,77,85,.28)", label: "Зона уваги" };
+  return { color: "#EF5350", bg: "rgba(239,83,80,.09)", border: "rgba(239,83,80,.28)", label: "Зона уваги" };
 };
 
 const normalizeRow = (row) => ({

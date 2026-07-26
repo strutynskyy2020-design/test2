@@ -3,7 +3,7 @@ import FeedSocial from "@/components/FeedSocial";
 import AvatarFrame from "@/components/AvatarFrame";
 
 const KIND_META = {
-  quest: { label: "квест", color: "#39FF14", Icon: Swords, tone: "text-[#39FF14]", ring: "border-[#39FF14]/40", bg: "bg-[#39FF14]/10" },
+  quest: { label: "квест", color: "#6D3DF5", Icon: Swords, tone: "text-[#6D3DF5]", ring: "border-[#6D3DF5]/40", bg: "bg-[#6D3DF5]/10" },
   purchase: { label: "покупка", color: "#00F0FF", Icon: Gift, tone: "text-[#00F0FF]", ring: "border-[#00F0FF]/40", bg: "bg-[#00F0FF]/10" },
   cube: { label: "куб", color: "#FFB800", Icon: Dice5, tone: "text-[#FFB800]", ring: "border-[#FFB800]/40", bg: "bg-[#FFB800]/10" },
   level_up: { label: "рівень", color: "#FF5C00", Icon: TrendingUp, tone: "text-[#FF5C00]", ring: "border-[#FF5C00]/40", bg: "bg-[#FF5C00]/10" },

@@ -53,7 +53,7 @@ const PrizeCard = ({ prize, balance, onBuy, owned, active }) => {
       <div className="p-4 flex-1 flex flex-col">
         <div className="text-white font-black text-sm leading-tight">{prize.title}</div>
         <div className="text-zinc-500 text-xs mt-1 line-clamp-2">{prize.description}</div>
-        {prize.category === "avatar" && (prize.daily_bonus > 0 || prize.task_replacements > 0) && <div className="mt-2 flex flex-wrap gap-1"><span className="rounded-full bg-[#39FF14]/10 px-2 py-1 text-[9px] font-black text-[#39FF14]">+{prize.daily_bonus} Point/день</span>{prize.task_replacements > 0 && <span className="rounded-full bg-[#B78CFF]/10 px-2 py-1 text-[9px] font-black text-[#B78CFF]">+{prize.task_replacements} заміни</span>}</div>}
+        {prize.category === "avatar" && (prize.daily_bonus > 0 || prize.task_replacements > 0) && <div className="mt-2 flex flex-wrap gap-1"><span className="rounded-full bg-[#6D3DF5]/10 px-2 py-1 text-[9px] font-black text-[#6D3DF5]">+{prize.daily_bonus} Point/день</span>{prize.task_replacements > 0 && <span className="rounded-full bg-[#B78CFF]/10 px-2 py-1 text-[9px] font-black text-[#B78CFF]">+{prize.task_replacements} заміни</span>}</div>}
         <div className="mt-3 flex items-center justify-between gap-2">
           <div className="flex items-center gap-1.5">
             <Coins size={16} strokeWidth={3} color="#FFB800" />

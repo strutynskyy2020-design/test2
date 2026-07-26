@@ -29,7 +29,7 @@ export default function Feed() {
 
   const filters = [
     { key: "all", label: "Все", color: "#F5F5F5" },
-    { key: "quest", label: "Квести", color: "#39FF14" },
+    { key: "quest", label: "Квести", color: "#6D3DF5" },
     { key: "level_up", label: "Рівні", color: "#FF5C00" },
     { key: "purchase", label: "Покупки", color: "#00F0FF" },
     { key: "cube", label: "Куб", color: "#FFB800" },
@@ -40,11 +40,11 @@ export default function Feed() {
   return (
     <div className="px-5 pt-2 pb-8 space-y-4">
       <section
-        className="bg-gradient-to-r from-[#39FF14]/15 to-transparent border border-[#39FF14]/30 rounded-3xl p-4 flex items-center gap-3"
+        className="bg-gradient-to-r from-[#6D3DF5]/12 to-transparent border border-[#6D3DF5]/25 rounded-3xl p-4 flex items-center gap-3"
         data-testid="feed-header"
       >
-        <div className="w-12 h-12 rounded-2xl bg-[#39FF14] flex items-center justify-center">
-          <Newspaper size={24} strokeWidth={3} color="#0A0A0A" />
+        <div className="w-12 h-12 rounded-2xl bg-[#6D3DF5] flex items-center justify-center">
+          <Newspaper size={24} strokeWidth={3} color="#FFFFFF" />
         </div>
         <div className="flex-1">
           <div className="text-white font-display text-lg leading-none">СТРІЧКА</div>

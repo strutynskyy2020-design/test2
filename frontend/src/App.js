@@ -9,6 +9,21 @@ import Login from "@/pages/Login";
 import Home from "@/pages/Home";
 import Register from "@/pages/Register";
 
+// V96: make the light theme the one-time default for every existing and new user.
+// After this migration runs once, the user may freely switch to dark and that
+// explicit choice remains stored under `tm6-color-theme`.
+const LIGHT_THEME_MIGRATION_KEY = "tm6-light-theme-default-v96";
+if (typeof window !== "undefined") {
+  try {
+    if (window.localStorage.getItem(LIGHT_THEME_MIGRATION_KEY) !== "done") {
+      window.localStorage.setItem("tm6-color-theme", "light");
+      window.localStorage.setItem(LIGHT_THEME_MIGRATION_KEY, "done");
+    }
+  } catch (_) {
+    // Storage can be unavailable in private/restricted browser contexts.
+  }
+}
+
 const Quests = lazy(() => import("@/pages/Quests"));
 const Store = lazy(() => import("@/pages/Store"));
 const Admin = lazy(() => import("@/pages/Admin"));
@@ -44,7 +59,7 @@ const AppToaster = () => {
   const isLight = resolvedTheme === "light";
 
   useEffect(() => {
-    const color = isLight ? "#F5F5DC" : "#0A0A0A";
+    const color = isLight ? "#FBFBFC" : "#0A0A0A";
     document.documentElement.style.colorScheme = isLight ? "light" : "dark";
     let meta = document.querySelector('meta[name="theme-color"]');
     if (!meta) {
@@ -63,10 +78,10 @@ const AppToaster = () => {
       mobileOffset={{ top: 88 }}
       toastOptions={{
         style: {
-          background: isLight ? "#FFFDF4" : "#1A1A1E",
+          background: isLight ? "#FFFFFF" : "#1A1A1E",
           color: isLight ? "#252832" : "#F5F5F5",
-          border: isLight ? "1px solid rgba(104,96,73,.18)" : "1px solid rgba(255,255,255,.1)",
-          boxShadow: isLight ? "0 14px 34px rgba(89,77,48,.14)" : undefined,
+          border: isLight ? "1px solid #E6E3EF" : "1px solid rgba(255,255,255,.1)",
+          boxShadow: isLight ? "0 14px 34px rgba(44,44,60,.10)" : undefined,
           fontWeight: 900,
           fontFamily: "'Nunito', sans-serif",
         },
@@ -93,7 +108,7 @@ function App() {
   return (
     <ThemeProvider
       attribute="class"
-      defaultTheme="dark"
+      defaultTheme="light"
       enableSystem={false}
       storageKey="tm6-color-theme"
       disableTransitionOnChange

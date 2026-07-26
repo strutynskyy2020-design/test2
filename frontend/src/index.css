@@ -749,3 +749,36 @@ html.light .bg-black\/85.text-white,
 html.light .bg-\[\#171222\].text-white {
   color: #FFFFFF !important;
 }
+
+
+/* ==========================================================================
+   V96 · LIGHT-FIRST SEMANTIC COLOUR REFINEMENT
+   Dark mode remains untouched. These rules only soften legacy neon statuses
+   while the light theme is active.
+   ========================================================================== */
+html.light {
+  --status-success: #22C55E;
+  --status-warning: #F4B740;
+  --status-danger: #EF5350;
+  --status-info: #3B82F6;
+  --status-xp: #8B5CF6;
+  --status-primary: #6D3DF5;
+}
+
+/* Replace legacy fluorescent green utility tokens only in light mode. */
+html.light [class*="text-[#39FF14]"] { color: #22C55E !important; }
+html.light [class*="border-[#39FF14]"] { border-color: rgba(34,197,94,.30) !important; }
+html.light [class*="bg-[#39FF14]/"] { background-color: rgba(34,197,94,.10) !important; }
+html.light [class~="bg-[#39FF14]"] { background-color: #22C55E !important; }
+html.light input[class*="accent-[#39FF14]"] { accent-color: #22C55E !important; }
+
+/* Warm, readable status hues for KPI cards in light mode. */
+html.light [style*="color: rgb(57, 255, 20)"],
+html.light [style*="color:#39FF14"],
+html.light [style*="color: #39FF14"] { color: #22C55E !important; }
+
+/* Keep points golden and make XP/progress language distinctly purple. */
+html.light .status-xp,
+html.light [data-tone="xp"] { color: #8B5CF6 !important; }
+html.light .status-point,
+html.light [data-tone="point"] { color: #F5A623 !important; }
