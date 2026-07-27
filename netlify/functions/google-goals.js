@@ -87,6 +87,7 @@ exports.handler = async (event) => {
       debit_group_summary: data.debit_group_summary || null,
       debit_leaderboard_updated_at: data.debit_leaderboard_updated_at || null,
       debit_issuances: Array.isArray(data.debit_issuances) ? data.debit_issuances : [],
+      schedule: data.schedule && typeof data.schedule === "object" ? data.schedule : null,
     });
   } catch (error) {
     console.error("google-goals error", error);

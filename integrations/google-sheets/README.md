@@ -36,3 +36,25 @@ After every Apps Script code change, deploy a new version:
 
 Create an optional sheet named `CreditMetrics`. The app reads one row per employee/channel/period.
 See `CreditMetrics-example.csv` and `/GOOGLE_CREDIT_METRICS_V49.md` for the complete schema and status rules.
+
+## Work schedule (v98)
+
+The existing Apps Script also reads the `Schedule` sheet. No additional Netlify secret is required: it uses the same `SPREADSHEET_ID`, `GOOGLE_GOALS_SCRIPT_URL`, backend authentication, and user `goals_login` mapping as goals and projection metrics.
+
+Expected layout:
+
+- one header cell named `Логін` (aliases `Login` and `goals_login` are supported);
+- optional employee columns `ПІБ` and `ставка`;
+- a row above the header containing day numbers or actual Google Sheets dates;
+- weekday labels in the header row (`пн`, `вт`, `ср`, `чт`, `пт`, `сб`, `нд`);
+- one employee row per login.
+
+Cell values:
+
+- `9-14`, `9-16`, `9-18` → ordinary work shift with the exact displayed hours;
+- `11-20` → late shift;
+- `10-19` → weekend work shift;
+- `Відпустка` → vacation;
+- `В`, `В.` or an empty cell → day off.
+
+After replacing `Code.gs`, deploy a new Apps Script web-app version. The frontend reads schedule data through the existing `/.netlify/functions/google-goals` endpoint.

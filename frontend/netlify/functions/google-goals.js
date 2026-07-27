@@ -80,6 +80,7 @@ exports.handler = async (event) => {
       goals_login: goalsLogin,
       goals: data.goals || null,
       credit_metrics: Array.isArray(data.credit_metrics) ? data.credit_metrics : [],
+      schedule: data.schedule && typeof data.schedule === "object" ? data.schedule : null,
     });
   } catch (error) {
     console.error("google-goals error", error);

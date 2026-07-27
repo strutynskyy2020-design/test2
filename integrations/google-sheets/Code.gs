@@ -5,6 +5,8 @@ const CREDIT_LEADERBOARD_SHEET_NAME = "Аркуш2";
 const TRANSFORMATION_SHEET_NAME = "Transformation";
 const DEBIT_LEADERBOARD_SHEET_NAME = "Аркуш2";
 const DEBIT_ISSUANCES_SHEET_NAME = "Transformation Deb";
+const SCHEDULE_SHEET_NAME = "Schedule";
+const SCHEDULE_TIMEZONE = "Europe/Kyiv";
 
 function normalizeKey(value) {
   return String(value || "").trim().toLowerCase();
@@ -463,6 +465,257 @@ function getCreditMetricRows(goalsLogin) {
     .map((row) => rowToObject(headers, row));
 }
 
+
+
+function scheduleWeekdayIndex(value) {
+  const key = normalizeHeaderKey(value);
+  const aliases = {
+    "нд": 0, "неділя": 0, "sun": 0, "sunday": 0,
+    "пн": 1, "понеділок": 1, "mon": 1, "monday": 1,
+    "вт": 2, "вівторок": 2, "tue": 2, "tuesday": 2,
+    "ср": 3, "середа": 3, "wed": 3, "wednesday": 3,
+    "чт": 4, "четвер": 4, "thu": 4, "thursday": 4,
+    "пт": 5, "пятниця": 5, "п'ятниця": 5, "fri": 5, "friday": 5,
+    "сб": 6, "субота": 6, "sat": 6, "saturday": 6,
+  };
+  return Object.prototype.hasOwnProperty.call(aliases, key) ? aliases[key] : -1;
+}
+
+function isValidDateValue(value) {
+  return Object.prototype.toString.call(value) === "[object Date]" && !isNaN(value.getTime());
+}
+
+function scheduleDayNumber(rawValue, displayValue) {
+  if (isValidDateValue(rawValue)) return rawValue.getDate();
+  const display = String(displayValue || rawValue || "").trim();
+  if (!/^\d{1,2}$/.test(display)) return 0;
+  const day = Number(display);
+  return day >= 1 && day <= 31 ? day : 0;
+}
+
+function scheduleIsoDate(date) {
+  return Utilities.formatDate(date, SCHEDULE_TIMEZONE, "yyyy-MM-dd");
+}
+
+function scheduleDateCandidate(year, month, day, weekdayIndex) {
+  const candidate = new Date(year, month, day, 12, 0, 0, 0);
+  if (candidate.getMonth() !== month || candidate.getDate() !== day) return null;
+  if (weekdayIndex >= 0 && candidate.getDay() !== weekdayIndex) return null;
+  return candidate;
+}
+
+function inferScheduleDate(day, weekdayIndex, previousDate) {
+  const now = new Date();
+  const candidates = [];
+  const base = previousDate || now;
+  const startOffset = previousDate ? 0 : -3;
+  const endOffset = previousDate ? 4 : 7;
+
+  for (let offset = startOffset; offset <= endOffset; offset += 1) {
+    const year = base.getFullYear();
+    const month = base.getMonth() + offset;
+    const normalized = new Date(year, month, 1, 12, 0, 0, 0);
+    const candidate = scheduleDateCandidate(normalized.getFullYear(), normalized.getMonth(), day, weekdayIndex);
+    if (!candidate) continue;
+    if (previousDate && candidate.getTime() <= previousDate.getTime()) continue;
+    candidates.push(candidate);
+  }
+
+  if (!candidates.length) {
+    const fallbackMonth = previousDate && day < previousDate.getDate()
+      ? previousDate.getMonth() + 1
+      : base.getMonth();
+    return new Date(base.getFullYear(), fallbackMonth, day, 12, 0, 0, 0);
+  }
+
+  const target = previousDate
+    ? new Date(previousDate.getFullYear(), previousDate.getMonth(), previousDate.getDate() + 1, 12, 0, 0, 0)
+    : now;
+  candidates.sort((a, b) => Math.abs(a.getTime() - target.getTime()) - Math.abs(b.getTime() - target.getTime()));
+  return candidates[0];
+}
+
+function normalizeScheduleCell(value) {
+  const raw = String(value == null ? "" : value).trim();
+  const compact = raw.replace(/\s+/g, "").replace(/[–—−]/g, "-");
+  const key = normalizeKey(compact);
+
+  if (!compact || key === "в" || key === "в." || key === "off" || key === "вихідний") {
+    return {
+      type: "day_off",
+      title: "Вихідний",
+      start: "",
+      end: "",
+      raw,
+    };
+  }
+
+  if (key.includes("відпуст") || key.includes("отпуск") || key.includes("vacation")) {
+    return {
+      type: "vacation",
+      title: "Відпустка",
+      start: "",
+      end: "",
+      raw,
+    };
+  }
+
+  const match = compact.match(/^(\d{1,2})(?::(\d{2}))?-(\d{1,2})(?::(\d{2}))?$/);
+  if (match) {
+    const startHour = Number(match[1]);
+    const startMinute = Number(match[2] || 0);
+    const endHour = Number(match[3]);
+    const endMinute = Number(match[4] || 0);
+    const start = `${String(startHour).padStart(2, "0")}:${String(startMinute).padStart(2, "0")}`;
+    const end = `${String(endHour).padStart(2, "0")}:${String(endMinute).padStart(2, "0")}`;
+    let type = "work";
+    let title = "Робочий день";
+    if (startHour === 11 && endHour === 20) {
+      type = "late_shift";
+      title = "Пізня зміна";
+    } else if (startHour === 10 && endHour === 19) {
+      type = "weekend_shift";
+      title = "Зміна у вихідний";
+    }
+    return { type, title, start, end, raw };
+  }
+
+  return {
+    type: "unknown",
+    title: raw || "Графік не вказаний",
+    start: "",
+    end: "",
+    raw,
+  };
+}
+
+function getScheduleForLogin(goalsLogin) {
+  const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sheet = spreadsheet.getSheetByName(SCHEDULE_SHEET_NAME);
+  if (!sheet) {
+    return { found: false, reason: "schedule_sheet_missing", sheet_name: SCHEDULE_SHEET_NAME, days: [] };
+  }
+
+  const range = sheet.getDataRange();
+  const displayValues = range.getDisplayValues();
+  const rawValues = range.getValues();
+  if (!displayValues.length) {
+    return { found: false, reason: "schedule_sheet_empty", sheet_name: SCHEDULE_SHEET_NAME, days: [] };
+  }
+
+  const loginAliases = ["логін", "логин", "login", "goals_login"];
+  const nameAliases = ["піб", "фио", "пиб", "employee_name", "name", "працівник"];
+  const rateAliases = ["ставка", "rate", "fte"];
+  let headerRowIndex = -1;
+  let loginColumnIndex = -1;
+
+  for (let rowIndex = 0; rowIndex < Math.min(displayValues.length, 25); rowIndex += 1) {
+    const row = displayValues[rowIndex];
+    for (let columnIndex = 0; columnIndex < row.length; columnIndex += 1) {
+      if (headerMatches(row[columnIndex], loginAliases)) {
+        headerRowIndex = rowIndex;
+        loginColumnIndex = columnIndex;
+        break;
+      }
+    }
+    if (headerRowIndex !== -1) break;
+  }
+
+  if (headerRowIndex === -1 || loginColumnIndex === -1) {
+    return { found: false, reason: "schedule_login_header_missing", sheet_name: SCHEDULE_SHEET_NAME, days: [] };
+  }
+
+  const headerRow = displayValues[headerRowIndex];
+  const nameColumnIndex = headerRow.findIndex((value) => headerMatches(value, nameAliases));
+  const rateColumnIndex = headerRow.findIndex((value) => headerMatches(value, rateAliases));
+  let dateRowIndex = -1;
+
+  for (let rowIndex = headerRowIndex - 1; rowIndex >= Math.max(0, headerRowIndex - 5); rowIndex -= 1) {
+    let dayCellCount = 0;
+    for (let columnIndex = loginColumnIndex + 1; columnIndex < displayValues[rowIndex].length; columnIndex += 1) {
+      if (scheduleDayNumber(rawValues[rowIndex][columnIndex], displayValues[rowIndex][columnIndex])) dayCellCount += 1;
+    }
+    if (dayCellCount >= 3) {
+      dateRowIndex = rowIndex;
+      break;
+    }
+  }
+
+  if (dateRowIndex === -1) {
+    return { found: false, reason: "schedule_date_row_missing", sheet_name: SCHEDULE_SHEET_NAME, days: [] };
+  }
+
+  let employeeRowIndex = -1;
+  for (let rowIndex = headerRowIndex + 1; rowIndex < displayValues.length; rowIndex += 1) {
+    if (normalizeKey(displayValues[rowIndex][loginColumnIndex]) === goalsLogin) {
+      employeeRowIndex = rowIndex;
+      break;
+    }
+  }
+
+  if (employeeRowIndex === -1) {
+    return {
+      found: false,
+      reason: "schedule_login_not_found",
+      sheet_name: SCHEDULE_SHEET_NAME,
+      goals_login: goalsLogin,
+      days: [],
+    };
+  }
+
+  const dateColumns = [];
+  const dateDisplayRow = displayValues[dateRowIndex];
+  const dateRawRow = rawValues[dateRowIndex];
+  for (let columnIndex = loginColumnIndex + 1; columnIndex < dateDisplayRow.length; columnIndex += 1) {
+    const day = scheduleDayNumber(dateRawRow[columnIndex], dateDisplayRow[columnIndex]);
+    if (!day) continue;
+    dateColumns.push({
+      columnIndex,
+      day,
+      weekdayIndex: scheduleWeekdayIndex(headerRow[columnIndex]),
+      rawDate: dateRawRow[columnIndex],
+    });
+  }
+
+  let previousDate = null;
+  const days = dateColumns.map((column) => {
+    let date;
+    if (isValidDateValue(column.rawDate)) {
+      date = new Date(column.rawDate.getFullYear(), column.rawDate.getMonth(), column.rawDate.getDate(), 12, 0, 0, 0);
+    } else {
+      date = inferScheduleDate(column.day, column.weekdayIndex, previousDate);
+    }
+    previousDate = date;
+    const parsed = normalizeScheduleCell(displayValues[employeeRowIndex][column.columnIndex]);
+    return {
+      date: scheduleIsoDate(date),
+      day: date.getDate(),
+      weekday: Utilities.formatDate(date, SCHEDULE_TIMEZONE, "EEE").toLowerCase(),
+      type: parsed.type,
+      title: parsed.title,
+      start: parsed.start,
+      end: parsed.end,
+      raw: parsed.raw,
+    };
+  });
+
+  return {
+    found: true,
+    reason: null,
+    sheet_name: SCHEDULE_SHEET_NAME,
+    goals_login: goalsLogin,
+    employee: {
+      name: nameColumnIndex >= 0 ? String(displayValues[employeeRowIndex][nameColumnIndex] || "").trim() : "",
+      login: String(displayValues[employeeRowIndex][loginColumnIndex] || goalsLogin).trim(),
+      rate: rateColumnIndex >= 0 ? String(displayValues[employeeRowIndex][rateColumnIndex] || "").trim() : "",
+    },
+    range_start: days.length ? days[0].date : "",
+    range_end: days.length ? days[days.length - 1].date : "",
+    updated_at: Utilities.formatDate(new Date(), SCHEDULE_TIMEZONE, "dd.MM.yyyy HH:mm"),
+    days,
+  };
+}
+
 function doGet(e) {
   try {
     const goalsLogin = normalizeKey(e && e.parameter && e.parameter.goals_login);
@@ -471,6 +724,7 @@ function doGet(e) {
     const leaderboard = getCreditLeaderboard();
     const debitLeaderboard = getDebitLeaderboard();
     const debitIssuances = getDebitIssuanceRows(goalsLogin);
+    const schedule = getScheduleForLogin(goalsLogin);
     const context = getSheetContext();
 
     const sharedPayload = {
@@ -482,6 +736,7 @@ function doGet(e) {
       debit_group_summary: debitLeaderboard.group_summary,
       debit_leaderboard_updated_at: debitLeaderboard.updated_at,
       debit_issuances: debitIssuances,
+      schedule,
     };
 
     if (context.rows.length === 0) {

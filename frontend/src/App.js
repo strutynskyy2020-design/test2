@@ -40,6 +40,7 @@ const CreditLeaderboard = lazy(() => import("@/pages/CreditLeaderboard"));
 const DebitLeaderboard = lazy(() => import("@/pages/DebitLeaderboard"));
 const DebitIssuances = lazy(() => import("@/pages/DebitIssuances"));
 const BonusMatch = lazy(() => import("@/pages/BonusMatch"));
+const Schedule = lazy(() => import("@/pages/Schedule"));
 
 const Splash = () => (
   <div className="min-h-screen w-full flex items-center justify-center">
@@ -140,6 +141,7 @@ function App() {
             <Route path="/fun" element={<LazyPage><Fun /></LazyPage>} />
             <Route path="/games/bonus-match" element={<LazyPage><BonusMatch /></LazyPage>} />
             <Route path="/history" element={<LazyPage><History /></LazyPage>} />
+            <Route path="/schedule" element={<LazyPage><Schedule /></LazyPage>} />
             <Route path="/feed" element={<LazyPage><Feed /></LazyPage>} />
             <Route path="/admin" element={<RequireAdmin><LazyPage><Admin /></LazyPage></RequireAdmin>} />
           </Route>

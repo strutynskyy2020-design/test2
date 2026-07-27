@@ -22,6 +22,7 @@ const PAGE_LABELS = {
   "/fun": "Щедрий куб",
   "/games/bonus-match": "Bonus Match",
   "/history": "Історія Point",
+  "/schedule": "Мій графік",
   "/feed": "Стрічка активності",
 };
 
