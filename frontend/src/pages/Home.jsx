@@ -132,8 +132,13 @@ export default function Home() {
         const token = getToken();
         if (!token) return;
 
+        const params = new URLSearchParams({ _ts: String(Date.now()) });
+        if ((user.role === "admin" || user.role === "editor") && typeof window !== "undefined") {
+          const selectedScheduleLogin = localStorage.getItem("tm6_schedule_admin_login_v1") || "";
+          if (selectedScheduleLogin) params.set("schedule_login", selectedScheduleLogin);
+        }
         const response = await fetch(
-          `/.netlify/functions/google-goals?_ts=${Date.now()}`,
+          `/.netlify/functions/google-goals?${params.toString()}`,
           {
             method: "GET",
             headers: {

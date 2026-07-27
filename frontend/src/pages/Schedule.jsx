@@ -13,7 +13,8 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import PalmOnSandIcon from "@/components/PalmOnSandIcon";
-import { getToken } from "@/lib/api";
+import api, { getToken } from "@/lib/api";
+import { useApp } from "@/context/AppContext";
 import {
   addIsoDays,
   buildMonthCells,
@@ -27,6 +28,34 @@ import {
 } from "@/lib/workSchedule";
 
 const WEEKDAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Нд"];
+const ADMIN_SCHEDULE_LOGIN_KEY = "tm6_schedule_admin_login_v1";
+
+const SCHEDULE_REASON_COPY = {
+  schedule_payload_missing: {
+    title: "Google Apps Script не оновлено",
+    text: "У відповіді Google Таблиці немає блоку Schedule. Створіть нову версію Web App у Apps Script і оновіть GOOGLE_GOALS_SCRIPT_URL, якщо адреса змінилася.",
+  },
+  schedule_login_missing: {
+    title: "Не задано логін графіка",
+    text: "У профілі не задано Google-логін. Адміністратор може вказати його в налаштуваннях користувача.",
+  },
+  schedule_login_not_found: {
+    title: "Логін не знайдено у Schedule",
+    text: "Перевірте точне написання логіна у профілі та в колонці «Логін» на вкладці Schedule.",
+  },
+  schedule_sheet_missing: {
+    title: "Вкладку Schedule не знайдено",
+    text: "Перевірте назву вкладки Google Таблиці. Вона має називатися точно Schedule.",
+  },
+  schedule_login_header_missing: {
+    title: "Колонку «Логін» не знайдено",
+    text: "У рядку заголовків вкладки Schedule має бути колонка «Логін».",
+  },
+  schedule_date_row_missing: {
+    title: "Рядок дат не знайдено",
+    text: "Над днями тижня мають бути числа дат: 1, 2, 3 і далі.",
+  },
+};
 
 const StatusIcon = ({ type, size = 22, strokeWidth = 2.5 }) => {
   const props = { size, strokeWidth };
@@ -37,10 +66,12 @@ const StatusIcon = ({ type, size = 22, strokeWidth = 2.5 }) => {
   return <BriefcaseBusiness {...props} />;
 };
 
-const fetchSchedule = async () => {
+const fetchSchedule = async (scheduleLogin = "") => {
   const token = getToken();
   if (!token) throw new Error("Потрібна авторизація");
-  const response = await fetch(`/.netlify/functions/google-goals?_ts=${Date.now()}`, {
+  const params = new URLSearchParams({ _ts: String(Date.now()) });
+  if (scheduleLogin) params.set("schedule_login", scheduleLogin);
+  const response = await fetch(`/.netlify/functions/google-goals?${params.toString()}`, {
     method: "GET",
     headers: {
       accept: "application/json",
@@ -91,18 +122,24 @@ const LegendItem = ({ type, label }) => {
 
 export default function Schedule() {
   const nav = useNavigate();
+  const { user } = useApp();
+  const isPrivileged = user?.role === "admin" || user?.role === "editor";
   const [schedule, setSchedule] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [selectedDate, setSelectedDate] = useState("");
   const [activeMonth, setActiveMonth] = useState("");
+  const [participants, setParticipants] = useState([]);
+  const [scheduleLogin, setScheduleLogin] = useState(() => (
+    typeof window !== "undefined" ? localStorage.getItem(ADMIN_SCHEDULE_LOGIN_KEY) || "" : ""
+  ));
   const todayIso = useMemo(() => kyivTodayIso(), []);
 
   const load = async ({ quiet = false } = {}) => {
     if (!quiet) setLoading(true);
     setError("");
     try {
-      const next = await fetchSchedule();
+      const next = await fetchSchedule(isPrivileged ? scheduleLogin : "");
       setSchedule(next);
       const dates = Array.isArray(next?.days) ? next.days.map((day) => day.date).filter(Boolean) : [];
       const preferred = dates.includes(todayIso) ? todayIso : dates[0] || "";
@@ -118,10 +155,27 @@ export default function Schedule() {
 
   useEffect(() => {
     let cancelled = false;
+
     const initialLoad = async () => {
       setLoading(true);
       try {
-        const next = await fetchSchedule();
+        let selectedLogin = scheduleLogin;
+        if (isPrivileged) {
+          const response = await api.get("/goals/participants");
+          const options = (Array.isArray(response.data) ? response.data : [])
+            .filter((item) => item?.goals_login)
+            .sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "uk"));
+          if (cancelled) return;
+          setParticipants(options);
+          const savedExists = options.some((item) => item.goals_login === selectedLogin);
+          selectedLogin = savedExists
+            ? selectedLogin
+            : (user?.goals_login || options[0]?.goals_login || "");
+          setScheduleLogin(selectedLogin);
+          if (selectedLogin) localStorage.setItem(ADMIN_SCHEDULE_LOGIN_KEY, selectedLogin);
+        }
+
+        const next = await fetchSchedule(isPrivileged ? selectedLogin : "");
         if (cancelled) return;
         setSchedule(next);
         const dates = Array.isArray(next?.days) ? next.days.map((day) => day.date).filter(Boolean) : [];
@@ -151,6 +205,25 @@ export default function Schedule() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const changeScheduleLogin = async (nextLogin) => {
+    setScheduleLogin(nextLogin);
+    localStorage.setItem(ADMIN_SCHEDULE_LOGIN_KEY, nextLogin);
+    setLoading(true);
+    setError("");
+    try {
+      const next = await fetchSchedule(nextLogin);
+      setSchedule(next);
+      const dates = Array.isArray(next?.days) ? next.days.map((day) => day.date).filter(Boolean) : [];
+      const preferred = dates.includes(todayIso) ? todayIso : dates[0] || "";
+      setSelectedDate(preferred);
+      setActiveMonth(monthKeyFromIso(preferred));
+    } catch (err) {
+      setError(err?.message || "Не вдалося завантажити графік");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const days = Array.isArray(schedule?.days) ? schedule.days : [];
   const byDate = useMemo(() => new Map(days.map((day) => [day.date, day])), [days]);
   const months = useMemo(() => getScheduleMonths(schedule), [schedule]);
@@ -159,6 +232,16 @@ export default function Schedule() {
   const selectedDay = byDate.get(selectedDate) || null;
   const today = byDate.get(todayIso) || null;
   const tomorrow = byDate.get(addIsoDays(todayIso, 1)) || null;
+  const scheduleReason = schedule?.reason || "";
+  const reasonCopy = SCHEDULE_REASON_COPY[scheduleReason] || {
+    title: "Графік не знайдено",
+    text: "Перевірте, чи логін профілю збігається з колонкою «Логін» на вкладці Schedule.",
+  };
+  const lookupLogin = schedule?.lookup?.matched_login
+    || schedule?.lookup?.requested_login
+    || schedule?.lookup?.profile_login
+    || schedule?.goals_login
+    || "";
 
   const changeMonth = (delta) => {
     if (!months.length) return;
@@ -206,6 +289,26 @@ export default function Schedule() {
         </button>
       </div>
 
+      {isPrivileged && participants.length > 0 && (
+        <section className="rounded-3xl border border-white/10 bg-[#1A1A1E] p-4">
+          <label htmlFor="schedule-employee" className="text-[10px] font-black uppercase tracking-widest text-zinc-500">
+            Графік співробітника
+          </label>
+          <select
+            id="schedule-employee"
+            value={scheduleLogin}
+            onChange={(event) => changeScheduleLogin(event.target.value)}
+            className="mt-2 w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm font-black text-white outline-none focus:border-[#6D3DF5]"
+          >
+            {participants.map((participant) => (
+              <option key={participant.id || participant.goals_login} value={participant.goals_login}>
+                {participant.name} · {participant.goals_login}
+              </option>
+            ))}
+          </select>
+        </section>
+      )}
+
       {error ? (
         <section className="rounded-3xl border border-[#EF5350]/30 bg-[#EF5350]/10 p-5">
           <div className="font-black text-[#EF5350]">Графік не завантажився</div>
@@ -217,10 +320,18 @@ export default function Schedule() {
       ) : !schedule?.found ? (
         <section className="rounded-3xl border border-white/10 bg-[#1A1A1E] p-6 text-center">
           <CalendarDays className="mx-auto text-[#6D3DF5]" size={34} />
-          <div className="mt-3 font-display text-lg text-white">Графік не знайдено</div>
-          <div className="mt-2 text-sm leading-relaxed text-zinc-500">
-            Перевірте, чи логін профілю збігається з колонкою «Логін» на вкладці Schedule.
-          </div>
+          <div className="mt-3 font-display text-lg text-white">{reasonCopy.title}</div>
+          <div className="mt-2 text-sm leading-relaxed text-zinc-500">{reasonCopy.text}</div>
+          {lookupLogin && (
+            <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 px-3 py-2 text-xs font-black text-zinc-400">
+              Ключ пошуку: <span className="text-[#8B5CF6]">{lookupLogin}</span>
+            </div>
+          )}
+          {scheduleReason === "schedule_payload_missing" && (
+            <div className="mt-3 text-[11px] font-bold leading-relaxed text-[#F4B740]">
+              Файл Code.gs у проєкті вже містить графік, але опублікований Apps Script Web App працює зі старою версією deployment.
+            </div>
+          )}
         </section>
       ) : (
         <>
