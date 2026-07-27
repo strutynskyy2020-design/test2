@@ -242,6 +242,8 @@ export default function Schedule() {
     || schedule?.lookup?.profile_login
     || schedule?.goals_login
     || "";
+  const scriptApiVersion = schedule?.lookup?.script_api_version || "";
+  const scheduleDiagnostics = schedule?.diagnostics || null;
 
   const changeMonth = (delta) => {
     if (!months.length) return;
@@ -322,9 +324,15 @@ export default function Schedule() {
           <CalendarDays className="mx-auto text-[#6D3DF5]" size={34} />
           <div className="mt-3 font-display text-lg text-white">{reasonCopy.title}</div>
           <div className="mt-2 text-sm leading-relaxed text-zinc-500">{reasonCopy.text}</div>
-          {lookupLogin && (
-            <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 px-3 py-2 text-xs font-black text-zinc-400">
-              Ключ пошуку: <span className="text-[#8B5CF6]">{lookupLogin}</span>
+          {(lookupLogin || scriptApiVersion) && (
+            <div className="mt-4 space-y-1 rounded-2xl border border-white/10 bg-black/20 px-3 py-2 text-xs font-black text-zinc-400">
+              {lookupLogin && <div>Ключ пошуку: <span className="text-[#8B5CF6]">{lookupLogin}</span></div>}
+              {scriptApiVersion && <div>Apps Script API: <span className="text-[#8B5CF6]">{scriptApiVersion}</span></div>}
+            </div>
+          )}
+          {scheduleDiagnostics && (
+            <div className="mt-3 rounded-2xl border border-white/10 bg-black/20 px-3 py-2 text-left text-[10px] font-bold leading-relaxed text-zinc-500">
+              Заголовок: рядок {scheduleDiagnostics.header_row || "?"} · дати: рядок {scheduleDiagnostics.date_row || "не визначено"} · перша колонка графіка: {scheduleDiagnostics.first_schedule_column || "?"}
             </div>
           )}
           {scheduleReason === "schedule_payload_missing" && (
