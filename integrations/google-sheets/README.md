@@ -58,3 +58,25 @@ Cell values:
 - `В`, `В.` or an empty cell → day off.
 
 After replacing `Code.gs`, deploy a new Apps Script web-app version. The frontend reads schedule data through the existing `/.netlify/functions/google-goals` endpoint.
+
+## Manual report publishing (v102)
+
+The website no longer rebuilds Google reports every minute. `doGet` serves a saved snapshot from the hidden sheet `_TM6_REPORT_CACHE`.
+
+A new snapshot is created only by the Apps Script function:
+
+```text
+refreshReports
+```
+
+Setup:
+
+1. Replace the Apps Script project code with `Code.gs` from this project.
+2. Save the script and deploy a new Web App version.
+3. Reload the Google Sheet. A new menu appears: `TM6 → Оновити звіти`.
+4. For the existing drawing/button named **Оновити звіти**, choose **Assign script** and enter `refreshReports` without parentheses.
+5. Click the button once to create the first snapshot.
+
+During refresh, Apps Script reads the source sheets, creates one report payload per `goals_login`, and writes chunked JSON to `_TM6_REPORT_CACHE`. The sheet is hidden automatically. Normal website requests only read this cache and do not rebuild reports.
+
+Changes made through the admin panel are written to the `Goals` sheet immediately, but they appear in website reports only after `Оновити звіти` is clicked. This is intentional.

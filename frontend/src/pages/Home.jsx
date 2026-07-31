@@ -132,19 +132,19 @@ export default function Home() {
         const token = getToken();
         if (!token) return;
 
-        const params = new URLSearchParams({ _ts: String(Date.now()) });
+        const params = new URLSearchParams();
         if ((user.role === "admin" || user.role === "editor") && typeof window !== "undefined") {
           const selectedScheduleLogin = localStorage.getItem("tm6_schedule_admin_login_v1") || "";
           if (selectedScheduleLogin) params.set("schedule_login", selectedScheduleLogin);
         }
+        const query = params.toString();
         const response = await fetch(
-          `/.netlify/functions/google-goals?${params.toString()}`,
+          `/.netlify/functions/google-goals${query ? `?${query}` : ""}`,
           {
             method: "GET",
             headers: {
               accept: "application/json",
               authorization: `Bearer ${token}`,
-              "cache-control": "no-cache",
             },
             cache: "no-store",
           }
@@ -176,23 +176,8 @@ export default function Home() {
       if (!cancelled) setAwardedAchievements([]);
     });
 
-    const refreshWhenVisible = () => {
-      if (document.visibilityState === "visible") loadGoogleGoals();
-    };
-    const refreshOnFocus = () => loadGoogleGoals();
-    const refreshOnPageShow = () => loadGoogleGoals();
-    const refreshTimer = window.setInterval(loadGoogleGoals, 60_000);
-
-    document.addEventListener("visibilitychange", refreshWhenVisible);
-    window.addEventListener("focus", refreshOnFocus);
-    window.addEventListener("pageshow", refreshOnPageShow);
-
     return () => {
       cancelled = true;
-      window.clearInterval(refreshTimer);
-      document.removeEventListener("visibilitychange", refreshWhenVisible);
-      window.removeEventListener("focus", refreshOnFocus);
-      window.removeEventListener("pageshow", refreshOnPageShow);
     };
   }, [user?.id, mode]);
 

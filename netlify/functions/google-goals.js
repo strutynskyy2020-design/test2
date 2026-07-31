@@ -28,7 +28,6 @@ const backendProfileUrl = () => {
 const fetchGooglePayload = async (scriptUrl, goalsLogin) => {
   const url = new URL(scriptUrl);
   url.searchParams.set("goals_login", goalsLogin);
-  url.searchParams.set("_ts", String(Date.now()));
   const response = await fetch(url, {
     headers: { accept: "application/json" },
     redirect: "follow",
@@ -168,6 +167,10 @@ exports.handler = async (event) => {
 
     return makeResponse(200, {
       success: true,
+      api_version: baseData.api_version || null,
+      report_mode: baseData.report_mode || null,
+      snapshot_version: baseData.snapshot_version || null,
+      snapshot_updated_at: baseData.snapshot_updated_at || null,
       found: Boolean(baseData.found),
       reason: baseData.reason || null,
       goals_login: baseLogin || null,

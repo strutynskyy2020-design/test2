@@ -1991,9 +1991,12 @@ const GoalsManager = () => {
       const refreshed = googleData?.goals ? googleRowToGoalForm(googleData.goals, data) : normalizeGoalForm(data);
       setItems((rows) => rows.map((row) => row.id === u.id ? { ...row, goals: refreshed, google_synced: true } : row));
       setForms((all) => ({ ...all, [u.id]: refreshed }));
-      if (data.weekly_reward_just_awarded) toast.success(`${u.name}: Google оновлено, +200 Point та +100 XP`);
-      else if (data.monthly_reward_just_awarded) toast.success(`${u.name}: Google оновлено, +1000 Point та +300 XP`);
-      else toast.success(`Цілі ${u.name} синхронізовано з Google`);
+      const publishHint = googleData?.reports_refresh_required
+        ? ' Натисніть у Google Таблиці кнопку "Оновити звіти", щоб опублікувати зміни на сайті.'
+        : "";
+      if (data.weekly_reward_just_awarded) toast.success(`${u.name}: Google оновлено, +200 Point та +100 XP.${publishHint}`);
+      else if (data.monthly_reward_just_awarded) toast.success(`${u.name}: Google оновлено, +1000 Point та +300 XP.${publishHint}`);
+      else toast.success(`Цілі ${u.name} записано в Google.${publishHint}`);
     } catch (e) {
       toast.error(extractError(e, e?.message || "Не вдалося зберегти цілі"));
     }

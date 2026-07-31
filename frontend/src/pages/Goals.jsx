@@ -104,13 +104,12 @@ export default function Goals() {
         if (!token) throw new Error("Потрібна авторизація");
 
         const response = await fetch(
-          `/.netlify/functions/google-goals?_ts=${Date.now()}`,
+          "/.netlify/functions/google-goals",
           {
             method: "GET",
             headers: {
               accept: "application/json",
               authorization: `Bearer ${token}`,
-              "cache-control": "no-cache",
             },
             cache: "no-store",
           }
@@ -124,7 +123,9 @@ export default function Goals() {
           setEmptyMessage(
             result.reason === "goals_login_missing"
               ? "Керівник ще не прив’язав ваш профіль до Google Таблиці."
-              : "Для вашого ключа ще не додано рядок із цілями в Google Таблиці."
+              : result.reason === "reports_not_refreshed"
+                ? 'У Google Таблиці ще не натискали кнопку "Оновити звіти".'
+                : "Для вашого ключа ще не додано рядок із цілями в Google Таблиці."
           );
           return;
         }
@@ -153,7 +154,7 @@ export default function Goals() {
           weekly_reward_awarded: String(goals.weekly_reward_awarded || "").toLowerCase() === "true",
           monthly_reward_awarded: String(goals.monthly_reward_awarded || "").toLowerCase() === "true",
           note: goals.note || "",
-          updated_at: goals.updated_at || "",
+          updated_at: result.snapshot_updated_at || goals.updated_at || "",
         });
       } catch (error) {
         if (!cancelled) {
@@ -168,23 +169,8 @@ export default function Goals() {
 
     loadGoogleGoals();
 
-    const refreshWhenVisible = () => {
-      if (document.visibilityState === "visible") loadGoogleGoals();
-    };
-    const refreshOnFocus = () => loadGoogleGoals();
-    const refreshOnPageShow = () => loadGoogleGoals();
-    const refreshTimer = window.setInterval(loadGoogleGoals, 60_000);
-
-    document.addEventListener("visibilitychange", refreshWhenVisible);
-    window.addEventListener("focus", refreshOnFocus);
-    window.addEventListener("pageshow", refreshOnPageShow);
-
     return () => {
       cancelled = true;
-      window.clearInterval(refreshTimer);
-      document.removeEventListener("visibilitychange", refreshWhenVisible);
-      window.removeEventListener("focus", refreshOnFocus);
-      window.removeEventListener("pageshow", refreshOnPageShow);
     };
   }, [mode]);
 

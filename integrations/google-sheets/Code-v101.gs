@@ -7,6 +7,9 @@ const DEBIT_LEADERBOARD_SHEET_NAME = "Аркуш2";
 const DEBIT_ISSUANCES_SHEET_NAME = "Transformation Deb";
 const SCHEDULE_SHEET_NAME = "Schedule";
 const SCHEDULE_TIMEZONE = "Europe/Kyiv";
+const REPORT_CACHE_SHEET_NAME = "_TM6_REPORT_CACHE";
+const REPORT_CACHE_CHUNK_SIZE = 45000;
+const REPORT_CACHE_API_VERSION = "v102-manual-refresh";
 
 function normalizeKey(value) {
   return String(value == null ? "" : value)
@@ -16,17 +19,18 @@ function normalizeKey(value) {
     .toLowerCase();
 }
 
-function openGoalsSheet() {
+function openGoalsSheet(spreadsheet) {
   if (!SPREADSHEET_ID || SPREADSHEET_ID.includes("ВСТАВТЕ_ID")) {
     throw new Error("SPREADSHEET_ID is not configured");
   }
-  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_NAME);
+  const sourceSpreadsheet = spreadsheet || SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sheet = sourceSpreadsheet.getSheetByName(SHEET_NAME);
   if (!sheet) throw new Error(`Аркуш "${SHEET_NAME}" не знайдено`);
   return sheet;
 }
 
-function getSheetContext() {
-  const sheet = openGoalsSheet();
+function getSheetContext(spreadsheet) {
+  const sheet = openGoalsSheet(spreadsheet);
   const values = sheet.getDataRange().getDisplayValues();
   if (!values.length) return { sheet, headers: [], normalizedHeaders: [], rows: [] };
   const [headerRow, ...rows] = values;
@@ -63,9 +67,9 @@ function headerMatches(value, aliases) {
   return aliases.some((alias) => normalizeHeaderKey(alias) === normalized);
 }
 
-function getCreditLeaderboard() {
-  const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
-  const sheet = spreadsheet.getSheetByName(CREDIT_LEADERBOARD_SHEET_NAME);
+function getCreditLeaderboard(spreadsheet) {
+  const sourceSpreadsheet = spreadsheet || SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sheet = sourceSpreadsheet.getSheetByName(CREDIT_LEADERBOARD_SHEET_NAME);
   if (!sheet) return { rows: [], group_summary: null, updated_at: "" };
 
   const values = sheet.getDataRange().getDisplayValues();
@@ -147,9 +151,9 @@ function getCreditLeaderboard() {
 }
 
 
-function getDebitLeaderboard() {
-  const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
-  const sheet = spreadsheet.getSheetByName(DEBIT_LEADERBOARD_SHEET_NAME);
+function getDebitLeaderboard(spreadsheet) {
+  const sourceSpreadsheet = spreadsheet || SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sheet = sourceSpreadsheet.getSheetByName(DEBIT_LEADERBOARD_SHEET_NAME);
   if (!sheet) return { rows: [], group_summary: null, updated_at: "" };
 
   const values = sheet.getDataRange().getDisplayValues();
@@ -246,12 +250,14 @@ function headerStartsWithAlias(value, aliases) {
   return aliases.some((alias) => normalized.indexOf(normalizeHeaderKey(alias)) === 0);
 }
 
-function getDebitIssuanceRows(goalsLogin) {
-  const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
-  const sheet = spreadsheet.getSheetByName(DEBIT_ISSUANCES_SHEET_NAME);
-  if (!sheet) return [];
-
-  const values = sheet.getDataRange().getDisplayValues();
+function getDebitIssuanceRows(goalsLogin, sourceValues) {
+  let values = sourceValues;
+  if (!values) {
+    const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const sheet = spreadsheet.getSheetByName(DEBIT_ISSUANCES_SHEET_NAME);
+    if (!sheet) return [];
+    values = sheet.getDataRange().getDisplayValues();
+  }
   if (!values.length) return [];
 
   const rows = [];
@@ -362,12 +368,14 @@ function findSummaryColumn(values, blockRowIndex, headerRowIndex) {
   return fallback;
 }
 
-function getTransformationMetricRows(goalsLogin) {
-  const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
-  const sheet = spreadsheet.getSheetByName(TRANSFORMATION_SHEET_NAME);
-  if (!sheet) return [];
-
-  const values = sheet.getDataRange().getDisplayValues();
+function getTransformationMetricRows(goalsLogin, sourceValues) {
+  let values = sourceValues;
+  if (!values) {
+    const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const sheet = spreadsheet.getSheetByName(TRANSFORMATION_SHEET_NAME);
+    if (!sheet) return [];
+    values = sheet.getDataRange().getDisplayValues();
+  }
   if (!values.length) return [];
 
   const rows = [];
@@ -448,15 +456,20 @@ function getTransformationMetricRows(goalsLogin) {
   return rows;
 }
 
-function getCreditMetricRows(goalsLogin) {
-  const transformationRows = getTransformationMetricRows(goalsLogin);
+function getCreditMetricRows(goalsLogin, sources) {
+  const transformationRows = getTransformationMetricRows(
+    goalsLogin,
+    sources && sources.transformationValues
+  );
   if (transformationRows.length) return transformationRows;
 
-  const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
-  const sheet = spreadsheet.getSheetByName(CREDIT_METRICS_SHEET_NAME);
-  if (!sheet) return [];
-
-  const values = sheet.getDataRange().getDisplayValues();
+  let values = sources && sources.creditMetricValues;
+  if (!values) {
+    const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const sheet = spreadsheet.getSheetByName(CREDIT_METRICS_SHEET_NAME);
+    if (!sheet) return [];
+    values = sheet.getDataRange().getDisplayValues();
+  }
   if (values.length < 2) return [];
   const [headerRow, ...rows] = values;
   const headers = headerRow.map((header) => String(header).trim());
@@ -649,16 +662,19 @@ function normalizeScheduleCell(value) {
   };
 }
 
-function getScheduleForLogin(goalsLogin) {
-  const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
-  const sheet = spreadsheet.getSheetByName(SCHEDULE_SHEET_NAME);
-  if (!sheet) {
-    return { found: false, reason: "schedule_sheet_missing", sheet_name: SCHEDULE_SHEET_NAME, days: [] };
+function getScheduleForLogin(goalsLogin, sourceData) {
+  let displayValues = sourceData && sourceData.displayValues;
+  let rawValues = sourceData && sourceData.rawValues;
+  if (!displayValues || !rawValues) {
+    const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const sheet = spreadsheet.getSheetByName(SCHEDULE_SHEET_NAME);
+    if (!sheet) {
+      return { found: false, reason: "schedule_sheet_missing", sheet_name: SCHEDULE_SHEET_NAME, days: [] };
+    }
+    const range = sheet.getDataRange();
+    displayValues = range.getDisplayValues();
+    rawValues = range.getValues();
   }
-
-  const range = sheet.getDataRange();
-  const displayValues = range.getDisplayValues();
-  const rawValues = range.getValues();
   if (!displayValues.length) {
     return { found: false, reason: "schedule_sheet_empty", sheet_name: SCHEDULE_SHEET_NAME, days: [] };
   }
@@ -793,62 +809,291 @@ function getScheduleForLogin(goalsLogin) {
   };
 }
 
+function sheetDisplayValues(spreadsheet, sheetName) {
+  const sheet = spreadsheet.getSheetByName(sheetName);
+  return sheet ? sheet.getDataRange().getDisplayValues() : [];
+}
+
+function scheduleSourceData(spreadsheet) {
+  const sheet = spreadsheet.getSheetByName(SCHEDULE_SHEET_NAME);
+  if (!sheet) return null;
+  const range = sheet.getDataRange();
+  return {
+    displayValues: range.getDisplayValues(),
+    rawValues: range.getValues(),
+  };
+}
+
+function getScheduleLogins(sourceData) {
+  const displayValues = sourceData && sourceData.displayValues;
+  if (!displayValues || !displayValues.length) return [];
+
+  const loginAliases = ["логін", "логин", "login", "goals_login"];
+  let headerRowIndex = -1;
+  let loginColumnIndex = -1;
+
+  for (let rowIndex = 0; rowIndex < Math.min(displayValues.length, 25); rowIndex += 1) {
+    const row = displayValues[rowIndex];
+    for (let columnIndex = 0; columnIndex < row.length; columnIndex += 1) {
+      if (headerMatches(row[columnIndex], loginAliases)) {
+        headerRowIndex = rowIndex;
+        loginColumnIndex = columnIndex;
+        break;
+      }
+    }
+    if (headerRowIndex !== -1) break;
+  }
+
+  if (headerRowIndex === -1 || loginColumnIndex === -1) return [];
+  return Array.from(new Set(
+    displayValues
+      .slice(headerRowIndex + 1)
+      .map((row) => normalizeKey(row[loginColumnIndex]))
+      .filter(Boolean)
+  ));
+}
+
+function emptyScheduleSnapshot(reason, goalsLogin) {
+  return {
+    found: false,
+    reason,
+    sheet_name: SCHEDULE_SHEET_NAME,
+    goals_login: goalsLogin || "",
+    days: [],
+  };
+}
+
+function loadReportSources(spreadsheet) {
+  return {
+    transformationValues: sheetDisplayValues(spreadsheet, TRANSFORMATION_SHEET_NAME),
+    creditMetricValues: sheetDisplayValues(spreadsheet, CREDIT_METRICS_SHEET_NAME),
+    debitIssuanceValues: sheetDisplayValues(spreadsheet, DEBIT_ISSUANCES_SHEET_NAME),
+    schedule: scheduleSourceData(spreadsheet),
+  };
+}
+
+function buildReportSnapshots(spreadsheet) {
+  const context = getSheetContext(spreadsheet);
+  const goalsLoginIndex = context.normalizedHeaders.indexOf("goals_login");
+  if (goalsLoginIndex === -1) throw new Error('Немає колонки "goals_login"');
+
+  const sources = loadReportSources(spreadsheet);
+  const leaderboard = getCreditLeaderboard(spreadsheet);
+  const debitLeaderboard = getDebitLeaderboard(spreadsheet);
+  const snapshotUpdatedAt = Utilities.formatDate(
+    new Date(),
+    Session.getScriptTimeZone() || SCHEDULE_TIMEZONE,
+    "dd.MM.yyyy HH:mm"
+  );
+  const snapshotVersion = `${Date.now()}-${Utilities.getUuid()}`;
+
+  const goalLogins = context.rows
+    .map((row) => normalizeKey(row[goalsLoginIndex]))
+    .filter(Boolean);
+  const scheduleLogins = getScheduleLogins(sources.schedule);
+  const logins = Array.from(new Set(goalLogins.concat(scheduleLogins))).sort();
+
+  const reports = logins.map((goalsLogin) => {
+    const found = findGoalRow(context, goalsLogin);
+    const hasGoalRow = found.rowOffset !== -1;
+    const schedule = sources.schedule
+      ? getScheduleForLogin(goalsLogin, sources.schedule)
+      : emptyScheduleSnapshot("schedule_sheet_missing", goalsLogin);
+
+    return {
+      goals_login: goalsLogin,
+      payload: {
+        success: true,
+        api_version: REPORT_CACHE_API_VERSION,
+        report_mode: "manual_snapshot",
+        snapshot_version: snapshotVersion,
+        snapshot_updated_at: snapshotUpdatedAt,
+        goals_login: goalsLogin,
+        found: hasGoalRow,
+        reason: hasGoalRow ? null : "key_not_found",
+        goals: hasGoalRow ? rowToObject(context.headers, context.rows[found.rowOffset]) : null,
+        credit_metrics: hasGoalRow ? getCreditMetricRows(goalsLogin, sources) : [],
+        credit_leaderboard: leaderboard.rows,
+        credit_group_summary: leaderboard.group_summary,
+        credit_leaderboard_updated_at: snapshotUpdatedAt,
+        debit_leaderboard: debitLeaderboard.rows,
+        debit_group_summary: debitLeaderboard.group_summary,
+        debit_leaderboard_updated_at: snapshotUpdatedAt,
+        debit_issuances: getDebitIssuanceRows(goalsLogin, sources.debitIssuanceValues),
+        schedule,
+      },
+    };
+  });
+
+  return {
+    reports,
+    snapshotVersion,
+    snapshotUpdatedAt,
+  };
+}
+
+function splitReportJson(value) {
+  const text = String(value || "");
+  const chunks = [];
+  for (let offset = 0; offset < text.length; offset += REPORT_CACHE_CHUNK_SIZE) {
+    chunks.push(text.slice(offset, offset + REPORT_CACHE_CHUNK_SIZE));
+  }
+  return chunks.length ? chunks : [""];
+}
+
+function getOrCreateReportCacheSheet(spreadsheet) {
+  let sheet = spreadsheet.getSheetByName(REPORT_CACHE_SHEET_NAME);
+  if (!sheet) sheet = spreadsheet.insertSheet(REPORT_CACHE_SHEET_NAME);
+  return sheet;
+}
+
+function writeReportCache(spreadsheet, snapshot) {
+  const prepared = snapshot.reports.map((entry) => ({
+    goalsLogin: entry.goals_login,
+    chunks: splitReportJson(JSON.stringify(entry.payload)),
+  }));
+  const maxChunks = Math.max(1, ...prepared.map((entry) => entry.chunks.length));
+  const width = 3 + maxChunks;
+  const header = ["goals_login", "snapshot_updated_at", "chunk_count"];
+  for (let index = 0; index < maxChunks; index += 1) header.push(`payload_${index + 1}`);
+
+  const rows = prepared.map((entry) => [
+    entry.goalsLogin,
+    snapshot.snapshotUpdatedAt,
+    entry.chunks.length,
+    ...entry.chunks,
+    ...Array(Math.max(0, maxChunks - entry.chunks.length)).fill(""),
+  ]);
+
+  const sheet = getOrCreateReportCacheSheet(spreadsheet);
+  sheet.clearContents();
+  sheet.getRange(1, 1, 1, width).setValues([header]);
+  if (rows.length) sheet.getRange(2, 1, rows.length, width).setValues(rows);
+  sheet.setFrozenRows(1);
+  sheet.hideSheet();
+
+  PropertiesService.getScriptProperties().setProperties({
+    REPORT_CACHE_VERSION: snapshot.snapshotVersion,
+    REPORT_CACHE_UPDATED_AT: snapshot.snapshotUpdatedAt,
+  });
+}
+
+function readCachedReport(goalsLogin) {
+  const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sheet = spreadsheet.getSheetByName(REPORT_CACHE_SHEET_NAME);
+  if (!sheet || sheet.getLastRow() < 2) return null;
+
+  const finder = sheet
+    .getRange(2, 1, sheet.getLastRow() - 1, 1)
+    .createTextFinder(goalsLogin)
+    .matchEntireCell(true)
+    .matchCase(false);
+  const cell = finder.findNext();
+  if (!cell) return null;
+
+  const row = sheet.getRange(cell.getRow(), 1, 1, sheet.getLastColumn()).getDisplayValues()[0];
+  const chunkCount = Math.max(0, Number(row[2] || 0));
+  const json = row.slice(3, 3 + chunkCount).join("");
+  if (!json) return null;
+  const payload = JSON.parse(json);
+  payload.snapshot_updated_at = payload.snapshot_updated_at || row[1] || "";
+  return payload;
+}
+
+function readAllCachedGoals() {
+  const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sheet = spreadsheet.getSheetByName(REPORT_CACHE_SHEET_NAME);
+  if (!sheet || sheet.getLastRow() < 2) {
+    return { goals_by_login: {}, snapshot_updated_at: "" };
+  }
+
+  const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn()).getDisplayValues();
+  const goalsByLogin = {};
+  let snapshotUpdatedAt = "";
+  values.forEach((row) => {
+    const goalsLogin = normalizeKey(row[0]);
+    const chunkCount = Math.max(0, Number(row[2] || 0));
+    const json = row.slice(3, 3 + chunkCount).join("");
+    if (!goalsLogin || !json) return;
+    const payload = JSON.parse(json);
+    if (payload.found && payload.goals) goalsByLogin[goalsLogin] = payload.goals;
+    if (!snapshotUpdatedAt) snapshotUpdatedAt = payload.snapshot_updated_at || row[1] || "";
+  });
+  return { goals_by_login: goalsByLogin, snapshot_updated_at: snapshotUpdatedAt };
+}
+
+function reportsNotRefreshedPayload(goalsLogin) {
+  const updatedAt = PropertiesService.getScriptProperties().getProperty("REPORT_CACHE_UPDATED_AT") || "";
+  return {
+    success: true,
+    api_version: REPORT_CACHE_API_VERSION,
+    report_mode: "manual_snapshot",
+    snapshot_updated_at: updatedAt,
+    goals_login: goalsLogin,
+    found: false,
+    reason: "reports_not_refreshed",
+    goals: null,
+    credit_metrics: [],
+    credit_leaderboard: [],
+    credit_group_summary: null,
+    credit_leaderboard_updated_at: updatedAt,
+    debit_leaderboard: [],
+    debit_group_summary: null,
+    debit_leaderboard_updated_at: updatedAt,
+    debit_issuances: [],
+    schedule: emptyScheduleSnapshot("reports_not_refreshed", goalsLogin),
+  };
+}
+
+function onOpen() {
+  SpreadsheetApp.getUi()
+    .createMenu("TM6")
+    .addItem("Оновити звіти", "refreshReports")
+    .addToUi();
+}
+
+function refreshReports() {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
+  try {
+    spreadsheet.toast("Збираю новий знімок даних…", "TM6 · Оновлення звітів", -1);
+    SpreadsheetApp.flush();
+    const snapshot = buildReportSnapshots(spreadsheet);
+    writeReportCache(spreadsheet, snapshot);
+    spreadsheet.toast(
+      `Готово: оновлено ${snapshot.reports.length} профілів · ${snapshot.snapshotUpdatedAt}`,
+      "TM6 · Звіти оновлено",
+      8
+    );
+    return {
+      success: true,
+      updated_profiles: snapshot.reports.length,
+      snapshot_updated_at: snapshot.snapshotUpdatedAt,
+      snapshot_version: snapshot.snapshotVersion,
+    };
+  } catch (error) {
+    spreadsheet.toast(
+      error && error.message ? error.message : "Не вдалося оновити звіти",
+      "TM6 · Помилка",
+      10
+    );
+    throw error;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 function doGet(e) {
   try {
-    const goalsLogin = normalizeKey(e && e.parameter && e.parameter.goals_login);
+    const parameters = (e && e.parameter) || {};
+    const goalsLogin = normalizeKey(parameters.goals_login);
     if (!goalsLogin) return jsonResponse({ success: false, error: "goals_login is required" });
 
-    const leaderboard = getCreditLeaderboard();
-    const debitLeaderboard = getDebitLeaderboard();
-    const debitIssuances = getDebitIssuanceRows(goalsLogin);
-    const schedule = getScheduleForLogin(goalsLogin);
-    const context = getSheetContext();
-
-    const sharedPayload = {
-      api_version: "v101",
-      goals_login: goalsLogin,
-      credit_leaderboard: leaderboard.rows,
-      credit_group_summary: leaderboard.group_summary,
-      credit_leaderboard_updated_at: leaderboard.updated_at,
-      debit_leaderboard: debitLeaderboard.rows,
-      debit_group_summary: debitLeaderboard.group_summary,
-      debit_leaderboard_updated_at: debitLeaderboard.updated_at,
-      debit_issuances: debitIssuances,
-      schedule,
-    };
-
-    if (context.rows.length === 0) {
-      return jsonResponse({
-        success: true,
-        found: false,
-        reason: "sheet_is_empty",
-        goals: null,
-        credit_metrics: [],
-        ...sharedPayload,
-      });
-    }
-
-    const found = findGoalRow(context, goalsLogin);
-    if (found.rowOffset === -1) {
-      return jsonResponse({
-        success: true,
-        found: false,
-        reason: "key_not_found",
-        goals: null,
-        credit_metrics: [],
-        ...sharedPayload,
-      });
-    }
-
-    return jsonResponse({
-      success: true,
-      found: true,
-      goals: rowToObject(context.headers, context.rows[found.rowOffset]),
-      credit_metrics: getCreditMetricRows(goalsLogin),
-      ...sharedPayload,
-    });
+    const cached = readCachedReport(goalsLogin);
+    return jsonResponse(cached || reportsNotRefreshedPayload(goalsLogin));
   } catch (error) {
-    return jsonResponse({ success: false, error: error && error.message ? error.message : "Помилка читання таблиці" });
+    return jsonResponse({ success: false, error: error && error.message ? error.message : "Помилка читання кешу звітів" });
   }
 }
 
@@ -858,6 +1103,16 @@ function doPost(e) {
     const expectedToken = PropertiesService.getScriptProperties().getProperty("WRITE_TOKEN");
     if (!expectedToken || String(body.token || "") !== expectedToken) {
       return jsonResponse({ success: false, error: "Unauthorized write" });
+    }
+
+    if (normalizeKey(body.action) === "read_all_goals") {
+      const all = readAllCachedGoals();
+      return jsonResponse({
+        success: true,
+        api_version: REPORT_CACHE_API_VERSION,
+        report_mode: "manual_snapshot",
+        ...all,
+      });
     }
 
     const goalsLogin = normalizeKey(body.goals_login);
@@ -907,6 +1162,8 @@ function doPost(e) {
       found: true,
       goals_login: goalsLogin,
       goals: rowToObject(context.headers, refreshed),
+      reports_refresh_required: true,
+      message: 'Зміни записано в таблицю. Натисніть кнопку "Оновити звіти", щоб опублікувати їх на сайті.',
     });
   } catch (error) {
     return jsonResponse({ success: false, error: error && error.message ? error.message : "Помилка запису таблиці" });

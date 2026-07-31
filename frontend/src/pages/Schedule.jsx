@@ -55,6 +55,10 @@ const SCHEDULE_REASON_COPY = {
     title: "Рядок дат не знайдено",
     text: "Над днями тижня мають бути числа дат: 1, 2, 3 і далі.",
   },
+  reports_not_refreshed: {
+    title: "Звіти ще не опубліковано",
+    text: 'У Google Таблиці натисніть кнопку "Оновити звіти", а потім оновіть цю сторінку.',
+  },
 };
 
 const StatusIcon = ({ type, size = 22, strokeWidth = 2.5 }) => {
@@ -69,14 +73,14 @@ const StatusIcon = ({ type, size = 22, strokeWidth = 2.5 }) => {
 const fetchSchedule = async (scheduleLogin = "") => {
   const token = getToken();
   if (!token) throw new Error("Потрібна авторизація");
-  const params = new URLSearchParams({ _ts: String(Date.now()) });
+  const params = new URLSearchParams();
   if (scheduleLogin) params.set("schedule_login", scheduleLogin);
-  const response = await fetch(`/.netlify/functions/google-goals?${params.toString()}`, {
+  const query = params.toString();
+  const response = await fetch(`/.netlify/functions/google-goals${query ? `?${query}` : ""}`, {
     method: "GET",
     headers: {
       accept: "application/json",
       authorization: `Bearer ${token}`,
-      "cache-control": "no-cache",
     },
     cache: "no-store",
   });
@@ -190,17 +194,8 @@ export default function Schedule() {
     };
     initialLoad();
 
-    const refresh = () => {
-      if (document.visibilityState === "visible") load({ quiet: true });
-    };
-    const timer = window.setInterval(() => load({ quiet: true }), 5 * 60_000);
-    document.addEventListener("visibilitychange", refresh);
-    window.addEventListener("focus", refresh);
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
-      document.removeEventListener("visibilitychange", refresh);
-      window.removeEventListener("focus", refresh);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

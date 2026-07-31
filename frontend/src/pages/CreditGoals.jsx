@@ -522,12 +522,11 @@ export default function CreditGoals() {
         setEmptyMessage("");
         const token = getToken();
         if (!token) throw new Error("Потрібна авторизація");
-        const response = await fetch(`/.netlify/functions/google-goals?_ts=${Date.now()}`, {
+        const response = await fetch("/.netlify/functions/google-goals", {
           method: "GET",
           headers: {
             accept: "application/json",
             authorization: `Bearer ${token}`,
-            "cache-control": "no-cache",
           },
           cache: "no-store",
         });
@@ -556,19 +555,8 @@ export default function CreditGoals() {
     };
 
     load();
-    const refreshWhenVisible = () => {
-      if (document.visibilityState === "visible") load({ silent: true });
-    };
-    const refreshOnFocus = () => load({ silent: true });
-    const refreshTimer = window.setInterval(() => load({ silent: true }), 60_000);
-    document.addEventListener("visibilitychange", refreshWhenVisible);
-    window.addEventListener("focus", refreshOnFocus);
-
     return () => {
       cancelled = true;
-      window.clearInterval(refreshTimer);
-      document.removeEventListener("visibilitychange", refreshWhenVisible);
-      window.removeEventListener("focus", refreshOnFocus);
     };
   }, [mode]);
 
