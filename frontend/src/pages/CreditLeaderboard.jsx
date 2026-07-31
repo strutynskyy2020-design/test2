@@ -9,9 +9,9 @@ import {
   UserRound,
   UsersRound,
 } from "lucide-react";
-import { toast } from "sonner";
-import api, { getToken } from "@/lib/api";
+import api from "@/lib/api";
 import { useApp } from "@/context/AppContext";
+import { useDailyGoogleReports } from "@/hooks/useGoogleReports";
 import { resolveAvatarUrl } from "@/lib/avatar";
 
 const DEMO_GROUP_SUMMARY = {
@@ -233,71 +233,43 @@ function OperatorRow({ operator, rank, isCurrent }) {
 export default function CreditLeaderboard() {
   const { mode, user } = useApp();
   const navigate = useNavigate();
-  const [rows, setRows] = useState(mode === "mock" ? DEMO_LEADERBOARD : []);
-  const [groupSummary, setGroupSummary] = useState(mode === "mock" ? DEMO_GROUP_SUMMARY : null);
-  const [loading, setLoading] = useState(mode !== "mock");
-  const [emptyMessage, setEmptyMessage] = useState("");
-  const [updatedAt, setUpdatedAt] = useState("");
+  const { data: report, loading: reportsLoading, error } = useDailyGoogleReports();
+  const [participants, setParticipants] = useState([]);
 
   useEffect(() => {
-    if (mode === "mock") {
-      setRows(DEMO_LEADERBOARD);
-      setGroupSummary(DEMO_GROUP_SUMMARY);
-      setLoading(false);
-      setUpdatedAt("демо-дані");
-      return;
-    }
-
+    if (mode === "mock") return undefined;
     let cancelled = false;
-    const load = async ({ silent = false } = {}) => {
-      try {
-        if (!silent) setLoading(true);
-        setEmptyMessage("");
-        const token = getToken();
-        if (!token) throw new Error("Потрібна авторизація");
-        const [response, participantsResponse] = await Promise.all([
-          fetch("/.netlify/functions/google-goals", {
-            method: "GET",
-            headers: {
-              accept: "application/json",
-              authorization: `Bearer ${token}`,
-              "cache-control": "no-cache",
-            },
-            cache: "no-store",
-          }),
-          api.get("/goals/participants").catch(() => ({ data: [] })),
-        ]);
-        const result = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(result.error || "Не вдалося завантажити рейтинг");
-        if (cancelled) return;
-
-        const rawRows = Array.isArray(result.credit_leaderboard) ? result.credit_leaderboard : [];
-        const enrichedRows = enrichRowsWithProfiles(rawRows, participantsResponse?.data);
-        const leaderboard = normalizeLeaderboard(enrichedRows);
-        const summary = normalizeGroupSummary(result.credit_group_summary, rawRows);
-        setRows(leaderboard);
-        setGroupSummary(summary);
-        setUpdatedAt(result.credit_leaderboard_updated_at || "з Google Таблиці");
-        if (!leaderboard.length) {
-          setEmptyMessage('На вкладці "Аркуш2" не знайдено таблицю, де Credit є колонкою логінів операторів, а далі йдуть X-sell / Web apps / Inb / Загальний.');
-        }
-      } catch (error) {
-        if (!cancelled && !silent) {
-          setRows([]);
-          setGroupSummary(null);
-          setEmptyMessage("Не вдалося завантажити рейтинг з Google Таблиці.");
-          toast.error(error.message || "Помилка завантаження рейтингу");
-        }
-      } finally {
-        if (!cancelled && !silent) setLoading(false);
-      }
-    };
-
-    load();
+    api.get("/goals/participants")
+      .then((response) => {
+        if (!cancelled) setParticipants(Array.isArray(response.data) ? response.data : []);
+      })
+      .catch(() => {
+        if (!cancelled) setParticipants([]);
+      });
     return () => {
       cancelled = true;
     };
   }, [mode]);
+
+  const rawRows = mode === "mock"
+    ? DEMO_LEADERBOARD
+    : Array.isArray(report?.credit_leaderboard) ? report.credit_leaderboard : [];
+  const rows = useMemo(
+    () => mode === "mock" ? DEMO_LEADERBOARD : enrichRowsWithProfiles(rawRows, participants),
+    [mode, participants, rawRows]
+  );
+  const groupSummary = mode === "mock"
+    ? DEMO_GROUP_SUMMARY
+    : normalizeGroupSummary(report?.credit_group_summary, rawRows);
+  const updatedAt = mode === "mock"
+    ? "демо-дані"
+    : report?.credit_leaderboard_updated_at || report?.snapshot_updated_at || "";
+  const emptyMessage = error
+    ? "Не вдалося завантажити рейтинг з опублікованого звіту."
+    : report && !rawRows.length
+      ? 'На вкладці "Аркуш2" не знайдено таблицю, де Credit є колонкою логінів операторів, а далі йдуть X-sell / Web apps / Inb / Загальний.'
+      : "";
+  const loading = mode !== "mock" && reportsLoading && !report;
 
   const currentLogin = normalizeLogin(user?.goals_login);
   const leaderboard = useMemo(() => normalizeLeaderboard(rows), [rows]);

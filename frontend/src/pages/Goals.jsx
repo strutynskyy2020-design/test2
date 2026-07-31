@@ -1,8 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import { Target, CreditCard, Landmark, WalletCards, Coins, Trophy, CalendarDays, ChevronRight } from "lucide-react";
-import { toast } from "sonner";
-import { getToken } from "@/lib/api";
 import { useApp } from "@/context/AppContext";
+import { useDailyGoogleReports } from "@/hooks/useGoogleReports";
 import { useNavigate } from "react-router-dom";
 
 const metricMeta = {
@@ -77,103 +76,74 @@ function MetricCard({ name, metric, onOpen }) {
 export default function Goals() {
   const { mode } = useApp();
   const navigate = useNavigate();
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [emptyMessage, setEmptyMessage] = useState("");
+  const { data: report, loading: reportsLoading, error } = useDailyGoogleReports();
 
-  useEffect(() => {
+  const { data, emptyMessage } = useMemo(() => {
     if (mode === "mock") {
-      setData({
-        credit: { current: 92, target: 100, mode: "reach", complete: false },
-        debit: { current: 111, target: 110, mode: "maintain", complete: true },
-        deposit: { current: 86, target: 95, mode: "reach", complete: false },
-        monthly_bonus_current: 14250, monthly_bonus_target: 18000,
-        weekly_complete: false, monthly_complete: false,
-        weekly_reward_awarded: false, monthly_reward_awarded: false,
-      });
-      setLoading(false);
-      return;
+      return {
+        data: {
+          credit: { current: 92, target: 100, mode: "reach", complete: false },
+          debit: { current: 111, target: 110, mode: "maintain", complete: true },
+          deposit: { current: 86, target: 95, mode: "reach", complete: false },
+          monthly_bonus_current: 14250,
+          monthly_bonus_target: 18000,
+          weekly_complete: false,
+          monthly_complete: false,
+          weekly_reward_awarded: false,
+          monthly_reward_awarded: false,
+        },
+        emptyMessage: "",
+      };
     }
-    let cancelled = false;
 
-    const loadGoogleGoals = async () => {
-      try {
-        setLoading(true);
-        setEmptyMessage("");
-        const token = getToken();
-        if (!token) throw new Error("Потрібна авторизація");
+    if (!report) {
+      return {
+        data: null,
+        emptyMessage: error ? "Не вдалося завантажити цілі з опублікованого звіту." : "",
+      };
+    }
 
-        const response = await fetch(
-          "/.netlify/functions/google-goals",
-          {
-            method: "GET",
-            headers: {
-              accept: "application/json",
-              authorization: `Bearer ${token}`,
-            },
-            cache: "no-store",
-          }
-        );
-        const result = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(result.error || "Не вдалося завантажити цілі");
-        if (cancelled) return;
+    if (!report.found || !report.goals) {
+      const message = report.reason === "goals_login_missing"
+        ? "Керівник ще не прив’язав ваш профіль до Google Таблиці."
+        : report.reason === "reports_not_refreshed"
+          ? 'У Google Таблиці ще не натискали кнопку "Оновити звіти".'
+          : "Для вашого ключа ще не додано рядок із цілями в Google Таблиці.";
+      return { data: null, emptyMessage: message };
+    }
 
-        if (!result.found || !result.goals) {
-          setData(null);
-          setEmptyMessage(
-            result.reason === "goals_login_missing"
-              ? "Керівник ще не прив’язав ваш профіль до Google Таблиці."
-              : result.reason === "reports_not_refreshed"
-                ? 'У Google Таблиці ще не натискали кнопку "Оновити звіти".'
-                : "Для вашого ключа ще не додано рядок із цілями в Google Таблиці."
-          );
-          return;
-        }
-
-        const goals = result.goals;
-        const metric = (name) => {
-          const current = parseSheetNumber(firstDefined(goals, [`${name}_actual`, `${name}_current`]));
-          const target = parseSheetNumber(firstDefined(goals, [`${name}_target`]));
-          const modeValue = goals[`${name}_mode`] === "maintain" ? "maintain" : "reach";
-          return {
-            current,
-            target,
-            mode: modeValue,
-            complete: target > 0 && (modeValue === "maintain" ? current >= target : current >= target),
-          };
-        };
-
-        setData({
-          credit: metric("credit"),
-          debit: metric("debit"),
-          deposit: metric("deposit"),
-          monthly_bonus_current: parseSheetNumber(firstDefined(goals, ["monthly_bonus_actual", "monthly_bonus_current"])),
-          monthly_bonus_target: parseSheetNumber(firstDefined(goals, ["monthly_bonus_target"])) ,
-          weekly_complete: String(goals.weekly_complete || "").toLowerCase() === "true",
-          monthly_complete: String(goals.monthly_complete || "").toLowerCase() === "true",
-          weekly_reward_awarded: String(goals.weekly_reward_awarded || "").toLowerCase() === "true",
-          monthly_reward_awarded: String(goals.monthly_reward_awarded || "").toLowerCase() === "true",
-          note: goals.note || "",
-          updated_at: result.snapshot_updated_at || goals.updated_at || "",
-        });
-      } catch (error) {
-        if (!cancelled) {
-          setData(null);
-          setEmptyMessage("Не вдалося завантажити цілі з Google Таблиці.");
-          toast.error(error.message || "Не вдалося завантажити цілі");
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
+    const goals = report.goals;
+    const metric = (name) => {
+      const current = parseSheetNumber(firstDefined(goals, [`${name}_actual`, `${name}_current`]));
+      const target = parseSheetNumber(firstDefined(goals, [`${name}_target`]));
+      const modeValue = goals[`${name}_mode`] === "maintain" ? "maintain" : "reach";
+      return {
+        current,
+        target,
+        mode: modeValue,
+        complete: target > 0 && current >= target,
+      };
     };
 
-    loadGoogleGoals();
-
-    return () => {
-      cancelled = true;
+    return {
+      data: {
+        credit: metric("credit"),
+        debit: metric("debit"),
+        deposit: metric("deposit"),
+        monthly_bonus_current: parseSheetNumber(firstDefined(goals, ["monthly_bonus_actual", "monthly_bonus_current"])),
+        monthly_bonus_target: parseSheetNumber(firstDefined(goals, ["monthly_bonus_target"])),
+        weekly_complete: String(goals.weekly_complete || "").toLowerCase() === "true",
+        monthly_complete: String(goals.monthly_complete || "").toLowerCase() === "true",
+        weekly_reward_awarded: String(goals.weekly_reward_awarded || "").toLowerCase() === "true",
+        monthly_reward_awarded: String(goals.monthly_reward_awarded || "").toLowerCase() === "true",
+        note: goals.note || "",
+        updated_at: report.snapshot_updated_at || goals.updated_at || "",
+      },
+      emptyMessage: "",
     };
-  }, [mode]);
+  }, [error, mode, report]);
 
+  const loading = mode !== "mock" && reportsLoading && !report;
   const weeklyDone = useMemo(() => data ? [data.credit, data.debit, data.deposit].filter(x => x?.complete).length : 0, [data]);
   if (loading) return <div className="p-8 text-center text-sm text-zinc-500">Завантаження цілей...</div>;
   if (!data) return (

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   ArrowLeft,
@@ -11,9 +11,8 @@ import {
   TrendingUp,
   WalletCards,
 } from "lucide-react";
-import { toast } from "sonner";
-import { getToken } from "@/lib/api";
 import { useApp } from "@/context/AppContext";
+import { useDailyGoogleReports } from "@/hooks/useGoogleReports";
 import { resolveAvatarUrl } from "@/lib/avatar";
 
 const PERIODS = [
@@ -98,9 +97,7 @@ export default function DebitIssuances() {
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedPeriod = searchParams.get("period");
   const period = PERIODS.some((item) => item.id === requestedPeriod) ? requestedPeriod : "month";
-  const [rows, setRows] = useState(mode === "mock" ? DEMO_ROWS : []);
-  const [loading, setLoading] = useState(mode !== "mock");
-  const [emptyMessage, setEmptyMessage] = useState("");
+  const { data: report, loading: reportsLoading, error } = useDailyGoogleReports();
 
   const updatePeriod = (value) => {
     const next = new URLSearchParams(searchParams);
@@ -108,59 +105,29 @@ export default function DebitIssuances() {
     setSearchParams(next, { replace: true });
   };
 
-  useEffect(() => {
-    if (mode === "mock") {
-      setRows(DEMO_ROWS);
-      setLoading(false);
-      return;
-    }
-    let cancelled = false;
-    const load = async ({ silent = false } = {}) => {
-      try {
-        if (!silent) setLoading(true);
-        setEmptyMessage("");
-        const token = getToken();
-        if (!token) throw new Error("Потрібна авторизація");
-        const response = await fetch("/.netlify/functions/google-goals", {
-          method: "GET",
-          headers: { accept: "application/json", authorization: `Bearer ${token}` },
-          cache: "no-store",
-        });
-        const result = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(result.error || "Не вдалося завантажити видачі");
-        if (cancelled) return;
-        const normalized = normalizeRows(result.debit_issuances);
-        const rowsByPeriod = new Map(normalized.map((row) => [row.period, row]));
-        const completedRows = normalized.length
-          ? PERIODS.map(({ id }) => rowsByPeriod.get(id) || {
-              period: id,
-              inb_deb: 0,
-              vse_card: 0,
-              web_fuib: 0,
-              web_apps: 0,
-              x_sell: 0,
-              overall: 0,
-              updated_at: normalized[0]?.updated_at || "з Google Таблиці",
-            })
-          : [];
-        setRows(completedRows);
-        if (!completedRows.length) setEmptyMessage('На вкладці "Transformation Deb" не знайдено блоки giving month або giving yesterday.');
-      } catch (error) {
-        if (!cancelled && !silent) {
-          setRows([]);
-          setEmptyMessage("Не вдалося завантажити видачі з Google Таблиці.");
-          toast.error(error.message || "Помилка завантаження видач");
-        }
-      } finally {
-        if (!cancelled && !silent) setLoading(false);
-      }
-    };
-    load();
-    return () => {
-      cancelled = true;
-    };
-  }, [mode]);
+  const rows = useMemo(() => {
+    if (mode === "mock") return DEMO_ROWS;
+    const normalized = normalizeRows(report?.debit_issuances);
+    if (!normalized.length) return [];
+    const rowsByPeriod = new Map(normalized.map((row) => [row.period, row]));
+    return PERIODS.map(({ id }) => rowsByPeriod.get(id) || {
+      period: id,
+      inb_deb: 0,
+      vse_card: 0,
+      web_fuib: 0,
+      web_apps: 0,
+      x_sell: 0,
+      overall: 0,
+      updated_at: normalized[0]?.updated_at || report?.snapshot_updated_at || "з Google Таблиці",
+    });
+  }, [mode, report]);
 
+  const emptyMessage = error
+    ? "Не вдалося завантажити видачі з опублікованого звіту."
+    : report && !rows.length
+      ? 'На вкладці "Transformation Deb" не знайдено блоки giving month або giving yesterday.'
+      : "";
+  const loading = mode !== "mock" && reportsLoading && !report;
   const activeData = rows.find((row) => row.period === period) || null;
   const maxValue = useMemo(() => activeData ? Math.max(0, ...DIRECTIONS.map((direction) => Number(activeData[direction.key] || 0))) : 0, [activeData]);
   const strongest = useMemo(() => activeData ? DIRECTIONS.reduce((best, direction) => {

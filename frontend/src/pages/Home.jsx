@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Flame, Trophy, GraduationCap, Sparkles, Crown, Award, Medal, Star, Zap, ChevronRight, Coins, TrendingUp, Swords, Gift, Lock, Dice5, ScrollText, Target, Newspaper, Gamepad2, BriefcaseBusiness, CalendarClock, CalendarDays, Coffee } from "lucide-react";
 import { useApp } from "@/context/AppContext";
-import api, { getToken } from "@/lib/api";
+import { useDailyGoogleReports } from "@/hooks/useGoogleReports";
+import api from "@/lib/api";
 import { resolveAvatarUrl } from "@/lib/avatar";
 import AvatarFrame from "@/components/AvatarFrame";
 import { getAchievements } from "@/lib/achievements";
@@ -97,6 +98,10 @@ export default function Home() {
   const [feed, setFeed] = useState([]);
   const [awardedAchievements, setAwardedAchievements] = useState([]);
   const [workSchedule, setWorkSchedule] = useState(null);
+  const selectedScheduleLogin = (user?.role === "admin" || user?.role === "editor") && typeof window !== "undefined"
+    ? localStorage.getItem("tm6_schedule_admin_login_v1") || ""
+    : "";
+  const { data: googleReports } = useDailyGoogleReports({ scheduleLogin: selectedScheduleLogin });
 
   useEffect(() => {
     const schedule = window.requestIdleCallback
@@ -125,48 +130,18 @@ export default function Home() {
       return;
     }
 
+    if (googleReports?.found && googleReports.goals) {
+      setGoals(mapGoogleGoals(googleReports.goals));
+    } else {
+      setGoals(defaultGoals);
+    }
+    setWorkSchedule(googleReports?.schedule && typeof googleReports.schedule === "object" ? googleReports.schedule : null);
+  }, [googleReports, mode, user]);
+
+  useEffect(() => {
+    if (!user || mode === "mock") return undefined;
     let cancelled = false;
 
-    const loadGoogleGoals = async () => {
-      try {
-        const token = getToken();
-        if (!token) return;
-
-        const params = new URLSearchParams();
-        if ((user.role === "admin" || user.role === "editor") && typeof window !== "undefined") {
-          const selectedScheduleLogin = localStorage.getItem("tm6_schedule_admin_login_v1") || "";
-          if (selectedScheduleLogin) params.set("schedule_login", selectedScheduleLogin);
-        }
-        const query = params.toString();
-        const response = await fetch(
-          `/.netlify/functions/google-goals${query ? `?${query}` : ""}`,
-          {
-            method: "GET",
-            headers: {
-              accept: "application/json",
-              authorization: `Bearer ${token}`,
-            },
-            cache: "no-store",
-          }
-        );
-
-        const result = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(result.error || "Не вдалося завантажити цілі");
-        if (cancelled) return;
-
-        if (result.found && result.goals) {
-          setGoals(mapGoogleGoals(result.goals));
-        } else {
-          setGoals(defaultGoals);
-        }
-        setWorkSchedule(result.schedule && typeof result.schedule === "object" ? result.schedule : null);
-      } catch (error) {
-        console.error("Home Google goals error:", error);
-        if (!cancelled) setGoals(defaultGoals);
-      }
-    };
-
-    loadGoogleGoals();
     api.get("/feed", { params: { limit: 5 } }).then(r => {
       if (!cancelled) setFeed(r.data.events || []);
     }).catch(() => {});

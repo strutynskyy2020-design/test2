@@ -9,12 +9,11 @@ import {
   ChevronRight,
   Coffee,
   MapPin,
-  RefreshCcw,
 } from "lucide-react";
-import { toast } from "sonner";
 import PalmOnSandIcon from "@/components/PalmOnSandIcon";
-import api, { getToken } from "@/lib/api";
+import api from "@/lib/api";
 import { useApp } from "@/context/AppContext";
+import { useDailyGoogleReports } from "@/hooks/useGoogleReports";
 import {
   addIsoDays,
   buildMonthCells,
@@ -70,27 +69,6 @@ const StatusIcon = ({ type, size = 22, strokeWidth = 2.5 }) => {
   return <BriefcaseBusiness {...props} />;
 };
 
-const fetchSchedule = async (scheduleLogin = "") => {
-  const token = getToken();
-  if (!token) throw new Error("Потрібна авторизація");
-  const params = new URLSearchParams();
-  if (scheduleLogin) params.set("schedule_login", scheduleLogin);
-  const query = params.toString();
-  const response = await fetch(`/.netlify/functions/google-goals${query ? `?${query}` : ""}`, {
-    method: "GET",
-    headers: {
-      accept: "application/json",
-      authorization: `Bearer ${token}`,
-    },
-    cache: "no-store",
-  });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok || data.success === false) {
-    throw new Error(data.error || "Не вдалося завантажити графік");
-  }
-  return data.schedule || null;
-};
-
 const DaySummary = ({ title, day }) => {
   const status = getScheduleStatus(day);
   return (
@@ -128,9 +106,6 @@ export default function Schedule() {
   const nav = useNavigate();
   const { user } = useApp();
   const isPrivileged = user?.role === "admin" || user?.role === "editor";
-  const [schedule, setSchedule] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
   const [selectedDate, setSelectedDate] = useState("");
   const [activeMonth, setActiveMonth] = useState("");
   const [participants, setParticipants] = useState([]);
@@ -138,85 +113,56 @@ export default function Schedule() {
     typeof window !== "undefined" ? localStorage.getItem(ADMIN_SCHEDULE_LOGIN_KEY) || "" : ""
   ));
   const todayIso = useMemo(() => kyivTodayIso(), []);
-
-  const load = async ({ quiet = false } = {}) => {
-    if (!quiet) setLoading(true);
-    setError("");
-    try {
-      const next = await fetchSchedule(isPrivileged ? scheduleLogin : "");
-      setSchedule(next);
-      const dates = Array.isArray(next?.days) ? next.days.map((day) => day.date).filter(Boolean) : [];
-      const preferred = dates.includes(todayIso) ? todayIso : dates[0] || "";
-      setSelectedDate((current) => (current && dates.includes(current) ? current : preferred));
-      setActiveMonth((current) => current || monthKeyFromIso(preferred));
-    } catch (err) {
-      setError(err?.message || "Не вдалося завантажити графік");
-      if (quiet) toast.error(err?.message || "Не вдалося оновити графік");
-    } finally {
-      if (!quiet) setLoading(false);
-    }
-  };
+  const {
+    data: report,
+    loading: reportsLoading,
+    error: reportsError,
+    refresh,
+  } = useDailyGoogleReports({ scheduleLogin: isPrivileged ? scheduleLogin : "" });
+  const schedule = report?.schedule || null;
+  const loading = reportsLoading && !schedule;
+  const error = reportsError?.message || "";
 
   useEffect(() => {
+    if (!isPrivileged) return undefined;
     let cancelled = false;
-
-    const initialLoad = async () => {
-      setLoading(true);
-      try {
-        let selectedLogin = scheduleLogin;
-        if (isPrivileged) {
-          const response = await api.get("/goals/participants");
-          const options = (Array.isArray(response.data) ? response.data : [])
-            .filter((item) => item?.goals_login)
-            .sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "uk"));
-          if (cancelled) return;
-          setParticipants(options);
-          const savedExists = options.some((item) => item.goals_login === selectedLogin);
-          selectedLogin = savedExists
-            ? selectedLogin
-            : (user?.goals_login || options[0]?.goals_login || "");
-          setScheduleLogin(selectedLogin);
-          if (selectedLogin) localStorage.setItem(ADMIN_SCHEDULE_LOGIN_KEY, selectedLogin);
-        }
-
-        const next = await fetchSchedule(isPrivileged ? selectedLogin : "");
+    api.get("/goals/participants")
+      .then((response) => {
         if (cancelled) return;
-        setSchedule(next);
-        const dates = Array.isArray(next?.days) ? next.days.map((day) => day.date).filter(Boolean) : [];
-        const preferred = dates.includes(todayIso) ? todayIso : dates[0] || "";
-        setSelectedDate(preferred);
-        setActiveMonth(monthKeyFromIso(preferred));
-      } catch (err) {
-        if (!cancelled) setError(err?.message || "Не вдалося завантажити графік");
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    };
-    initialLoad();
-
+        const options = (Array.isArray(response.data) ? response.data : [])
+          .filter((item) => item?.goals_login)
+          .sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "uk"));
+        setParticipants(options);
+        const savedExists = options.some((item) => item.goals_login === scheduleLogin);
+        const nextLogin = savedExists
+          ? scheduleLogin
+          : (user?.goals_login || options[0]?.goals_login || "");
+        setScheduleLogin(nextLogin);
+        if (nextLogin) localStorage.setItem(ADMIN_SCHEDULE_LOGIN_KEY, nextLogin);
+      })
+      .catch(() => {
+        if (!cancelled) setParticipants([]);
+      });
     return () => {
       cancelled = true;
     };
+    // scheduleLogin is intentionally initialized from the returned participant list.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [isPrivileged, user?.goals_login]);
 
-  const changeScheduleLogin = async (nextLogin) => {
+  useEffect(() => {
+    const dates = Array.isArray(schedule?.days) ? schedule.days.map((day) => day.date).filter(Boolean) : [];
+    const preferred = dates.includes(todayIso) ? todayIso : dates[0] || "";
+    setSelectedDate((current) => (current && dates.includes(current) ? current : preferred));
+    setActiveMonth((current) => {
+      const currentStillExists = current && dates.some((date) => monthKeyFromIso(date) === current);
+      return currentStillExists ? current : monthKeyFromIso(preferred);
+    });
+  }, [schedule, todayIso]);
+
+  const changeScheduleLogin = (nextLogin) => {
     setScheduleLogin(nextLogin);
     localStorage.setItem(ADMIN_SCHEDULE_LOGIN_KEY, nextLogin);
-    setLoading(true);
-    setError("");
-    try {
-      const next = await fetchSchedule(nextLogin);
-      setSchedule(next);
-      const dates = Array.isArray(next?.days) ? next.days.map((day) => day.date).filter(Boolean) : [];
-      const preferred = dates.includes(todayIso) ? todayIso : dates[0] || "";
-      setSelectedDate(preferred);
-      setActiveMonth(monthKeyFromIso(preferred));
-    } catch (err) {
-      setError(err?.message || "Не вдалося завантажити графік");
-    } finally {
-      setLoading(false);
-    }
   };
 
   const days = Array.isArray(schedule?.days) ? schedule.days : [];
@@ -276,14 +222,6 @@ export default function Schedule() {
             {schedule?.employee?.rate ? ` • ставка ${schedule.employee.rate}` : ""}
           </div>
         </div>
-        <button
-          type="button"
-          onClick={() => load({ quiet: true })}
-          className="app-header-action flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-[#1A1A1E] text-[#6D3DF5] active:scale-95"
-          aria-label="Оновити графік"
-        >
-          <RefreshCcw size={19} strokeWidth={2.6} />
-        </button>
       </div>
 
       {isPrivileged && participants.length > 0 && (
@@ -310,7 +248,7 @@ export default function Schedule() {
         <section className="rounded-3xl border border-[#EF5350]/30 bg-[#EF5350]/10 p-5">
           <div className="font-black text-[#EF5350]">Графік не завантажився</div>
           <div className="mt-1 text-sm text-zinc-500">{error}</div>
-          <button type="button" onClick={() => load()} className="mt-4 rounded-2xl bg-[#6D3DF5] px-4 py-3 text-xs font-black text-white">
+          <button type="button" onClick={() => refresh().catch(() => {})} className="mt-4 rounded-2xl bg-[#6D3DF5] px-4 py-3 text-xs font-black text-white">
             Спробувати ще раз
           </button>
         </section>

@@ -171,6 +171,7 @@ exports.handler = async (event) => {
       report_mode: baseData.report_mode || null,
       snapshot_version: baseData.snapshot_version || null,
       snapshot_updated_at: baseData.snapshot_updated_at || null,
+      snapshot_day: baseData.snapshot_day || null,
       found: Boolean(baseData.found),
       reason: baseData.reason || null,
       goals_login: baseLogin || null,

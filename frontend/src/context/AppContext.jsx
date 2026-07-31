@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import api, { clearToken, extractError, getToken, setToken } from "@/lib/api";
+import { clearGoogleReportsCache, preloadGoogleReports } from "@/lib/googleReportsCache";
 
 const AppContext = createContext(null);
 const CACHE_KEY = "callhub_cache_v2";
@@ -40,12 +41,23 @@ export const AppProvider = ({ children }) => {
     const invalidate = (event) => {
       clearToken();
       localStorage.removeItem(CACHE_KEY);
+      clearGoogleReportsCache();
       setState({ ...emptyState, mode: "live" });
       toast.error(event?.detail?.message || "Сесію завершено. Увійдіть знову");
     };
     window.addEventListener("tm6-auth-invalidated", invalidate);
     return () => window.removeEventListener("tm6-auth-invalidated", invalidate);
   }, []);
+
+  useEffect(() => {
+    if (state.mode !== "live" || !state.user || !getToken()) return;
+    const isPrivileged = state.user.role === "admin" || state.user.role === "editor";
+    const scheduleLogin = isPrivileged
+      ? localStorage.getItem("tm6_schedule_admin_login_v1") || ""
+      : "";
+    preloadGoogleReports({ user: state.user, scheduleLogin }).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.mode, state.user?.id, state.user?.goals_login, state.user?.role]);
 
   useEffect(() => {
     if (!state.user || !getToken()) return undefined;
@@ -90,6 +102,7 @@ export const AppProvider = ({ children }) => {
   const logout = () => {
     clearToken();
     localStorage.removeItem(CACHE_KEY);
+    clearGoogleReportsCache();
     setState({ ...emptyState, mode: "live" });
   };
 

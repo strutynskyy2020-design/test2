@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   ArrowLeft,
@@ -14,9 +14,8 @@ import {
   TriangleAlert,
   UsersRound,
 } from "lucide-react";
-import { toast } from "sonner";
-import { getToken } from "@/lib/api";
 import { useApp } from "@/context/AppContext";
+import { useDailyGoogleReports } from "@/hooks/useGoogleReports";
 
 const CHANNELS = [
   { id: "xsell", label: "X-Sell", aliases: ["xsell", "x_sell", "x-sell"] },
@@ -498,9 +497,7 @@ export default function CreditGoals() {
   const requestedPeriod = searchParams.get("period");
   const channel = CHANNELS.some((item) => item.id === requestedChannel) ? requestedChannel : "xsell";
   const period = PERIODS.some((item) => item.id === requestedPeriod) ? requestedPeriod : "month";
-  const [details, setDetails] = useState(mode === "mock" ? FEDUN_DEMO : null);
-  const [loading, setLoading] = useState(mode !== "mock");
-  const [emptyMessage, setEmptyMessage] = useState("");
+  const { data: report, loading: reportsLoading, error } = useDailyGoogleReports();
 
   const updateFilter = (key, value) => {
     const next = new URLSearchParams(searchParams);
@@ -508,58 +505,23 @@ export default function CreditGoals() {
     setSearchParams(next, { replace: true });
   };
 
-  useEffect(() => {
-    if (mode === "mock") {
-      setDetails(FEDUN_DEMO);
-      setLoading(false);
-      return;
+  const details = useMemo(() => {
+    if (mode === "mock") return FEDUN_DEMO;
+    if (!report?.found || !report?.goals) return null;
+    return buildDetailsFromMetricRows(report.credit_metrics) || buildDetailsFromSheet(report.goals);
+  }, [mode, report]);
+
+  const emptyMessage = useMemo(() => {
+    if (mode === "mock" || details) return "";
+    if (error) return "Не вдалося завантажити деталізацію з опублікованого звіту.";
+    if (!report) return "";
+    if (!report.found || !report.goals) {
+      return "Для вашого профілю ще не додано детальні показники кредитного напрямку.";
     }
+    return "У Google Таблиці є цілі, але ще немає колонок деталізації X-Sell, Web Apps та INB.";
+  }, [details, error, mode, report]);
 
-    let cancelled = false;
-    const load = async ({ silent = false } = {}) => {
-      try {
-        if (!silent) setLoading(true);
-        setEmptyMessage("");
-        const token = getToken();
-        if (!token) throw new Error("Потрібна авторизація");
-        const response = await fetch("/.netlify/functions/google-goals", {
-          method: "GET",
-          headers: {
-            accept: "application/json",
-            authorization: `Bearer ${token}`,
-          },
-          cache: "no-store",
-        });
-        const result = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(result.error || "Не вдалося завантажити показники");
-        if (cancelled) return;
-        if (!result.found || !result.goals) {
-          setDetails(null);
-          setEmptyMessage("Для вашого профілю ще не додано детальні показники кредитного напрямку.");
-          return;
-        }
-        const parsed = buildDetailsFromMetricRows(result.credit_metrics) || buildDetailsFromSheet(result.goals);
-        setDetails(parsed);
-        if (!parsed) {
-          setEmptyMessage("У Google Таблиці є цілі, але ще немає колонок деталізації X-Sell, Web Apps та INB.");
-        }
-      } catch (error) {
-        if (!cancelled && !silent) {
-          setDetails(null);
-          setEmptyMessage("Не вдалося завантажити деталізацію з Google Таблиці.");
-          toast.error(error.message || "Помилка завантаження показників");
-        }
-      } finally {
-        if (!cancelled && !silent) setLoading(false);
-      }
-    };
-
-    load();
-    return () => {
-      cancelled = true;
-    };
-  }, [mode]);
-
+  const loading = mode !== "mock" && reportsLoading && !report;
   const activeData = details?.[channel]?.[period];
   const metricRows = useMemo(() => METRICS.map((metric) => ({
     metric,
