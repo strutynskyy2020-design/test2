@@ -4,6 +4,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Toaster } from "sonner";
 import { ThemeProvider, useTheme } from "next-themes";
 import { AppProvider, useApp } from "@/context/AppContext";
+import { GoogleReportsProvider } from "@/context/GoogleReportsContext";
 import AppLayout from "@/components/AppLayout";
 import Login from "@/pages/Login";
 import Home from "@/pages/Home";
@@ -115,7 +116,8 @@ function App() {
       disableTransitionOnChange
     >
       <AppProvider>
-        <BrowserRouter>
+        <GoogleReportsProvider>
+          <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
@@ -147,8 +149,9 @@ function App() {
           </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
-      </BrowserRouter>
-      <AppToaster />
+          </BrowserRouter>
+          <AppToaster />
+        </GoogleReportsProvider>
       </AppProvider>
     </ThemeProvider>
   );

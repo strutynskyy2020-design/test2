@@ -151,7 +151,7 @@ export default function AppLayout() {
           </div>
         </header>
 
-        <main key={loc.pathname} className="flex-1 pb-28 page-enter" data-testid="main-content">
+        <main className="flex-1 pb-28 page-enter" data-testid="main-content">
           <Outlet />
         </main>
 
