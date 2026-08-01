@@ -1,11 +1,12 @@
 /* TM6 Bonus — Service Worker
+ * v105 adds team-aware goals, scoped prizes, leader messages, and report-view tracking.
  * v104 keeps Google reports in a global IndexedDB-backed PWA cache and refreshes them silently.
  * v90 refreshes the cache for the game-only fullscreen, menu navigation, and transparent chain-overlay release.
  * v84 fixes rejected FetchEvent promises, navigation fallback, and stale registration URLs and protects image requests from Netlify's SPA fallback. A missing image must
  * never be cached as index.html, otherwise browsers can render a giant broken
  * image element over the board.
  */
-const VERSION = "tm6-v104";
+const VERSION = "tm6-v105";
 const STATIC_CACHE = `${VERSION}-static`;
 const RUNTIME_CACHE = `${VERSION}-runtime`;
 

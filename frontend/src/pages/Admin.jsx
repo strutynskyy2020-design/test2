@@ -1251,12 +1251,17 @@ const QuestEditor = ({ quest, onClose, onSaved }) => {
 // ─────────────── Prizes admin ───────────────
 const PrizesView = () => {
   const [prizes, setPrizes] = useState([]);
+  const [teams, setTeams] = useState([]);
   const [editing, setEditing] = useState(null);
 
   const load = async () => {
     try {
-      const { data } = await api.get("/admin/prizes");
-      setPrizes(data);
+      const [{ data: prizeData }, { data: teamData }] = await Promise.all([
+        api.get("/admin/prizes"),
+        api.get("/admin/teams"),
+      ]);
+      setPrizes(prizeData);
+      setTeams(teamData);
     } catch (e) { toast.error(extractError(e)); }
   };
   useEffect(() => { load(); }, []);
@@ -1286,6 +1291,9 @@ const PrizesView = () => {
               <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-[#FFB800] text-[#0A0A0A]">{p.category}</span>
               <span className="text-[#FFB800] font-black text-xs">{p.price} балів</span>
               <span className="text-zinc-500 text-[10px]">• {p.stock} шт</span>
+              <span className={`rounded-full px-2 py-0.5 text-[9px] font-black ${p.team_id ? "bg-[#00F0FF]/10 text-[#00F0FF]" : "bg-white/5 text-zinc-400"}`}>
+                {p.team_name || "Загальний"}
+              </span>
             </div>
             <div className="text-white font-black text-sm truncate mt-1">{p.title}</div>
           </div>
@@ -1296,13 +1304,13 @@ const PrizesView = () => {
         </div>
       ))}
       {editing !== null && (
-        <PrizeEditor prize={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />
+        <PrizeEditor prize={editing} teams={teams} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />
       )}
     </div>
   );
 };
 
-const PrizeEditor = ({ prize, onClose, onSaved }) => {
+const PrizeEditor = ({ prize, teams, onClose, onSaved }) => {
   const isNew = !prize.id;
   const [f, setF] = useState({
     title: prize.title || "",
@@ -1313,6 +1321,7 @@ const PrizeEditor = ({ prize, onClose, onSaved }) => {
     icon: prize.icon || "gift",
     stock: prize.stock ?? 10,
     active: prize.active ?? true,
+    team_id: prize.team_id || "",
     avatar_rarity: prize.avatar_rarity || "basic",
     daily_bonus: prize.daily_bonus ?? 0,
     task_replacements: prize.task_replacements ?? 0,
@@ -1321,7 +1330,7 @@ const PrizeEditor = ({ prize, onClose, onSaved }) => {
 
   const save = async () => {
     if (!f.title.trim()) { toast.error("Назва обов'язкова"); return; }
-    const payload = { ...f, image: f.image.trim() || null };
+    const payload = { ...f, image: f.image.trim() || null, team_id: f.team_id || null };
     setBusy(true);
     try {
       if (isNew) await api.post("/admin/prizes", payload);
@@ -1366,6 +1375,14 @@ const PrizeEditor = ({ prize, onClose, onSaved }) => {
         <div>
           <label className="block text-[11px] font-black uppercase text-zinc-500 mb-1">URL зображення (необов'язково)</label>
           <input data-testid="prize-image" value={f.image} onChange={(e) => setF({ ...f, image: e.target.value })} placeholder="https://..." className="w-full h-11 px-3 rounded-xl bg-[#0A0A0A] border-2 border-white/10 text-white focus:border-[#FFB800] outline-none" />
+        </div>
+        <div>
+          <label className="block text-[11px] font-black uppercase text-zinc-500 mb-1">Кому доступний приз</label>
+          <select data-testid="prize-team" value={f.team_id} onChange={(e) => setF({ ...f, team_id: e.target.value })} className="w-full h-11 px-3 rounded-xl bg-[#0A0A0A] border-2 border-white/10 text-white focus:border-[#00F0FF] outline-none">
+            <option value="">Усім командам · загальний приз</option>
+            {(teams || []).map((team) => <option key={team.id} value={team.id}>Лише {team.name}</option>)}
+          </select>
+          <p className="mt-1 text-[10px] text-zinc-600">Командний приз не показується учасникам інших команд.</p>
         </div>
         <label className="flex items-center gap-2 mt-2">
           <input data-testid="prize-active" type="checkbox" checked={f.active} onChange={(e) => setF({ ...f, active: e.target.checked })} className="w-5 h-5 accent-[#FFB800]" />
@@ -1906,14 +1923,18 @@ const GoalsManager = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState({});
   const [search, setSearch] = useState("");
+  const [settings, setSettings] = useState({ allow_cross_team_reports: false });
+  const [settingsSaving, setSettingsSaving] = useState(false);
 
   const load = async () => {
     setLoading(true);
     try {
-      const [{ data: dashboardData }, { data: adminUsersData }] = await Promise.all([
+      const [{ data: dashboardData }, { data: adminUsersData }, { data: settingsData }] = await Promise.all([
         api.get("/admin/goals-dashboard"),
         api.get("/admin/users"),
+        api.get("/admin/goals-settings"),
       ]);
+      setSettings(settingsData || { allow_cross_team_reports: false });
       const dashboardUsers = dashboardData || [];
       const adminUsers = adminUsersData || [];
       const adminUsersById = Object.fromEntries(
@@ -2003,9 +2024,35 @@ const GoalsManager = () => {
     setSaving((v) => ({ ...v, [u.id]: false }));
   };
 
+  const toggleCrossTeamReports = async () => {
+    const nextValue = !settings.allow_cross_team_reports;
+    setSettingsSaving(true);
+    try {
+      const { data } = await api.patch("/admin/goals-settings", { allow_cross_team_reports: nextValue });
+      setSettings(data);
+      toast.success(nextValue ? "Перегляд інших команд увімкнено" : "Інші команди приховано");
+    } catch (e) {
+      toast.error(extractError(e, "Не вдалося змінити доступ"));
+    } finally {
+      setSettingsSaving(false);
+    }
+  };
+
   const visible = items.filter((u) => u.name.toLowerCase().includes(search.toLowerCase()));
   if (loading) return <div className="py-10 text-center text-sm text-zinc-500">Завантаження цілей...</div>;
   return <div className="space-y-4" data-testid="admin-goals-view">
+    <section className="rounded-3xl border border-[#00F0FF]/25 bg-[#00F0FF]/[.06] p-4">
+      <div className="flex items-center gap-3">
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-[#00F0FF]/30 bg-[#00F0FF]/10 text-[#00F0FF]"><UsersRound size={20} /></div>
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-black text-white">Перегляд звітів інших команд</div>
+          <div className="mt-1 text-[10px] leading-relaxed text-zinc-500">Коли вимкнено, оператор бачить у рейтингах лише свою команду. Особисті показники завжди порівнюються з командою учасника.</div>
+        </div>
+        <button type="button" onClick={toggleCrossTeamReports} disabled={settingsSaving} className={`relative h-8 w-14 rounded-full border transition-colors disabled:opacity-50 ${settings.allow_cross_team_reports ? "border-[#39FF14]/50 bg-[#39FF14]/20" : "border-white/10 bg-black/35"}`} aria-label="Перемкнути перегляд інших команд">
+          <span className={`absolute top-1 h-6 w-6 rounded-full transition-all ${settings.allow_cross_team_reports ? "left-7 bg-[#39FF14]" : "left-1 bg-zinc-500"}`} />
+        </button>
+      </div>
+    </section>
     <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
       <StatBox label="Операторів" value={items.length} />
       <StatBox label="Тиждень виконано" value={items.filter(x => x.goals?.weekly_complete).length} accent="#39FF14" />

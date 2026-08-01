@@ -16,6 +16,8 @@ const ICONS = {
 const PRIZE_CATEGORIES = [
   { id: "all", label: "Все" },
   { id: "privilege", label: "Привілеї" },
+  { id: "merch", label: "Мерч" },
+  { id: "certificate", label: "Сертифікати" },
   { id: "avatar", label: "Аватарки" },
 ];
 
@@ -52,6 +54,7 @@ const PrizeCard = ({ prize, balance, onBuy, owned, active }) => {
       </div>
       <div className="p-4 flex-1 flex flex-col">
         <div className="text-white font-black text-sm leading-tight">{prize.title}</div>
+        {prize.team_id && <div className="mt-1 inline-flex w-fit rounded-full bg-[#00F0FF]/10 px-2 py-0.5 text-[9px] font-black uppercase text-[#00F0FF]">Лише {prize.team_name || "ваша команда"}</div>}
         <div className="text-zinc-500 text-xs mt-1 line-clamp-2">{prize.description}</div>
         {prize.category === "avatar" && (prize.daily_bonus > 0 || prize.task_replacements > 0) && <div className="mt-2 flex flex-wrap gap-1"><span className="rounded-full bg-[#6D3DF5]/10 px-2 py-1 text-[9px] font-black text-[#6D3DF5]">+{prize.daily_bonus} Point/день</span>{prize.task_replacements > 0 && <span className="rounded-full bg-[#B78CFF]/10 px-2 py-1 text-[9px] font-black text-[#B78CFF]">+{prize.task_replacements} заміни</span>}</div>}
         <div className="mt-3 flex items-center justify-between gap-2">
@@ -149,13 +152,11 @@ export default function Store() {
   const [submitting, setSubmitting] = useState(false);
 
   const filtered = useMemo(() => {
-    const visible = prizes.filter((prize) =>
-      ["privilege", "avatar"].includes(prize.category)
-    );
+    const visible = Array.isArray(prizes) ? prizes : [];
 
     if (cat === "all") {
       return [...visible].sort((a, b) => {
-        const categoryOrder = { privilege: 0, avatar: 1 };
+        const categoryOrder = { privilege: 0, merch: 1, certificate: 2, avatar: 3 };
         const categoryDiff =
           (categoryOrder[a.category] ?? 99) -
           (categoryOrder[b.category] ?? 99);

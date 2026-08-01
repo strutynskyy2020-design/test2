@@ -15,14 +15,59 @@ const normalizeKey = (value = "") => String(value ?? "")
 
 const uniqueKeys = (values) => Array.from(new Set(values.map(normalizeKey).filter(Boolean)));
 
-const backendProfileUrl = () => {
+const backendApiBase = () => {
   const raw = String(
     process.env.BACKEND_API_URL ||
     process.env.REACT_APP_BACKEND_URL ||
     ""
   ).replace(/\/$/, "");
   if (!raw) return "";
-  return raw.endsWith("/api") ? `${raw}/auth/me` : `${raw}/api/auth/me`;
+  return raw.endsWith("/api") ? raw : `${raw}/api`;
+};
+
+const backendProfileUrl = () => {
+  const base = backendApiBase();
+  return base ? `${base}/auth/me` : "";
+};
+
+const backendReportAccessUrl = () => {
+  const base = backendApiBase();
+  return base ? `${base}/goals/report-access` : "";
+};
+
+const teamReportKey = (value = "") => {
+  const normalized = String(value || "").trim().toLowerCase().replace(/[^a-zа-яіїєґ0-9]+/gi, "");
+  const match = normalized.match(/(?:tm|тм)(\d+)/i);
+  return match ? `tm${match[1]}` : normalized;
+};
+
+const rowLogin = (row = {}) => normalizeKey(row.login || row.goals_login || row.operator || row.credit || row.debit);
+
+const filterRowsByAllowedLogins = (rows, allowedLogins) => {
+  if (!Array.isArray(rows)) return [];
+  if (!(allowedLogins instanceof Set) || !allowedLogins.size) return [];
+  return rows.filter((row) => allowedLogins.has(rowLogin(row)));
+};
+
+const applyTeamOverall = (rows, teamKey) => (Array.isArray(rows) ? rows : []).map((row) => {
+  const teamValues = teamKey && row?.team_overall && typeof row.team_overall === "object"
+    ? row.team_overall[teamKey]
+    : null;
+  const { team_overall: _privateTeamValues, ...safeRow } = row || {};
+  if (!teamKey) return safeRow;
+  if (teamValues && typeof teamValues === "object") return { ...safeRow, ...teamValues };
+
+  // Never show another team's projection when the current team's column is absent.
+  return Object.fromEntries(
+    Object.entries(safeRow).filter(([key]) => !String(key).endsWith("_overall")),
+  );
+});
+
+const selectGroupSummaries = (summaries, teamKey, allowAll) => {
+  const source = summaries && typeof summaries === "object" ? summaries : {};
+  if (allowAll) return source;
+  if (!teamKey || !source[teamKey]) return {};
+  return { [teamKey]: source[teamKey] };
 };
 
 const fetchGooglePayload = async (scriptUrl, goalsLogin) => {
@@ -75,6 +120,16 @@ exports.handler = async (event) => {
       return makeResponse(401, { success: false, error: "Сесію завершено. Увійдіть повторно" });
     }
 
+    let reportAccess = null;
+    const accessUrl = backendReportAccessUrl();
+    if (accessUrl) {
+      const accessResponse = await fetch(accessUrl, {
+        headers: { accept: "application/json", authorization },
+      });
+      reportAccess = await accessResponse.json().catch(() => null);
+      if (!accessResponse.ok) reportAccess = null;
+    }
+
     const scriptUrl = String(process.env.GOOGLE_GOALS_SCRIPT_URL || "").trim();
     if (!scriptUrl) {
       return makeResponse(500, { success: false, error: "Google Таблицю не налаштовано" });
@@ -93,6 +148,15 @@ exports.handler = async (event) => {
       profileGoalsLogin,
       emailLogin,
     ]);
+    const fallbackAllowed = uniqueKeys([profileGoalsLogin, emailLogin]);
+    const allowedLogins = new Set(uniqueKeys(
+      Array.isArray(reportAccess?.allowed_goals_logins)
+        ? reportAccess.allowed_goals_logins
+        : fallbackAllowed
+    ));
+    const allowCrossTeamReports = Boolean(isPrivileged || reportAccess?.allow_cross_team_reports);
+    const currentTeam = reportAccess?.current_team || (user.team_id ? { id: user.team_id, name: user.team_name || "" } : null);
+    const currentTeamKey = teamReportKey(currentTeam?.name || user.team_name || "");
 
     let baseData = null;
     if (baseLogin) {
@@ -117,9 +181,11 @@ exports.handler = async (event) => {
         credit_metrics: [],
         credit_leaderboard: [],
         credit_group_summary: null,
+        credit_group_summaries: {},
         credit_leaderboard_updated_at: null,
         debit_leaderboard: [],
         debit_group_summary: null,
+        debit_group_summaries: {},
         debit_leaderboard_updated_at: null,
         debit_issuances: [],
         schedule: emptySchedule("schedule_login_missing", lookup),
@@ -165,6 +231,23 @@ exports.handler = async (event) => {
       schedule = { ...schedule, lookup };
     }
 
+    const creditGroupSummaries = selectGroupSummaries(
+      baseData.credit_group_summaries,
+      currentTeamKey,
+      allowCrossTeamReports,
+    );
+    const debitGroupSummaries = selectGroupSummaries(
+      baseData.debit_group_summaries,
+      currentTeamKey,
+      allowCrossTeamReports,
+    );
+    const selectedCreditSummary = currentTeamKey
+      ? (creditGroupSummaries[currentTeamKey] || null)
+      : (baseData.credit_group_summary || null);
+    const selectedDebitSummary = currentTeamKey
+      ? (debitGroupSummaries[currentTeamKey] || null)
+      : (baseData.debit_group_summary || null);
+
     return makeResponse(200, {
       success: true,
       api_version: baseData.api_version || null,
@@ -176,14 +259,22 @@ exports.handler = async (event) => {
       reason: baseData.reason || null,
       goals_login: baseLogin || null,
       goals: baseData.goals || null,
-      credit_metrics: Array.isArray(baseData.credit_metrics) ? baseData.credit_metrics : [],
-      credit_leaderboard: Array.isArray(baseData.credit_leaderboard) ? baseData.credit_leaderboard : [],
-      credit_group_summary: baseData.credit_group_summary || null,
+      credit_metrics: applyTeamOverall(baseData.credit_metrics, currentTeamKey),
+      credit_leaderboard: filterRowsByAllowedLogins(baseData.credit_leaderboard, allowedLogins),
+      credit_group_summary: selectedCreditSummary,
+      credit_group_summaries: creditGroupSummaries,
       credit_leaderboard_updated_at: baseData.credit_leaderboard_updated_at || null,
-      debit_leaderboard: Array.isArray(baseData.debit_leaderboard) ? baseData.debit_leaderboard : [],
-      debit_group_summary: baseData.debit_group_summary || null,
+      debit_leaderboard: filterRowsByAllowedLogins(baseData.debit_leaderboard, allowedLogins),
+      debit_group_summary: selectedDebitSummary,
+      debit_group_summaries: debitGroupSummaries,
       debit_leaderboard_updated_at: baseData.debit_leaderboard_updated_at || null,
       debit_issuances: Array.isArray(baseData.debit_issuances) ? baseData.debit_issuances : [],
+      report_access: {
+        signature: reportAccess?.access_signature || null,
+        allow_cross_team_reports: allowCrossTeamReports,
+        current_team: currentTeam,
+        teams: Array.isArray(reportAccess?.teams) ? reportAccess.teams : (currentTeam ? [currentTeam] : []),
+      },
       schedule,
     });
   } catch (error) {

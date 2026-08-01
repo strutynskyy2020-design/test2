@@ -8,7 +8,7 @@ import {
   useState,
 } from "react";
 import { useApp } from "@/context/AppContext";
-import { getToken } from "@/lib/api";
+import api, { getToken } from "@/lib/api";
 import {
   fetchGoogleReportsManifest,
   fetchGoogleReportsPayload,
@@ -37,6 +37,7 @@ export const GoogleReportsProvider = ({ children }) => {
   const inFlightRef = useRef(new Map());
   const activeIdentityRef = useRef("");
   const lastManifestCheckRef = useRef(0);
+  const lastAccessCheckRef = useRef(0);
 
   const updateEntry = useCallback((key, updater) => {
     const current = entriesRef.current;
@@ -58,6 +59,7 @@ export const GoogleReportsProvider = ({ children }) => {
     inFlightRef.current = new Map();
     entriesRef.current = {};
     lastManifestCheckRef.current = 0;
+    lastAccessCheckRef.current = 0;
     setEntries({});
   }, [identity]);
 
@@ -148,6 +150,25 @@ export const GoogleReportsProvider = ({ children }) => {
     return entriesRef.current[key]?.data || null;
   }, [fetchFresh, identity, mode, updateEntry, user]);
 
+  const checkReportAccess = useCallback(async ({ force = false } = {}) => {
+    if (!user || mode === "mock" || !getToken()) return;
+    const now = Date.now();
+    if (!force && now - lastAccessCheckRef.current < FOREGROUND_CHECK_INTERVAL_MS) return;
+    lastAccessCheckRef.current = now;
+
+    const access = await api.get("/goals/report-access")
+      .then((response) => response.data)
+      .catch(() => null);
+    const signature = access?.access_signature || null;
+    if (!signature) return;
+
+    const loadedEntries = Object.values(entriesRef.current);
+    await Promise.all(loadedEntries.map(async (entry) => {
+      if (!entry?.data || entry.data?.report_access?.signature === signature) return;
+      await fetchFresh(entry.scheduleLogin || "", { silent: true }).catch(() => null);
+    }));
+  }, [fetchFresh, mode, user]);
+
   const checkPublishedUpdate = useCallback(async ({ force = false } = {}) => {
     if (!user || mode === "mock" || !getToken()) return;
     const now = Date.now();
@@ -176,14 +197,21 @@ export const GoogleReportsProvider = ({ children }) => {
     const boot = async () => {
       await ensureReport("");
       if (selectedScheduleLogin) await ensureReport(selectedScheduleLogin);
-      if (!cancelled) await checkPublishedUpdate({ force: true });
+      if (!cancelled) {
+        await checkReportAccess({ force: true });
+        await checkPublishedUpdate({ force: true });
+      }
     };
     boot().catch(() => {});
 
-    const onVisible = () => {
-      if (document.visibilityState === "visible") checkPublishedUpdate().catch(() => {});
+    const checkForeground = () => {
+      checkReportAccess().catch(() => {});
+      checkPublishedUpdate().catch(() => {});
     };
-    const onFocus = () => checkPublishedUpdate().catch(() => {});
+    const onVisible = () => {
+      if (document.visibilityState === "visible") checkForeground();
+    };
+    const onFocus = () => checkForeground();
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("focus", onFocus);
 
@@ -192,7 +220,7 @@ export const GoogleReportsProvider = ({ children }) => {
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("focus", onFocus);
     };
-  }, [checkPublishedUpdate, ensureReport, mode, user]);
+  }, [checkPublishedUpdate, checkReportAccess, ensureReport, mode, user]);
 
   const getReportState = useCallback((scheduleLogin = "") => {
     if (!user || mode === "mock") return emptyEntry(scheduleLogin);
@@ -212,7 +240,8 @@ export const GoogleReportsProvider = ({ children }) => {
     getReportState,
     refresh,
     checkPublishedUpdate,
-  }), [checkPublishedUpdate, ensureReport, getReportState, refresh]);
+    checkReportAccess,
+  }), [checkPublishedUpdate, checkReportAccess, ensureReport, getReportState, refresh]);
 
   return (
     <GoogleReportsContext.Provider value={value}>

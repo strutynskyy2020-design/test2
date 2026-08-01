@@ -291,6 +291,14 @@ class AdminPasswordResetBody(BaseModel):
     new_password: str = Field(min_length=6, max_length=128)
 
 
+class GoalsSettingsUpdateBody(BaseModel):
+    allow_cross_team_reports: bool = False
+
+
+class TeamGoalMessageBody(BaseModel):
+    message: str = Field(default="", max_length=1200)
+
+
 class AchievementCreateBody(BaseModel):
     title: str = Field(min_length=2, max_length=80)
     description: str = Field(default="", max_length=300)
@@ -435,6 +443,8 @@ class PrizeModel(BaseModel):
     icon: str = "gift"
     stock: int = 0
     active: bool = True
+    team_id: Optional[str] = None
+    team_name: Optional[str] = None
     avatar_code: Optional[str] = None
     avatar_rarity: Optional[str] = None
     daily_bonus: int = 0
@@ -451,6 +461,7 @@ class PrizeCreateBody(BaseModel):
     icon: str = "gift"
     stock: int = 0
     active: bool = True
+    team_id: Optional[str] = None
     avatar_code: Optional[str] = None
     avatar_rarity: Optional[str] = None
     daily_bonus: int = 0
@@ -466,6 +477,7 @@ class PrizeUpdateBody(BaseModel):
     icon: Optional[str] = None
     stock: Optional[int] = None
     active: Optional[bool] = None
+    team_id: Optional[str] = None
     avatar_code: Optional[str] = None
     avatar_rarity: Optional[str] = None
     daily_bonus: Optional[int] = None
@@ -621,6 +633,44 @@ async def _hydrate_user_team(doc: dict) -> dict:
     if doc.get("team_id") and not doc.get("team_name"):
         doc["team_name"] = await _resolve_team_name(doc.get("team_id"))
     return doc
+
+
+async def _goals_settings() -> dict:
+    doc = await db.app_settings.find_one({"id": "goals_visibility"}, {"_id": 0}) or {}
+    return {
+        "allow_cross_team_reports": bool(doc.get("allow_cross_team_reports", False)),
+        "updated_at": doc.get("updated_at"),
+        "updated_by": doc.get("updated_by"),
+    }
+
+
+def _normalize_team_report_key(value: Optional[str]) -> str:
+    source = str(value or "").strip().lower()
+    compact = re.sub(r"[^a-zа-яіїєґ0-9]+", "", source)
+    match = re.search(r"(?:tm|тм)(\d+)", compact)
+    if match:
+        return f"tm{match.group(1)}"
+    return compact
+
+
+def _goals_access_signature(current_team: Optional[dict], allow_cross_team: bool, allowed_logins: List[str]) -> str:
+    import hashlib
+    payload = {
+        "team_id": (current_team or {}).get("id"),
+        "team_name": (current_team or {}).get("name"),
+        "allow_cross_team_reports": bool(allow_cross_team),
+        "allowed_goals_logins": sorted(set(str(value or "").strip().lower() for value in allowed_logins if value)),
+    }
+    raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:24]
+
+
+async def _prize_with_team(doc: dict) -> dict:
+    item = {**doc}
+    item.pop("_id", None)
+    team_id = item.get("team_id")
+    item["team_name"] = await _resolve_team_name(team_id) if team_id else None
+    return item
 
 
 @api.post("/auth/login", response_model=TokenResponse)
@@ -1495,24 +1545,175 @@ async def get_my_goals(user: dict = Depends(get_current_user)):
 
 @api.get("/goals/participants")
 async def get_goal_participants(user: dict = Depends(get_current_user)):
-    """Public profile fields used to decorate internal goal rankings."""
-    return await db.users.find(
-        {
-            "role": {"$in": PLAYER_ROLES},
-            "approved": {"$ne": False},
-            "goals_login": {"$nin": [None, ""]},
-        },
+    """Profiles used in Google rankings, restricted to the permitted teams."""
+    settings = await _goals_settings()
+    query = {
+        "role": {"$in": PLAYER_ROLES},
+        "approved": {"$ne": False},
+        "goals_login": {"$nin": [None, ""]},
+    }
+    privileged = user.get("role") in {"admin", "editor"}
+    if not privileged and not settings["allow_cross_team_reports"]:
+        if user.get("team_id"):
+            query["team_id"] = user.get("team_id")
+        else:
+            query["id"] = user.get("id")
+    docs = await db.users.find(
+        query,
         {
             "_id": 0,
             "id": 1,
             "name": 1,
             "goals_login": 1,
+            "team_id": 1,
             "avatar_initials": 1,
             "avatar_color": 1,
             "avatar_url": 1,
             "avatar_rarity": 1,
         },
     ).sort("name", 1).to_list(2000)
+    team_ids = list({doc.get("team_id") for doc in docs if doc.get("team_id")})
+    team_names = {}
+    if team_ids:
+        async for team in db.teams.find({"id": {"$in": team_ids}}, {"_id": 0, "id": 1, "name": 1}):
+            team_names[team["id"]] = team.get("name", "")
+    for doc in docs:
+        doc["team_name"] = team_names.get(doc.get("team_id"))
+        doc["team_key"] = _normalize_team_report_key(doc.get("team_name"))
+    return docs
+
+
+@api.get("/goals/report-access")
+async def goals_report_access(user: dict = Depends(get_current_user)):
+    """Access contract consumed by the PWA and the Netlify Google gateway."""
+    settings = await _goals_settings()
+    privileged = user.get("role") in {"admin", "editor"}
+    allow_cross_team = privileged or settings["allow_cross_team_reports"]
+    member_query = {
+        "role": {"$in": PLAYER_ROLES},
+        "approved": {"$ne": False},
+        "goals_login": {"$nin": [None, ""]},
+    }
+    if not allow_cross_team:
+        if user.get("team_id"):
+            member_query["team_id"] = user.get("team_id")
+        else:
+            member_query["id"] = user.get("id")
+    members = await db.users.find(
+        member_query,
+        {"_id": 0, "id": 1, "name": 1, "goals_login": 1, "team_id": 1},
+    ).sort("name", 1).to_list(3000)
+    teams = await db.teams.find({}, {"_id": 0, "id": 1, "name": 1, "color": 1}).sort("name", 1).to_list(500)
+    team_map = {team["id"]: team for team in teams}
+    visible_team_ids = list(dict.fromkeys(member.get("team_id") for member in members if member.get("team_id")))
+    visible_teams = [team_map[team_id] for team_id in visible_team_ids if team_id in team_map]
+    current_team = team_map.get(user.get("team_id"))
+    allowed_logins = [str(member.get("goals_login") or "").strip().lower() for member in members]
+    allowed_logins = [value for value in dict.fromkeys(allowed_logins) if value]
+    team_message = None
+    if user.get("team_id"):
+        team_message = await db.team_goal_messages.find_one({"team_id": user.get("team_id")}, {"_id": 0})
+    return {
+        "allow_cross_team_reports": bool(allow_cross_team),
+        "admin_allows_cross_team_reports": bool(settings["allow_cross_team_reports"]),
+        "current_team": current_team,
+        "teams": visible_teams if allow_cross_team else ([current_team] if current_team else []),
+        "allowed_goals_logins": allowed_logins,
+        "access_signature": _goals_access_signature(current_team, allow_cross_team, allowed_logins),
+        "team_message": team_message,
+        "is_team_leader": bool(user.get("is_team_leader")),
+    }
+
+
+@api.get("/goals/team-message")
+async def get_team_goal_message(user: dict = Depends(get_current_user)):
+    if not user.get("team_id"):
+        return {"team_id": None, "message": "", "updated_at": None, "updated_by_name": None}
+    doc = await db.team_goal_messages.find_one({"team_id": user.get("team_id")}, {"_id": 0}) or {}
+    return {
+        "team_id": user.get("team_id"),
+        "message": doc.get("message", ""),
+        "updated_at": doc.get("updated_at"),
+        "updated_by_name": doc.get("updated_by_name"),
+    }
+
+
+@api.put("/leader/goals/team-message")
+async def update_team_goal_message(body: TeamGoalMessageBody, user: dict = Depends(get_current_user)):
+    if not user.get("team_id"):
+        raise HTTPException(status_code=400, detail="Керівника не прив'язано до команди")
+    if not user.get("is_team_leader") and user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Повідомлення команди може змінювати лише керівник")
+    payload = {
+        "team_id": user.get("team_id"),
+        "message": body.message.strip()[:1200],
+        "updated_at": now_iso(),
+        "updated_by": user.get("id"),
+        "updated_by_name": user.get("name", "Керівник"),
+    }
+    await db.team_goal_messages.update_one({"team_id": user.get("team_id")}, {"$set": payload}, upsert=True)
+    return payload
+
+
+@api.get("/leader/goals/views-today")
+async def leader_goal_views_today(user: dict = Depends(get_current_user)):
+    if not user.get("team_id"):
+        raise HTTPException(status_code=400, detail="Керівника не прив'язано до команди")
+    if not user.get("is_team_leader") and user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Перегляд доступний лише керівнику команди")
+    members = await db.users.find(
+        {
+            "team_id": user.get("team_id"),
+            "role": {"$in": PLAYER_ROLES},
+            "approved": {"$ne": False},
+        },
+        {"_id": 0, "id": 1, "name": 1, "avatar_initials": 1, "avatar_color": 1, "goals_login": 1},
+    ).sort("name", 1).to_list(1000)
+    member_ids = [member["id"] for member in members]
+    views = await db.page_views.find(
+        {"user_id": {"$in": member_ids}, "date": kyiv_today_key(), "path": {"$regex": r"^/goals(?:$|/)"}},
+        {"_id": 0, "user_id": 1, "path": 1, "created_at": 1},
+    ).sort("created_at", 1).to_list(10000)
+    by_user = {}
+    for view in views:
+        state = by_user.setdefault(view["user_id"], {"report_viewed": False, "metrics_viewed": False, "report_viewed_at": None, "metrics_viewed_at": None})
+        state["report_viewed"] = True
+        state["report_viewed_at"] = state["report_viewed_at"] or view.get("created_at")
+        path = str(view.get("path") or "").split("?", 1)[0]
+        if path in {"/goals/credit/me", "/goals/debit/me"}:
+            state["metrics_viewed"] = True
+            state["metrics_viewed_at"] = state["metrics_viewed_at"] or view.get("created_at")
+    rows = []
+    for member in members:
+        state = by_user.get(member["id"], {"report_viewed": False, "metrics_viewed": False, "report_viewed_at": None, "metrics_viewed_at": None})
+        rows.append({**member, **state})
+    return {
+        "date": kyiv_today_key(),
+        "team_id": user.get("team_id"),
+        "team_name": await _resolve_team_name(user.get("team_id")),
+        "members": rows,
+        "report_viewed_count": sum(1 for row in rows if row["report_viewed"]),
+        "metrics_viewed_count": sum(1 for row in rows if row["metrics_viewed"]),
+        "total": len(rows),
+    }
+
+
+@api.get("/admin/goals-settings")
+async def admin_get_goals_settings(admin: dict = Depends(get_current_admin)):
+    return await _goals_settings()
+
+
+@api.patch("/admin/goals-settings")
+async def admin_update_goals_settings(body: GoalsSettingsUpdateBody, admin: dict = Depends(get_current_admin)):
+    payload = {
+        "id": "goals_visibility",
+        "allow_cross_team_reports": bool(body.allow_cross_team_reports),
+        "updated_at": now_iso(),
+        "updated_by": admin.get("id"),
+        "updated_by_name": admin.get("name", "Адміністратор"),
+    }
+    await db.app_settings.update_one({"id": "goals_visibility"}, {"$set": payload}, upsert=True)
+    return payload
 
 
 @api.get("/admin/goals-dashboard")
@@ -1966,8 +2167,14 @@ async def replace_daily_task(task_id: int, user: dict = Depends(get_current_user
 # ────────────────────────────────────────────────────────────────────────
 @api.get("/prizes", response_model=List[PrizeModel])
 async def list_prizes(user: dict = Depends(get_current_user)):
-    prizes = await db.prizes.find({"active": True}, {"_id": 0}).sort("price", 1).to_list(500)
-    return [PrizeModel(**p) for p in prizes]
+    scope = [
+        {"team_id": None},
+        {"team_id": {"$exists": False}},
+    ]
+    if user.get("team_id"):
+        scope.append({"team_id": user.get("team_id")})
+    prizes = await db.prizes.find({"active": True, "$or": scope}, {"_id": 0}).sort("price", 1).to_list(500)
+    return [PrizeModel(**(await _prize_with_team(prize))) for prize in prizes]
 
 
 @api.post("/prizes/{prize_id}/buy")
@@ -1975,6 +2182,9 @@ async def buy_prize(prize_id: str, user: dict = Depends(get_current_user)):
     prize = await db.prizes.find_one({"id": prize_id, "active": True}, {"_id": 0})
     if not prize:
         raise HTTPException(status_code=404, detail="Приз не знайдено")
+    prize_team_id = prize.get("team_id")
+    if prize_team_id and prize_team_id != user.get("team_id"):
+        raise HTTPException(status_code=403, detail="Цей приз доступний лише іншій команді")
 
     is_avatar = prize.get("category") == "avatar"
     owned = prize_id in (user.get("owned_avatar_ids") or [])
@@ -6035,27 +6245,37 @@ async def admin_delete_quest(quest_id: str, admin: dict = Depends(get_current_ad
 @api.get("/admin/prizes", response_model=List[PrizeModel])
 async def admin_list_prizes(admin: dict = Depends(get_current_admin)):
     docs = await db.prizes.find({}, {"_id": 0}).sort("created_at", 1).to_list(500)
-    return [PrizeModel(**d) for d in docs]
+    return [PrizeModel(**(await _prize_with_team(doc))) for doc in docs]
 
 
 @api.post("/admin/prizes", response_model=PrizeModel, status_code=201)
 async def admin_create_prize(body: PrizeCreateBody, admin: dict = Depends(get_current_admin)):
-    doc = {"id": str(uuid.uuid4()), **body.model_dump(), "created_at": now_iso()}
+    payload = body.model_dump()
+    team_id = str(payload.get("team_id") or "").strip() or None
+    payload["team_id"] = team_id
+    if team_id and not await db.teams.find_one({"id": team_id}, {"_id": 0, "id": 1}):
+        raise HTTPException(status_code=400, detail="Команду для призу не знайдено")
+    doc = {"id": str(uuid.uuid4()), **payload, "created_at": now_iso()}
     await db.prizes.insert_one(doc)
-    doc.pop("_id", None)
-    return PrizeModel(**doc)
+    return PrizeModel(**(await _prize_with_team(doc)))
 
 
 @api.patch("/admin/prizes/{prize_id}", response_model=PrizeModel)
 async def admin_update_prize(prize_id: str, body: PrizeUpdateBody, admin: dict = Depends(get_current_admin)):
-    updates = {k: v for k, v in body.model_dump().items() if v is not None}
+    supplied = body.model_fields_set
+    updates = {k: v for k, v in body.model_dump().items() if k in supplied}
     if not updates:
         raise HTTPException(status_code=400, detail="Немає полів для оновлення")
+    if "team_id" in updates:
+        updates["team_id"] = str(updates.get("team_id") or "").strip() or None
+    if updates.get("team_id"):
+        if not await db.teams.find_one({"id": updates["team_id"]}, {"_id": 0, "id": 1}):
+            raise HTTPException(status_code=400, detail="Команду для призу не знайдено")
     r = await db.prizes.update_one({"id": prize_id}, {"$set": updates})
     if r.matched_count == 0:
         raise HTTPException(status_code=404, detail="Приз не знайдено")
     doc = await db.prizes.find_one({"id": prize_id}, {"_id": 0})
-    return PrizeModel(**doc)
+    return PrizeModel(**(await _prize_with_team(doc)))
 
 
 @api.delete("/admin/prizes/{prize_id}", status_code=204)
@@ -6276,18 +6496,47 @@ SEED_PRIZES = [
     {"title": "Кружка CallHub", "description": "Керамічна з неоновим принтом", "price": 800, "category": "merch", "image": "https://images.pexels.com/photos/33629664/pexels-photo-33629664.jpeg", "icon": "gift", "stock": 25},
 ]
 
-SEED_DEMO_USERS = [
-    {"email": "anna@callhub.ua", "password": "demo123", "name": "Анна Коваль", "first_name": "Анна", "last_name": "Коваль", "position": "Оператор", "department": "Продажі • Зміна А", "avatar_initials": "АК", "avatar_color": "#FFB800", "balance": 3450, "total_earned": 12980, "total_xp": 6800, "streak": 5, "team_key": "sales_a"},
-    {"email": "maks@callhub.ua", "password": "demo123", "name": "Максим Дубенко", "first_name": "Максим", "last_name": "Дубенко", "position": "Senior оператор", "department": "Підтримка • Зміна B", "avatar_initials": "МД", "avatar_color": "#00F0FF", "balance": 6120, "total_earned": 24500, "total_xp": 18000, "streak": 12, "team_key": "support_b", "is_team_leader": True},
-    {"email": "olena@callhub.ua", "password": "demo123", "name": "Олена Ткач", "first_name": "Олена", "last_name": "Ткач", "position": "Оператор", "department": "Продажі • Зміна B", "avatar_initials": "ОТ", "avatar_color": "#39FF14", "balance": 2100, "total_earned": 8700, "total_xp": 4200, "streak": 3, "team_key": "sales_b"},
-]
+SEED_DEMO_USERS = []
 
-SEED_TEAMS = [
-    {"key": "sales_a", "name": "Продажі А", "description": "Ранкова зміна відділу продажів", "color": "#FFB800", "department": "Продажі"},
-    {"key": "sales_b", "name": "Продажі B", "description": "Вечірня зміна відділу продажів", "color": "#FF5C00", "department": "Продажі"},
-    {"key": "support_b", "name": "Підтримка B", "description": "Технічна підтримка клієнтів", "color": "#00F0FF", "department": "Підтримка"},
-    {"key": "retention", "name": "Утримання", "description": "Команда роботи з відтоком", "color": "#39FF14", "department": "Утримання"},
-]
+SEED_TEAMS = []
+
+
+LEGACY_DEMO_TEAMS_MIGRATION_ID = "remove_legacy_demo_teams_v105"
+LEGACY_DEMO_TEAM_NAMES = ["Продажі А", "Продажі A", "Продажі B", "Підтримка B", "Утримання"]
+
+
+async def migrate_remove_legacy_demo_teams_v105() -> None:
+    """Remove the four old seeded demo teams and detach their stale references once."""
+    if await db.system_migrations.find_one({"id": LEGACY_DEMO_TEAMS_MIGRATION_ID}):
+        return
+    teams = await db.teams.find({"name": {"$in": LEGACY_DEMO_TEAM_NAMES}}, {"_id": 0, "id": 1, "name": 1}).to_list(20)
+    team_ids = [team["id"] for team in teams]
+    users_unassigned = 0
+    prizes_globalized = 0
+    if team_ids:
+        users_result = await db.users.update_many(
+            {"team_id": {"$in": team_ids}},
+            {"$set": {"team_id": None, "is_team_leader": False}, "$unset": {"team_name": ""}},
+        )
+        users_unassigned = users_result.modified_count
+        prizes_result = await db.prizes.update_many(
+            {"team_id": {"$in": team_ids}},
+            {"$set": {"team_id": None}, "$unset": {"team_name": ""}},
+        )
+        prizes_globalized = prizes_result.modified_count
+        await db.team_goal_messages.delete_many({"team_id": {"$in": team_ids}})
+        await db.teams.delete_many({"id": {"$in": team_ids}})
+    await db.system_migrations.insert_one({
+        "id": LEGACY_DEMO_TEAMS_MIGRATION_ID,
+        "applied_at": now_iso(),
+        "details": {
+            "removed_teams": [team.get("name") for team in teams],
+            "users_unassigned": users_unassigned,
+            "prizes_globalized": prizes_globalized,
+        },
+    })
+    logger.warning("Removed legacy demo teams: %s", ", ".join(team.get("name", "") for team in teams) or "none")
+
 
 
 BONUS_MATCH_RESET_MIGRATION_ID = "bonus_match_v93_reset_all_to_level_1"
@@ -6368,8 +6617,12 @@ async def seed_all():
     await db.user_achievements.create_index("achievement_id")
     await db.page_views.create_index([("created_at", -1), ("path", 1)])
     await db.page_views.create_index([("user_id", 1), ("created_at", -1)])
+    await db.page_views.create_index([("date", 1), ("user_id", 1), ("path", 1)])
+    await db.app_settings.create_index("id", unique=True)
+    await db.team_goal_messages.create_index("team_id", unique=True)
+    await db.prizes.create_index("team_id", sparse=True)
 
-    # Teams — seed first so we can attach users
+    # Teams — only administrator-created teams are used in production.
     team_key_to_id = {}
     for t in SEED_TEAMS:
         existing = await db.teams.find_one({"name": t["name"]}, {"_id": 0, "id": 1})
@@ -6412,15 +6665,10 @@ async def seed_all():
             "created_at": now_iso(),
         })
         logger.info("Seeded admin user: %s", ADMIN_EMAIL)
-    elif not verify_password(ADMIN_PASSWORD, admin_doc["password_hash"]):
-        await db.users.update_one(
-            {"email": ADMIN_EMAIL},
-            {
-                "$set": {"password_hash": hash_password(ADMIN_PASSWORD), "password_changed_at": now_iso()},
-                "$inc": {"auth_version": 1},
-            },
-        )
-        logger.info("Updated admin password and revoked active sessions")
+    else:
+        # ADMIN_PASSWORD is a bootstrap secret only. Never overwrite a password
+        # changed from the admin panel during a deploy or process restart.
+        logger.info("Admin user already exists; preserved the stored password")
 
     # Demo users are disabled by default in production.
     # Set SEED_DEMO_USERS=true only for a disposable demo environment.
@@ -6999,6 +7247,7 @@ async def seed_phase2():
 @app.on_event("startup")
 async def on_startup():
     await seed_all()
+    await migrate_remove_legacy_demo_teams_v105()
     await migrate_bonus_match_v93_reset()
     await seed_phase2()
 

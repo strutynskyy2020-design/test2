@@ -14,6 +14,8 @@ import api from "@/lib/api";
 import { useApp } from "@/context/AppContext";
 import { useDailyGoogleReports } from "@/hooks/useGoogleReports";
 import { resolveAvatarUrl } from "@/lib/avatar";
+import { useGoalsAccess } from "@/hooks/useGoalsAccess";
+import { calculatedGroupSummary, normalizeTeamKey } from "@/lib/teamReports";
 
 const DEMO_GROUP_SUMMARY = {
   login: "tm6",
@@ -45,6 +47,12 @@ const DEMO_LEADERBOARD = [
 ];
 
 const GROUP_ALIASES = new Set(["tm6", "tm_6", "тм6", "група_tm6", "group_tm6"]);
+const isGroupLogin = (value) => {
+  const login = String(value || "").trim().toLowerCase();
+  return GROUP_ALIASES.has(login)
+    || /^(?:tm|тм)_?\d+$/i.test(login)
+    || /^(?:група|group)_(?:tm|тм)_?\d+$/i.test(login);
+};
 
 const DIRECTIONS = [
   { key: "inb_deb", label: "INB Debit" },
@@ -121,15 +129,15 @@ const normalizeLeaderboard = (rows) => {
   if (!Array.isArray(rows)) return [];
   return rows
     .map(normalizeRow)
-    .filter((row) => row.login && !GROUP_ALIASES.has(row.login) && row.overall !== null)
+    .filter((row) => row.login && !isGroupLogin(row.login) && row.overall !== null)
     .sort((a, b) => b.overall - a.overall || a.login.localeCompare(b.login, "uk"));
 };
 
 const normalizeGroupSummary = (summary, rows = []) => {
   const direct = summary ? normalizeRow(summary) : null;
-  if (direct?.login && GROUP_ALIASES.has(direct.login)) return direct;
+  if (direct) return direct;
   const fallback = Array.isArray(rows)
-    ? rows.map(normalizeRow).find((row) => GROUP_ALIASES.has(row.login))
+    ? rows.map(normalizeRow).find((row) => isGroupLogin(row.login))
     : null;
   return fallback || null;
 };
@@ -155,11 +163,11 @@ function ProfileAvatar({ profile, size = "md" }) {
   );
 }
 
-function GroupOverallValue({ value }) {
+function GroupOverallValue({ value, teamName = "TM6" }) {
   const theme = getStatus(value);
   return (
     <div className="rounded-2xl border px-4 py-4 text-center" style={{ borderColor: theme.border, background: "linear-gradient(135deg, rgba(0,240,255,.13), rgba(26,26,30,.94))" }}>
-      <div className="text-[10px] font-black uppercase tracking-[.16em] text-[#00F0FF]">TM6 · Загальний</div>
+      <div className="text-[10px] font-black uppercase tracking-[.16em] text-[#00F0FF]">{teamName} · Загальний</div>
       <div className="mt-1 font-display text-[32px] leading-none" style={{ color: theme.color }}>{formatPercent(value)}</div>
     </div>
   );
@@ -242,7 +250,9 @@ export default function DebitLeaderboard() {
   const { mode, user } = useApp();
   const navigate = useNavigate();
   const { data: report, loading: reportsLoading, error } = useDailyGoogleReports();
+  const { data: access } = useGoalsAccess();
   const [participants, setParticipants] = useState([]);
+  const [selectedTeamId, setSelectedTeamId] = useState(user?.team_id || "");
 
   useEffect(() => {
     if (mode === "mock") return undefined;
@@ -259,6 +269,12 @@ export default function DebitLeaderboard() {
     };
   }, [mode]);
 
+  useEffect(() => {
+    if (!selectedTeamId && (access?.current_team?.id || user?.team_id)) {
+      setSelectedTeamId(access?.current_team?.id || user?.team_id || "");
+    }
+  }, [access?.current_team?.id, selectedTeamId, user?.team_id]);
+
   const rawRows = mode === "mock"
     ? DEMO_LEADERBOARD
     : Array.isArray(report?.debit_leaderboard) ? report.debit_leaderboard : [];
@@ -266,9 +282,13 @@ export default function DebitLeaderboard() {
     () => mode === "mock" ? DEMO_LEADERBOARD : enrichRowsWithProfiles(rawRows, participants),
     [mode, participants, rawRows]
   );
-  const groupSummary = mode === "mock"
-    ? DEMO_GROUP_SUMMARY
-    : normalizeGroupSummary(report?.debit_group_summary, rawRows);
+  const availableTeams = mode === "mock"
+    ? [{ id: "tm6", name: "TM6" }]
+    : (Array.isArray(access?.teams) ? access.teams : []);
+  const selectedTeam = availableTeams.find((team) => team.id === selectedTeamId)
+    || access?.current_team
+    || availableTeams[0]
+    || null;
   const updatedAt = mode === "mock"
     ? "демо-дані"
     : report?.debit_leaderboard_updated_at || report?.snapshot_updated_at || "";
@@ -280,7 +300,18 @@ export default function DebitLeaderboard() {
   const loading = mode !== "mock" && reportsLoading && !report;
 
   const currentLogin = normalizeLogin(user?.goals_login);
-  const leaderboard = useMemo(() => normalizeLeaderboard(rows), [rows]);
+  const allLeaderboard = useMemo(() => normalizeLeaderboard(rows), [rows]);
+  const leaderboard = useMemo(() => {
+    if (mode === "mock" || !selectedTeam?.id) return allLeaderboard;
+    return allLeaderboard.filter((row) => row.team_id === selectedTeam.id);
+  }, [allLeaderboard, mode, selectedTeam?.id]);
+  const groupSummary = useMemo(() => {
+    if (mode === "mock") return DEMO_GROUP_SUMMARY;
+    const teamKey = normalizeTeamKey(selectedTeam?.name);
+    const published = teamKey ? report?.debit_group_summaries?.[teamKey] : null;
+    return normalizeGroupSummary(published, [])
+      || calculatedGroupSummary(leaderboard, ["inb_deb", "vse_card", "web_fuib", "web_apps", "x_sell", "overall"], selectedTeam?.name || "");
+  }, [leaderboard, mode, report?.debit_group_summaries, selectedTeam?.name]);
   const currentIndex = leaderboard.findIndex((row) => row.login === currentLogin);
   const currentOperator = currentIndex >= 0 ? leaderboard[currentIndex] : null;
   const completed = leaderboard.filter((row) => row.overall >= 100).length;
@@ -300,17 +331,24 @@ export default function DebitLeaderboard() {
         </button>
         <div className="min-w-0 flex-1 pt-0.5">
           <h1 className="font-display text-[24px] leading-tight text-white">Дебетовий рейтинг</h1>
-          <div className="mt-1 text-xs font-bold text-zinc-500">Місячний результат усієї компанії</div>
+          <div className="mt-1 text-xs font-bold text-zinc-500">Місячний результат · {selectedTeam?.name || "ваша команда"}</div>
           <div className="mt-1 flex items-center gap-1.5 text-[10px] font-bold text-zinc-600"><RefreshCcw size={11} />Оновлено: {updatedAt || "з Google Таблиці"}</div>
         </div>
       </section>
+
+      {access?.allow_cross_team_reports && availableTeams.length > 1 && <section className="rounded-2xl border border-white/10 bg-[#1A1A1E] p-3">
+        <label className="text-[9px] font-black uppercase tracking-widest text-zinc-500">Переглянути команду</label>
+        <select value={selectedTeam?.id || ""} onChange={(event) => setSelectedTeamId(event.target.value)} className="mt-2 h-11 w-full rounded-xl border border-[#00F0FF]/30 bg-black/30 px-3 text-sm font-black text-white outline-none focus:border-[#00F0FF]">
+          {availableTeams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
+        </select>
+      </section>}
 
       {leaderboard.length ? (
         <>
           <section className="rounded-3xl border border-[#00F0FF]/28 bg-gradient-to-br from-[#00F0FF]/10 to-[#1A1A1E] p-5">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <div className="text-[10px] font-black uppercase tracking-widest text-[#00F0FF]">Підсумок групи TM6</div>
+                <div className="text-[10px] font-black uppercase tracking-widest text-[#00F0FF]">Підсумок групи {selectedTeam?.name || "команди"}</div>
                 <div className="mt-1 text-xs font-bold text-zinc-500">{leaderboard.length} операторів</div>
               </div>
               <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-[#00F0FF]/35 bg-[#00F0FF]/10">
@@ -319,7 +357,7 @@ export default function DebitLeaderboard() {
             </div>
 
             <div className="mt-4">
-              <GroupOverallValue value={groupSummary?.overall} />
+              <GroupOverallValue value={groupSummary?.overall} teamName={selectedTeam?.name || "Команда"} />
               <div className="mt-2 grid grid-cols-2 gap-2">
                 {DIRECTIONS.map((direction, index) => (
                   <div key={direction.key} className={index === DIRECTIONS.length - 1 ? "col-span-2" : ""}>

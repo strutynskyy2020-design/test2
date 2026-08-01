@@ -1,8 +1,11 @@
-import { useMemo } from "react";
-import { Target, CreditCard, Landmark, WalletCards, Coins, Trophy, CalendarDays, ChevronRight } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Target, CreditCard, Landmark, WalletCards, Coins, Trophy, CalendarDays, ChevronRight, Eye, MessageSquareText, X, CheckCircle2, Circle, Save } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { useDailyGoogleReports } from "@/hooks/useGoogleReports";
 import { useNavigate } from "react-router-dom";
+import { toast } from "sonner";
+import api, { extractError } from "@/lib/api";
+import { useGoalsAccess } from "@/hooks/useGoalsAccess";
 
 const metricMeta = {
   credit: { label: "Кредитний напрямок", icon: CreditCard, color: "#FFB800", openLabel: "Переглянути рейтинг і показники" },
@@ -74,9 +77,53 @@ function MetricCard({ name, metric, onOpen }) {
 }
 
 export default function Goals() {
-  const { mode } = useApp();
+  const { mode, user } = useApp();
   const navigate = useNavigate();
   const { data: report, loading: reportsLoading, error } = useDailyGoogleReports();
+  const { data: access, setData: setAccess } = useGoalsAccess();
+  const [messageOpen, setMessageOpen] = useState(false);
+  const [messageDraft, setMessageDraft] = useState("");
+  const [messageSaving, setMessageSaving] = useState(false);
+  const [viewsOpen, setViewsOpen] = useState(false);
+  const [viewsLoading, setViewsLoading] = useState(false);
+  const [viewStats, setViewStats] = useState(null);
+
+  const isTeamLeader = Boolean(user?.is_team_leader || (user?.role === "admin" && user?.team_id));
+  const teamMessage = access?.team_message?.message || "";
+
+  useEffect(() => {
+    setMessageDraft(teamMessage);
+  }, [teamMessage]);
+
+  const saveTeamMessage = async () => {
+    setMessageSaving(true);
+    try {
+      const { data: saved } = await api.put("/leader/goals/team-message", { message: messageDraft });
+      setAccess((current) => ({
+        ...(current || {}),
+        team_message: saved,
+      }));
+      setMessageOpen(false);
+      toast.success(saved.message ? "Повідомлення для команди збережено" : "Повідомлення прибрано");
+    } catch (nextError) {
+      toast.error(extractError(nextError, "Не вдалося зберегти повідомлення"));
+    } finally {
+      setMessageSaving(false);
+    }
+  };
+
+  const openViews = async () => {
+    setViewsOpen(true);
+    setViewsLoading(true);
+    try {
+      const { data: stats } = await api.get("/leader/goals/views-today");
+      setViewStats(stats);
+    } catch (nextError) {
+      toast.error(extractError(nextError, "Не вдалося завантажити перегляди"));
+    } finally {
+      setViewsLoading(false);
+    }
+  };
 
   const { data, emptyMessage } = useMemo(() => {
     if (mode === "mock") {
@@ -160,10 +207,21 @@ export default function Goals() {
 
   return (
     <div className="space-y-5 px-5 pb-8 pt-2" data-testid="goals-page">
-      <div>
-        <div className="text-[10px] font-black uppercase tracking-[0.25em] text-zinc-500">Персональний прогрес</div>
-        <h1 className="mt-1 flex items-center gap-2 font-display text-3xl text-white"><Target size={28} strokeWidth={3} color="#B78CFF" />Мої цілі</h1>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-[10px] font-black uppercase tracking-[0.25em] text-zinc-500">Персональний прогрес</div>
+          <h1 className="mt-1 flex items-center gap-2 font-display text-3xl text-white"><Target size={28} strokeWidth={3} color="#B78CFF" />Мої цілі</h1>
+          {access?.current_team?.name && <div className="mt-1 text-[10px] font-black uppercase tracking-wider text-[#00F0FF]">Команда: {access.current_team.name}</div>}
+        </div>
+        {isTeamLeader && <div className="flex shrink-0 gap-2">
+          <button type="button" onClick={() => setMessageOpen(true)} className="flex h-10 w-10 items-center justify-center rounded-xl border border-[#B78CFF]/30 bg-[#B78CFF]/10 text-[#B78CFF] active:scale-95" aria-label="Повідомлення для операторів"><MessageSquareText size={17} strokeWidth={2.8} /></button>
+          <button type="button" onClick={openViews} className="flex h-10 w-10 items-center justify-center rounded-xl border border-[#00F0FF]/30 bg-[#00F0FF]/10 text-[#00F0FF] active:scale-95" aria-label="Хто переглянув звіти"><Eye size={18} strokeWidth={2.8} /></button>
+        </div>}
       </div>
+
+      {teamMessage && <section className="rounded-2xl border border-[#00F0FF]/25 bg-[#00F0FF]/[.06] p-4">
+        <div className="flex items-start gap-3"><MessageSquareText size={18} className="mt-0.5 shrink-0 text-[#00F0FF]" /><div><div className="text-[10px] font-black uppercase tracking-widest text-[#00F0FF]">Повідомлення керівника</div><p className="mt-1 whitespace-pre-wrap text-sm font-bold leading-relaxed text-zinc-200">{teamMessage}</p></div></div>
+      </section>}
 
       <section className="rounded-3xl border border-[#B78CFF]/35 bg-gradient-to-br from-[#B78CFF]/15 to-[#1A1A1E] p-5">
         <div className="flex items-center justify-between">
@@ -190,6 +248,27 @@ export default function Goals() {
       </section>
 
       {data.note && <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 text-sm text-zinc-300"><span className="font-black text-white">Коментар керівника: </span>{data.note}</section>}
+
+      {messageOpen && <div className="fixed inset-0 z-50 flex items-end justify-center">
+        <button type="button" className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setMessageOpen(false)} aria-label="Закрити" />
+        <section className="relative w-full max-w-[480px] rounded-t-3xl border-t border-white/10 bg-[#1A1A1E] p-5 pb-[calc(env(safe-area-inset-bottom,0px)+24px)]">
+          <div className="flex items-start justify-between gap-3"><div><div className="text-[10px] font-black uppercase tracking-widest text-[#B78CFF]">Для всієї команди</div><h2 className="mt-1 font-display text-2xl text-white">Повідомлення операторам</h2></div><button type="button" onClick={() => setMessageOpen(false)} className="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-black/30 text-zinc-400"><X size={16} /></button></div>
+          <textarea value={messageDraft} onChange={(event) => setMessageDraft(event.target.value.slice(0, 1200))} rows={6} placeholder="Наприклад: сьогодні фокус на X-Sell і уважно перевіряємо заявки..." className="mt-4 w-full resize-none rounded-2xl border border-white/10 bg-black/30 p-4 text-sm font-bold text-white outline-none focus:border-[#B78CFF]" />
+          <div className="mt-2 text-right text-[10px] font-bold text-zinc-600">{messageDraft.length}/1200</div>
+          <button type="button" onClick={saveTeamMessage} disabled={messageSaving} className="mt-3 flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[#B78CFF] text-xs font-black uppercase text-black disabled:opacity-50"><Save size={16} />{messageSaving ? "Збереження…" : "Зберегти повідомлення"}</button>
+        </section>
+      </div>}
+
+      {viewsOpen && <div className="fixed inset-0 z-50 flex items-end justify-center">
+        <button type="button" className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setViewsOpen(false)} aria-label="Закрити" />
+        <section className="relative max-h-[82vh] w-full max-w-[480px] overflow-y-auto rounded-t-3xl border-t border-white/10 bg-[#1A1A1E] p-5 pb-[calc(env(safe-area-inset-bottom,0px)+24px)]">
+          <div className="flex items-start justify-between gap-3"><div><div className="text-[10px] font-black uppercase tracking-widest text-[#00F0FF]">Сьогодні · {viewStats?.team_name || access?.current_team?.name || "команда"}</div><h2 className="mt-1 font-display text-2xl text-white">Перегляди звітів</h2></div><button type="button" onClick={() => setViewsOpen(false)} className="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-black/30 text-zinc-400"><X size={16} /></button></div>
+          {viewsLoading ? <div className="py-10 text-center text-sm font-bold text-zinc-500">Завантаження…</div> : <>
+            <div className="mt-4 grid grid-cols-2 gap-2"><div className="rounded-2xl border border-[#00F0FF]/20 bg-[#00F0FF]/[.06] p-3 text-center"><div className="font-display text-2xl text-[#00F0FF]">{viewStats?.report_viewed_count || 0}/{viewStats?.total || 0}</div><div className="text-[9px] font-black uppercase text-zinc-500">Дивились звіти</div></div><div className="rounded-2xl border border-[#B78CFF]/20 bg-[#B78CFF]/[.06] p-3 text-center"><div className="font-display text-2xl text-[#B78CFF]">{viewStats?.metrics_viewed_count || 0}/{viewStats?.total || 0}</div><div className="text-[9px] font-black uppercase text-zinc-500">Дивились свої показники</div></div></div>
+            <div className="mt-4 space-y-2">{(viewStats?.members || []).map((member) => <article key={member.id} className="rounded-2xl border border-white/10 bg-black/25 p-3"><div className="flex items-center gap-3"><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl font-black text-black" style={{ backgroundColor: member.avatar_color || "#FFB800" }}>{member.avatar_initials || "?"}</div><div className="min-w-0 flex-1"><div className="truncate text-sm font-black text-white">{member.name}</div><div className="mt-1 grid grid-cols-2 gap-2"><div className={`flex items-center gap-1 text-[9px] font-black ${member.report_viewed ? "text-[#39FF14]" : "text-zinc-600"}`}>{member.report_viewed ? <CheckCircle2 size={12} /> : <Circle size={12} />} Звіти</div><div className={`flex items-center gap-1 text-[9px] font-black ${member.metrics_viewed ? "text-[#39FF14]" : "text-zinc-600"}`}>{member.metrics_viewed ? <CheckCircle2 size={12} /> : <Circle size={12} />} Мої показники</div></div></div></div></article>)}</div>
+          </>}
+        </section>
+      </div>}
     </div>
   );
 }
