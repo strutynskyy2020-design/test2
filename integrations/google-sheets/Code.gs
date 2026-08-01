@@ -1228,13 +1228,13 @@ function refreshReports() {
   lock.waitLock(30000);
   const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
   try {
-    spreadsheet.toast("Збираю новий знімок даних…", "TM6 · Оновлення звітів", -1);
+    spreadsheet.toast("Збираю новий знімок даних…", "VPDK · Оновлення звітів", -1);
     SpreadsheetApp.flush();
     const snapshot = buildReportSnapshots(spreadsheet);
     writeReportCache(spreadsheet, snapshot);
     spreadsheet.toast(
       `Готово: ${snapshot.reports.length} профілів · PWA оновить локальний кеш у фоні без повторних екранів завантаження`,
-      "TM6 · Звіти опубліковано",
+      "VPDK · Звіти опубліковано",
       8
     );
     return {
@@ -1247,7 +1247,7 @@ function refreshReports() {
   } catch (error) {
     spreadsheet.toast(
       error && error.message ? error.message : "Не вдалося оновити звіти",
-      "TM6 · Помилка",
+      "VPDK · Помилка",
       10
     );
     throw error;

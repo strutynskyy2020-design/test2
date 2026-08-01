@@ -347,7 +347,7 @@ const DailyTasksManager = () => {
         />
       </div>
 
-      {/* Mobile and tablet: native TM6 Bonus cards */}
+      {/* Mobile and tablet: native VPDK Bonus cards */}
       <div className="admin-mobile-task-list space-y-4">
         {operators.map((operator) => (
           <section key={operator.id} className="overflow-hidden rounded-3xl border border-white/10 bg-[#1A1A1E]">

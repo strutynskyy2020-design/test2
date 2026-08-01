@@ -1,4 +1,4 @@
-"""CallHub Game Hub — Backend API pytest suite
+"""VPDK Bonus — Backend API pytest suite
 Covers: health, auth, employee flows (quests/prizes/orders/tx),
 admin CRUD + analytics, and bot API endpoints.
 """

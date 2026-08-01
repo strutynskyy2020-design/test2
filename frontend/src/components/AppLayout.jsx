@@ -21,7 +21,7 @@ const PAGE_LABELS = {
   "/leaderboard": "Загальний рейтинг",
   "/fun": "Щедрий куб",
   "/games/bonus-match": "Bonus Match",
-  "/games/sudoku": "TM6 Sudoku",
+  "/games/sudoku": "VPDK Sudoku",
   "/history": "Історія Point",
   "/schedule": "Мій графік",
   "/feed": "Стрічка активності",
@@ -116,9 +116,9 @@ export default function AppLayout() {
           className="app-theme-header sticky top-0 z-30 backdrop-blur-sm px-3 min-[390px]:px-5 pb-4 flex items-center justify-between"
           style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 14px)", minHeight: "calc(74px + env(safe-area-inset-top, 0px))" }}
         >
-          <div className="min-w-0">
-            <div className="app-theme-heading font-display text-[19px] min-[390px]:text-[22px] leading-none tracking-tight whitespace-nowrap">
-              TM6 <span className="text-[#FFB800]">BONUS</span>
+          <div className="min-w-0 flex-1 overflow-hidden">
+            <div className="app-theme-heading overflow-hidden text-ellipsis font-display text-[15px] min-[350px]:text-[17px] min-[390px]:text-[20px] leading-none tracking-[-0.04em] whitespace-nowrap">
+              VPDK <span className="text-[#FFB800]">BONUS</span>
             </div>
           </div>
           <div className="flex items-center gap-1 min-[390px]:gap-1.5 shrink-0">

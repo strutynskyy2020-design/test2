@@ -39,6 +39,7 @@ const fallbackAccess = async (user) => {
     current_team: currentTeam,
     teams: allowCrossTeam ? teams : (currentTeam ? [currentTeam] : []),
     allowed_goals_logins: [],
+    participants: null,
     access_signature: null,
     team_message: null,
     is_team_leader: Boolean(user?.is_team_leader),

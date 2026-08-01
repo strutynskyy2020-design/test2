@@ -36,7 +36,7 @@ for period in ("day", "week", "month", "all"):
 assert '/leaderboard/teams?period=${period}' in TEAMS
 assert "зароблені Point мінус усі витрачені Point" in TEAMS
 assert "зароблено Point мінус витрачено" in LEADERBOARD
-assert 'const VERSION = "tm6-v109";' in SW
+assert 'const VERSION = "vpdk-v111";' in SW
 
 # A representative net score: 100 earned, 35 spent, 5 earned = 70.
 assert sum([100, -35, 5]) == 70

@@ -38,6 +38,42 @@ const teamReportKey = (value = "") => {
 
 const rowLogin = (row = {}) => normalizeKey(row.login || row.goals_login || row.operator || row.credit || row.debit);
 
+const participantMap = (participants = []) => new Map(
+  (Array.isArray(participants) ? participants : [])
+    .map((participant) => [normalizeKey(participant?.goals_login || participant?.login), participant])
+    .filter(([login]) => login),
+);
+
+const enrichRowsWithParticipants = (rows, participants = []) => {
+  const profiles = participantMap(participants);
+  return (Array.isArray(rows) ? rows : []).map((row) => {
+    const login = rowLogin(row);
+    const participant = profiles.get(login);
+    if (!participant) {
+      return {
+        ...row,
+        login,
+        team_id: row?.team_id || "",
+        team_name: row?.team_name || "",
+        team_key: row?.team_key || teamReportKey(row?.team_name || ""),
+      };
+    }
+    return {
+      ...row,
+      login,
+      name: participant.name || row?.name || "",
+      goals_login: participant.goals_login || login,
+      team_id: participant.team_id || row?.team_id || "",
+      team_name: participant.team_name || row?.team_name || "",
+      team_key: participant.team_key || teamReportKey(participant.team_name || row?.team_name || ""),
+      avatar_initials: participant.avatar_initials || row?.avatar_initials || "",
+      avatar_color: participant.avatar_color || row?.avatar_color || "#27272A",
+      avatar_url: participant.avatar_url || row?.avatar_url || null,
+      avatar_rarity: participant.avatar_rarity || row?.avatar_rarity || "basic",
+    };
+  });
+};
+
 const filterRowsByAllowedLogins = (rows, allowedLogins) => {
   if (!Array.isArray(rows)) return [];
   if (allowedLogins === null) return rows;
@@ -172,6 +208,33 @@ exports.handler = async (event) => {
       const fallbackAllowed = isPrivileged
         ? uniqueKeys(fallbackUsers.map((member) => member?.goals_login || member?.goalsLogin || member?.login2))
         : uniqueKeys([user.goals_login, String(user.email || "").split("@")[0]]);
+      const fallbackTeamNames = new Map(
+        (Array.isArray(fallbackTeams) ? fallbackTeams : []).map((team) => [team?.id, team?.name || ""]),
+      );
+      const fallbackParticipants = isPrivileged
+        ? fallbackUsers
+          .filter((member) => member?.role !== "admin" && normalizeKey(member?.goals_login || member?.goalsLogin || member?.login2))
+          .map((member) => {
+            const teamName = member?.team_name || fallbackTeamNames.get(member?.team_id) || "";
+            return {
+              ...member,
+              goals_login: normalizeKey(member?.goals_login || member?.goalsLogin || member?.login2),
+              team_name: teamName,
+              team_key: teamReportKey(teamName),
+            };
+          })
+        : (normalizeKey(user?.goals_login) ? [{
+          id: user.id,
+          name: user.name || "",
+          goals_login: normalizeKey(user.goals_login),
+          team_id: user.team_id || "",
+          team_name: user.team_name || currentTeam?.name || "",
+          team_key: teamReportKey(user.team_name || currentTeam?.name || ""),
+          avatar_initials: user.avatar_initials || "",
+          avatar_color: user.avatar_color || "#27272A",
+          avatar_url: user.avatar_url || null,
+          avatar_rarity: user.avatar_rarity || "basic",
+        }] : []);
       reportAccess = {
         allow_cross_team_reports: Boolean(isPrivileged || fallbackSettings?.allow_cross_team_reports),
         admin_allows_cross_team_reports: Boolean(fallbackSettings?.allow_cross_team_reports),
@@ -180,6 +243,7 @@ exports.handler = async (event) => {
           ? fallbackTeams
           : (currentTeam ? [currentTeam] : []),
         allowed_goals_logins: fallbackAllowed,
+        participants: fallbackParticipants,
         access_signature: null,
         compatibility_mode: true,
       };
@@ -324,6 +388,15 @@ exports.handler = async (event) => {
     const selectedDebitSummary = currentTeamKey
       ? (debitGroupSummaries[currentTeamKey] || null)
       : (isPrivileged ? null : (baseData.debit_group_summary || null));
+    const participants = Array.isArray(reportAccess?.participants) ? reportAccess.participants : [];
+    const creditLeaderboard = enrichRowsWithParticipants(
+      filterRowsByAllowedLogins(baseData.credit_leaderboard, allowedLogins),
+      participants,
+    );
+    const debitLeaderboard = enrichRowsWithParticipants(
+      filterRowsByAllowedLogins(baseData.debit_leaderboard, allowedLogins),
+      participants,
+    );
 
     return makeResponse(200, {
       success: true,
@@ -340,11 +413,11 @@ exports.handler = async (event) => {
       goals_login: viewerHasOwnReport ? selectedReportLogin : null,
       goals: viewerHasOwnReport ? (baseData.goals || null) : null,
       credit_metrics: viewerHasOwnReport ? applyTeamOverall(baseData.credit_metrics, currentTeamKey) : [],
-      credit_leaderboard: filterRowsByAllowedLogins(baseData.credit_leaderboard, allowedLogins),
+      credit_leaderboard: creditLeaderboard,
       credit_group_summary: selectedCreditSummary,
       credit_group_summaries: creditGroupSummaries,
       credit_leaderboard_updated_at: baseData.credit_leaderboard_updated_at || null,
-      debit_leaderboard: filterRowsByAllowedLogins(baseData.debit_leaderboard, allowedLogins),
+      debit_leaderboard: debitLeaderboard,
       debit_group_summary: selectedDebitSummary,
       debit_group_summaries: debitGroupSummaries,
       debit_leaderboard_updated_at: baseData.debit_leaderboard_updated_at || null,
@@ -355,6 +428,7 @@ exports.handler = async (event) => {
         admin_allows_cross_team_reports: Boolean(reportAccess?.admin_allows_cross_team_reports),
         current_team: currentTeam,
         teams: Array.isArray(reportAccess?.teams) ? reportAccess.teams : (currentTeam ? [currentTeam] : []),
+        participants,
         compatibility_mode: Boolean(reportAccess?.compatibility_mode),
       },
       schedule,

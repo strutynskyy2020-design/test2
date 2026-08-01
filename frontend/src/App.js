@@ -10,15 +10,15 @@ import Login from "@/pages/Login";
 import Home from "@/pages/Home";
 import Register from "@/pages/Register";
 
-// V96: make the light theme the one-time default for every existing and new user.
-// After this migration runs once, the user may freely switch to dark and that
-// explicit choice remains stored under `tm6-color-theme`.
-const LIGHT_THEME_MIGRATION_KEY = "tm6-light-theme-default-v96";
+// V111: dark is the primary VPDK Bonus theme. This one-time migration also
+// moves every existing installation to dark once; after that the user's
+// explicit light/dark choice is stored normally under `vpdk-color-theme`.
+const DARK_THEME_MIGRATION_KEY = "vpdk-dark-theme-default-v111";
 if (typeof window !== "undefined") {
   try {
-    if (window.localStorage.getItem(LIGHT_THEME_MIGRATION_KEY) !== "done") {
-      window.localStorage.setItem("tm6-color-theme", "light");
-      window.localStorage.setItem(LIGHT_THEME_MIGRATION_KEY, "done");
+    if (window.localStorage.getItem(DARK_THEME_MIGRATION_KEY) !== "done") {
+      window.localStorage.setItem("vpdk-color-theme", "dark");
+      window.localStorage.setItem(DARK_THEME_MIGRATION_KEY, "done");
     }
   } catch (_) {
     // Storage can be unavailable in private/restricted browser contexts.
@@ -111,9 +111,9 @@ function App() {
   return (
     <ThemeProvider
       attribute="class"
-      defaultTheme="light"
+      defaultTheme="dark"
       enableSystem={false}
-      storageKey="tm6-color-theme"
+      storageKey="vpdk-color-theme"
       disableTransitionOnChange
     >
       <AppProvider>

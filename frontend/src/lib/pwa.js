@@ -1,4 +1,4 @@
-// Register and actively refresh the TM6 Bonus service worker.
+// Register and actively refresh the VPDK Bonus service worker.
 // New deployments activate immediately and reload the open app once.
 export function registerServiceWorker() {
   if (typeof window === "undefined") return;

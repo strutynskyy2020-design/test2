@@ -148,3 +148,148 @@ html.light .sudoku-page {
   .sudoku-tools span { display:none; }
   .sudoku-tools button { height:44px; }
 }
+
+
+/* V111: a clean light palette that belongs to VPDK Bonus instead of keeping
+   dark gold surfaces underneath light-theme text. */
+html.light .sudoku-page {
+  --su-bg: #F8F7FC;
+  --su-card: #FFFFFF;
+  --su-card-2: #F5F2FB;
+  --su-line: #DED8EB;
+  --su-text: #252832;
+  --su-muted: #6D7282;
+  --su-purple: #6D3DF5;
+  --su-purple-soft: rgba(109,61,245,.10);
+  --su-yellow: #C98500;
+  --su-green: #0E9F55;
+  --su-red: #E64752;
+  background:
+    radial-gradient(circle at 100% 0, rgba(109,61,245,.09), transparent 31%),
+    radial-gradient(circle at 0 34%, rgba(255,184,0,.06), transparent 24%),
+    linear-gradient(180deg, #FCFBFE 0%, #F7F5FB 100%);
+}
+
+html.light .sudoku-hero {
+  border-color: #D8C9F7;
+  background:
+    radial-gradient(circle at 90% 12%, rgba(255,184,0,.13), transparent 31%),
+    linear-gradient(145deg, #F1E9FF 0%, #FFFFFF 58%, #FFF9E9 100%);
+  box-shadow: 0 18px 42px rgba(68,47,105,.09);
+}
+
+html.light .sudoku-hero::after { border-color: rgba(109,61,245,.08); }
+html.light .sudoku-eyebrow,
+html.light .sudoku-section-title span,
+html.light .sudoku-chapter-head > span,
+html.light .sudoku-level-top,
+html.light .sudoku-game-title span,
+html.light .sudoku-game-stats svg,
+html.light .sudoku-tip > svg,
+html.light .sudoku-pause-overlay > div > svg { color: #6D3DF5; }
+
+html.light .sudoku-back,
+html.light .sudoku-icon-btn,
+html.light .sudoku-game-stats div,
+html.light .sudoku-tools button,
+html.light .sudoku-keypad button,
+html.light .sudoku-secondary,
+html.light .sudoku-close {
+  background: #FFFFFF;
+  border-color: #DED8EB;
+  box-shadow: 0 5px 16px rgba(57,45,82,.045);
+}
+
+html.light .sudoku-progress-card,
+html.light .sudoku-mode-card,
+html.light .sudoku-levels,
+html.light .sudoku-pause-overlay > div,
+html.light .sudoku-result-card {
+  background: rgba(255,255,255,.96);
+  border-color: #DED8EB;
+  box-shadow: 0 16px 38px rgba(57,45,82,.07);
+}
+
+html.light .sudoku-progress-copy div,
+html.light .sudoku-result-metrics div { background: #F5F2FB; }
+
+html.light .sudoku-level-card {
+  border-color: #E2DDEC;
+  background: linear-gradient(145deg, #FFFFFF, #F7F4FC);
+  box-shadow: 0 8px 20px rgba(57,45,82,.045);
+}
+
+html.light .sudoku-level-card.completed {
+  border-color: rgba(14,159,85,.34);
+  background: linear-gradient(145deg, #FFFFFF, #F1FBF6);
+}
+
+html.light .sudoku-board-shell {
+  border-color: #D4C5F4;
+  background: linear-gradient(145deg, #EEE6FF, #FFFFFF 52%);
+  box-shadow: 0 18px 42px rgba(57,45,82,.08);
+}
+
+html.light .sudoku-board {
+  border-color: #3D4050;
+  background: #CFC9DA;
+}
+
+html.light .sudoku-cell {
+  color: #6D3DF5;
+  background: #FFFFFF;
+  border-color: rgba(61,64,80,.24);
+}
+
+html.light .sudoku-cell.is-given {
+  color: #252832;
+  background: #F4F1F8;
+}
+
+html.light .sudoku-cell.is-related { background: #F1EBFF; }
+html.light .sudoku-cell.is-same { background: #E8DEFF; }
+html.light .sudoku-cell.is-active {
+  color: #FFFFFF;
+  background: #6D3DF5;
+  box-shadow: inset 0 0 0 2px rgba(255,255,255,.65);
+}
+html.light .sudoku-cell.is-wrong { color: #D9303E; background: #FFF0F2; }
+html.light .sudoku-notes i { color: #777B8B; }
+
+html.light .sudoku-modes button.active,
+html.light .sudoku-tools button.active,
+html.light .sudoku-keypad button.multi-active,
+html.light .sudoku-primary {
+  color: #FFFFFF;
+  border-color: #6D3DF5;
+  background: linear-gradient(135deg, #5C2EE7, #8B5CF6);
+}
+
+html.light .sudoku-continue {
+  color: #252832;
+  background: linear-gradient(135deg, #FFE49A, #FFBF20);
+  box-shadow: 0 12px 28px rgba(201,133,0,.15);
+}
+
+html.light .sudoku-tip {
+  border-color: rgba(109,61,245,.30);
+  background: #F1EBFF;
+}
+
+html.light .sudoku-crown,
+html.light .sudoku-result-icon,
+html.light .sudoku-reward-line {
+  color: #A96F00;
+  border-color: rgba(201,133,0,.30);
+  background: #FFF7DF;
+}
+
+@media (max-width: 370px) {
+  .sudoku-hero { padding: 21px 18px; }
+  .sudoku-hero h1 { font-size: 27px; }
+  .sudoku-crown { width: 48px; height: 48px; right: 16px; top: 16px; }
+  .sudoku-progress-card { grid-template-columns: 92px 1fr; gap: 10px; padding: 13px; }
+  .sudoku-progress-ring { width: 82px; }
+  .sudoku-section-title h2 { font-size: 18px; }
+  .sudoku-result-card h2 { font-size: 23px; }
+}

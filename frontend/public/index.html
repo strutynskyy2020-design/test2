@@ -4,7 +4,7 @@
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
         <meta name="theme-color" content="#0A0A0A" />
-        <meta name="description" content="TM6 Bonus — мотивація, розвиток і AI-тренування операторів." />
+        <meta name="description" content="VPDK Bonus — мотивація, розвиток і AI-тренування операторів." />
 
         <!-- PWA -->
         <link rel="manifest" href="/manifest.json" />
@@ -19,7 +19,7 @@
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-        <meta name="apple-mobile-web-app-title" content="TM6 Bonus" />
+        <meta name="apple-mobile-web-app-title" content="VPDK Bonus" />
 
         <!-- iOS Splash screens -->
         <link rel="apple-touch-startup-image" href="/splash-750x1334.png" media="(device-width: 375px) and (device-height: 667px)" />
@@ -29,9 +29,10 @@
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@600&display=swap" rel="stylesheet" />
 
-        <title>TM6 Bonus</title>
+        <title>VPDK Bonus</title>
         <script>
-            window.__TM6_PRODUCTION_UI__ = true;
+            window.__VPDK_PRODUCTION_UI__ = true;
+            window.__TM6_PRODUCTION_UI__ = true; // legacy compatibility
             // v82: visual-edit overlays must never be mounted in the production game.
             document.addEventListener("DOMContentLoaded", function () {
                 document.querySelectorAll('script[src*="emergent-main"], script[src*="visual-edits"]').forEach(function (node) { node.remove(); });

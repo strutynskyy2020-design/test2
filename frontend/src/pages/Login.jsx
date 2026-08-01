@@ -28,7 +28,7 @@ export default function Login() {
         return;
       }
 
-      toast.success("Ласкаво просимо в TM6 Bonus!");
+      toast.success("Ласкаво просимо у VPDK Bonus!");
       nav("/", { replace: true });
     } catch (error) {
       console.error("Login error:", error);
@@ -46,8 +46,8 @@ export default function Login() {
           <div className="w-20 h-20 rounded-3xl bg-[#FFB800] flex items-center justify-center glow-yellow border-b-4 border-[#7a5900] mb-4">
             <Gamepad2 size={40} strokeWidth={3} color="#0A0A0A" aria-hidden="true" />
           </div>
-          <div className="text-[10px] font-black uppercase tracking-[0.3em] text-zinc-500">TM6 Bonus</div>
-          <h1 className="font-display text-4xl text-white mt-1">TM6 BONUS</h1>
+          <div className="text-[10px] font-black uppercase tracking-[0.3em] text-zinc-500">VPDK Bonus</div>
+          <h1 className="font-display text-[clamp(2rem,10vw,2.5rem)] leading-none text-white mt-1 text-center break-words">VPDK BONUS</h1>
           <p className="text-zinc-400 text-sm mt-2">Заходь. Заробляй. Прокачуйся.</p>
         </div>
 

@@ -413,7 +413,7 @@ html.light .bonus-match-bottom-nav a[aria-current="page"] {
 }
 
 
-/* ==========================================================================\n   V95 · APPLICATION-WIDE LIGHT / DARK THEME\n   The existing dark visual remains the default. The light visual is selected\n   by the user and stored by next-themes under `tm6-color-theme`.\n   ========================================================================== */
+/* ==========================================================================\n   V95 · APPLICATION-WIDE LIGHT / DARK THEME\n   The existing dark visual remains the default. The light visual is selected\n   by the user and stored by next-themes under `vpdk-color-theme`.\n   ========================================================================== */
 
 :root {
   --background: 0 0% 4%;
@@ -804,4 +804,90 @@ html.dark { --operator-divider: rgba(255,255,255,.09); }
     width: 131.58%;
     margin-left: -15.79%;
   }
+}
+
+/* ==========================================================================\n   V111 · VPDK BRAND, DARK-FIRST THEME, RESPONSIVE GAME CARDS\n   ========================================================================== */
+
+.home-sudoku-card {
+  border: 1px solid rgba(255,184,0,.40);
+  background: linear-gradient(100deg, #2A2110 0%, #1A1712 54%, #111114 100%);
+  box-shadow: 0 16px 36px rgba(255,184,0,.10);
+  color: #F7F7FB;
+}
+
+.home-sudoku-glow { background: rgba(255,184,0,.15); }
+
+.home-sudoku-icon {
+  border: 1px solid rgba(255,184,0,.45);
+  background: rgba(255,184,0,.15);
+  color: #FFCA3A;
+  box-shadow: 0 0 24px rgba(255,184,0,.16);
+}
+
+.home-sudoku-title {
+  min-width: 0;
+  flex: 1 1 auto;
+  color: #F7F7FB;
+  overflow-wrap: anywhere;
+}
+
+.home-sudoku-description {
+  min-width: 0;
+  color: #A1A1AA;
+  overflow-wrap: anywhere;
+}
+
+.home-sudoku-chevron { color: #FFB800; }
+
+html.light .home-sudoku-card {
+  border-color: #DCCDFB;
+  background:
+    radial-gradient(circle at 88% 10%, rgba(109,61,245,.12), transparent 34%),
+    linear-gradient(115deg, #FFFFFF 0%, #F5F0FF 56%, #FFF8E5 100%);
+  box-shadow: 0 16px 38px rgba(71,46,118,.10);
+  color: #242733;
+}
+
+html.light .home-sudoku-glow { background: rgba(109,61,245,.14); }
+
+html.light .home-sudoku-icon {
+  border-color: rgba(109,61,245,.28);
+  background: linear-gradient(145deg, #F1E9FF, #FFF8DC);
+  color: #6D3DF5;
+  box-shadow: 0 10px 24px rgba(109,61,245,.12);
+}
+
+html.light .home-sudoku-title { color: #252832; }
+html.light .home-sudoku-description { color: #6F7382; }
+html.light .home-sudoku-chevron { color: #6D3DF5; }
+
+.app-theme-heading,
+.home-sudoku-title,
+.home-sudoku-description,
+.sudoku-section-title > div,
+.sudoku-chapter-head > div,
+.sudoku-game-title {
+  min-width: 0;
+}
+
+.app-theme-heading,
+.home-sudoku-title,
+.sudoku-hero h1,
+.sudoku-section-title h2,
+.sudoku-result-card h2 {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 370px) {
+  .home-sudoku-card { gap: 10px; padding: 14px; }
+  .home-sudoku-icon { width: 46px; height: 46px; border-radius: 15px; }
+  .home-sudoku-title { font-size: 14px !important; }
+  .home-sudoku-description { font-size: 10px !important; line-height: 1.3; }
+  .app-theme-heading { font-size: 14px !important; letter-spacing: -.06em; }
+}
+
+@media (max-width: 335px) {
+  .app-theme-heading { font-size: 12px !important; }
+  .home-sudoku-card { padding-left: 12px; padding-right: 12px; }
+  .home-sudoku-title { font-size: 13px !important; }
 }

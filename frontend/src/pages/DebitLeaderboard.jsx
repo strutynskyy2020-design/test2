@@ -15,7 +15,13 @@ import { useApp } from "@/context/AppContext";
 import { useDailyGoogleReports } from "@/hooks/useGoogleReports";
 import { resolveAvatarUrl } from "@/lib/avatar";
 import { useGoalsAccess } from "@/hooks/useGoalsAccess";
-import { calculatedGroupSummary, normalizeTeamKey } from "@/lib/teamReports";
+import {
+  calculatedGroupSummary,
+  enrichReportRowsWithParticipants,
+  hasTeamMetadata,
+  normalizeTeamKey,
+  rowMatchesTeam,
+} from "@/lib/teamReports";
 
 const DEMO_GROUP_SUMMARY = {
   login: "tm6",
@@ -108,22 +114,10 @@ const normalizeRow = (row) => ({
   avatar_initials: String(row?.avatar_initials || "").trim(),
   avatar_color: row?.avatar_color || "#27272A",
   avatar_rarity: row?.avatar_rarity || "basic",
+  team_id: String(row?.team_id || "").trim(),
+  team_name: String(row?.team_name || "").trim(),
+  team_key: normalizeTeamKey(row?.team_key || row?.team_name),
 });
-
-const profileMapFromRows = (profiles = []) => new Map(
-  (Array.isArray(profiles) ? profiles : [])
-    .map((profile) => [normalizeLogin(profile?.goals_login), profile])
-    .filter(([login]) => login)
-);
-
-const enrichRowsWithProfiles = (rows = [], profiles = []) => {
-  const profilesByLogin = profileMapFromRows(profiles);
-  return (Array.isArray(rows) ? rows : []).map((row) => {
-    const login = normalizeLogin(row?.login || row?.goals_login || row?.operator || row?.debit);
-    const profile = profilesByLogin.get(login);
-    return profile ? { ...row, ...profile, login } : row;
-  });
-};
 
 const normalizeLeaderboard = (rows) => {
   if (!Array.isArray(rows)) return [];
@@ -250,13 +244,28 @@ export default function DebitLeaderboard() {
   const { mode, user } = useApp();
   const navigate = useNavigate();
   const { data: report, loading: reportsLoading, error } = useDailyGoogleReports();
-  const { data: access } = useGoalsAccess();
+  const { data: access, loading: accessLoading } = useGoalsAccess();
   const [participants, setParticipants] = useState([]);
+  const [participantsLoading, setParticipantsLoading] = useState(false);
   const [selectedTeamId, setSelectedTeamId] = useState(user?.team_id || "");
 
   useEffect(() => {
-    if (mode === "mock") return undefined;
+    if (mode === "mock") {
+      setParticipants([]);
+      setParticipantsLoading(false);
+      return undefined;
+    }
+
+    if (Array.isArray(access?.participants)) {
+      setParticipants(access.participants);
+      setParticipantsLoading(false);
+      return undefined;
+    }
+
+    if (accessLoading) return undefined;
+
     let cancelled = false;
+    setParticipantsLoading(true);
     const loadParticipants = async () => {
       try {
         const response = await api.get("/goals/participants");
@@ -280,6 +289,7 @@ export default function DebitLeaderboard() {
             ...member,
             goals_login: member.goals_login || member.goalsLogin || member.login2,
             team_name: member.team_name || teamNames[member.team_id] || "",
+            team_key: normalizeTeamKey(member.team_name || teamNames[member.team_id] || ""),
           }));
       }
     };
@@ -289,11 +299,14 @@ export default function DebitLeaderboard() {
       })
       .catch(() => {
         if (!cancelled) setParticipants([]);
+      })
+      .finally(() => {
+        if (!cancelled) setParticipantsLoading(false);
       });
     return () => {
       cancelled = true;
     };
-  }, [mode, user?.role]);
+  }, [access?.participants, accessLoading, mode, user?.role]);
 
   useEffect(() => {
     if (!selectedTeamId && (access?.current_team?.id || user?.team_id)) {
@@ -305,32 +318,34 @@ export default function DebitLeaderboard() {
     ? DEMO_LEADERBOARD
     : Array.isArray(report?.debit_leaderboard) ? report.debit_leaderboard : [];
   const rows = useMemo(
-    () => mode === "mock" ? DEMO_LEADERBOARD : enrichRowsWithProfiles(rawRows, participants),
+    () => mode === "mock" ? DEMO_LEADERBOARD : enrichReportRowsWithParticipants(rawRows, participants),
     [mode, participants, rawRows]
   );
   const availableTeams = mode === "mock"
     ? [{ id: "tm6", name: "TM6" }]
     : (Array.isArray(access?.teams) ? access.teams : []);
-  const selectedTeam = availableTeams.find((team) => team.id === selectedTeamId)
+  const selectedTeam = availableTeams.find((team) => String(team.id) === String(selectedTeamId))
     || access?.current_team
     || availableTeams[0]
     || null;
   const updatedAt = mode === "mock"
     ? "демо-дані"
     : report?.debit_leaderboard_updated_at || report?.snapshot_updated_at || "";
-  const emptyMessage = error
-    ? "Не вдалося завантажити дебетовий рейтинг з опублікованого звіту."
-    : report && !rawRows.length
-      ? 'На вкладці "Аркуш2" не знайдено таблицю Debit / Inb_deb / Vse_Card / Web_Fuib / Web_apps / X_sell / Загальний deb.'
-      : "";
-  const loading = mode !== "mock" && reportsLoading && !report;
 
   const currentLogin = normalizeLogin(user?.goals_login);
   const allLeaderboard = useMemo(() => normalizeLeaderboard(rows), [rows]);
   const leaderboard = useMemo(() => {
-    if (mode === "mock" || !selectedTeam?.id) return allLeaderboard;
-    return allLeaderboard.filter((row) => row.team_id === selectedTeam.id);
-  }, [allLeaderboard, mode, selectedTeam?.id]);
+    if (mode === "mock" || !selectedTeam) return allLeaderboard;
+    const matched = allLeaderboard.filter((row) => rowMatchesTeam(row, selectedTeam));
+    if (matched.length) return matched;
+
+    // When cross-team viewing is disabled, the Netlify gateway has already
+    // restricted the payload to the viewer's permitted logins. In that case
+    // it is safe to display the rows even if an older cached snapshot has no
+    // team metadata yet.
+    const gatewayAlreadyScoped = !access?.allow_cross_team_reports || availableTeams.length <= 1;
+    return gatewayAlreadyScoped ? allLeaderboard : [];
+  }, [access?.allow_cross_team_reports, allLeaderboard, availableTeams.length, mode, selectedTeam]);
   const groupSummary = useMemo(() => {
     if (mode === "mock") return DEMO_GROUP_SUMMARY;
     const teamKey = normalizeTeamKey(selectedTeam?.name);
@@ -346,6 +361,30 @@ export default function DebitLeaderboard() {
     () => DIRECTIONS.map((direction) => ({ ...direction, result: findBestByDirection(leaderboard, direction.key) })),
     [leaderboard]
   );
+
+  const needsTeamMapping = mode !== "mock"
+    && Boolean(selectedTeam)
+    && Boolean(access?.allow_cross_team_reports)
+    && availableTeams.length > 1;
+  const waitingForTeamMapping = needsTeamMapping
+    && rawRows.length > 0
+    && !hasTeamMetadata(allLeaderboard)
+    && (accessLoading || participantsLoading);
+  const loading = mode !== "mock" && ((reportsLoading && !report) || waitingForTeamMapping);
+  const teamMappingMissing = rawRows.length > 0
+    && allLeaderboard.length > 0
+    && leaderboard.length === 0
+    && needsTeamMapping
+    && !waitingForTeamMapping;
+  const emptyMessage = error
+    ? "Не вдалося завантажити дебетовий рейтинг з опублікованого звіту."
+    : report && !rawRows.length
+      ? 'На вкладці "Аркуш2" не знайдено таблицю Debit / Inb_deb / Vse_Card / Web_Fuib / Web_apps / X_sell / Загальний deb.'
+      : teamMappingMissing
+        ? `Звіт із Google Таблиці завантажено, але логіни операторів не зіставлено з командою ${selectedTeam?.name || ""}. Перевірте goals_login і команду користувачів в адмін-панелі.`
+        : rawRows.length > 0 && !allLeaderboard.length
+          ? "У таблиці знайдено рядки, але в них немає коректного загального результату."
+          : "";
 
   if (loading) return <div className="p-8 text-center text-sm text-zinc-500">Завантаження дебетового рейтингу...</div>;
 

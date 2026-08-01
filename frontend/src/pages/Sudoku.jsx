@@ -489,7 +489,7 @@ export default function Sudoku() {
         <button type="button" className="sudoku-back" onClick={() => nav("/")}><ArrowLeft size={19} /></button>
         <div className="sudoku-hero-copy">
           <span className="sudoku-eyebrow">ЛОГІЧНА ГРА · 50 РІВНІВ</span>
-          <h1>TM6 <b>SUDOKU</b></h1>
+          <h1>VPDK <b>SUDOKU</b></h1>
           <p>Спокійна сітка, гостра логіка. Прогрес синхронізується з акаунтом, а незавершений рівень можна продовжити.</p>
         </div>
         <div className="sudoku-crown"><Crown size={29} /></div>

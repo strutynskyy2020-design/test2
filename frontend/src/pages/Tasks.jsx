@@ -212,7 +212,7 @@ export default function Tasks() {
   return (
     <div className="space-y-5 px-5 pb-8 pt-2">
       <header>
-        <div className="text-[10px] font-black uppercase tracking-[0.25em] text-zinc-500">TM6 Bonus</div>
+        <div className="text-[10px] font-black uppercase tracking-[0.25em] text-zinc-500">VPDK Bonus</div>
         <h1 className="mt-1 font-display text-3xl text-white">Завдання дня</h1>
         <p className="mt-2 text-sm leading-relaxed text-zinc-400">
           Щодня о 00:00 за київським часом з’являються три нові завдання: легке, середнє та важке.

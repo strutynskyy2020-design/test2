@@ -1,4 +1,5 @@
-/* TM6 Bonus — Service Worker
+/* VPDK Bonus — Service Worker
+ * v111 applies the VPDK rebrand, dark-first theme, refreshed PWA icons, and Sudoku light-theme polish.
  * v109 fixes net Point leaderboards and adds periods to the team rating.
  * v106 fixes admin goals access, team messages, settings compatibility, and projection source mapping.
  * v105 adds team-aware goals, scoped prizes, leader messages, and report-view tracking.
@@ -8,7 +9,7 @@
  * never be cached as index.html, otherwise browsers can render a giant broken
  * image element over the board.
  */
-const VERSION = "tm6-v109";
+const VERSION = "vpdk-v111";
 const STATIC_CACHE = `${VERSION}-static`;
 const RUNTIME_CACHE = `${VERSION}-runtime`;
 

@@ -1,4 +1,4 @@
-"""CallHub Game Hub — PWA + Motivational Feed tests (Iteration 4).
+"""VPDK Bonus — PWA + Motivational Feed tests (Iteration 4).
 
 Covers:
 - PWA static assets served correctly (/manifest.json, /service-worker.js, icons).
@@ -57,7 +57,7 @@ class TestPWAAssets:
         ct = r.headers.get("content-type", "")
         assert "json" in ct
         m = r.json()
-        assert m["name"] == "CallHub Game Hub"
+        assert m["name"] == "VPDK Bonus"
         assert m["short_name"]
         assert m["start_url"] == "/"
         assert m["display"] == "standalone"

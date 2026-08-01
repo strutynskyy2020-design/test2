@@ -246,12 +246,12 @@ export default function Home() {
       <ChevronRight className="relative shrink-0 text-[#B78CFF] transition-transform group-active:translate-x-1" />
     </button>
 
-    {/* 10. TM6 Sudoku */}
-    <button type="button" onPointerEnter={warmSudoku} onFocus={warmSudoku} onTouchStart={warmSudoku} onClick={() => nav("/games/sudoku")} className="group relative flex w-full items-center gap-4 overflow-hidden rounded-3xl border border-[#FFB800]/40 bg-gradient-to-r from-[#2A2110] via-[#1A1712] to-[#111114] p-5 text-left shadow-[0_16px_36px_rgba(255,184,0,.10)] active:scale-[.99]">
-      <div className="absolute -right-8 -top-10 h-28 w-28 rounded-full bg-[#FFB800]/15 blur-2xl" />
-      <div className="relative flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-[#FFB800]/45 bg-[#FFB800]/15 text-[#FFCA3A] shadow-[0_0_24px_rgba(255,184,0,.16)]"><Grid3X3 size={27} strokeWidth={2.7} /></div>
-      <div className="relative min-w-0 flex-1"><div className="flex items-center gap-2"><div className="font-display text-xl text-white">TM6 SUDOKU</div><Sparkles size={16} color="#B78CFF" /></div><div className="mt-1 text-xs font-bold text-zinc-400">50 рівнів логіки, нотатки та мультизаповнення</div></div>
-      <ChevronRight className="relative shrink-0 text-[#FFB800] transition-transform group-active:translate-x-1" />
+    {/* 10. VPDK Sudoku */}
+    <button type="button" onPointerEnter={warmSudoku} onFocus={warmSudoku} onTouchStart={warmSudoku} onClick={() => nav("/games/sudoku")} className="home-sudoku-card group relative flex w-full items-center gap-3 min-[390px]:gap-4 overflow-hidden rounded-3xl p-4 min-[390px]:p-5 text-left active:scale-[.99]">
+      <div className="home-sudoku-glow absolute -right-8 -top-10 h-28 w-28 rounded-full blur-2xl" />
+      <div className="home-sudoku-icon relative flex h-12 w-12 min-[390px]:h-14 min-[390px]:w-14 shrink-0 items-center justify-center rounded-2xl"><Grid3X3 size={27} strokeWidth={2.7} /></div>
+      <div className="relative min-w-0 flex-1"><div className="flex items-center gap-2"><div className="home-sudoku-title font-display text-[clamp(0.92rem,4.6vw,1.25rem)] leading-tight">VPDK SUDOKU</div><Sparkles size={16} color="#B78CFF" /></div><div className="home-sudoku-description mt-1 text-[11px] min-[390px]:text-xs font-bold leading-snug">50 рівнів логіки, нотатки та мультизаповнення</div></div>
+      <ChevronRight className="home-sudoku-chevron relative shrink-0 transition-transform group-active:translate-x-1" />
     </button>
 
     {/* 11. Work schedule */}

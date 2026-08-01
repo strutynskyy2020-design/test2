@@ -1,4 +1,4 @@
-"""CallHub Game Hub — FastAPI backend
+"""VPDK Bonus — FastAPI backend
 JWT auth (email + bcrypt), employee/admin roles, quests, prizes, orders,
 transactions, admin CRUD, bot API endpoints for Telegram sync.
 """
@@ -57,7 +57,7 @@ ALLOWED_UPLOAD_TYPES = {
     "application/pdf",
 }
 
-logger = logging.getLogger("callhub")
+logger = logging.getLogger("vpdk-bonus")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
 # ────────────────────────────────────────────────────────────────────────
@@ -516,7 +516,7 @@ class PointsAdjustBody(BaseModel):
 # ────────────────────────────────────────────────────────────────────────
 # App + auth deps
 # ────────────────────────────────────────────────────────────────────────
-app = FastAPI(title="CallHub Game Hub API")
+app = FastAPI(title="VPDK Bonus API")
 api = APIRouter(prefix="/api")
 bearer = HTTPBearer(auto_error=False)
 
@@ -653,13 +653,30 @@ def _normalize_team_report_key(value: Optional[str]) -> str:
     return compact
 
 
-def _goals_access_signature(current_team: Optional[dict], allow_cross_team: bool, allowed_logins: List[str]) -> str:
+def _goals_access_signature(
+    current_team: Optional[dict],
+    allow_cross_team: bool,
+    allowed_logins: List[str],
+    participants: Optional[List[dict]] = None,
+) -> str:
     import hashlib
+    participant_teams = []
+    for participant in participants or []:
+        login = str(participant.get("goals_login") or "").strip().lower()
+        if not login:
+            continue
+        participant_teams.append({
+            "login": login,
+            "team_id": str(participant.get("team_id") or ""),
+            "team_key": _normalize_team_report_key(participant.get("team_name")),
+        })
+    participant_teams.sort(key=lambda item: (item["login"], item["team_id"], item["team_key"]))
     payload = {
         "team_id": (current_team or {}).get("id"),
         "team_name": (current_team or {}).get("name"),
         "allow_cross_team_reports": bool(allow_cross_team),
         "allowed_goals_logins": sorted(set(str(value or "").strip().lower() for value in allowed_logins if value)),
+        "participant_teams": participant_teams,
     }
     raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:24]
@@ -1601,13 +1618,29 @@ async def goals_report_access(user: dict = Depends(get_current_user)):
             member_query["id"] = user.get("id")
     members = await db.users.find(
         member_query,
-        {"_id": 0, "id": 1, "name": 1, "goals_login": 1, "team_id": 1},
+        {
+            "_id": 0,
+            "id": 1,
+            "name": 1,
+            "goals_login": 1,
+            "team_id": 1,
+            "avatar_initials": 1,
+            "avatar_color": 1,
+            "avatar_url": 1,
+            "avatar_rarity": 1,
+        },
     ).sort("name", 1).to_list(3000)
     teams = await db.teams.find({}, {"_id": 0, "id": 1, "name": 1, "color": 1}).sort("name", 1).to_list(500)
     team_map = {team["id"]: team for team in teams}
     visible_team_ids = list(dict.fromkeys(member.get("team_id") for member in members if member.get("team_id")))
     visible_teams = [team_map[team_id] for team_id in visible_team_ids if team_id in team_map]
     current_team = team_map.get(user.get("team_id"))
+    participants = []
+    for member in members:
+        participant = dict(member)
+        participant["team_name"] = (team_map.get(member.get("team_id")) or {}).get("name", "")
+        participant["team_key"] = _normalize_team_report_key(participant.get("team_name"))
+        participants.append(participant)
     allowed_logins = [str(member.get("goals_login") or "").strip().lower() for member in members]
     allowed_logins = [value for value in dict.fromkeys(allowed_logins) if value]
     team_message = None
@@ -1619,7 +1652,8 @@ async def goals_report_access(user: dict = Depends(get_current_user)):
         "current_team": current_team,
         "teams": visible_teams if allow_cross_team else ([current_team] if current_team else []),
         "allowed_goals_logins": allowed_logins,
-        "access_signature": _goals_access_signature(current_team, allow_cross_team, allowed_logins),
+        "participants": participants,
+        "access_signature": _goals_access_signature(current_team, allow_cross_team, allowed_logins, participants),
         "team_message": team_message,
         "is_team_leader": bool(user.get("is_team_leader")),
     }
@@ -1850,7 +1884,7 @@ async def _ensure_daily_battles(date_key: str) -> None:
     for index in range(0, len(users), 2):
         left = users[index]
         right = users[index + 1] if index + 1 < len(users) else {
-            "id": "__tm6_bot__", "name": "TM6 Bot", "avatar_initials": "AI",
+            "id": "__tm6_bot__", "name": "VPDK Bot", "avatar_initials": "AI",
             "avatar_color": "#00F0FF", "avatar_url": None, "department": "Віртуальний суперник",
         }
         pair_id = str(uuid.uuid4())
@@ -6391,7 +6425,7 @@ class BotAdjustBody(BaseModel):
 
 @bot_router.get("/health")
 async def bot_health():
-    return {"status": "ok", "service": "CallHub Game Hub Bot API"}
+    return {"status": "ok", "service": "VPDK Bonus Bot API"}
 
 
 async def _find_user_by_telegram(telegram_id: str):
@@ -6483,14 +6517,14 @@ SEED_QUESTS = [
 AVATAR_PRIZES = [{"title": "Базовий аватар • Чоловічий", "description": "Базовий візуал. Щодня +0 Point", "price": 250, "category": "avatar", "image": "/avatars/male-basic-1.webp", "icon": "user-round", "stock": 999999, "avatar_code": "male-basic-1", "avatar_rarity": "basic", "daily_bonus": 0, "task_replacements": 0}, {"title": "Базовий аватар • Жіночий 1", "description": "Базовий візуал. Щодня +0 Point", "price": 250, "category": "avatar", "image": "/avatars/female-basic-1.webp", "icon": "user-round", "stock": 999999, "avatar_code": "female-basic-1", "avatar_rarity": "basic", "daily_bonus": 0, "task_replacements": 0}, {"title": "Базовий аватар • Жіночий 2", "description": "Базовий візуал. Щодня +0 Point", "price": 250, "category": "avatar", "image": "/avatars/female-basic-2.webp", "icon": "user-round", "stock": 999999, "avatar_code": "female-basic-2", "avatar_rarity": "basic", "daily_bonus": 0, "task_replacements": 0}, {"title": "Базовий аватар • Жіночий 3", "description": "Базовий візуал. Щодня +0 Point", "price": 250, "category": "avatar", "image": "/avatars/female-basic-3.webp", "icon": "user-round", "stock": 999999, "avatar_code": "female-basic-3", "avatar_rarity": "basic", "daily_bonus": 0, "task_replacements": 0}, {"title": "Покращений аватар • Чоловічий", "description": "Покращений візуал. Щодня +5 Point", "price": 500, "category": "avatar", "image": "/avatars/male-improved-1.webp", "icon": "user-round", "stock": 999999, "avatar_code": "male-improved-1", "avatar_rarity": "improved", "daily_bonus": 5, "task_replacements": 0}, {"title": "Покращений аватар • Жіночий 1", "description": "Покращений візуал. Щодня +5 Point", "price": 500, "category": "avatar", "image": "/avatars/female-improved-1.webp", "icon": "user-round", "stock": 999999, "avatar_code": "female-improved-1", "avatar_rarity": "improved", "daily_bonus": 5, "task_replacements": 0}, {"title": "Покращений аватар • Жіночий 2", "description": "Покращений візуал. Щодня +5 Point", "price": 500, "category": "avatar", "image": "/avatars/female-improved-2.webp", "icon": "user-round", "stock": 999999, "avatar_code": "female-improved-2", "avatar_rarity": "improved", "daily_bonus": 5, "task_replacements": 0}, {"title": "Покращений аватар • Жіночий 3", "description": "Покращений візуал. Щодня +5 Point", "price": 500, "category": "avatar", "image": "/avatars/female-improved-3.webp", "icon": "user-round", "stock": 999999, "avatar_code": "female-improved-3", "avatar_rarity": "improved", "daily_bonus": 5, "task_replacements": 0}, {"title": "Рідкісний аватар • Чоловічий", "description": "Рідкісний візуал. Щодня +10 Point", "price": 750, "category": "avatar", "image": "/avatars/male-rare-1.webp", "icon": "user-round", "stock": 999999, "avatar_code": "male-rare-1", "avatar_rarity": "rare", "daily_bonus": 10, "task_replacements": 0}, {"title": "Рідкісний аватар • Жіночий 1", "description": "Рідкісний візуал. Щодня +10 Point", "price": 750, "category": "avatar", "image": "/avatars/female-rare-1.webp", "icon": "user-round", "stock": 999999, "avatar_code": "female-rare-1", "avatar_rarity": "rare", "daily_bonus": 10, "task_replacements": 0}, {"title": "Рідкісний аватар • Жіночий 2", "description": "Рідкісний візуал. Щодня +10 Point", "price": 750, "category": "avatar", "image": "/avatars/female-rare-2.webp", "icon": "user-round", "stock": 999999, "avatar_code": "female-rare-2", "avatar_rarity": "rare", "daily_bonus": 10, "task_replacements": 0}, {"title": "Рідкісний аватар • Жіночий 3", "description": "Рідкісний візуал. Щодня +10 Point", "price": 750, "category": "avatar", "image": "/avatars/female-rare-3.webp", "icon": "user-round", "stock": 999999, "avatar_code": "female-rare-3", "avatar_rarity": "rare", "daily_bonus": 10, "task_replacements": 0}, {"title": "Епічний аватар • Чоловічий", "description": "Епічний візуал. Щодня +15 Point та +1 заміна завдань", "price": 1000, "category": "avatar", "image": "/avatars/male-epic-1.webp", "icon": "user-round", "stock": 999999, "avatar_code": "male-epic-1", "avatar_rarity": "epic", "daily_bonus": 15, "task_replacements": 1}, {"title": "Епічний аватар • Жіночий 1", "description": "Епічний візуал. Щодня +15 Point та +1 заміна завдань", "price": 1000, "category": "avatar", "image": "/avatars/female-epic-1.webp", "icon": "user-round", "stock": 999999, "avatar_code": "female-epic-1", "avatar_rarity": "epic", "daily_bonus": 15, "task_replacements": 1}, {"title": "Епічний аватар • Жіночий 2", "description": "Епічний візуал. Щодня +15 Point та +1 заміна завдань", "price": 1000, "category": "avatar", "image": "/avatars/female-epic-2.webp", "icon": "user-round", "stock": 999999, "avatar_code": "female-epic-2", "avatar_rarity": "epic", "daily_bonus": 15, "task_replacements": 1}, {"title": "Епічний аватар • Жіночий 3", "description": "Епічний візуал. Щодня +15 Point та +1 заміна завдань", "price": 1000, "category": "avatar", "image": "/avatars/female-epic-3.webp", "icon": "user-round", "stock": 999999, "avatar_code": "female-epic-3", "avatar_rarity": "epic", "daily_bonus": 15, "task_replacements": 1}, {"title": "Легендарний аватар • Чоловічий", "description": "Легендарний візуал. Щодня +25 Point та +2 заміна завдань", "price": 2000, "category": "avatar", "image": "/avatars/male-legendary-1.webp", "icon": "user-round", "stock": 999999, "avatar_code": "male-legendary-1", "avatar_rarity": "legendary", "daily_bonus": 25, "task_replacements": 2}, {"title": "Легендарний аватар • Жіночий 1", "description": "Легендарний візуал. Щодня +25 Point та +2 заміна завдань", "price": 2000, "category": "avatar", "image": "/avatars/female-legendary-1.webp", "icon": "user-round", "stock": 999999, "avatar_code": "female-legendary-1", "avatar_rarity": "legendary", "daily_bonus": 25, "task_replacements": 2}, {"title": "Легендарний аватар • Жіночий 2", "description": "Легендарний візуал. Щодня +25 Point та +2 заміна завдань", "price": 2000, "category": "avatar", "image": "/avatars/female-legendary-2.webp", "icon": "user-round", "stock": 999999, "avatar_code": "female-legendary-2", "avatar_rarity": "legendary", "daily_bonus": 25, "task_replacements": 2}, {"title": "Легендарний аватар • Жіночий 3", "description": "Легендарний візуал. Щодня +25 Point та +2 заміна завдань", "price": 2000, "category": "avatar", "image": "/avatars/female-legendary-3.webp", "icon": "user-round", "stock": 999999, "avatar_code": "female-legendary-3", "avatar_rarity": "legendary", "daily_bonus": 25, "task_replacements": 2}]
 
 SEED_PRIZES = [
-    {"title": "Худі CallHub", "description": "Фірмовий чорний худі з логотипом", "price": 2500, "category": "merch", "image": "https://images.pexels.com/photos/28701952/pexels-photo-28701952.jpeg", "icon": "gift", "stock": 12},
+    {"title": "Худі VPDK Bonus", "description": "Фірмовий чорний худі з логотипом", "price": 2500, "category": "merch", "image": "https://images.pexels.com/photos/28701952/pexels-photo-28701952.jpeg", "icon": "gift", "stock": 12},
     {"title": "Додатковий вихідний", "description": "1 оплачуваний вихідний день", "price": 5000, "category": "privilege", "image": None, "icon": "calendar-off", "stock": 5},
     {"title": "Сертифікат Rozetka 500 ₴", "description": "На будь-які покупки", "price": 3000, "category": "certificate", "image": None, "icon": "gift", "stock": 20},
     {"title": "Вибір своєї зміни", "description": "На один тиждень обирай сам", "price": 2200, "category": "privilege", "image": None, "icon": "clock-4", "stock": 8},
     {"title": "Mystery Box", "description": "Випадковий приз з каталогу", "price": 1500, "category": "merch", "image": "https://images.unsplash.com/photo-1767522248089-468ec2d4efd7", "icon": "gift", "stock": 15},
     {"title": "Довга перерва +30 хв", "description": "Одноразово, на будь-який день", "price": 900, "category": "privilege", "image": None, "icon": "coffee", "stock": 30},
     {"title": "Сертифікат Rozetka 1000 ₴", "description": "На будь-які покупки", "price": 5800, "category": "certificate", "image": None, "icon": "gift", "stock": 10},
-    {"title": "Кружка CallHub", "description": "Керамічна з неоновим принтом", "price": 800, "category": "merch", "image": "https://images.pexels.com/photos/33629664/pexels-photo-33629664.jpeg", "icon": "gift", "stock": 25},
+    {"title": "Кружка VPDK Bonus", "description": "Керамічна з неоновим принтом", "price": 800, "category": "merch", "image": "https://images.pexels.com/photos/33629664/pexels-photo-33629664.jpeg", "icon": "gift", "stock": 25},
 ]
 
 SEED_DEMO_USERS = []
@@ -7184,7 +7218,7 @@ async def admin_approve_user(user_id: str, admin: dict = Depends(get_current_adm
         })
         await db.users.update_one({"id": user_id}, {"$inc": {"balance": 100, "total_earned": 100, "total_xp": 50}})
     await _notify(user_id, "account_approved", "Акаунт підтверджено! 🎉",
-                  "Ласкаво просимо в CallHub. +100 стартових балів", "/", "party-popper")
+                  "Ласкаво просимо у VPDK Bonus. +100 стартових балів", "/", "party-popper")
     fresh = await db.users.find_one({"id": user_id}, {"_id": 0})
     fresh = await _hydrate_user_team(fresh)
     return _user_with_progress(fresh)
@@ -7192,7 +7226,7 @@ async def admin_approve_user(user_id: str, admin: dict = Depends(get_current_adm
 
 
 # ────────────────────────────────────────────────────────────────────────
-# TM6 Sudoku — 50-level logic campaign
+# VPDK Sudoku — 50-level logic campaign
 # ────────────────────────────────────────────────────────────────────────
 SUDOKU_LEVELS_PATH = ROOT_DIR / "sudoku_levels.json"
 SUDOKU_FIRST_CLEAR_POINTS = 5
@@ -7523,7 +7557,7 @@ async def sudoku_complete(body: SudokuCompleteBody, user: dict = Depends(get_cur
         "user_id": user["id"],
         "kind": "sudoku",
         "amount": points_awarded,
-        "description": f"TM6 Sudoku: рівень {body.level}, {body.stars} зірки, +{points_awarded} Point, +{xp_awarded} XP",
+        "description": f"VPDK Sudoku: рівень {body.level}, {body.stars} зірки, +{points_awarded} Point, +{xp_awarded} XP",
         "created_at": now,
         "meta": {
             "level": int(body.level),
