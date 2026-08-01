@@ -192,6 +192,6 @@ for (const page of noPollingPages) {
 const gatewaySource = fs.readFileSync("netlify/functions/google-goals.js", "utf8");
 assert(!gatewaySource.includes('url.searchParams.set("_ts"'), "google-goals gateway still cache-busts Apps Script");
 const adminGatewaySource = fs.readFileSync("netlify/functions/google-goals-admin.js", "utf8");
-assert(adminGatewaySource.includes('action: "read_all_goals"'), "admin gateway does not use bulk cached goals");
+assert(adminGatewaySource.includes('read_all_goals'), "admin gateway does not use bulk cached goals");
 
 console.log("Validated v102: Google reports change only after refreshReports() publishes a new snapshot");

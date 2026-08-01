@@ -306,13 +306,27 @@ class TestTeamLeaderboard:
         entries = r.json()
         assert isinstance(entries, list)
         assert len(entries) >= 4
-        # sorted desc by total_earned
-        earnings = [e["total_earned"] for e in entries]
-        assert earnings == sorted(earnings, reverse=True)
+        # v109 keeps legacy field names but values are now net Point scores.
+        scores = [e["score"] for e in entries]
+        assert scores == sorted(scores, reverse=True)
         for i, e in enumerate(entries):
             assert e["rank"] == i + 1
-            for k in ["team_id", "name", "color", "department", "member_count", "total_earned", "avg_earned"]:
+            for k in ["team_id", "name", "color", "department", "member_count", "total_earned", "avg_earned", "score", "avg_score", "period"]:
                 assert k in e
+            assert e["score"] == e["total_earned"]
+            assert e["avg_score"] == e["avg_earned"]
+
+    def test_team_leaderboard_periods(self, anna_token):
+        for period in ["day", "week", "month", "all"]:
+            r = requests.get(
+                f"{BASE_URL}/api/leaderboard/teams?period={period}",
+                headers={"Authorization": f"Bearer {anna_token}"},
+            )
+            assert r.status_code == 200, r.text
+            entries = r.json()
+            assert all(entry["period"] == period for entry in entries)
+            scores = [entry["score"] for entry in entries]
+            assert scores == sorted(scores, reverse=True)
 
     def test_team_leaderboard_requires_auth(self):
         r = requests.get(f"{BASE_URL}/api/leaderboard/teams")

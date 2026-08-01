@@ -1929,14 +1929,31 @@ const GoalsManager = () => {
   const load = async () => {
     setLoading(true);
     try {
-      const [{ data: dashboardData }, { data: adminUsersData }, { data: settingsData }] = await Promise.all([
+      const token = getToken();
+      const settingsRequest = fetch("/.netlify/functions/goals-settings", {
+        method: "GET",
+        headers: { accept: "application/json", authorization: `Bearer ${token}` },
+        cache: "no-store",
+      }).then(async (response) => {
+        const data = await response.json().catch(() => null);
+        if (!response.ok) throw new Error(data?.error || "Не вдалося завантажити налаштування");
+        return data;
+      });
+      const [dashboardResult, adminUsersResult, settingsResult] = await Promise.allSettled([
         api.get("/admin/goals-dashboard"),
         api.get("/admin/users"),
-        api.get("/admin/goals-settings"),
+        settingsRequest,
       ]);
+      const adminUsers = adminUsersResult.status === "fulfilled" && Array.isArray(adminUsersResult.value?.data)
+        ? adminUsersResult.value.data
+        : [];
+      const dashboardUsers = dashboardResult.status === "fulfilled" && Array.isArray(dashboardResult.value?.data)
+        ? dashboardResult.value.data
+        : adminUsers.filter((user) => user.role !== "admin").map((user) => ({ ...user, goals: normalizeGoalForm() }));
+      const settingsData = settingsResult.status === "fulfilled"
+        ? settingsResult.value
+        : { allow_cross_team_reports: false, compatibility_mode: true };
       setSettings(settingsData || { allow_cross_team_reports: false });
-      const dashboardUsers = dashboardData || [];
-      const adminUsers = adminUsersData || [];
       const adminUsersById = Object.fromEntries(
         adminUsers.map((user) => [user.id, user])
       );
@@ -1953,7 +1970,6 @@ const GoalsManager = () => {
             null,
         };
       });
-      const token = getToken();
 
       const googleResponse = await fetch("/.netlify/functions/google-goals-admin", {
         method: "GET",
@@ -2028,11 +2044,22 @@ const GoalsManager = () => {
     const nextValue = !settings.allow_cross_team_reports;
     setSettingsSaving(true);
     try {
-      const { data } = await api.patch("/admin/goals-settings", { allow_cross_team_reports: nextValue });
+      const response = await fetch("/.netlify/functions/goals-settings", {
+        method: "PATCH",
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json",
+          authorization: `Bearer ${getToken()}`,
+        },
+        body: JSON.stringify({ allow_cross_team_reports: nextValue }),
+        cache: "no-store",
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(data?.error || "Не вдалося змінити доступ");
       setSettings(data);
       toast.success(nextValue ? "Перегляд інших команд увімкнено" : "Інші команди приховано");
     } catch (e) {
-      toast.error(extractError(e, "Не вдалося змінити доступ"));
+      toast.error(extractError(e, e?.message || "Не вдалося змінити доступ"));
     } finally {
       setSettingsSaving(false);
     }

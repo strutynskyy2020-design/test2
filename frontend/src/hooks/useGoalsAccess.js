@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import api from "@/lib/api";
+import api, { getToken } from "@/lib/api";
 import { useApp } from "@/context/AppContext";
 
 const cache = new Map();
@@ -7,14 +7,56 @@ const cacheCheckedAt = new Map();
 const inFlight = new Map();
 const ACCESS_CACHE_TTL_MS = 5 * 60 * 1000;
 
-const loadForUser = async (userId, force = false) => {
+const fallbackAccess = async (user) => {
+  const token = getToken();
+  const [teamsResult, settingsResult] = await Promise.allSettled([
+    api.get("/teams"),
+    token
+      ? fetch("/.netlify/functions/goals-settings", {
+        method: "GET",
+        headers: { accept: "application/json", authorization: `Bearer ${token}` },
+        cache: "no-store",
+      }).then(async (response) => {
+        const data = await response.json().catch(() => null);
+        if (!response.ok) throw new Error(data?.error || "Не вдалося прочитати налаштування");
+        return data;
+      })
+      : Promise.resolve(null),
+  ]);
+
+  const teams = teamsResult.status === "fulfilled" && Array.isArray(teamsResult.value?.data)
+    ? teamsResult.value.data
+    : [];
+  const settings = settingsResult.status === "fulfilled" ? settingsResult.value : null;
+  const currentTeam = teams.find((team) => team.id === user?.team_id)
+    || (user?.team_id ? { id: user.team_id, name: user.team_name || "" } : null);
+  const privileged = user?.role === "admin" || user?.role === "editor";
+  const allowCrossTeam = Boolean(privileged || settings?.allow_cross_team_reports);
+
+  return {
+    allow_cross_team_reports: allowCrossTeam,
+    admin_allows_cross_team_reports: Boolean(settings?.allow_cross_team_reports),
+    current_team: currentTeam,
+    teams: allowCrossTeam ? teams : (currentTeam ? [currentTeam] : []),
+    allowed_goals_logins: [],
+    access_signature: null,
+    team_message: null,
+    is_team_leader: Boolean(user?.is_team_leader),
+    compatibility_mode: true,
+  };
+};
+
+const loadForUser = async (user, force = false) => {
+  const userId = user?.id;
   if (!userId) return null;
   const cachedAt = cacheCheckedAt.get(userId) || 0;
   if (!force && cache.has(userId) && Date.now() - cachedAt < ACCESS_CACHE_TTL_MS) return cache.get(userId);
   if (!force && inFlight.has(userId)) return inFlight.get(userId);
 
   const request = api.get("/goals/report-access")
-    .then(({ data }) => {
+    .then(({ data }) => data)
+    .catch(() => fallbackAccess(user))
+    .then((data) => {
       cache.set(userId, data);
       cacheCheckedAt.set(userId, Date.now());
       return data;
@@ -46,7 +88,7 @@ export const useGoalsAccess = () => {
     setLoading(!cache.has(user.id));
     setError(null);
     try {
-      const next = await loadForUser(user.id, true);
+      const next = await loadForUser(user, true);
       setData(next);
       return next;
     } catch (nextError) {
@@ -55,7 +97,7 @@ export const useGoalsAccess = () => {
     } finally {
       setLoading(false);
     }
-  }, [mode, user?.id]);
+  }, [mode, user]);
 
   const updateData = useCallback((nextOrUpdater) => {
     setData((current) => {
@@ -80,7 +122,7 @@ export const useGoalsAccess = () => {
     }
     let cancelled = false;
     setLoading(!cache.has(user.id));
-    loadForUser(user.id)
+    loadForUser(user)
       .then((next) => {
         if (!cancelled) setData(next);
       })
@@ -91,7 +133,7 @@ export const useGoalsAccess = () => {
         if (!cancelled) setLoading(false);
       });
     return () => { cancelled = true; };
-  }, [mode, user?.id]);
+  }, [mode, user]);
 
   return { data, loading, error, reload, setData: updateData };
 };

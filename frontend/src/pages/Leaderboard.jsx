@@ -19,7 +19,10 @@ const RankBadge = ({ rank }) => {
   return <span className="w-5 text-center font-display text-base text-zinc-500">{rank}</span>;
 };
 
-const Row = ({ entry, dim }) => (
+const Row = ({ entry, dim }) => {
+  const score = Number(entry.score || 0);
+  const scoreColor = score < 0 ? "#FF5C5C" : score === 0 ? "#71717A" : "#FFB800";
+  return (
   <div
     data-testid={`lb-row-${entry.rank}`}
     className={`flex min-h-[88px] items-center gap-3 rounded-2xl border-2 px-3 py-2.5 transition-all ${
@@ -46,11 +49,12 @@ const Row = ({ entry, dim }) => (
       <div className="truncate text-[11px] text-zinc-500">{entry.department || "—"}</div>
     </div>
     <div className="flex min-w-[82px] shrink-0 items-center justify-end gap-1.5">
-      <Coins size={14} strokeWidth={3} color="#FFB800" />
-      <span className="font-display text-base text-[#FFB800]">{entry.score.toLocaleString("uk-UA")}</span>
+      <Coins size={14} strokeWidth={3} color={scoreColor} />
+      <span className="font-display text-base" style={{ color: scoreColor }}>{score.toLocaleString("uk-UA")}</span>
     </div>
   </div>
-);
+  );
+};
 
 export default function Leaderboard() {
   const { mode } = useApp();
@@ -91,6 +95,7 @@ export default function Leaderboard() {
           </button>
         ))}
       </div>
+      <div className="-mt-2 px-1 text-[11px] font-bold text-zinc-500">Результат = зароблено Point мінус витрачено за вибраний період.</div>
 
       {mode === "mock" && <div className="rounded-2xl border border-[#FF5C00]/40 bg-[#FF5C00]/10 p-4 text-sm font-black text-[#FF5C00]">Рейтинг доступний тільки з реальним бекендом.</div>}
       {loading && <div className="py-8 text-center text-sm text-zinc-500">Завантаження...</div>}
@@ -99,7 +104,7 @@ export default function Leaderboard() {
         <div className="rounded-3xl border border-white/10 bg-[#1A1A1E] p-8 text-center">
           <TrendingUp size={40} strokeWidth={2.5} className="mx-auto mb-3 text-zinc-600" />
           <div className="text-sm font-black text-white">Ще немає результатів</div>
-          <div className="mt-1 text-xs text-zinc-500">Виконуй квести, і потрапиш у топ</div>
+          <div className="mt-1 text-xs text-zinc-500">Заробляй Point і контролюй витрати, щоб потрапити у топ</div>
         </div>
       )}
       {!loading && data && data.top.length > 0 && <div className="space-y-2" data-testid="lb-top">{data.top.map((entry) => <Row key={entry.user_id} entry={entry} />)}</div>}

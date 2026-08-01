@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { Target, CreditCard, Landmark, WalletCards, Coins, Trophy, CalendarDays, ChevronRight, Eye, MessageSquareText, X, CheckCircle2, Circle, Save } from "lucide-react";
+import { Target, CreditCard, Landmark, WalletCards, Coins, Trophy, CalendarDays, ChevronRight, Eye, MessageSquareText, X, CheckCircle2, Circle, Save, BarChart3, UsersRound, ShieldCheck } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { useDailyGoogleReports } from "@/hooks/useGoogleReports";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import api, { extractError } from "@/lib/api";
+import api, { extractError, getToken } from "@/lib/api";
 import { useGoalsAccess } from "@/hooks/useGoalsAccess";
 
 const metricMeta = {
@@ -87,18 +87,55 @@ export default function Goals() {
   const [viewsOpen, setViewsOpen] = useState(false);
   const [viewsLoading, setViewsLoading] = useState(false);
   const [viewStats, setViewStats] = useState(null);
+  const [teamMessageRecord, setTeamMessageRecord] = useState(null);
 
+  const isPrivilegedViewer = user?.role === "admin" || user?.role === "editor";
   const isTeamLeader = Boolean(user?.is_team_leader || (user?.role === "admin" && user?.team_id));
-  const teamMessage = access?.team_message?.message || "";
+  const teamMessage = teamMessageRecord?.message ?? access?.team_message?.message ?? "";
 
   useEffect(() => {
     setMessageDraft(teamMessage);
   }, [teamMessage]);
 
+  useEffect(() => {
+    if (mode === "mock" || !user?.team_id || !getToken()) return undefined;
+    let cancelled = false;
+    fetch(`/.netlify/functions/goals-team-message?team_id=${encodeURIComponent(user.team_id)}`, {
+      method: "GET",
+      headers: { accept: "application/json", authorization: `Bearer ${getToken()}` },
+      cache: "no-store",
+    })
+      .then(async (response) => {
+        const payload = await response.json().catch(() => null);
+        if (!response.ok) throw new Error(payload?.error || "Не вдалося завантажити повідомлення");
+        return payload;
+      })
+      .then((payload) => {
+        if (!cancelled) {
+          setTeamMessageRecord(payload);
+          setAccess((current) => ({ ...(current || {}), team_message: payload }));
+        }
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [mode, setAccess, user?.team_id]);
+
   const saveTeamMessage = async () => {
     setMessageSaving(true);
     try {
-      const { data: saved } = await api.put("/leader/goals/team-message", { message: messageDraft });
+      const response = await fetch("/.netlify/functions/goals-team-message", {
+        method: "PUT",
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json",
+          authorization: `Bearer ${getToken()}`,
+        },
+        body: JSON.stringify({ team_id: user?.team_id, message: messageDraft }),
+        cache: "no-store",
+      });
+      const saved = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(saved?.error || "Не вдалося зберегти повідомлення");
+      setTeamMessageRecord(saved);
       setAccess((current) => ({
         ...(current || {}),
         team_message: saved,
@@ -106,7 +143,7 @@ export default function Goals() {
       setMessageOpen(false);
       toast.success(saved.message ? "Повідомлення для команди збережено" : "Повідомлення прибрано");
     } catch (nextError) {
-      toast.error(extractError(nextError, "Не вдалося зберегти повідомлення"));
+      toast.error(extractError(nextError, nextError?.message || "Не вдалося зберегти повідомлення"));
     } finally {
       setMessageSaving(false);
     }
@@ -193,6 +230,29 @@ export default function Goals() {
   const loading = mode !== "mock" && reportsLoading && !report;
   const weeklyDone = useMemo(() => data ? [data.credit, data.debit, data.deposit].filter(x => x?.complete).length : 0, [data]);
   if (loading) return <div className="p-8 text-center text-sm text-zinc-500">Завантаження цілей...</div>;
+  if (isPrivilegedViewer && report?.privileged_overview) return (
+    <div className="space-y-4 px-5 pb-8 pt-2" data-testid="admin-goals-overview">
+      <section className="rounded-3xl border border-[#B78CFF]/35 bg-gradient-to-br from-[#B78CFF]/15 to-[#1A1A1E] p-5">
+        <div className="flex items-start gap-3">
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-[#B78CFF]/35 bg-[#B78CFF]/10"><ShieldCheck size={24} color="#B78CFF" /></div>
+          <div>
+            <div className="text-[10px] font-black uppercase tracking-[.2em] text-[#B78CFF]">Режим адміністратора</div>
+            <h1 className="mt-1 font-display text-2xl text-white">Звіти команд</h1>
+            <p className="mt-2 text-sm leading-relaxed text-zinc-400">Адміністратору не потрібен окремий рядок у Google Таблиці. Тут відкриваються командні рейтинги з останнього опублікованого знімка.</p>
+          </div>
+        </div>
+        <div className="mt-4 rounded-2xl border border-white/10 bg-black/25 px-4 py-3 text-xs font-bold text-zinc-400">Оновлено: <span className="text-white">{report?.snapshot_updated_at || "ще не опубліковано"}</span></div>
+      </section>
+      <button type="button" onClick={() => navigate("/goals/credit")} className="flex w-full items-center gap-3 rounded-3xl border border-[#FFB800]/30 bg-[#FFB800]/[.07] p-4 text-left active:scale-[.99]">
+        <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#FFB800]/15"><BarChart3 size={21} color="#FFB800" /></div>
+        <div className="min-w-0 flex-1"><div className="font-black text-white">Кредитний рейтинг</div><div className="mt-1 text-xs text-zinc-500">Команди, підсумки та оператори</div></div><ChevronRight size={19} className="text-[#FFB800]" />
+      </button>
+      <button type="button" onClick={() => navigate("/goals/debit")} className="flex w-full items-center gap-3 rounded-3xl border border-[#00F0FF]/30 bg-[#00F0FF]/[.07] p-4 text-left active:scale-[.99]">
+        <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#00F0FF]/15"><UsersRound size={21} color="#00F0FF" /></div>
+        <div className="min-w-0 flex-1"><div className="font-black text-white">Дебетовий рейтинг</div><div className="mt-1 text-xs text-zinc-500">Командні результати та видачі</div></div><ChevronRight size={19} className="text-[#00F0FF]" />
+      </button>
+    </div>
+  );
   if (!data) return (
     <div className="px-5 pt-6">
       <div className="rounded-3xl border border-white/10 bg-[#1A1A1E] p-6 text-center">

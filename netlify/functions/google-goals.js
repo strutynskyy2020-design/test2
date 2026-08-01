@@ -25,14 +25,9 @@ const backendApiBase = () => {
   return raw.endsWith("/api") ? raw : `${raw}/api`;
 };
 
-const backendProfileUrl = () => {
+const backendUrl = (path) => {
   const base = backendApiBase();
-  return base ? `${base}/auth/me` : "";
-};
-
-const backendReportAccessUrl = () => {
-  const base = backendApiBase();
-  return base ? `${base}/goals/report-access` : "";
+  return base ? `${base}${path}` : "";
 };
 
 const teamReportKey = (value = "") => {
@@ -45,6 +40,7 @@ const rowLogin = (row = {}) => normalizeKey(row.login || row.goals_login || row.
 
 const filterRowsByAllowedLogins = (rows, allowedLogins) => {
   if (!Array.isArray(rows)) return [];
+  if (allowedLogins === null) return rows;
   if (!(allowedLogins instanceof Set) || !allowedLogins.size) return [];
   return rows.filter((row) => allowedLogins.has(rowLogin(row)));
 };
@@ -57,7 +53,7 @@ const applyTeamOverall = (rows, teamKey) => (Array.isArray(rows) ? rows : []).ma
   if (!teamKey) return safeRow;
   if (teamValues && typeof teamValues === "object") return { ...safeRow, ...teamValues };
 
-  // Never show another team's projection when the current team's column is absent.
+  // Never substitute another team's projection when this team's summary column is absent.
   return Object.fromEntries(
     Object.entries(safeRow).filter(([key]) => !String(key).endsWith("_overall")),
   );
@@ -68,6 +64,29 @@ const selectGroupSummaries = (summaries, teamKey, allowAll) => {
   if (allowAll) return source;
   if (!teamKey || !source[teamKey]) return {};
   return { [teamKey]: source[teamKey] };
+};
+
+const readJson = async (response) => {
+  const text = await response.text();
+  try { return { data: text ? JSON.parse(text) : null, text }; }
+  catch { return { data: null, text }; }
+};
+
+const fetchBackendJson = async (path, authorization, { allowFailure = false } = {}) => {
+  const url = backendUrl(path);
+  if (!url) return null;
+  const response = await fetch(url, {
+    headers: { accept: "application/json", authorization },
+    cache: "no-store",
+  });
+  const result = await readJson(response);
+  if (!response.ok) {
+    if (allowFailure) return null;
+    const error = new Error(result.data?.detail || `Backend request failed (${response.status})`);
+    error.status = response.status;
+    throw error;
+  }
+  return result.data;
 };
 
 const fetchGooglePayload = async (scriptUrl, goalsLogin) => {
@@ -83,10 +102,23 @@ const fetchGooglePayload = async (scriptUrl, goalsLogin) => {
     error.status = response.status;
     throw error;
   }
-  if (data.success === false) {
-    throw new Error(data.error || "Помилка Google Таблиці");
-  }
+  if (data.success === false) throw new Error(data.error || "Помилка Google Таблиці");
   return data;
+};
+
+const fetchProtectedScriptAction = async (scriptUrl, token, action, payload = {}) => {
+  if (!token) throw new Error("Не налаштовано GOOGLE_GOALS_WRITE_TOKEN");
+  const response = await fetch(scriptUrl, {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify({ token, action, ...payload }),
+    redirect: "follow",
+    cache: "no-store",
+  });
+  const result = await readJson(response);
+  if (!response.ok || !result.data) throw new Error(`Google Apps Script request failed (${response.status})`);
+  if (result.data.success === false) throw new Error(result.data.error || "Помилка Google Таблиці");
+  return result.data;
 };
 
 const emptySchedule = (reason, lookup = {}) => ({
@@ -95,6 +127,14 @@ const emptySchedule = (reason, lookup = {}) => ({
   days: [],
   lookup,
 });
+
+const currentTeamFrom = (user, teams) => {
+  const list = Array.isArray(teams) ? teams : [];
+  const found = list.find((team) => team?.id && team.id === user?.team_id);
+  if (found) return found;
+  if (!user?.team_id) return null;
+  return { id: user.team_id, name: user.team_name || "", color: user.team_color || null };
+};
 
 exports.handler = async (event) => {
   if (event.httpMethod !== "GET") {
@@ -107,62 +147,70 @@ exports.handler = async (event) => {
       return makeResponse(401, { success: false, error: "Потрібна авторизація" });
     }
 
-    const profileUrl = backendProfileUrl();
-    if (!profileUrl) {
-      return makeResponse(500, { success: false, error: "Не налаштовано адресу backend" });
-    }
-
-    const profileResponse = await fetch(profileUrl, {
-      headers: { accept: "application/json", authorization },
-    });
-    const user = await profileResponse.json().catch(() => null);
-    if (!profileResponse.ok || !user) {
-      return makeResponse(401, { success: false, error: "Сесію завершено. Увійдіть повторно" });
-    }
-
-    let reportAccess = null;
-    const accessUrl = backendReportAccessUrl();
-    if (accessUrl) {
-      const accessResponse = await fetch(accessUrl, {
-        headers: { accept: "application/json", authorization },
-      });
-      reportAccess = await accessResponse.json().catch(() => null);
-      if (!accessResponse.ok) reportAccess = null;
-    }
+    const user = await fetchBackendJson("/auth/me", authorization);
+    if (!user) return makeResponse(401, { success: false, error: "Сесію завершено. Увійдіть повторно" });
 
     const scriptUrl = String(process.env.GOOGLE_GOALS_SCRIPT_URL || "").trim();
-    if (!scriptUrl) {
-      return makeResponse(500, { success: false, error: "Google Таблицю не налаштовано" });
-    }
+    if (!scriptUrl) return makeResponse(500, { success: false, error: "Google Таблицю не налаштовано" });
+    const writeToken = String(process.env.GOOGLE_GOALS_WRITE_TOKEN || "").trim();
 
     const isPrivileged = user.role === "admin" || user.role === "editor";
+    let reportAccess = await fetchBackendJson("/goals/report-access", authorization, { allowFailure: true });
+
+    let fallbackSettings = null;
+    let fallbackTeams = [];
+    let fallbackUsers = [];
+    if (!reportAccess) {
+      fallbackTeams = await fetchBackendJson("/teams", authorization, { allowFailure: true }) || [];
+      if (writeToken) {
+        fallbackSettings = await fetchProtectedScriptAction(scriptUrl, writeToken, "get_goals_settings").catch(() => null);
+      }
+      if (isPrivileged) {
+        fallbackUsers = await fetchBackendJson("/admin/users", authorization, { allowFailure: true }) || [];
+      }
+      const currentTeam = currentTeamFrom(user, fallbackTeams);
+      const fallbackAllowed = isPrivileged
+        ? uniqueKeys(fallbackUsers.map((member) => member?.goals_login || member?.goalsLogin || member?.login2))
+        : uniqueKeys([user.goals_login, String(user.email || "").split("@")[0]]);
+      reportAccess = {
+        allow_cross_team_reports: Boolean(isPrivileged || fallbackSettings?.allow_cross_team_reports),
+        admin_allows_cross_team_reports: Boolean(fallbackSettings?.allow_cross_team_reports),
+        current_team: currentTeam,
+        teams: isPrivileged || fallbackSettings?.allow_cross_team_reports
+          ? fallbackTeams
+          : (currentTeam ? [currentTeam] : []),
+        allowed_goals_logins: fallbackAllowed,
+        access_signature: null,
+        compatibility_mode: true,
+      };
+    }
+
     const requestedScheduleLogin = isPrivileged
       ? normalizeKey(event.queryStringParameters?.schedule_login)
       : "";
+    const requestedReportLogin = isPrivileged
+      ? normalizeKey(event.queryStringParameters?.report_login)
+      : "";
     const profileGoalsLogin = normalizeKey(user.goals_login);
     const emailLogin = normalizeKey(String(user.email || "").split("@")[0]);
-    const profileCandidates = uniqueKeys([profileGoalsLogin, emailLogin]);
-    const baseLogin = profileCandidates[0] || "";
-    const scheduleCandidates = uniqueKeys([
-      requestedScheduleLogin,
-      profileGoalsLogin,
-      emailLogin,
-    ]);
-    const fallbackAllowed = uniqueKeys([profileGoalsLogin, emailLogin]);
-    const allowedLogins = new Set(uniqueKeys(
-      Array.isArray(reportAccess?.allowed_goals_logins)
-        ? reportAccess.allowed_goals_logins
-        : fallbackAllowed
-    ));
-    const allowCrossTeamReports = Boolean(isPrivileged || reportAccess?.allow_cross_team_reports);
-    const currentTeam = reportAccess?.current_team || (user.team_id ? { id: user.team_id, name: user.team_name || "" } : null);
-    const currentTeamKey = teamReportKey(currentTeam?.name || user.team_name || "");
+    const ownCandidates = uniqueKeys([profileGoalsLogin, emailLogin]);
+    let baseLogin = isPrivileged
+      ? (uniqueKeys([requestedReportLogin, profileGoalsLogin])[0] || "")
+      : (uniqueKeys([profileGoalsLogin, emailLogin])[0] || "");
 
     let baseData = null;
-    if (baseLogin) {
+    if (isPrivileged && writeToken) {
+      baseData = await fetchProtectedScriptAction(scriptUrl, writeToken, "read_cached_report", {
+        goals_login: baseLogin || "",
+      });
+      if (!baseData?.found && !requestedReportLogin && !profileGoalsLogin) {
+        baseData = await fetchProtectedScriptAction(scriptUrl, writeToken, "read_cached_report", {
+          goals_login: "",
+        });
+      }
+      baseLogin = normalizeKey(baseData?.goals_login || baseLogin);
+    } else if (baseLogin) {
       baseData = await fetchGooglePayload(scriptUrl, baseLogin);
-    } else if (scheduleCandidates[0]) {
-      baseData = await fetchGooglePayload(scriptUrl, scheduleCandidates[0]);
     }
 
     if (!baseData) {
@@ -176,6 +224,8 @@ exports.handler = async (event) => {
         success: true,
         found: false,
         reason: "goals_login_missing",
+        viewer_has_own_report: false,
+        privileged_overview: isPrivileged,
         goals_login: null,
         goals: null,
         credit_metrics: [],
@@ -188,18 +238,33 @@ exports.handler = async (event) => {
         debit_group_summaries: {},
         debit_leaderboard_updated_at: null,
         debit_issuances: [],
+        report_access: reportAccess,
         schedule: emptySchedule("schedule_login_missing", lookup),
       });
     }
 
+    const selectedReportLogin = normalizeKey(baseData.goals_login || baseLogin);
+    const viewerHasOwnReport = Boolean(
+      baseData.found && selectedReportLogin && ownCandidates.includes(selectedReportLogin),
+    );
+
+    const scheduleCandidates = isPrivileged
+      ? uniqueKeys([requestedScheduleLogin, profileGoalsLogin, selectedReportLogin])
+      : uniqueKeys([requestedScheduleLogin, profileGoalsLogin, emailLogin, selectedReportLogin]);
     let schedule = null;
     let matchedScheduleLogin = null;
     let payloadMissingSchedule = false;
 
+    const loadCandidate = async (candidate) => {
+      if (candidate === selectedReportLogin) return baseData;
+      if (isPrivileged && writeToken) {
+        return fetchProtectedScriptAction(scriptUrl, writeToken, "read_cached_report", { goals_login: candidate });
+      }
+      return fetchGooglePayload(scriptUrl, candidate);
+    };
+
     for (const candidate of scheduleCandidates) {
-      const candidateData = candidate === baseLogin
-        ? baseData
-        : await fetchGooglePayload(scriptUrl, candidate);
+      const candidateData = await loadCandidate(candidate);
       if (!Object.prototype.hasOwnProperty.call(candidateData, "schedule")) {
         payloadMissingSchedule = true;
         continue;
@@ -217,6 +282,7 @@ exports.handler = async (event) => {
       requested_login: requestedScheduleLogin || null,
       profile_login: profileGoalsLogin || null,
       email_login: emailLogin || null,
+      selected_report_login: selectedReportLogin || null,
       tried_logins: scheduleCandidates,
       matched_login: matchedScheduleLogin,
       script_api_version: baseData.api_version || null,
@@ -231,6 +297,17 @@ exports.handler = async (event) => {
       schedule = { ...schedule, lookup };
     }
 
+    const allowCrossTeamReports = Boolean(isPrivileged || reportAccess?.allow_cross_team_reports);
+    const currentTeam = reportAccess?.current_team || currentTeamFrom(user, reportAccess?.teams || fallbackTeams);
+    const currentTeamKey = teamReportKey(currentTeam?.name || user.team_name || "");
+
+    const configuredAllowed = Array.isArray(reportAccess?.allowed_goals_logins)
+      ? uniqueKeys(reportAccess.allowed_goals_logins)
+      : [];
+    const allowedLogins = allowCrossTeamReports && (isPrivileged || configuredAllowed.length === 0)
+      ? null
+      : new Set(configuredAllowed.length ? configuredAllowed : ownCandidates);
+
     const creditGroupSummaries = selectGroupSummaries(
       baseData.credit_group_summaries,
       currentTeamKey,
@@ -243,10 +320,10 @@ exports.handler = async (event) => {
     );
     const selectedCreditSummary = currentTeamKey
       ? (creditGroupSummaries[currentTeamKey] || null)
-      : (baseData.credit_group_summary || null);
+      : (isPrivileged ? null : (baseData.credit_group_summary || null));
     const selectedDebitSummary = currentTeamKey
       ? (debitGroupSummaries[currentTeamKey] || null)
-      : (baseData.debit_group_summary || null);
+      : (isPrivileged ? null : (baseData.debit_group_summary || null));
 
     return makeResponse(200, {
       success: true,
@@ -257,9 +334,12 @@ exports.handler = async (event) => {
       snapshot_day: baseData.snapshot_day || null,
       found: Boolean(baseData.found),
       reason: baseData.reason || null,
-      goals_login: baseLogin || null,
-      goals: baseData.goals || null,
-      credit_metrics: applyTeamOverall(baseData.credit_metrics, currentTeamKey),
+      viewer_has_own_report: viewerHasOwnReport,
+      privileged_overview: Boolean(isPrivileged && !viewerHasOwnReport),
+      selected_report_login: selectedReportLogin || null,
+      goals_login: viewerHasOwnReport ? selectedReportLogin : null,
+      goals: viewerHasOwnReport ? (baseData.goals || null) : null,
+      credit_metrics: viewerHasOwnReport ? applyTeamOverall(baseData.credit_metrics, currentTeamKey) : [],
       credit_leaderboard: filterRowsByAllowedLogins(baseData.credit_leaderboard, allowedLogins),
       credit_group_summary: selectedCreditSummary,
       credit_group_summaries: creditGroupSummaries,
@@ -268,18 +348,20 @@ exports.handler = async (event) => {
       debit_group_summary: selectedDebitSummary,
       debit_group_summaries: debitGroupSummaries,
       debit_leaderboard_updated_at: baseData.debit_leaderboard_updated_at || null,
-      debit_issuances: Array.isArray(baseData.debit_issuances) ? baseData.debit_issuances : [],
+      debit_issuances: viewerHasOwnReport && Array.isArray(baseData.debit_issuances) ? baseData.debit_issuances : [],
       report_access: {
         signature: reportAccess?.access_signature || null,
         allow_cross_team_reports: allowCrossTeamReports,
+        admin_allows_cross_team_reports: Boolean(reportAccess?.admin_allows_cross_team_reports),
         current_team: currentTeam,
         teams: Array.isArray(reportAccess?.teams) ? reportAccess.teams : (currentTeam ? [currentTeam] : []),
+        compatibility_mode: Boolean(reportAccess?.compatibility_mode),
       },
       schedule,
     });
   } catch (error) {
     console.error("google-goals error", error);
-    return makeResponse(500, {
+    return makeResponse(error?.status === 401 ? 401 : 500, {
       success: false,
       error: error?.message || "Не вдалося завантажити дані Google Таблиці",
     });

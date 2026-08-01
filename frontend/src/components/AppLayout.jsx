@@ -21,6 +21,7 @@ const PAGE_LABELS = {
   "/leaderboard": "Загальний рейтинг",
   "/fun": "Щедрий куб",
   "/games/bonus-match": "Bonus Match",
+  "/games/sudoku": "TM6 Sudoku",
   "/history": "Історія Point",
   "/schedule": "Мій графік",
   "/feed": "Стрічка активності",

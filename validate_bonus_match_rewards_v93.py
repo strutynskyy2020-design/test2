@@ -3,7 +3,7 @@ from pathlib import Path
 server = Path('backend/server.py').read_text()
 frontend = Path('frontend/src/pages/BonusMatch.jsx').read_text()
 
-assert 'BONUS_MATCH_FIRST_CLEAR_POINTS = 10' in server
+assert 'BONUS_MATCH_FIRST_CLEAR_POINTS = 5' in server
 assert 'BONUS_MATCH_FIRST_CLEAR_XP = 10' in server
 assert 'BONUS_MATCH_REPLAY_XP = 5' in server
 assert 'BONUS_MATCH_DAILY_POINT_CAP = None' in server
@@ -14,4 +14,5 @@ assert 'await migrate_bonus_match_v93_reset()' in server
 assert '"current_level": 1' in server
 assert 'completions: []' in frontend
 assert 'Без ліміту' in frontend
-print('Validated Bonus Match V93 reward policy and one-time level reset')
+assert 'v107_first_5_points_10_xp_replay_5_xp' in server
+print('Validated Bonus Match V107 reward policy and the existing one-time level reset')

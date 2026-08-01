@@ -320,6 +320,7 @@ const buildDetailsFromMetricRows = (rows = []) => {
       processed,
       processed_overall: processedOverall,
       metrics,
+      projection_source: rawRow?.projective_source || null,
     };
   }
 
@@ -540,6 +541,10 @@ export default function CreditGoals() {
   const progress = projectiveAvailable ? Math.max(0, Math.min(120, Number(projective))) : 0;
   const projectiveEvaluation = evaluateMetric(METRICS.find((item) => item.id === "projective"), activeData?.metrics?.projective);
   const summaryTheme = STATUS_THEME[projectiveEvaluation.status];
+  const projectionSource = activeData?.projection_source || null;
+  const currentTeamName = report?.report_access?.current_team?.name || user?.team_name || "ваша команда";
+  const teamKey = String(currentTeamName || "").toLowerCase().replace(/[^a-zа-яіїєґ0-9]+/gi, "").replace(/^тм/, "tm");
+  const teamColumnLabel = projectionSource?.team_columns?.[teamKey] || projectionSource?.general_column || "";
 
   if (loading) return <div className="p-8 text-center text-sm text-zinc-500">Завантаження показників...</div>;
 
@@ -591,6 +596,9 @@ export default function CreditGoals() {
               <div className="h-full rounded-full bg-gradient-to-r from-[#7C3AED] to-[#B78CFF] transition-all" style={{ width: `${Math.min(100, progress)}%` }} />
             </div>
             <div className="mt-3 text-xs font-black" style={{ color: summaryTheme.color }}>{projectiveEvaluation.copy}</div>
+            <div className="mt-3 rounded-2xl border border-white/10 bg-black/20 px-3 py-2 text-[10px] font-bold leading-relaxed text-zinc-500">
+              <span className="text-zinc-300">Джерело:</span> аркуш «{projectionSource?.sheet || "Transformation"}», рядок «{projectionSource?.row_label || "Проекційний результат"}», колонка оператора «{projectionSource?.operator_column || user?.goals_login || "логін"}»{teamColumnLabel ? `; порівняння з колонкою «${teamColumnLabel}»` : "; командна колонка не знайдена, тому порівняння не підставляється"}.
+            </div>
           </section>
 
           <section>

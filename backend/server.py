@@ -2260,123 +2260,96 @@ class LeaderboardResponse(BaseModel):
     my_entry: Optional[LeaderboardEntry] = None
 
 
-async def _leaderboard_all(current_id: str, limit: int = 10) -> LeaderboardResponse:
+def _leaderboard_period_match(period: Literal["day", "week", "month"]) -> dict:
+    """Return the transaction date filter used by both personal and team ratings.
+
+    Rating points are the net movement of the Point balance for the selected
+    period: positive transactions increase the score and purchases/other
+    negative transactions reduce it.
+    """
+    if period == "day":
+        start, end = kyiv_day_bounds_utc(kyiv_today_key())
+        return {"created_at": {"$gte": start, "$lt": end}}
+    days = 7 if period == "week" else 30
+    since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    return {"created_at": {"$gte": since}}
+
+
+async def _transaction_scores(period: Literal["day", "week", "month"]) -> dict[str, int]:
+    pipeline = [
+        {"$match": _leaderboard_period_match(period)},
+        {"$group": {"_id": "$user_id", "score": {"$sum": "$amount"}}},
+    ]
+    rows = await db.transactions.aggregate(pipeline).to_list(5000)
+    return {str(row["_id"]): int(row.get("score", 0) or 0) for row in rows}
+
+
+async def _leaderboard_for_period(
+    period: Literal["day", "week", "month", "all"],
+    current_id: str,
+    limit: int = 10,
+) -> LeaderboardResponse:
     users = await db.users.find(
         {"role": {"$in": PLAYER_ROLES}},
-        {"_id": 0, "id": 1, "name": 1, "avatar_initials": 1, "avatar_color": 1, "avatar_url": 1, "avatar_rarity": 1, "department": 1, "total_earned": 1},
-    ).sort("total_earned", -1).to_list(1000)
+        {
+            "_id": 0,
+            "id": 1,
+            "name": 1,
+            "avatar_initials": 1,
+            "avatar_color": 1,
+            "avatar_url": 1,
+            "avatar_rarity": 1,
+            "department": 1,
+            "balance": 1,
+        },
+    ).to_list(5000)
+
+    if period == "all":
+        scores = {str(item["id"]): int(item.get("balance", 0) or 0) for item in users}
+    else:
+        scores = await _transaction_scores(period)
+
+    users.sort(
+        key=lambda item: (
+            -scores.get(str(item["id"]), 0),
+            str(item.get("name") or "").casefold(),
+            str(item["id"]),
+        )
+    )
+
     top: List[LeaderboardEntry] = []
-    my_entry = None
-    for i, u in enumerate(users):
-        e = LeaderboardEntry(
-            rank=i + 1,
-            user_id=u["id"],
-            name=u["name"],
-            avatar_initials=u.get("avatar_initials", "?"),
-            avatar_color=u.get("avatar_color", "#FFB800"),
-            avatar_url=u.get("avatar_url"),
-            avatar_rarity=u.get("avatar_rarity", "basic"),
-            department=u.get("department", ""),
-            score=int(u.get("total_earned", 0)),
-            is_me=(u["id"] == current_id),
-        )
-        if i < limit:
-            top.append(e)
-        if u["id"] == current_id:
-            my_entry = e
-    return LeaderboardResponse(period="all", top=top, my_entry=my_entry if (my_entry and my_entry.rank > limit) else None)
-
-
-async def _leaderboard_day(current_id: str, limit: int = 10) -> LeaderboardResponse:
-    start, end = kyiv_day_bounds_utc(kyiv_today_key())
-    pipeline = [
-        {"$match": {"created_at": {"$gte": start, "$lt": end}, "amount": {"$gt": 0}}},
-        {"$group": {"_id": "$user_id", "score": {"$sum": "$amount"}}},
-        {"$sort": {"score": -1}},
-    ]
-    grouped = await db.transactions.aggregate(pipeline).to_list(1000)
-    if not grouped:
-        return LeaderboardResponse(period="day", top=[], my_entry=None)
-    ids = [row["_id"] for row in grouped]
-    users_map = {}
-    async for item in db.users.find(
-        {"id": {"$in": ids}, "role": {"$in": PLAYER_ROLES}},
-        {"_id": 0, "id": 1, "name": 1, "avatar_initials": 1, "avatar_color": 1, "avatar_url": 1, "avatar_rarity": 1, "department": 1},
-    ):
-        users_map[item["id"]] = item
-    top, my_entry, rank = [], None, 0
-    for row in grouped:
-        item = users_map.get(row["_id"])
-        if not item:
-            continue
-        rank += 1
+    my_entry: Optional[LeaderboardEntry] = None
+    for index, item in enumerate(users, start=1):
         entry = LeaderboardEntry(
-            rank=rank, user_id=item["id"], name=item["name"],
-            avatar_initials=item.get("avatar_initials", "?"), avatar_color=item.get("avatar_color", "#FFB800"),
-            avatar_url=item.get("avatar_url"), avatar_rarity=item.get("avatar_rarity", "basic"), department=item.get("department", ""),
-            score=int(row["score"]), is_me=item["id"] == current_id,
+            rank=index,
+            user_id=item["id"],
+            name=item.get("name") or "Користувач",
+            avatar_initials=item.get("avatar_initials", "?"),
+            avatar_color=item.get("avatar_color", "#FFB800"),
+            avatar_url=item.get("avatar_url"),
+            avatar_rarity=item.get("avatar_rarity", "basic"),
+            department=item.get("department", ""),
+            score=scores.get(str(item["id"]), 0),
+            is_me=item["id"] == current_id,
         )
-        if rank <= limit:
+        if index <= limit:
             top.append(entry)
         if item["id"] == current_id:
             my_entry = entry
-    return LeaderboardResponse(period="day", top=top, my_entry=my_entry if (my_entry and my_entry.rank > limit) else None)
 
-
-async def _leaderboard_period(days: int, period_name: str, current_id: str, limit: int = 10) -> LeaderboardResponse:
-    since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
-    pipeline = [
-        {"$match": {"created_at": {"$gte": since}, "amount": {"$gt": 0}}},
-        {"$group": {"_id": "$user_id", "score": {"$sum": "$amount"}}},
-        {"$sort": {"score": -1}},
-    ]
-    grouped = await db.transactions.aggregate(pipeline).to_list(1000)
-    if not grouped:
-        return LeaderboardResponse(period=period_name, top=[], my_entry=None)
-    ids = [g["_id"] for g in grouped]
-    users_map = {}
-    async for u in db.users.find(
-        {"id": {"$in": ids}, "role": {"$in": PLAYER_ROLES}},
-        {"_id": 0, "id": 1, "name": 1, "avatar_initials": 1, "avatar_color": 1, "avatar_url": 1, "avatar_rarity": 1, "department": 1},
-    ):
-        users_map[u["id"]] = u
-
-    top: List[LeaderboardEntry] = []
-    my_entry = None
-    rank = 0
-    for g in grouped:
-        u = users_map.get(g["_id"])
-        if not u:
-            continue
-        rank += 1
-        e = LeaderboardEntry(
-            rank=rank,
-            user_id=u["id"],
-            name=u["name"],
-            avatar_initials=u.get("avatar_initials", "?"),
-            avatar_color=u.get("avatar_color", "#FFB800"),
-            avatar_url=u.get("avatar_url"),
-            avatar_rarity=u.get("avatar_rarity", "basic"),
-            department=u.get("department", ""),
-            score=int(g["score"]),
-            is_me=(u["id"] == current_id),
-        )
-        if rank <= limit:
-            top.append(e)
-        if u["id"] == current_id:
-            my_entry = e
-    return LeaderboardResponse(period=period_name, top=top, my_entry=my_entry if (my_entry and my_entry.rank > limit) else None)
+    return LeaderboardResponse(
+        period=period,
+        top=top,
+        my_entry=my_entry if (my_entry and my_entry.rank > limit) else None,
+    )
 
 
 @api.get("/leaderboard", response_model=LeaderboardResponse)
-async def leaderboard(period: Literal["day", "week", "month", "all"] = "week", user: dict = Depends(get_current_user)):
-    if period == "all":
-        return await _leaderboard_all(user["id"])
-    if period == "day":
-        return await _leaderboard_day(user["id"])
-    if period == "week":
-        return await _leaderboard_period(7, "week", user["id"])
-    return await _leaderboard_period(30, "month", user["id"])
+async def leaderboard(
+    period: Literal["day", "week", "month", "all"] = "week",
+    user: dict = Depends(get_current_user),
+):
+    return await _leaderboard_for_period(period, user["id"])
 
 
 class TeamLeaderboardEntry(BaseModel):
@@ -2386,34 +2359,58 @@ class TeamLeaderboardEntry(BaseModel):
     color: str
     department: str
     member_count: int
+    # Kept for backward compatibility with older clients. Starting with v109
+    # these values represent net Point balance, not gross earned Point.
     total_earned: int
     avg_earned: int
+    score: int
+    avg_score: int
+    period: Literal["day", "week", "month", "all"]
 
 
 @api.get("/leaderboard/teams", response_model=List[TeamLeaderboardEntry])
-async def team_leaderboard(user: dict = Depends(get_current_user)):
+async def team_leaderboard(
+    period: Literal["day", "week", "month", "all"] = "all",
+    user: dict = Depends(get_current_user),
+):
     teams = await db.teams.find({}, {"_id": 0}).to_list(500)
+    players = await db.users.find(
+        {"role": {"$in": PLAYER_ROLES}},
+        {"_id": 0, "id": 1, "team_id": 1, "balance": 1},
+    ).to_list(5000)
+
+    if period == "all":
+        user_scores = {str(item["id"]): int(item.get("balance", 0) or 0) for item in players}
+    else:
+        user_scores = await _transaction_scores(period)
+
+    members_by_team: dict[str, list[dict]] = {}
+    for player in players:
+        team_id = player.get("team_id")
+        if team_id:
+            members_by_team.setdefault(str(team_id), []).append(player)
+
     scored = []
-    for t in teams:
-        pipeline = [
-            {"$match": {"team_id": t["id"], "role": {"$in": PLAYER_ROLES}}},
-            {"$group": {"_id": None, "sum": {"$sum": "$total_earned"}, "n": {"$sum": 1}}},
-        ]
-        agg = await db.users.aggregate(pipeline).to_list(1)
-        total = int(agg[0]["sum"]) if agg else 0
-        n = int(agg[0]["n"]) if agg else 0
-        avg = total // n if n else 0
+    for team in teams:
+        members = members_by_team.get(str(team["id"]), [])
+        total = sum(user_scores.get(str(member["id"]), 0) for member in members)
+        member_count = len(members)
+        average = int(round(total / member_count)) if member_count else 0
         scored.append({
-            "team_id": t["id"],
-            "name": t["name"],
-            "color": t.get("color", "#FFB800"),
-            "department": t.get("department", ""),
-            "member_count": n,
+            "team_id": team["id"],
+            "name": team["name"],
+            "color": team.get("color", "#FFB800"),
+            "department": team.get("department", ""),
+            "member_count": member_count,
             "total_earned": total,
-            "avg_earned": avg,
+            "avg_earned": average,
+            "score": total,
+            "avg_score": average,
+            "period": period,
         })
-    scored.sort(key=lambda x: x["total_earned"], reverse=True)
-    return [TeamLeaderboardEntry(rank=i + 1, **s) for i, s in enumerate(scored)]
+
+    scored.sort(key=lambda item: (-item["score"], str(item["name"]).casefold(), str(item["team_id"])))
+    return [TeamLeaderboardEntry(rank=index, **item) for index, item in enumerate(scored, start=1)]
 
 
 # ────────────────────────────────────────────────────────────────────────
@@ -2677,7 +2674,7 @@ BONUS_MATCH_BOARD_SHAPES = {
     ],
 }
 BONUS_MATCH_BOARD_SHAPE_ORDER = ["full", "rounded", "diamond", "cross", "staircase"]
-BONUS_MATCH_DEFAULT_LEVEL_COUNT = 50
+BONUS_MATCH_DEFAULT_LEVEL_COUNT = 150
 BONUS_MATCH_LEVEL_LIMIT = 200
 BONUS_MATCH_MAX_LEVEL = BONUS_MATCH_LEVEL_LIMIT
 BONUS_MATCH_MAX_LIVES = 5
@@ -2686,10 +2683,10 @@ BONUS_MATCH_LIFE_PRICE = 10
 BONUS_MATCH_DAILY_POINT_CAP = None  # No daily Point cap for Bonus Match
 BONUS_MATCH_SYMBOLS = ["coin", "star", "gift", "cube", "zap", "trophy"]
 BONUS_MATCH_SPECIALS = {"rocket_row", "rocket_col", "bomb", "color_bomb"}
-BONUS_MATCH_FIRST_CLEAR_POINTS = 10
+BONUS_MATCH_FIRST_CLEAR_POINTS = 5
 BONUS_MATCH_FIRST_CLEAR_XP = 10
 BONUS_MATCH_REPLAY_XP = 5
-BONUS_MATCH_BOSS_LEVELS = {25: 2, 40: 2, 50: 3}
+BONUS_MATCH_BOSS_LEVELS = {25: 2, 40: 2, 50: 3, 60: 2, 70: 2, 80: 2, 90: 2, 100: 3, 110: 3, 120: 3, 130: 3, 140: 3, 150: 4}
 BONUS_MATCH_OBSTACLE_ORDER = [
     "ice", "chain", "crate", "stone", "crystal",
     "web", "shield", "slime", "metal", "core",
@@ -2996,9 +2993,9 @@ def _bonus_match_cell_swappable(cell: Optional[dict]) -> bool:
 
 
 def _bonus_match_level_config(level: int) -> dict:
-    """Return an authored, beatable level config for the first 50 levels.
+    """Return an authored, beatable level config for the first 150 levels.
 
-    Every built-in level has a deliberate obstacle pattern. Levels above 50
+    Every built-in level has a deliberate obstacle pattern. Levels above 150
     retain the procedural curve so the admin can extend the catalog safely.
     """
     level = max(1, min(BONUS_MATCH_LEVEL_LIMIT, int(level or 1)))
@@ -3036,7 +3033,7 @@ def _bonus_match_level_config(level: int) -> dict:
             "design_note": str(authored.get("design_note") or authored.get("title") or ""),
         }
 
-    # Safe procedural fallback for optional levels 51-200.
+    # Safe procedural fallback for optional levels 151-200.
     milestone = level % 5 == 0
     stage = min(len(BONUS_MATCH_OBSTACLE_ORDER), level // 5)
     boss_multiplier = BONUS_MATCH_BOSS_LEVELS.get(level, 1)
@@ -4266,7 +4263,7 @@ async def _bonus_match_reward_win(
 ) -> dict:
     """Award deterministic Bonus Match rewards.
 
-    First clear of a level: +10 Point and +10 XP.
+    First clear of a level: +5 Point and +10 XP.
     Every replay clear: +0 Point and +5 XP.
     There is intentionally no daily Point cap.
     """
@@ -4360,7 +4357,7 @@ async def _bonus_match_reward_win(
             "stars": stars,
             "xp": xp_awarded,
             "first_completion": first_completion,
-            "reward_policy": "v93_first_10_points_10_xp_replay_5_xp",
+            "reward_policy": "v107_first_5_points_10_xp_replay_5_xp",
         },
     })
 
@@ -7193,6 +7190,381 @@ async def admin_approve_user(user_id: str, admin: dict = Depends(get_current_adm
     return _user_with_progress(fresh)
 
 
+
+# ────────────────────────────────────────────────────────────────────────
+# TM6 Sudoku — 50-level logic campaign
+# ────────────────────────────────────────────────────────────────────────
+SUDOKU_LEVELS_PATH = ROOT_DIR / "sudoku_levels.json"
+SUDOKU_FIRST_CLEAR_POINTS = 5
+SUDOKU_FIRST_CLEAR_XP = 10
+SUDOKU_REPLAY_XP = 5
+SUDOKU_MAX_LEVEL = 50
+SUDOKU_MODES = {"standard", "zen", "timeAttack", "noMistakes"}
+
+try:
+    SUDOKU_LEVELS = json.loads(SUDOKU_LEVELS_PATH.read_text(encoding="utf-8"))
+    SUDOKU_LEVELS_BY_ID = {int(item["id"]): item for item in SUDOKU_LEVELS}
+except (OSError, ValueError, TypeError, KeyError) as exc:
+    logger.error("Could not load Sudoku levels: %s", exc)
+    SUDOKU_LEVELS = []
+    SUDOKU_LEVELS_BY_ID = {}
+
+
+class SudokuStartBody(BaseModel):
+    level: int = Field(ge=1, le=SUDOKU_MAX_LEVEL)
+    mode: str = "standard"
+    restart: bool = False
+
+
+class SudokuSessionBody(BaseModel):
+    session_id: str
+    level: int = Field(ge=1, le=SUDOKU_MAX_LEVEL)
+    mode: str = "standard"
+    cells: List[int]
+    notes: List[List[int]] = Field(default_factory=list)
+    selected: Optional[int] = None
+    pencil: bool = False
+    elapsed: int = Field(default=0, ge=0, le=86400)
+    errors: int = Field(default=0, ge=0, le=999)
+    hints_used: int = Field(default=0, ge=0, le=99)
+    notes_used: bool = False
+
+
+class SudokuCompleteBody(BaseModel):
+    session_id: str
+    level: int = Field(ge=1, le=SUDOKU_MAX_LEVEL)
+    cells: List[int]
+    elapsed: int = Field(default=0, ge=0, le=86400)
+    errors: int = Field(default=0, ge=0, le=999)
+    hints_used: int = Field(default=0, ge=0, le=99)
+    notes_used: bool = False
+    stars: int = Field(default=1, ge=1, le=3)
+
+
+def _sudoku_public_level(level: dict) -> dict:
+    return {
+        "id": int(level["id"]),
+        "title": level.get("title", f"Рівень {level['id']}"),
+        "difficulty": level.get("difficulty", "medium"),
+        "type": level.get("type", "classic"),
+        "clues": int(level.get("clues", 0)),
+        "hints": int(level.get("hints", 0)),
+        "accent": level.get("accent", "#8B5CF6"),
+    }
+
+
+def _sudoku_normalize_cells(cells) -> list[int]:
+    if not isinstance(cells, list) or len(cells) != 81:
+        raise HTTPException(status_code=422, detail="Поле Судоку має містити 81 клітинку")
+    normalized = []
+    for value in cells:
+        try:
+            number = int(value or 0)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=422, detail="Некоректне значення у полі Судоку")
+        if number < 0 or number > 9:
+            raise HTTPException(status_code=422, detail="Числа Судоку мають бути від 0 до 9")
+        normalized.append(number)
+    return normalized
+
+
+def _sudoku_normalize_notes(notes) -> list[list[int]]:
+    if not isinstance(notes, list) or len(notes) != 81:
+        return [[] for _ in range(81)]
+    result = []
+    for values in notes:
+        if not isinstance(values, list):
+            result.append([])
+            continue
+        result.append(sorted({int(value) for value in values if str(value).isdigit() and 1 <= int(value) <= 9}))
+    return result
+
+
+async def _sudoku_profile(user_id: str) -> dict:
+    profile = await db.sudoku_profiles.find_one({"user_id": user_id}, {"_id": 0})
+    if profile:
+        return profile
+    now = now_iso()
+    profile = {
+        "user_id": user_id,
+        "current_level": 1,
+        "total_stars": 0,
+        "created_at": now,
+        "updated_at": now,
+    }
+    await db.sudoku_profiles.update_one(
+        {"user_id": user_id},
+        {"$setOnInsert": profile},
+        upsert=True,
+    )
+    return await db.sudoku_profiles.find_one({"user_id": user_id}, {"_id": 0}) or profile
+
+
+async def _sudoku_reconcile_level(user_id: str, profile: dict) -> int:
+    completed = await db.sudoku_completions.find(
+        {"user_id": user_id}, {"_id": 0, "level": 1}
+    ).sort("level", 1).to_list(SUDOKU_MAX_LEVEL)
+    completed_levels = {int(item.get("level", 0)) for item in completed}
+    unlocked = 1
+    while unlocked in completed_levels and unlocked < SUDOKU_MAX_LEVEL:
+        unlocked += 1
+    unlocked = max(1, min(SUDOKU_MAX_LEVEL, unlocked))
+    if int(profile.get("current_level", 1)) != unlocked:
+        await db.sudoku_profiles.update_one(
+            {"user_id": user_id},
+            {"$set": {"current_level": unlocked, "updated_at": now_iso()}},
+        )
+    return unlocked
+
+
+def _sudoku_session_payload(session: Optional[dict]) -> Optional[dict]:
+    if not session:
+        return None
+    return {
+        "id": session.get("id"),
+        "level_id": int(session.get("level", 1)),
+        "mode": session.get("mode", "standard"),
+        "cells": _sudoku_normalize_cells(session.get("cells", [])),
+        "notes": _sudoku_normalize_notes(session.get("notes", [])),
+        "selected": session.get("selected"),
+        "pencil": bool(session.get("pencil", False)),
+        "elapsed": int(session.get("elapsed", 0)),
+        "errors": int(session.get("errors", 0)),
+        "hints_used": int(session.get("hints_used", 0)),
+        "notes_used": bool(session.get("notes_used", False)),
+        "started_at": session.get("started_at"),
+        "updated_at": session.get("updated_at"),
+    }
+
+
+async def _sudoku_status_payload(user_id: str) -> dict:
+    profile = await _sudoku_profile(user_id)
+    unlocked = await _sudoku_reconcile_level(user_id, profile)
+    completions = await db.sudoku_completions.find(
+        {"user_id": user_id}, {"_id": 0}
+    ).sort("level", 1).to_list(SUDOKU_MAX_LEVEL)
+    active = await db.sudoku_sessions.find_one(
+        {"user_id": user_id, "status": "active"},
+        {"_id": 0},
+        sort=[("updated_at", -1)],
+    )
+    return {
+        "unlocked_level": unlocked,
+        "max_level": SUDOKU_MAX_LEVEL,
+        "total_stars": sum(int(item.get("stars", 0)) for item in completions),
+        "completions": completions,
+        "active_session": _sudoku_session_payload(active),
+        "levels": [_sudoku_public_level(level) for level in SUDOKU_LEVELS],
+        "reward_policy": {
+            "first_clear_points": SUDOKU_FIRST_CLEAR_POINTS,
+            "first_clear_xp": SUDOKU_FIRST_CLEAR_XP,
+            "replay_xp": SUDOKU_REPLAY_XP,
+        },
+    }
+
+
+@api.get("/games/sudoku/status")
+async def sudoku_status(user: dict = Depends(get_current_user)):
+    return await _sudoku_status_payload(user["id"])
+
+
+@api.post("/games/sudoku/start")
+async def sudoku_start(body: SudokuStartBody, user: dict = Depends(get_current_user)):
+    level = SUDOKU_LEVELS_BY_ID.get(int(body.level))
+    if not level:
+        raise HTTPException(status_code=404, detail="Рівень Судоку не знайдено")
+    profile = await _sudoku_profile(user["id"])
+    unlocked = await _sudoku_reconcile_level(user["id"], profile)
+    if int(body.level) > unlocked:
+        raise HTTPException(status_code=400, detail="Цей рівень Судоку ще не відкрито")
+    mode = body.mode if body.mode in SUDOKU_MODES else "standard"
+    existing = await db.sudoku_sessions.find_one(
+        {"user_id": user["id"], "status": "active", "level": int(body.level), "mode": mode},
+        {"_id": 0},
+        sort=[("updated_at", -1)],
+    )
+    if existing and not body.restart:
+        return {"session": _sudoku_session_payload(existing), "resumed": True}
+
+    now = now_iso()
+    await db.sudoku_sessions.update_many(
+        {"user_id": user["id"], "status": "active"},
+        {"$set": {"status": "replaced", "updated_at": now}},
+    )
+    session = {
+        "id": str(uuid.uuid4()),
+        "user_id": user["id"],
+        "level": int(body.level),
+        "mode": mode,
+        "cells": list(level.get("puzzle", [])),
+        "notes": [[] for _ in range(81)],
+        "selected": None,
+        "pencil": False,
+        "elapsed": 0,
+        "errors": 0,
+        "hints_used": 0,
+        "notes_used": False,
+        "status": "active",
+        "started_at": now,
+        "updated_at": now,
+    }
+    await db.sudoku_sessions.insert_one(session.copy())
+    return {"session": _sudoku_session_payload(session), "resumed": False}
+
+
+@api.patch("/games/sudoku/session")
+async def sudoku_save_session(body: SudokuSessionBody, user: dict = Depends(get_current_user)):
+    level = SUDOKU_LEVELS_BY_ID.get(int(body.level))
+    if not level:
+        raise HTTPException(status_code=404, detail="Рівень Судоку не знайдено")
+    cells = _sudoku_normalize_cells(body.cells)
+    # Given cells can never be changed in a valid saved session.
+    for index, given in enumerate(level.get("puzzle", [])):
+        if given and cells[index] != int(given):
+            raise HTTPException(status_code=422, detail="Початкові числа Судоку змінювати не можна")
+    mode = body.mode if body.mode in SUDOKU_MODES else "standard"
+    now = now_iso()
+    update = {
+        "level": int(body.level),
+        "mode": mode,
+        "cells": cells,
+        "notes": _sudoku_normalize_notes(body.notes),
+        "selected": body.selected if isinstance(body.selected, int) and 0 <= body.selected < 81 else None,
+        "pencil": bool(body.pencil),
+        "elapsed": int(body.elapsed),
+        "errors": int(body.errors),
+        "hints_used": int(body.hints_used),
+        "notes_used": bool(body.notes_used),
+        "status": "active",
+        "updated_at": now,
+    }
+    result = await db.sudoku_sessions.update_one(
+        {"id": body.session_id, "user_id": user["id"], "status": "active"},
+        {"$set": update, "$setOnInsert": {"id": body.session_id, "user_id": user["id"], "started_at": now}},
+        upsert=True,
+    )
+    return {"ok": bool(result.acknowledged), "updated_at": now}
+
+
+@api.post("/games/sudoku/complete")
+async def sudoku_complete(body: SudokuCompleteBody, user: dict = Depends(get_current_user)):
+    level = SUDOKU_LEVELS_BY_ID.get(int(body.level))
+    if not level:
+        raise HTTPException(status_code=404, detail="Рівень Судоку не знайдено")
+    cells = _sudoku_normalize_cells(body.cells)
+    if cells != [int(value) for value in level.get("solution", [])]:
+        raise HTTPException(status_code=400, detail="Поле ще не розв’язане правильно")
+
+    prior_run = await db.sudoku_runs.find_one(
+        {"id": body.session_id, "user_id": user["id"]}, {"_id": 0}
+    )
+    if prior_run:
+        return {
+            "reward": prior_run.get("reward", {}),
+            "status": await _sudoku_status_payload(user["id"]),
+            "idempotent": True,
+        }
+
+    profile = await _sudoku_profile(user["id"])
+    unlocked = await _sudoku_reconcile_level(user["id"], profile)
+    if int(body.level) > unlocked:
+        raise HTTPException(status_code=400, detail="Рівень не був відкритий для цього користувача")
+
+    now = now_iso()
+    existing = await db.sudoku_completions.find_one(
+        {"user_id": user["id"], "level": int(body.level)}, {"_id": 0}
+    )
+    previous_stars = int(existing.get("stars", 0)) if existing else 0
+    previous_time = int(existing.get("best_time", 0)) if existing else 0
+    previous_errors = int(existing.get("best_errors", 999)) if existing else 999
+    best_time = int(body.elapsed) if previous_time <= 0 else min(previous_time, int(body.elapsed))
+    best_errors = min(previous_errors, int(body.errors))
+    best_stars = max(previous_stars, int(body.stars))
+
+    completion_result = await db.sudoku_completions.update_one(
+        {"user_id": user["id"], "level": int(body.level)},
+        {
+            "$set": {
+                "stars": best_stars,
+                "best_time": best_time,
+                "best_errors": best_errors,
+                "updated_at": now,
+            },
+            "$inc": {"attempts_completed": 1},
+            "$setOnInsert": {
+                "id": str(uuid.uuid4()),
+                "user_id": user["id"],
+                "level": int(body.level),
+                "created_at": now,
+            },
+        },
+        upsert=True,
+    )
+    first_completion = completion_result.upserted_id is not None
+
+    next_level = min(SUDOKU_MAX_LEVEL, int(body.level) + 1)
+    star_delta = max(0, best_stars - previous_stars)
+    profile_update = {
+        "$max": {"current_level": next_level},
+        "$set": {"updated_at": now},
+    }
+    if star_delta:
+        profile_update["$inc"] = {"total_stars": star_delta}
+    await db.sudoku_profiles.update_one({"user_id": user["id"]}, profile_update)
+
+    points_awarded = SUDOKU_FIRST_CLEAR_POINTS if first_completion else 0
+    xp_awarded = SUDOKU_FIRST_CLEAR_XP if first_completion else SUDOKU_REPLAY_XP
+    await db.users.update_one(
+        {"id": user["id"]},
+        {"$inc": {"balance": points_awarded, "total_earned": points_awarded, "total_xp": xp_awarded}},
+    )
+    await db.transactions.insert_one({
+        "id": str(uuid.uuid4()),
+        "user_id": user["id"],
+        "kind": "sudoku",
+        "amount": points_awarded,
+        "description": f"TM6 Sudoku: рівень {body.level}, {body.stars} зірки, +{points_awarded} Point, +{xp_awarded} XP",
+        "created_at": now,
+        "meta": {
+            "level": int(body.level),
+            "stars": int(body.stars),
+            "elapsed": int(body.elapsed),
+            "errors": int(body.errors),
+            "hints_used": int(body.hints_used),
+            "first_completion": first_completion,
+            "xp": xp_awarded,
+            "reward_policy": "v108_first_5_points_10_xp_replay_5_xp",
+        },
+    })
+
+    reward = {
+        "first_completion": first_completion,
+        "points_awarded": points_awarded,
+        "xp_awarded": xp_awarded,
+        "stars": int(body.stars),
+        "new_level": next_level,
+    }
+    await db.sudoku_runs.insert_one({
+        "id": body.session_id,
+        "user_id": user["id"],
+        "level": int(body.level),
+        "reward": reward,
+        "created_at": now,
+    })
+    await db.sudoku_sessions.update_many(
+        {"user_id": user["id"], "status": "active"},
+        {"$set": {"status": "completed", "completed_at": now, "updated_at": now}},
+    )
+    return {"reward": reward, "status": await _sudoku_status_payload(user["id"]), "idempotent": False}
+
+
+async def seed_sudoku_v108():
+    await db.sudoku_profiles.create_index("user_id", unique=True)
+    await db.sudoku_completions.create_index([("user_id", 1), ("level", 1)], unique=True)
+    await db.sudoku_sessions.create_index([("user_id", 1), ("status", 1), ("updated_at", -1)])
+    await db.sudoku_runs.create_index([("id", 1), ("user_id", 1)], unique=True)
+
+
 # ─── Seed sample tasks (Phase 2) ───
 SEED_TASKS = [
     {
@@ -7250,6 +7622,7 @@ async def on_startup():
     await migrate_remove_legacy_demo_teams_v105()
     await migrate_bonus_match_v93_reset()
     await seed_phase2()
+    await seed_sudoku_v108()
 
 
 @app.on_event("shutdown")

@@ -1,4 +1,6 @@
 /* TM6 Bonus — Service Worker
+ * v109 fixes net Point leaderboards and adds periods to the team rating.
+ * v106 fixes admin goals access, team messages, settings compatibility, and projection source mapping.
  * v105 adds team-aware goals, scoped prizes, leader messages, and report-view tracking.
  * v104 keeps Google reports in a global IndexedDB-backed PWA cache and refreshes them silently.
  * v90 refreshes the cache for the game-only fullscreen, menu navigation, and transparent chain-overlay release.
@@ -6,7 +8,7 @@
  * never be cached as index.html, otherwise browsers can render a giant broken
  * image element over the board.
  */
-const VERSION = "tm6-v105";
+const VERSION = "tm6-v109";
 const STATIC_CACHE = `${VERSION}-static`;
 const RUNTIME_CACHE = `${VERSION}-runtime`;
 

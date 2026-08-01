@@ -25,17 +25,34 @@ const readJson = async (response) => {
   catch { return { data: null, text }; }
 };
 
-const googleGetAllCachedGoals = async (scriptUrl, token) => {
+const backendGet = async (path, authorization, { optional = false } = {}) => {
+  const url = backendApiUrl(path);
+  if (!url) return null;
+  const response = await fetch(url, {
+    headers: { accept: "application/json", authorization },
+    cache: "no-store",
+  });
+  const result = await readJson(response);
+  if (!response.ok) {
+    if (optional) return null;
+    const error = new Error(result.data?.detail || `Backend request failed (${response.status})`);
+    error.status = response.status;
+    throw error;
+  }
+  return result.data;
+};
+
+const googleAction = async (scriptUrl, token, action, payload = {}) => {
   const response = await fetch(scriptUrl, {
     method: "POST",
     headers: { "content-type": "application/json", accept: "application/json" },
-    body: JSON.stringify({ token, action: "read_all_goals" }),
+    body: JSON.stringify({ token, action, ...payload }),
     redirect: "follow",
     cache: "no-store",
   });
   const result = await readJson(response);
   if (!response.ok || !result.data) {
-    throw new Error(`Google Apps Script snapshot GET failed (${response.status})`);
+    throw new Error(`Google Apps Script request failed (${response.status})`);
   }
   if (result.data.success === false) throw new Error(result.data.error || "Google Sheets error");
   return result.data;
@@ -52,48 +69,40 @@ exports.handler = async (event) => {
       return makeResponse(401, { success: false, error: "Потрібна авторизація" });
     }
 
-    const dashboardUrl = backendApiUrl("/admin/goals-dashboard");
-    if (!dashboardUrl) {
-      return makeResponse(500, { success: false, error: "Не налаштовано адресу backend" });
-    }
-
-    // This call verifies both the JWT and the admin role.
-    const dashboardResponse = await fetch(dashboardUrl, {
-      headers: { accept: "application/json", authorization },
-      cache: "no-store",
-    });
-    const dashboardResult = await readJson(dashboardResponse);
-    if (!dashboardResponse.ok || !Array.isArray(dashboardResult.data)) {
-      return makeResponse(dashboardResponse.status === 403 ? 403 : 401, {
-        success: false,
-        error: dashboardResult.data?.detail || "Доступ лише для адміністратора",
-      });
+    // v106 authenticates through /auth/me. This route exists in old backend deployments,
+    // so the admin goals panel no longer collapses with "Not Found" when newer routes are absent.
+    const profile = await backendGet("/auth/me", authorization);
+    if (!profile || !["admin", "editor"].includes(profile.role)) {
+      return makeResponse(403, { success: false, error: "Доступ лише для адміністратора" });
     }
 
     const scriptUrl = String(process.env.GOOGLE_GOALS_SCRIPT_URL || "").trim();
-    if (!scriptUrl) {
-      return makeResponse(500, { success: false, error: "Google Таблицю не налаштовано" });
-    }
+    const writeToken = String(process.env.GOOGLE_GOALS_WRITE_TOKEN || "").trim();
+    if (!scriptUrl) return makeResponse(500, { success: false, error: "Google Таблицю не налаштовано" });
+    if (!writeToken) return makeResponse(500, { success: false, error: "Не налаштовано GOOGLE_GOALS_WRITE_TOKEN" });
+
+    const adminUsers = await backendGet("/admin/users", authorization, { optional: true });
+    const userList = Array.isArray(adminUsers) ? adminUsers : [];
+    const allowedKeys = new Set(
+      userList
+        .map((user) => normalizeKey(user.goals_login || user.goalsLogin || user.login2))
+        .filter(Boolean),
+    );
 
     if (event.httpMethod === "GET") {
-      const writeToken = String(process.env.GOOGLE_GOALS_WRITE_TOKEN || "").trim();
-      if (!writeToken) {
-        return makeResponse(500, { success: false, error: "Не налаштовано GOOGLE_GOALS_WRITE_TOKEN" });
-      }
-
-      const allowedKeys = new Set(
-        dashboardResult.data.map((user) => normalizeKey(user.goals_login)).filter(Boolean)
-      );
-      const snapshot = await googleGetAllCachedGoals(scriptUrl, writeToken);
-      const goalsByLogin = Object.fromEntries(
-        Object.entries(snapshot.goals_by_login || {})
-          .filter(([key, value]) => allowedKeys.has(normalizeKey(key)) && value)
-      );
+      const snapshot = await googleAction(scriptUrl, writeToken, "read_all_goals");
+      const source = snapshot.goals_by_login || {};
+      const goalsByLogin = allowedKeys.size
+        ? Object.fromEntries(
+          Object.entries(source).filter(([key, value]) => allowedKeys.has(normalizeKey(key)) && value),
+        )
+        : source;
 
       return makeResponse(200, {
         success: true,
         goals_by_login: goalsByLogin,
         snapshot_updated_at: snapshot.snapshot_updated_at || null,
+        compatibility_mode: true,
       });
     }
 
@@ -103,48 +112,27 @@ exports.handler = async (event) => {
     if (!goalsLogin || !goals || typeof goals !== "object") {
       return makeResponse(400, { success: false, error: "goals_login і goals обов'язкові" });
     }
-
-    const allowed = dashboardResult.data.some(
-      (user) => normalizeKey(user.goals_login) === goalsLogin
-    );
-    if (!allowed) {
+    if (allowedKeys.size && !allowedKeys.has(goalsLogin)) {
       return makeResponse(404, { success: false, error: "Користувача з таким Google-ключем не знайдено" });
     }
 
-    const writeToken = String(process.env.GOOGLE_GOALS_WRITE_TOKEN || "").trim();
-    if (!writeToken) {
-      return makeResponse(500, { success: false, error: "Не налаштовано GOOGLE_GOALS_WRITE_TOKEN" });
-    }
-
-    const googleResponse = await fetch(scriptUrl, {
-      method: "POST",
-      headers: { "content-type": "application/json", accept: "application/json" },
-      body: JSON.stringify({
-        token: writeToken,
-        goals_login: goalsLogin,
-        goals,
-      }),
-      redirect: "follow",
-      cache: "no-store",
+    const googleResult = await googleAction(scriptUrl, writeToken, "write_goals", {
+      goals_login: goalsLogin,
+      goals,
     });
-    const googleResult = await readJson(googleResponse);
-    if (!googleResponse.ok || !googleResult.data) {
-      console.error("Google Apps Script POST failed", googleResponse.status, googleResult.text?.slice(0, 500));
-      return makeResponse(502, { success: false, error: "Не вдалося записати дані в Google Таблицю" });
-    }
-    if (googleResult.data.success === false) {
-      return makeResponse(502, { success: false, error: googleResult.data.error || "Помилка Google Таблиці" });
-    }
 
     return makeResponse(200, {
       success: true,
       goals_login: goalsLogin,
-      goals: googleResult.data.goals || null,
-      reports_refresh_required: Boolean(googleResult.data.reports_refresh_required),
-      message: googleResult.data.message || null,
+      goals: googleResult.goals || null,
+      reports_refresh_required: Boolean(googleResult.reports_refresh_required),
+      message: googleResult.message || null,
     });
   } catch (error) {
     console.error("google-goals-admin error", error);
-    return makeResponse(500, { success: false, error: error?.message || "Помилка синхронізації цілей" });
+    return makeResponse(error?.status === 401 ? 401 : 500, {
+      success: false,
+      error: error?.message || "Помилка синхронізації цілей",
+    });
   }
 };

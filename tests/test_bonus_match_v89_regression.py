@@ -114,13 +114,13 @@ def test_frontend_features_are_wired() -> None:
     source = FRONTEND.read_text(encoding="utf-8")
     required = [
         'user?.role === "admin"',
-        'data-bonus-game-surface="v89"',
+        'data-bonus-game-surface="v97"',
         'target?.requestFullscreen || target?.webkitRequestFullscreen',
         'setPseudoFullscreen(true)',
         'loadStatus({ restoreActiveSession: false })',
         'api.post("/games/bonus-match/lives/purchase")',
         'api.post("/games/bonus-match/surrender"',
-        'data-render-engine="v89"',
+        'data-render-engine="v97"',
         'label: "Веселковий джокер"',
         'cell.obstacle === "chain" || cell.obstacle === "web"',
         'mixBlendMode: "screen"',

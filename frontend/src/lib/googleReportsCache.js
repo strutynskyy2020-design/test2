@@ -1,10 +1,10 @@
 import { getToken } from "@/lib/api";
 
-const CACHE_PREFIX = "tm6-google-reports-v104:";
-const LEGACY_CACHE_PREFIX = "tm6-google-reports-v103:";
+const CACHE_PREFIX = "tm6-google-reports-v106:";
+const LEGACY_CACHE_PREFIX = "tm6-google-reports-v104:";
 const VERSION_ENDPOINT = "/.netlify/functions/google-goals-version";
 const REPORTS_ENDPOINT = "/.netlify/functions/google-goals";
-const DB_NAME = "tm6-google-reports-v104";
+const DB_NAME = "tm6-google-reports-v106";
 const DB_VERSION = 1;
 const REPORTS_STORE = "reports";
 const FALLBACK_PREFIX = `${CACHE_PREFIX}fallback:`;

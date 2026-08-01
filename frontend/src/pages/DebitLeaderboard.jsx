@@ -257,9 +257,35 @@ export default function DebitLeaderboard() {
   useEffect(() => {
     if (mode === "mock") return undefined;
     let cancelled = false;
-    api.get("/goals/participants")
-      .then((response) => {
-        if (!cancelled) setParticipants(Array.isArray(response.data) ? response.data : []);
+    const loadParticipants = async () => {
+      try {
+        const response = await api.get("/goals/participants");
+        return Array.isArray(response.data) ? response.data : [];
+      } catch (_) {
+        if (user?.role !== "admin" && user?.role !== "editor") return [];
+        const [usersResult, teamsResult] = await Promise.allSettled([
+          api.get("/admin/users"),
+          api.get("/teams"),
+        ]);
+        const users = usersResult.status === "fulfilled" && Array.isArray(usersResult.value?.data)
+          ? usersResult.value.data
+          : [];
+        const teams = teamsResult.status === "fulfilled" && Array.isArray(teamsResult.value?.data)
+          ? teamsResult.value.data
+          : [];
+        const teamNames = Object.fromEntries(teams.map((team) => [team.id, team.name]));
+        return users
+          .filter((member) => member.role !== "admin" && (member.goals_login || member.goalsLogin || member.login2))
+          .map((member) => ({
+            ...member,
+            goals_login: member.goals_login || member.goalsLogin || member.login2,
+            team_name: member.team_name || teamNames[member.team_id] || "",
+          }));
+      }
+    };
+    loadParticipants()
+      .then((rows) => {
+        if (!cancelled) setParticipants(rows);
       })
       .catch(() => {
         if (!cancelled) setParticipants([]);
@@ -267,7 +293,7 @@ export default function DebitLeaderboard() {
     return () => {
       cancelled = true;
     };
-  }, [mode]);
+  }, [mode, user?.role]);
 
   useEffect(() => {
     if (!selectedTeamId && (access?.current_team?.id || user?.team_id)) {

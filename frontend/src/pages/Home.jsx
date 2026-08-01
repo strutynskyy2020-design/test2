@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Flame, Trophy, GraduationCap, Sparkles, Crown, Award, Medal, Star, Zap, ChevronRight, Coins, TrendingUp, Swords, Gift, Lock, Dice5, ScrollText, Target, Newspaper, Gamepad2, BriefcaseBusiness, CalendarClock, CalendarDays, Coffee } from "lucide-react";
+import { Flame, Trophy, GraduationCap, Sparkles, Crown, Award, Medal, Star, Zap, ChevronRight, Coins, TrendingUp, Swords, Gift, Lock, Dice5, ScrollText, Target, Newspaper, Gamepad2, BriefcaseBusiness, CalendarClock, CalendarDays, Coffee, Grid3X3 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { useDailyGoogleReports } from "@/hooks/useGoogleReports";
 import api from "@/lib/api";
@@ -90,6 +90,12 @@ const warmBonusMatch = () => {
   return bonusMatchWarmup;
 };
 
+let sudokuWarmup = null;
+const warmSudoku = () => {
+  if (!sudokuWarmup) sudokuWarmup = import("@/pages/Sudoku").catch(() => null);
+  return sudokuWarmup;
+};
+
 export default function Home() {
   const { user, mode } = useApp();
   const nav = useNavigate();
@@ -105,8 +111,8 @@ export default function Home() {
 
   useEffect(() => {
     const schedule = window.requestIdleCallback
-      ? window.requestIdleCallback(() => warmBonusMatch(), { timeout: 2200 })
-      : window.setTimeout(() => warmBonusMatch(), 1500);
+      ? window.requestIdleCallback(() => { warmBonusMatch(); warmSudoku(); }, { timeout: 2200 })
+      : window.setTimeout(() => { warmBonusMatch(); warmSudoku(); }, 1500);
     return () => {
       if (window.cancelIdleCallback && typeof schedule === "number") window.cancelIdleCallback(schedule);
       else window.clearTimeout(schedule);
@@ -240,7 +246,15 @@ export default function Home() {
       <ChevronRight className="relative shrink-0 text-[#B78CFF] transition-transform group-active:translate-x-1" />
     </button>
 
-    {/* 10. Work schedule */}
+    {/* 10. TM6 Sudoku */}
+    <button type="button" onPointerEnter={warmSudoku} onFocus={warmSudoku} onTouchStart={warmSudoku} onClick={() => nav("/games/sudoku")} className="group relative flex w-full items-center gap-4 overflow-hidden rounded-3xl border border-[#FFB800]/40 bg-gradient-to-r from-[#2A2110] via-[#1A1712] to-[#111114] p-5 text-left shadow-[0_16px_36px_rgba(255,184,0,.10)] active:scale-[.99]">
+      <div className="absolute -right-8 -top-10 h-28 w-28 rounded-full bg-[#FFB800]/15 blur-2xl" />
+      <div className="relative flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-[#FFB800]/45 bg-[#FFB800]/15 text-[#FFCA3A] shadow-[0_0_24px_rgba(255,184,0,.16)]"><Grid3X3 size={27} strokeWidth={2.7} /></div>
+      <div className="relative min-w-0 flex-1"><div className="flex items-center gap-2"><div className="font-display text-xl text-white">TM6 SUDOKU</div><Sparkles size={16} color="#B78CFF" /></div><div className="mt-1 text-xs font-bold text-zinc-400">50 рівнів логіки, нотатки та мультизаповнення</div></div>
+      <ChevronRight className="relative shrink-0 text-[#FFB800] transition-transform group-active:translate-x-1" />
+    </button>
+
+    {/* 11. Work schedule */}
     <button
       type="button"
       onClick={() => nav("/schedule")}
@@ -280,7 +294,7 @@ export default function Home() {
     </button>
 
 
-    {/* 11. Achievements */}
+    {/* 12. Achievements */}
     <section><div className="mb-3 flex items-center justify-between px-1"><div className="font-display text-lg text-white">Досягнення</div><div className="text-xs font-black text-zinc-500">{achievements.filter(a=>a.unlocked).length} / {achievements.length}</div></div><div className="grid grid-cols-3 gap-3">{achievements.map(a=><Badge key={a.id} ach={a}/>)}</div></section>
 
   </div>;

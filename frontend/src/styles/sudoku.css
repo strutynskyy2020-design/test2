@@ -1,0 +1,150 @@
+.sudoku-page {
+  --su-bg: #0d0d10;
+  --su-card: #1a1a1f;
+  --su-card-2: #222229;
+  --su-line: rgba(255,255,255,.11);
+  --su-text: #f7f7fb;
+  --su-muted: #9295a4;
+  --su-purple: #8b5cf6;
+  --su-purple-soft: rgba(139,92,246,.18);
+  --su-yellow: #ffb800;
+  --su-green: #16d66d;
+  --su-red: #ff5a63;
+  min-height: 100%;
+  padding: 12px 16px 36px;
+  color: var(--su-text);
+  background:
+    radial-gradient(circle at 100% 0, rgba(139,92,246,.12), transparent 28%),
+    radial-gradient(circle at 0 30%, rgba(255,184,0,.06), transparent 24%);
+}
+html.light .sudoku-page {
+  --su-bg: #f8f7fb;
+  --su-card: #ffffff;
+  --su-card-2: #f2f0f7;
+  --su-line: #e6e2ef;
+  --su-text: #20232d;
+  --su-muted: #747989;
+  --su-purple-soft: rgba(139,92,246,.1);
+  background:
+    radial-gradient(circle at 100% 0, rgba(139,92,246,.08), transparent 30%),
+    linear-gradient(#fbfbfd, #f8f7fb);
+}
+.sudoku-loading { min-height: 65vh; display: grid; place-content: center; justify-items: center; gap: 14px; color: var(--su-muted); }
+.sudoku-spinner { width: 42px; height: 42px; border-radius: 50%; border: 4px solid var(--su-line); border-top-color: var(--su-purple); animation: sudokuSpin .75s linear infinite; }
+@keyframes sudokuSpin { to { transform: rotate(360deg); } }
+.sudoku-hero { position: relative; overflow: hidden; min-height: 190px; padding: 24px 22px; border: 1px solid rgba(139,92,246,.36); border-radius: 30px; background: linear-gradient(145deg, rgba(139,92,246,.22), var(--su-card) 56%); box-shadow: 0 18px 42px rgba(36,25,67,.15); }
+.sudoku-hero::after { content:""; position:absolute; right:-28px; bottom:-54px; width:160px; height:160px; border:32px solid rgba(139,92,246,.09); border-radius:50%; }
+.sudoku-back { width: 40px; height: 40px; display:grid; place-items:center; border-radius:14px; border:1px solid var(--su-line); color:var(--su-text); background:color-mix(in srgb, var(--su-card) 82%, transparent); }
+.sudoku-hero-copy { position:relative; z-index:2; margin-top:18px; max-width:330px; }
+.sudoku-eyebrow { color:#b78cff; font-size:10px; font-weight:1000; letter-spacing:.13em; }
+.sudoku-hero h1 { margin:5px 0 7px; font-family:var(--font-display, "Nunito", sans-serif); font-size:32px; line-height:1; letter-spacing:-.04em; }
+.sudoku-hero h1 b { color:var(--su-yellow); }
+.sudoku-hero p { margin:0; color:var(--su-muted); font-size:12px; font-weight:700; line-height:1.55; }
+.sudoku-crown { position:absolute; right:20px; top:20px; width:54px; height:54px; display:grid; place-items:center; color:var(--su-yellow); border:1px solid rgba(255,184,0,.35); border-radius:18px; background:rgba(255,184,0,.1); }
+.sudoku-progress-card { display:grid; grid-template-columns:112px 1fr; gap:16px; align-items:center; margin-top:14px; padding:16px; border:1px solid var(--su-line); border-radius:26px; background:var(--su-card); }
+.sudoku-progress-ring { --value:0deg; width:96px; aspect-ratio:1; display:grid; place-content:center; text-align:center; border-radius:50%; background:radial-gradient(circle closest-side, var(--su-card) 78%, transparent 80% 99%), conic-gradient(var(--su-purple) var(--value), var(--su-card-2) 0); }
+.sudoku-progress-ring strong { font-size:21px; font-weight:1000; }
+.sudoku-progress-ring span { color:var(--su-muted); font-size:9px; font-weight:900; text-transform:uppercase; }
+.sudoku-progress-copy { display:grid; grid-template-columns:repeat(3,1fr); gap:7px; }
+.sudoku-progress-copy div { min-width:0; padding:10px 4px; text-align:center; border-radius:14px; background:var(--su-card-2); }
+.sudoku-progress-copy span { display:block; color:var(--su-muted); font-size:8px; font-weight:900; text-transform:uppercase; }
+.sudoku-progress-copy strong { display:block; margin-top:4px; font-size:15px; }
+.sudoku-continue { width:100%; margin-top:14px; padding:14px 16px; display:flex; align-items:center; gap:12px; color:#111; border:0; border-radius:22px; background:linear-gradient(135deg,#ffce38,var(--su-yellow)); box-shadow:0 12px 28px rgba(255,184,0,.18); }
+.sudoku-continue > div { width:42px; height:42px; display:grid; place-items:center; border-radius:14px; background:rgba(0,0,0,.12); }
+.sudoku-continue span { flex:1; text-align:left; }
+.sudoku-continue small { display:block; font-size:8px; font-weight:1000; letter-spacing:.12em; opacity:.65; }
+.sudoku-continue strong { display:block; margin-top:2px; font-size:14px; font-weight:1000; }
+.sudoku-mode-card, .sudoku-levels { margin-top:14px; padding:18px; border:1px solid var(--su-line); border-radius:26px; background:var(--su-card); }
+.sudoku-section-title { display:flex; justify-content:space-between; align-items:center; }
+.sudoku-section-title span { color:#a98afb; font-size:9px; font-weight:1000; letter-spacing:.12em; }
+.sudoku-section-title h2 { margin:3px 0 0; font-family:var(--font-display, "Nunito", sans-serif); font-size:21px; line-height:1; }
+.sudoku-section-title > svg { color:var(--su-yellow); }
+.sudoku-modes { display:grid; grid-template-columns:repeat(2,1fr); gap:8px; margin-top:14px; }
+.sudoku-modes button { min-height:40px; border:1px solid var(--su-line); border-radius:14px; color:var(--su-muted); background:var(--su-card-2); font-size:10px; font-weight:1000; }
+.sudoku-modes button.active { color:#fff; border-color:var(--su-purple); background:linear-gradient(135deg,#6d3df5,#9a6cff); box-shadow:0 8px 22px rgba(109,61,245,.2); }
+.sudoku-mode-card > p { margin:12px 2px 0; color:var(--su-muted); font-size:11px; font-weight:700; line-height:1.45; }
+.sudoku-chapter { margin-top:20px; }
+.sudoku-chapter-head { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
+.sudoku-chapter-head > span { width:36px; height:36px; display:grid; place-items:center; color:#a98afb; border:1px solid rgba(139,92,246,.3); border-radius:12px; background:var(--su-purple-soft); font-size:11px; font-weight:1000; }
+.sudoku-chapter-head strong { display:block; font-size:13px; }
+.sudoku-chapter-head small { display:block; margin-top:1px; color:var(--su-muted); font-size:9px; font-weight:800; }
+.sudoku-level-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:9px; }
+.sudoku-level-card { min-height:118px; padding:13px; text-align:left; border:1px solid var(--su-line); border-radius:18px; color:var(--su-text); background:linear-gradient(145deg,var(--su-card-2),color-mix(in srgb,var(--su-card) 90%,transparent)); transition:transform .15s,border-color .15s; }
+.sudoku-level-card:active:not(:disabled) { transform:scale(.98); }
+.sudoku-level-card.completed { border-color:rgba(22,214,109,.36); }
+.sudoku-level-card.locked { opacity:.48; filter:saturate(.5); }
+.sudoku-level-top { display:flex; align-items:center; justify-content:space-between; color:#a98afb; }
+.sudoku-level-top > span { font-size:17px; font-weight:1000; }
+.sudoku-level-card > strong { display:block; margin-top:14px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; font-size:12px; }
+.sudoku-level-card > small { display:block; margin-top:4px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; color:var(--su-muted); font-size:8px; font-weight:900; text-transform:uppercase; }
+.sudoku-mini-stars { display:flex; gap:1px; color:var(--su-yellow); }
+.sudoku-clue-line { height:4px; margin-top:12px; overflow:hidden; border-radius:99px; background:color-mix(in srgb,var(--su-line) 80%,transparent); }
+.sudoku-clue-line i { display:block; height:100%; border-radius:inherit; }
+.sudoku-tip { display:flex; gap:12px; align-items:flex-start; margin-top:14px; padding:16px; border:1px dashed rgba(139,92,246,.38); border-radius:22px; background:var(--su-purple-soft); }
+.sudoku-tip > svg { flex:none; color:#a98afb; }
+.sudoku-tip strong { display:block; font-size:12px; }
+.sudoku-tip p { margin:3px 0 0; color:var(--su-muted); font-size:10px; font-weight:700; line-height:1.45; }
+
+.sudoku-game-page { padding:10px 12px 30px; }
+.sudoku-game-head { display:grid; grid-template-columns:42px 1fr 42px; gap:10px; align-items:center; }
+.sudoku-icon-btn { width:42px; height:42px; display:grid; place-items:center; border:1px solid var(--su-line); border-radius:14px; color:var(--su-text); background:var(--su-card); }
+.sudoku-game-title { min-width:0; text-align:center; }
+.sudoku-game-title span { display:block; color:#a98afb; font-size:8px; font-weight:1000; letter-spacing:.1em; }
+.sudoku-game-title strong { display:block; margin-top:2px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; font-size:14px; }
+.sudoku-game-stats { display:grid; grid-template-columns:repeat(3,1fr); gap:7px; margin:12px 0; }
+.sudoku-game-stats div { height:38px; display:flex; align-items:center; justify-content:center; gap:6px; border:1px solid var(--su-line); border-radius:13px; color:var(--su-muted); background:var(--su-card); font-size:10px; font-weight:1000; }
+.sudoku-game-stats svg { color:#a98afb; }
+.sudoku-board-shell { position:relative; padding:8px; border:1px solid rgba(139,92,246,.3); border-radius:22px; background:linear-gradient(145deg,rgba(139,92,246,.13),var(--su-card)); box-shadow:0 18px 42px rgba(34,23,64,.13); }
+.sudoku-board { width:100%; aspect-ratio:1; display:grid; grid-template-columns:repeat(9,1fr); overflow:hidden; border:2px solid color-mix(in srgb,var(--su-text) 72%,transparent); border-radius:14px; background:var(--su-line); }
+.sudoku-cell { position:relative; min-width:0; padding:0; display:grid; place-items:center; border-style:solid; border-color:color-mix(in srgb,var(--su-text) 24%,transparent); color:var(--su-purple); background:var(--su-card); font-size:clamp(15px,5.3vw,23px); font-weight:900; transition:background .12s,transform .12s,color .12s; }
+.sudoku-cell.is-given { color:var(--su-text); font-weight:1000; background:color-mix(in srgb,var(--su-card-2) 80%,var(--su-card)); }
+.sudoku-cell.is-related { background:color-mix(in srgb,var(--su-purple-soft) 58%,var(--su-card)); }
+.sudoku-cell.is-same { background:color-mix(in srgb,rgba(139,92,246,.22) 78%,var(--su-card)); }
+.sudoku-cell.is-active { z-index:2; color:#fff; background:var(--su-purple); box-shadow:inset 0 0 0 2px rgba(255,255,255,.45); }
+.sudoku-cell.is-wrong { color:var(--su-red); background:color-mix(in srgb,rgba(255,90,99,.16) 75%,var(--su-card)); }
+.sudoku-cell.is-celebrate { animation:sudokuCelebrate .75s ease both; }
+.sudoku-cell:nth-child(7n).is-celebrate { animation-delay:.08s; }
+@keyframes sudokuCelebrate { 40% { transform:scale(.82); background:rgba(22,214,109,.26); } }
+.sudoku-notes { position:absolute; inset:2px; display:grid; grid-template-columns:repeat(3,1fr); grid-template-rows:repeat(3,1fr); }
+.sudoku-notes i { display:grid; place-items:center; color:var(--su-muted); font-size:clamp(5px,1.7vw,8px); font-style:normal; font-weight:800; }
+.sudoku-multifill { position:absolute; left:50%; bottom:14px; transform:translateX(-50%); max-width:calc(100% - 28px); padding:8px 10px; display:flex; align-items:center; gap:7px; white-space:nowrap; color:#fff; border-radius:13px; background:rgba(40,25,74,.92); backdrop-filter:blur(12px); box-shadow:0 8px 22px rgba(0,0,0,.25); font-size:10px; font-weight:1000; }
+.sudoku-multifill button { width:23px; height:23px; display:grid; place-items:center; border:0; border-radius:8px; color:#fff; background:rgba(255,255,255,.12); }
+.sudoku-tools { display:grid; grid-template-columns:repeat(5,1fr); gap:5px; margin-top:11px; }
+.sudoku-tools button { min-width:0; height:55px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px; border:1px solid var(--su-line); border-radius:14px; color:var(--su-muted); background:var(--su-card); }
+.sudoku-tools button.active { color:#fff; border-color:var(--su-purple); background:var(--su-purple); }
+.sudoku-tools button:disabled { opacity:.35; }
+.sudoku-tools span { max-width:100%; overflow:hidden; text-overflow:ellipsis; font-size:7px; font-weight:1000; text-transform:uppercase; }
+.sudoku-keypad { display:grid; grid-template-columns:repeat(5,1fr); gap:7px; margin-top:11px; }
+.sudoku-keypad button { height:48px; border:1px solid var(--su-line); border-radius:14px; color:var(--su-purple); background:var(--su-card); font-size:20px; font-weight:1000; touch-action:manipulation; user-select:none; }
+.sudoku-keypad.pencil button:not(.erase) { border-style:dashed; }
+.sudoku-keypad button.multi-active { color:#fff; border-color:#a98afb; background:linear-gradient(145deg,#6d3df5,#9b6dfb); box-shadow:0 8px 22px rgba(109,61,245,.25); }
+.sudoku-keypad .erase { color:var(--su-muted); }
+.sudoku-restart { width:100%; margin-top:12px; padding:8px; display:flex; align-items:center; justify-content:center; gap:7px; border:0; color:var(--su-muted); background:none; font-size:9px; font-weight:900; }
+.sudoku-pause-overlay, .sudoku-modal-backdrop { position:fixed; inset:0; z-index:150; display:grid; place-items:center; padding:20px; background:rgba(7,7,10,.76); backdrop-filter:blur(18px); }
+.sudoku-pause-overlay > div { width:min(380px,100%); padding:30px 24px; text-align:center; border:1px solid var(--su-line); border-radius:28px; color:var(--su-text); background:var(--su-card); }
+.sudoku-pause-overlay > div > svg { color:#a98afb; }
+.sudoku-pause-overlay h2 { margin:10px 0 5px; font-family:var(--font-display,"Nunito",sans-serif); font-size:25px; }
+.sudoku-pause-overlay p { color:var(--su-muted); font-size:12px; font-weight:700; }
+.sudoku-primary, .sudoku-secondary { min-height:46px; padding:0 16px; display:inline-flex; align-items:center; justify-content:center; gap:8px; border-radius:15px; font-size:10px; font-weight:1000; text-transform:uppercase; }
+.sudoku-primary { border:0; color:#fff; background:linear-gradient(135deg,#6d3df5,#9b6dfb); }
+.sudoku-secondary { border:1px solid var(--su-line); color:var(--su-text); background:var(--su-card-2); }
+.sudoku-text-btn { display:block; margin:12px auto 0; border:0; color:var(--su-muted); background:none; font-size:10px; font-weight:900; }
+.sudoku-result-card { position:relative; width:min(420px,100%); padding:30px 22px 22px; text-align:center; border:1px solid rgba(139,92,246,.34); border-radius:30px; color:var(--su-text); background:var(--su-card); box-shadow:0 28px 70px rgba(0,0,0,.32); }
+.sudoku-close { position:absolute; top:14px; right:14px; width:35px; height:35px; display:grid; place-items:center; border:1px solid var(--su-line); border-radius:12px; color:var(--su-muted); background:var(--su-card-2); }
+.sudoku-result-icon { width:64px; height:64px; margin:0 auto 12px; display:grid; place-items:center; color:var(--su-yellow); border:1px solid rgba(255,184,0,.35); border-radius:22px; background:rgba(255,184,0,.1); }
+.sudoku-result-card h2 { margin:5px 0 12px; font-family:var(--font-display,"Nunito",sans-serif); font-size:27px; }
+.sudoku-stars { display:flex; justify-content:center; gap:5px; color:var(--su-muted); }
+.sudoku-stars .on { color:var(--su-yellow); }
+.sudoku-result-metrics { display:grid; grid-template-columns:repeat(3,1fr); gap:7px; margin-top:17px; }
+.sudoku-result-metrics div { padding:11px 5px; border-radius:14px; background:var(--su-card-2); }
+.sudoku-result-metrics span { display:block; color:var(--su-muted); font-size:8px; font-weight:900; text-transform:uppercase; }
+.sudoku-result-metrics strong { display:block; margin-top:3px; font-size:14px; }
+.sudoku-reward-line { margin-top:13px; padding:11px; display:flex; align-items:center; justify-content:center; gap:7px; border:1px solid rgba(255,184,0,.28); border-radius:14px; color:var(--su-yellow); background:rgba(255,184,0,.08); font-size:10px; font-weight:1000; }
+.sudoku-result-actions { display:grid; grid-template-columns:1fr 1.25fr; gap:8px; margin-top:16px; }
+@media (max-width:360px) {
+  .sudoku-page { padding-left:9px; padding-right:9px; }
+  .sudoku-levels { padding:14px; }
+  .sudoku-cell { font-size:16px; }
+  .sudoku-tools span { display:none; }
+  .sudoku-tools button { height:44px; }
+}

@@ -50,7 +50,7 @@ const ROWS = 7;
 const COLS = 7;
 const MAX_LEVEL = 200;
 const SYMBOLS = ["coin", "star", "gift", "cube", "zap", "trophy"];
-const BOSS_LEVELS = { 25: 2, 40: 2, 50: 3 };
+const BOSS_LEVELS = { 25: 2, 40: 2, 50: 3, 60: 2, 70: 2, 80: 2, 90: 2, 100: 3, 110: 3, 120: 3, 130: 3, 140: 3, 150: 4 };
 const OBSTACLE_ORDER = ["ice", "chain", "crate", "stone", "crystal", "web", "shield", "slime", "metal", "core"];
 const OVERLAY_OBSTACLES = new Set(["chain", "web"]);
 const wait = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -237,7 +237,7 @@ const normalizeBoard = (board) => (board || []).map((row) => row.map(normalizeCe
 
 const levelConfig = (level) => {
   const safeLevel = Math.max(1, Math.min(MAX_LEVEL, Number(level || 1)));
-  const authored = safeLevel <= 50 ? authoredBonusMatchLevels.find((item) => Number(item.level) === safeLevel) : null;
+  const authored = authoredBonusMatchLevels.find((item) => Number(item.level) === safeLevel) || null;
   if (authored) {
     const boardShape = BOARD_SHAPES[authored.board_shape] ? authored.board_shape : "full";
     const obstacleLayout = Array.isArray(authored.obstacle_layout) ? authored.obstacle_layout : [];
@@ -516,7 +516,7 @@ const runMockMove = (game, from, to) => {
     animation: { swapped_board: swapped, steps, reshuffled, reason: reshuffled ? "no_moves" : null },
     result: status === "active" ? null : {
       stars,
-      points_awarded: won ? 10 : 0,
+      points_awarded: won ? 5 : 0,
       xp_awarded: won ? 10 : 0,
       first_win_bonus: 0,
       lives: won ? 5 : 4,
@@ -2152,8 +2152,8 @@ function BonusMatchScreen() {
     bonusMatchDiagnostics.log("status_load_started", { mode, restoreActiveSession });
     if (mode === "mock") {
       const mockStatus = {
-        profile: { current_level: 1, max_level: 50, total_stars: 0, lives: 5, max_lives: 5, next_life_at: null, daily_points: 0, daily_point_cap: null, balance: 24500, life_price: 10, booster_prices: { hammer: 10, rocket: 20, color_bomb: 50, shuffle: 30 }, boosters: { hammer: 2, rocket: 1, color_bomb: 1, shuffle: 2 } },
-        levels: Array.from({ length: 50 }, (_, index) => levelConfig(index + 1)),
+        profile: { current_level: 1, max_level: 150, total_stars: 0, lives: 5, max_lives: 5, next_life_at: null, daily_points: 0, daily_point_cap: null, balance: 24500, life_price: 10, booster_prices: { hammer: 10, rocket: 20, color_bomb: 50, shuffle: 30 }, boosters: { hammer: 2, rocket: 1, color_bomb: 1, shuffle: 2 } },
+        levels: Array.from({ length: 150 }, (_, index) => levelConfig(index + 1)),
         completions: [],
         active_session: null,
         top_today: [
@@ -2911,6 +2911,9 @@ function BonusMatchScreen() {
   const unlockedLevels = levelCatalog
     .map((item) => Number(item.level))
     .filter((level) => level <= Number(status?.profile?.current_level || 1));
+  const nextCatalogLevel = game
+    ? levelCatalog.find((item) => Number(item.level) > Number(game.level))?.level || null
+    : null;
 
   const selectedUnlockedIndex = unlockedLevels.indexOf(Number(selectedLevel));
 
@@ -3223,9 +3226,27 @@ function BonusMatchScreen() {
                     <Stars count={result?.stars || 0} size={22} animated={game.status === "won"} reducedMotion={reducedMotion} />
                     <span className="text-xs font-black text-zinc-500">Рахунок: {formatNumber(game.score)}</span>
                   </div>
+                  {game.status === "won" && result && (
+                    <div className="mt-2 text-[11px] font-black text-[#FFB800]">
+                      +{Number(result.points_awarded || 0)} Point • +{Number(result.xp_awarded || 0)} XP
+                    </div>
+                  )}
                   <div className="mt-3 grid grid-cols-2 gap-2">
                     <button type="button" onClick={leaveBoard} className="flex h-10 items-center justify-center rounded-xl border border-white/10 bg-[#1A1A1E] text-xs font-black text-zinc-300"><RotateCcw size={15} className="mr-1.5" />РІВНІ</button>
-                    <button type="button" onClick={() => startGame(game.status === "won" ? (result?.current_level || game.level) : game.level)} className="flex h-10 items-center justify-center rounded-xl bg-[#7C3AED] text-xs font-black text-white">{game.status === "won" ? "НАСТУПНИЙ РІВЕНЬ" : "ЩЕ РАЗ"}<ChevronRight size={15} className="ml-1" /></button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (game.status === "won" && !nextCatalogLevel) {
+                          leaveBoard();
+                          return;
+                        }
+                        startGame(game.status === "won" ? nextCatalogLevel : game.level);
+                      }}
+                      className="flex h-10 items-center justify-center rounded-xl bg-[#7C3AED] text-xs font-black text-white"
+                    >
+                      {game.status === "won" ? (nextCatalogLevel ? "НАСТУПНИЙ РІВЕНЬ" : "ДО РІВНІВ") : "ЩЕ РАЗ"}
+                      <ChevronRight size={15} className="ml-1" />
+                    </button>
                   </div>
                 </motion.div>
               )}
