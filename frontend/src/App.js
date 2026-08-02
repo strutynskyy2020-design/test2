@@ -43,6 +43,7 @@ const DebitIssuances = lazy(() => import("@/pages/DebitIssuances"));
 const BonusMatch = lazy(() => import("@/pages/BonusMatch"));
 const Sudoku = lazy(() => import("@/pages/Sudoku"));
 const Schedule = lazy(() => import("@/pages/Schedule"));
+const ManagerAnalytics = lazy(() => import("@/pages/ManagerAnalytics"));
 
 const Splash = () => (
   <div className="min-h-screen w-full flex items-center justify-center">
@@ -100,6 +101,13 @@ const RequireAuth = ({ children }) => {
   return children;
 };
 
+const RequireManager = ({ children }) => {
+  const { user } = useApp();
+  if (!user) return <Navigate to="/login" replace />;
+  if (user.role !== "admin" && !user.is_team_leader) return <Navigate to="/teams" replace />;
+  return children;
+};
+
 const RequireAdmin = ({ children }) => {
   const { user } = useApp();
   if (!user) return <Navigate to="/login" replace />;
@@ -133,6 +141,7 @@ function App() {
             <Route path="/quests" element={<LazyPage><Quests /></LazyPage>} />
             <Route path="/tasks" element={<LazyPage><Tasks /></LazyPage>} />
             <Route path="/teams" element={<LazyPage><Teams /></LazyPage>} />
+            <Route path="/analytics" element={<RequireManager><LazyPage><ManagerAnalytics /></LazyPage></RequireManager>} />
             <Route path="/ai-trainer" element={<LazyPage><AITrainer /></LazyPage>} />
             <Route path="/goals" element={<LazyPage><Goals /></LazyPage>} />
             <Route path="/goals/credit" element={<LazyPage><CreditLeaderboard /></LazyPage>} />

@@ -95,7 +95,7 @@ export default function Leaderboard() {
           </button>
         ))}
       </div>
-      <div className="-mt-2 px-1 text-[11px] font-bold text-zinc-500">Результат = зароблено Point мінус витрачено за вибраний період.</div>
+      <div className="-mt-2 px-1 text-[11px] font-bold text-zinc-500">Результат = зароблено Point мінус витрати, крім покупок у магазині.</div>
 
       {mode === "mock" && <div className="rounded-2xl border border-[#FF5C00]/40 bg-[#FF5C00]/10 p-4 text-sm font-black text-[#FF5C00]">Рейтинг доступний тільки з реальним бекендом.</div>}
       {loading && <div className="py-8 text-center text-sm text-zinc-500">Завантаження...</div>}
@@ -104,7 +104,7 @@ export default function Leaderboard() {
         <div className="rounded-3xl border border-white/10 bg-[#1A1A1E] p-8 text-center">
           <TrendingUp size={40} strokeWidth={2.5} className="mx-auto mb-3 text-zinc-600" />
           <div className="text-sm font-black text-white">Ще немає результатів</div>
-          <div className="mt-1 text-xs text-zinc-500">Заробляй Point і контролюй витрати, щоб потрапити у топ</div>
+          <div className="mt-1 text-xs text-zinc-500">Заробляй Point і контролюй ігрові витрати, щоб потрапити у топ</div>
         </div>
       )}
       {!loading && data && data.top.length > 0 && <div className="space-y-2" data-testid="lb-top">{data.top.map((entry) => <Row key={entry.user_id} entry={entry} />)}</div>}

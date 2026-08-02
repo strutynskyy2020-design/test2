@@ -12,6 +12,7 @@ import os
 import json
 import uuid
 import logging
+import asyncio
 import shutil
 import re
 from datetime import datetime, timezone, timedelta
@@ -25,7 +26,14 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
+from pymongo import UpdateOne
 from pydantic import BaseModel, Field, EmailStr, ConfigDict
+
+try:
+    from pywebpush import webpush, WebPushException
+except Exception:  # Push remains optional until VAPID is configured.
+    webpush = None
+    WebPushException = Exception
 
 # ────────────────────────────────────────────────────────────────────────
 # Config
@@ -36,6 +44,11 @@ JWT_TTL_HOURS = int(os.environ.get("JWT_ACCESS_TTL_HOURS", "24"))
 ADMIN_EMAIL = os.environ["ADMIN_EMAIL"].lower()
 ADMIN_PASSWORD = os.environ["ADMIN_PASSWORD"]
 BOT_API_TOKEN = os.environ["BOT_API_TOKEN"]
+VAPID_PUBLIC_KEY = os.environ.get("VAPID_PUBLIC_KEY", "").strip()
+VAPID_PRIVATE_KEY = os.environ.get("VAPID_PRIVATE_KEY", "").strip()
+VAPID_SUBJECT = os.environ.get("VAPID_SUBJECT", f"mailto:{ADMIN_EMAIL}").strip()
+PUSH_SCHEDULER_TOKEN = os.environ.get("PUSH_SCHEDULER_TOKEN", "").strip()
+REPORTS_WEBHOOK_TOKEN = os.environ.get("REPORTS_WEBHOOK_TOKEN", "").strip()
 SEED_DEMO_USERS_ENABLED = os.environ.get("SEED_DEMO_USERS", "false").strip().lower() in {"1", "true", "yes", "on"}
 PLAYER_ROLES = ["employee", "editor"]
 
@@ -509,7 +522,8 @@ class TransactionModel(BaseModel):
 
 
 class PointsAdjustBody(BaseModel):
-    amount: int  # positive or negative
+    amount: int
+    mode: Literal["delta", "set"] = "delta"
     description: str = "Ручне коригування адміном"
 
 
@@ -609,6 +623,7 @@ async def _apply_avatar_daily_bonus(user: dict) -> dict:
             "amount": bonus, "description": f"Щоденний бонус аватара: +{bonus} Point",
             "created_at": now_iso(), "meta": {"date": date_key, "avatar_prize_id": user.get("active_avatar_prize_id")},
         })
+        await _notify_points_awarded(user["id"], bonus, "Щоденний бонус активного аватара")
         return await db.users.find_one({"id": user["id"]}, {"_id": 0})
     return user
 
@@ -967,6 +982,7 @@ async def save_ai_training_result(
             "description": f"AI-тренажер: {body.scenario_title} • {verified_score:.1f}/10",
             "created_at": ts,
         })
+        await _notify_points_awarded(user["id"], points_reward, f"AI-тренажер: {body.scenario_title}")
 
     doc.pop("_id", None)
     doc["reward_applied"] = points_reward
@@ -1430,6 +1446,7 @@ async def claim_quest(quest_id: str, user: dict = Depends(get_current_user)):
             "created_at": now_iso(),
         }
     )
+    await _notify_points_awarded(user["id"], reward, f"Квест виконано: {quest['title']}")
     fresh = await db.users.find_one({"id": user["id"]}, {"_id": 0})
     return _user_with_progress(fresh)
 
@@ -1547,6 +1564,7 @@ async def _award_goal_reward(user_id: str, kind: str, amount: int, period_key: s
             "xp_reward": xp_reward,
         },
     })
+    await _notify_points_awarded(user_id, amount, description)
     return True
 
 
@@ -1686,6 +1704,17 @@ async def update_team_goal_message(body: TeamGoalMessageBody, user: dict = Depen
         "updated_by_name": user.get("name", "Керівник"),
     }
     await db.team_goal_messages.update_one({"team_id": user.get("team_id")}, {"$set": payload}, upsert=True)
+    if payload["message"]:
+        await _notify_team(
+            user.get("team_id"),
+            "manager_message",
+            "Нове повідомлення керівника",
+            payload["message"],
+            "/goals",
+            "message-square",
+            "manager_messages",
+            {"updated_by_name": payload["updated_by_name"]},
+        )
     return payload
 
 
@@ -1952,6 +1981,7 @@ async def _settle_finished_battles() -> None:
                     "created_at": settled_at,
                     "meta": {"pair_id": pair_id, "battle_date": date_key},
                 })
+                await _notify_points_awarded(tie_user_id, 25, "Нічия у щоденному батлі")
         elif winner_id and winner_id != "__tm6_bot__":
             existing = await db.transactions.find_one({"kind": "battle_win_bonus", "meta.pair_id": pair_id})
             if not existing:
@@ -1964,6 +1994,7 @@ async def _settle_finished_battles() -> None:
                     "description": "Перемога у щоденному батлі", "created_at": settled_at,
                     "meta": {"pair_id": pair_id, "battle_date": date_key},
                 })
+                await _notify_points_awarded(winner_id, 50, "Перемога у щоденному батлі")
 
 
 @api.get("/daily-battle")
@@ -2137,6 +2168,7 @@ async def admin_review_daily_task(
                 "xp_reward": xp_reward,
             },
         })
+        await _notify_points_awarded(user_id, reward, f"Завдання дня підтверджено: {task['title']}")
 
     return {
         "user_id": user_id,
@@ -2254,6 +2286,7 @@ async def buy_prize(prize_id: str, user: dict = Depends(get_current_user)):
         await db.transactions.insert_one({
             "id": str(uuid.uuid4()), "user_id": user["id"], "kind": "purchase", "amount": -price,
             "description": f"Купівля: {prize['title']}", "created_at": now_iso(),
+            "meta": {"source": "store", "prize_id": prize_id, "order_id": order["id"]},
         })
     order.pop("_id", None)
     fresh = await db.users.find_one({"id": user["id"]}, {"_id": 0})
@@ -2297,9 +2330,10 @@ class LeaderboardResponse(BaseModel):
 def _leaderboard_period_match(period: Literal["day", "week", "month"]) -> dict:
     """Return the transaction date filter used by both personal and team ratings.
 
-    Rating points are the net movement of the Point balance for the selected
-    period: positive transactions increase the score and purchases/other
-    negative transactions reduce it.
+    The rating is net Point movement for the selected period, except purchases
+    made in the prize store. Store spending changes the wallet balance but does
+    not lower a player's competitive rating. Paid cube spins, Bonus Match
+    lives/boosters and administrative deductions still reduce the rating.
     """
     if period == "day":
         start, end = kyiv_day_bounds_utc(kyiv_today_key())
@@ -2309,13 +2343,45 @@ def _leaderboard_period_match(period: Literal["day", "week", "month"]) -> dict:
     return {"created_at": {"$gte": since}}
 
 
+def _store_purchase_exclusion() -> dict:
+    """Match transactions that are not prize-store purchases.
+
+    `meta.source=store` is used by v112+ records. The description fallback keeps
+    historical purchases from older releases out of the rating as well.
+    """
+    return {
+        "$nor": [
+            {"meta.source": "store"},
+            {"kind": "purchase", "description": {"$regex": r"^Купівля:"}},
+        ]
+    }
+
+
 async def _transaction_scores(period: Literal["day", "week", "month"]) -> dict[str, int]:
     pipeline = [
-        {"$match": _leaderboard_period_match(period)},
+        {"$match": {"$and": [_leaderboard_period_match(period), _store_purchase_exclusion()]}},
         {"$group": {"_id": "$user_id", "score": {"$sum": "$amount"}}},
     ]
     rows = await db.transactions.aggregate(pipeline).to_list(5000)
     return {str(row["_id"]): int(row.get("score", 0) or 0) for row in rows}
+
+
+async def _store_spending_by_user() -> dict[str, int]:
+    """Return absolute all-time store spending per user, including old records."""
+    pipeline = [
+        {
+            "$match": {
+                "$or": [
+                    {"meta.source": "store"},
+                    {"kind": "purchase", "description": {"$regex": r"^Купівля:"}},
+                ],
+                "amount": {"$lt": 0},
+            }
+        },
+        {"$group": {"_id": "$user_id", "spent": {"$sum": {"$abs": "$amount"}}}},
+    ]
+    rows = await db.transactions.aggregate(pipeline).to_list(5000)
+    return {str(row["_id"]): int(row.get("spent", 0) or 0) for row in rows}
 
 
 async def _leaderboard_for_period(
@@ -2339,7 +2405,11 @@ async def _leaderboard_for_period(
     ).to_list(5000)
 
     if period == "all":
-        scores = {str(item["id"]): int(item.get("balance", 0) or 0) for item in users}
+        store_spending = await _store_spending_by_user()
+        scores = {
+            str(item["id"]): int(item.get("balance", 0) or 0) + store_spending.get(str(item["id"]), 0)
+            for item in users
+        }
     else:
         scores = await _transaction_scores(period)
 
@@ -2383,7 +2453,11 @@ async def leaderboard(
     period: Literal["day", "week", "month", "all"] = "week",
     user: dict = Depends(get_current_user),
 ):
-    return await _leaderboard_for_period(period, user["id"])
+    result = await _leaderboard_for_period(period, user["id"])
+    own = next((entry for entry in result.top if entry.user_id == user["id"]), None) or result.my_entry
+    if own:
+        await _maybe_notify_rank_change(user["id"], period, own.rank, own.score)
+    return result
 
 
 class TeamLeaderboardEntry(BaseModel):
@@ -2393,8 +2467,8 @@ class TeamLeaderboardEntry(BaseModel):
     color: str
     department: str
     member_count: int
-    # Kept for backward compatibility with older clients. Starting with v109
-    # these values represent net Point balance, not gross earned Point.
+    # Kept for backward compatibility with older clients. Since v112 these
+    # values are net competitive Point, with prize-store purchases excluded.
     total_earned: int
     avg_earned: int
     score: int
@@ -2414,7 +2488,11 @@ async def team_leaderboard(
     ).to_list(5000)
 
     if period == "all":
-        user_scores = {str(item["id"]): int(item.get("balance", 0) or 0) for item in players}
+        store_spending = await _store_spending_by_user()
+        user_scores = {
+            str(item["id"]): int(item.get("balance", 0) or 0) + store_spending.get(str(item["id"]), 0)
+            for item in players
+        }
     else:
         user_scores = await _transaction_scores(period)
 
@@ -2482,10 +2560,10 @@ PREDICTIONS_UK = [
 # The first spin each Kyiv day is free. Every next spin costs 50 Point.
 CUBE_SPIN_COST = 50
 CUBE_TABLE = [
-    (1, 37, 0, 30, "one"),
-    (2, 28, 31, 65, "two"),
-    (3, 20, 66, 77, "three"),
-    (4, 10, 78, 105, "four"),
+    (1, 37, 0, 15, "one"),
+    (2, 28, 16, 35, "two"),
+    (3, 20, 36, 70, "three"),
+    (4, 10, 71, 105, "four"),
     (5, 4, 106, 175, "five"),
     (6, 1, 176, 1000, "six"),
 ]
@@ -2626,6 +2704,7 @@ async def cube_spin(user: dict = Depends(get_current_user)):
         "description": f"Щедрий Куб: грань {face} ({tier})",
         "created_at": now_iso(),
     })
+    await _notify_points_awarded(user["id"], reward, f"Щедрий Куб: випала грань {face}")
 
     fresh = await db.users.find_one({"id": user["id"]}, {"_id": 0})
     return CubeSpinResult(
@@ -4394,6 +4473,10 @@ async def _bonus_match_reward_win(
             "reward_policy": "v107_first_5_points_10_xp_replay_5_xp",
         },
     })
+    if points_awarded:
+        await _notify_points_awarded(user["id"], points_awarded, f"Bonus Match: перше проходження рівня {level}")
+    if first_completion and unlocked_level > level:
+        await _notify(user["id"], "game_level", "Відкрито новий рівень Bonus Match", f"Рівень {unlocked_level} уже доступний.", "/games/bonus-match", "gamepad-2", "games", {"game": "bonus_match", "level": unlocked_level})
 
     fresh_user = await db.users.find_one({"id": user["id"]}, {"_id": 0})
     fresh_profile = await _bonus_match_profile(user["id"])
@@ -6156,24 +6239,44 @@ async def admin_adjust_points(user_id: str, body: PointsAdjustBody, admin: dict 
     target = await db.users.find_one({"id": user_id}, {"_id": 0})
     if not target:
         raise HTTPException(status_code=404, detail="Користувача не знайдено")
-    new_balance = target["balance"] + body.amount
+
+    current_balance = int(target.get("balance", 0) or 0)
+    if body.mode == "set":
+        new_balance = int(body.amount)
+        delta = new_balance - current_balance
+    else:
+        delta = int(body.amount)
+        new_balance = current_balance + delta
+
     if new_balance < 0:
         raise HTTPException(status_code=400, detail="Баланс не може бути від'ємним")
-    inc = {"balance": body.amount}
-    if body.amount > 0:
-        inc["total_earned"] = body.amount
-        inc["total_xp"] = body.amount // 2
-    await db.users.update_one({"id": user_id}, {"$inc": inc})
-    await db.transactions.insert_one(
-        {
-            "id": str(uuid.uuid4()),
-            "user_id": user_id,
-            "kind": "admin_adjust",
-            "amount": body.amount,
-            "description": body.description,
-            "created_at": now_iso(),
-        }
-    )
+
+    if delta:
+        inc = {"balance": delta}
+        # A regular positive award keeps the legacy XP behaviour. An exact
+        # balance correction changes Point only, otherwise fixing a typo would
+        # silently create XP and distort the progression system.
+        if body.mode == "delta" and delta > 0:
+            inc["total_earned"] = delta
+            inc["total_xp"] = delta // 2
+        await db.users.update_one({"id": user_id}, {"$inc": inc})
+
+        await db.transactions.insert_one(
+            {
+                "id": str(uuid.uuid4()),
+                "user_id": user_id,
+                "kind": "admin_adjust",
+                "amount": delta,
+                "description": body.description,
+                "adjustment_mode": body.mode,
+                "balance_before": current_balance,
+                "balance_after": new_balance,
+                "created_at": now_iso(),
+            }
+        )
+        if delta > 0:
+            await _notify_points_awarded(user_id, delta, body.description or "Нарахування адміністратора")
+
     fresh = await db.users.find_one({"id": user_id}, {"_id": 0})
     return _user_with_progress(fresh)
 
@@ -6288,6 +6391,13 @@ async def admin_create_prize(body: PrizeCreateBody, admin: dict = Depends(get_cu
         raise HTTPException(status_code=400, detail="Команду для призу не знайдено")
     doc = {"id": str(uuid.uuid4()), **payload, "created_at": now_iso()}
     await db.prizes.insert_one(doc)
+    if doc.get("active", True) and doc.get("category") not in {"merch", "certificate"}:
+        notify_title = "Новий приз у магазині"
+        notify_body = f"{doc.get('title', 'Новий приз')} · {int(doc.get('price', 0))} Point"
+        if doc.get("team_id"):
+            await _notify_team(doc.get("team_id"), "new_prize", notify_title, notify_body, "/store", "gift", "prizes", {"prize_id": doc["id"]})
+        else:
+            await _notify_all_employees("new_prize", notify_title, notify_body, "/store", "gift", "prizes", {"prize_id": doc["id"]})
     return PrizeModel(**(await _prize_with_team(doc)))
 
 
@@ -6325,10 +6435,24 @@ async def admin_list_orders(admin: dict = Depends(get_current_admin)):
 
 @api.patch("/admin/orders/{order_id}", response_model=OrderModel)
 async def admin_update_order(order_id: str, body: OrderStatusBody, admin: dict = Depends(get_current_admin)):
-    r = await db.orders.update_one({"id": order_id}, {"$set": {"status": body.status}})
-    if r.matched_count == 0:
+    current = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not current:
         raise HTTPException(status_code=404, detail="Замовлення не знайдено")
+    await db.orders.update_one({"id": order_id}, {"$set": {"status": body.status, "updated_at": now_iso()}})
     doc = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    status_copy = {
+        "processing": ("Замовлення в обробці", "Ми взяли замовлення в роботу.", "clock-3"),
+        "ready": ("Замовлення підтверджено", "Приз готовий до отримання.", "check-circle-2"),
+        "delivered": ("Приз видано", "Замовлення завершено. Приємного користування!", "party-popper"),
+        "cancelled": ("Замовлення відхилено", "Замовлення скасовано. Деталі можна уточнити у керівника.", "x-circle"),
+    }
+    if current.get("status") != body.status and doc.get("user_id"):
+        title, message, icon = status_copy.get(body.status, ("Статус замовлення змінено", body.status, "inbox"))
+        await _notify(
+            doc["user_id"], f"order_{body.status}", title,
+            f"{doc.get('prize_title', 'Приз')}. {message}",
+            "/store", icon, "orders", {"order_id": order_id, "status": body.status},
+        )
     return OrderModel(**doc)
 
 
@@ -6888,44 +7012,381 @@ class NotificationModel(BaseModel):
     id: str
     user_id: str
     kind: str
+    category: str = "general"
     title: str
     body: str = ""
     link: str = ""
     icon: str = "bell"
     read: bool = False
+    data: dict = Field(default_factory=dict)
     created_at: str
 
 
-# ─── Notification helpers ───
-async def _notify(user_id: str, kind: str, title: str, body: str = "", link: str = "", icon: str = "bell"):
-    await db.notifications.insert_one({
+class PushSubscriptionBody(BaseModel):
+    endpoint: str = Field(min_length=20, max_length=4096)
+    expirationTime: Optional[float] = None
+    keys: dict
+    user_agent: str = Field(default="", max_length=500)
+
+
+class PushPreferencesBody(BaseModel):
+    push_enabled: bool = True
+    points: bool = True
+    achievements: bool = True
+    prizes: bool = True
+    orders: bool = True
+    manager_messages: bool = True
+    reports: bool = True
+    games: bool = True
+    ranking: bool = True
+    scheduled_reminders: bool = True
+
+
+class ReportPublishedWebhookBody(BaseModel):
+    snapshot_version: str = Field(min_length=3, max_length=200)
+    snapshot_updated_at: str = Field(default="", max_length=100)
+    snapshot_day: str = Field(default="", max_length=20)
+    updated_profiles: int = Field(default=0, ge=0, le=100000)
+    credit_group_summaries: dict = Field(default_factory=dict)
+    debit_group_summaries: dict = Field(default_factory=dict)
+
+
+class ReportMetricSnapshotBody(BaseModel):
+    snapshot_version: str = Field(min_length=3, max_length=200)
+    snapshot_updated_at: str = Field(default="", max_length=100)
+    credit_group_summaries: dict = Field(default_factory=dict)
+    debit_group_summaries: dict = Field(default_factory=dict)
+
+
+# ─── Notification + Web Push helpers ───
+PUSH_DEFAULTS = {
+    "push_enabled": True,
+    "points": True,
+    "achievements": True,
+    "prizes": True,
+    "orders": True,
+    "manager_messages": True,
+    "reports": True,
+    "games": True,
+    "ranking": True,
+    "scheduled_reminders": True,
+}
+
+KIND_TO_CATEGORY = {
+    "points": "points",
+    "achievement": "achievements",
+    "new_prize": "prizes",
+    "order_ready": "orders",
+    "order_delivered": "orders",
+    "order_cancelled": "orders",
+    "order_processing": "orders",
+    "manager_message": "manager_messages",
+    "reports_updated": "reports",
+    "game_level": "games",
+    "ranking_change": "ranking",
+    "workday_start": "scheduled_reminders",
+    "issuance_reminder": "scheduled_reminders",
+}
+
+
+def _notification_category(kind: str, category: Optional[str] = None) -> str:
+    return category or KIND_TO_CATEGORY.get(kind, "general")
+
+
+async def _push_preferences(user_id: str) -> dict:
+    doc = await db.notification_preferences.find_one({"user_id": user_id}, {"_id": 0}) or {}
+    return {**PUSH_DEFAULTS, **{key: bool(doc.get(key)) for key in PUSH_DEFAULTS if key in doc}}
+
+
+def _send_webpush_sync(subscription: dict, payload: dict):
+    if not webpush or not VAPID_PRIVATE_KEY or not VAPID_PUBLIC_KEY:
+        return {"ok": False, "reason": "push_not_configured"}
+    return webpush(
+        subscription_info={
+            "endpoint": subscription.get("endpoint"),
+            "keys": subscription.get("keys") or {},
+        },
+        data=json.dumps(payload, ensure_ascii=False),
+        vapid_private_key=VAPID_PRIVATE_KEY,
+        vapid_claims={"sub": VAPID_SUBJECT},
+        ttl=86400,
+    )
+
+
+async def _send_push_to_subscription(subscription: dict, payload: dict) -> bool:
+    endpoint = subscription.get("endpoint")
+    if not endpoint:
+        return False
+    try:
+        await asyncio.to_thread(_send_webpush_sync, subscription, payload)
+        await db.push_subscriptions.update_one(
+            {"endpoint": endpoint},
+            {"$set": {"last_success_at": now_iso(), "last_error": None}},
+        )
+        return True
+    except Exception as exc:
+        status_code = getattr(getattr(exc, "response", None), "status_code", None)
+        if status_code in {404, 410}:
+            await db.push_subscriptions.delete_one({"endpoint": endpoint})
+        else:
+            await db.push_subscriptions.update_one(
+                {"endpoint": endpoint},
+                {"$set": {"last_error": str(exc)[:500], "last_error_at": now_iso()}},
+            )
+        logger.warning("Web Push failed for endpoint %s: %s", endpoint[:80], exc)
+        return False
+
+
+async def _push_user(
+    user_id: str,
+    kind: str,
+    title: str,
+    body: str = "",
+    link: str = "",
+    icon: str = "bell",
+    category: Optional[str] = None,
+    data: Optional[dict] = None,
+) -> int:
+    if not webpush or not VAPID_PRIVATE_KEY or not VAPID_PUBLIC_KEY:
+        return 0
+    resolved_category = _notification_category(kind, category)
+    preferences = await _push_preferences(user_id)
+    if not preferences.get("push_enabled", True):
+        return 0
+    if resolved_category in PUSH_DEFAULTS and not preferences.get(resolved_category, True):
+        return 0
+    subscriptions = await db.push_subscriptions.find(
+        {"user_id": user_id, "active": {"$ne": False}}, {"_id": 0}
+    ).to_list(20)
+    if not subscriptions:
+        return 0
+    payload = {
+        "kind": kind,
+        "category": resolved_category,
+        "title": title,
+        "body": body,
+        "link": link or "/",
+        "icon": "/icon-192.png",
+        "badge": "/favicon-64.png",
+        "tag": f"vpdk-{kind}",
+        "data": data or {},
+    }
+    results = await asyncio.gather(
+        *[_send_push_to_subscription(subscription, payload) for subscription in subscriptions],
+        return_exceptions=True,
+    )
+    return sum(1 for result in results if result is True)
+
+
+def _schedule_push(*args, **kwargs):
+    try:
+        task = asyncio.create_task(_push_user(*args, **kwargs))
+        task.add_done_callback(lambda done: done.exception() if not done.cancelled() else None)
+    except RuntimeError:
+        pass
+
+
+async def _notify(
+    user_id: str,
+    kind: str,
+    title: str,
+    body: str = "",
+    link: str = "",
+    icon: str = "bell",
+    category: Optional[str] = None,
+    data: Optional[dict] = None,
+    push: bool = True,
+):
+    resolved_category = _notification_category(kind, category)
+    doc = {
         "id": str(uuid.uuid4()),
         "user_id": user_id,
         "kind": kind,
+        "category": resolved_category,
         "title": title,
         "body": body,
         "link": link,
         "icon": icon,
         "read": False,
+        "data": data or {},
         "created_at": now_iso(),
+    }
+    await db.notifications.insert_one(doc)
+    if push:
+        _schedule_push(user_id, kind, title, body, link, icon, resolved_category, data or {})
+    return doc
+
+
+async def _notify_many(
+    user_ids: List[str],
+    kind: str,
+    title: str,
+    body: str = "",
+    link: str = "",
+    icon: str = "bell",
+    category: Optional[str] = None,
+    data: Optional[dict] = None,
+    push: bool = True,
+):
+    user_ids = list(dict.fromkeys(str(value) for value in user_ids if value))
+    if not user_ids:
+        return 0
+    resolved_category = _notification_category(kind, category)
+    created_at = now_iso()
+    docs = [{
+        "id": str(uuid.uuid4()), "user_id": user_id, "kind": kind,
+        "category": resolved_category, "title": title, "body": body,
+        "link": link, "icon": icon, "read": False, "data": data or {},
+        "created_at": created_at,
+    } for user_id in user_ids]
+    await db.notifications.insert_many(docs)
+    if push:
+        for user_id in user_ids:
+            _schedule_push(user_id, kind, title, body, link, icon, resolved_category, data or {})
+    return len(docs)
+
+
+async def _notify_all_employees(kind: str, title: str, body: str = "", link: str = "", icon: str = "bell", category: Optional[str] = None, data: Optional[dict] = None, push: bool = True):
+    user_ids = await db.users.distinct("id", {"role": {"$in": PLAYER_ROLES}, "approved": True})
+    return await _notify_many(user_ids, kind, title, body, link, icon, category, data, push)
+
+
+async def _notify_team(team_id: Optional[str], kind: str, title: str, body: str = "", link: str = "", icon: str = "bell", category: Optional[str] = None, data: Optional[dict] = None, push: bool = True):
+    if not team_id:
+        return 0
+    user_ids = await db.users.distinct("id", {
+        "team_id": team_id,
+        "role": {"$in": PLAYER_ROLES},
+        "approved": True,
     })
-
-
-async def _notify_all_employees(kind: str, title: str, body: str = "", link: str = "", icon: str = "bell"):
-    docs = []
-    async for u in db.users.find({"role": {"$in": PLAYER_ROLES}, "approved": True}, {"_id": 0, "id": 1}):
-        docs.append({
-            "id": str(uuid.uuid4()), "user_id": u["id"], "kind": kind,
-            "title": title, "body": body, "link": link, "icon": icon,
-            "read": False, "created_at": now_iso(),
-        })
-    if docs:
-        await db.notifications.insert_many(docs)
+    return await _notify_many(user_ids, kind, title, body, link, icon, category, data, push)
 
 
 async def _notify_admins(kind: str, title: str, body: str = "", link: str = "", icon: str = "bell"):
-    async for u in db.users.find({"role": "admin"}, {"_id": 0, "id": 1}):
-        await _notify(u["id"], kind, title, body, link, icon)
+    user_ids = await db.users.distinct("id", {"role": "admin"})
+    return await _notify_many(user_ids, kind, title, body, link, icon, push=True)
+
+
+async def _notify_points_awarded(user_id: str, amount: int, description: str = ""):
+    amount = int(amount or 0)
+    if amount <= 0:
+        return
+    await _notify(
+        user_id,
+        "points",
+        f"+{amount} Point на баланс",
+        description or "Нараховано нові бали",
+        "/history",
+        "coins",
+        "points",
+        {"amount": amount},
+    )
+
+
+async def _maybe_notify_rank_change(user_id: str, period: str, rank: Optional[int], score: int = 0):
+    if not rank:
+        return
+    key = f"{user_id}:{period}"
+    previous = await db.leaderboard_positions.find_one({"id": key}, {"_id": 0})
+    await db.leaderboard_positions.update_one(
+        {"id": key},
+        {"$set": {"id": key, "user_id": user_id, "period": period, "rank": int(rank), "score": int(score), "updated_at": now_iso()}},
+        upsert=True,
+    )
+    old_rank = int(previous.get("rank", 0)) if previous else 0
+    if not old_rank or old_rank == int(rank):
+        return
+    direction = "піднялися" if int(rank) < old_rank else "змістилися"
+    period_label = {"day": "День", "week": "Тиждень", "month": "Місяць", "all": "Весь час"}.get(period, period)
+    await _notify(
+        user_id,
+        "ranking_change",
+        "Зміна позиції в рейтингу",
+        f"Ви {direction} з #{old_rank} на #{int(rank)} · {period_label}.",
+        f"/leaderboard?period={period}",
+        "trending-up" if int(rank) < old_rank else "trending-down",
+        "ranking",
+        {"previous_rank": old_rank, "rank": int(rank), "period": period, "score": int(score)},
+    )
+
+
+async def _refresh_rank_change_notifications() -> int:
+    users = await db.users.find(
+        {"role": {"$in": PLAYER_ROLES}, "approved": {"$ne": False}},
+        {"_id": 0, "id": 1, "name": 1, "balance": 1},
+    ).to_list(5000)
+    if not users:
+        return 0
+
+    user_ids = [str(item["id"]) for item in users]
+    previous_rows = await db.leaderboard_positions.find(
+        {"user_id": {"$in": user_ids}}, {"_id": 0}
+    ).to_list(25000)
+    previous_by_key = {str(row.get("id")): row for row in previous_rows}
+    position_updates = []
+    notifications = []
+    store_spending = None
+    timestamp = now_iso()
+
+    for period in ("day", "week", "month", "all"):
+        if period == "all":
+            if store_spending is None:
+                store_spending = await _store_spending_by_user()
+            scores = {
+                str(item["id"]): int(item.get("balance", 0) or 0) + store_spending.get(str(item["id"]), 0)
+                for item in users
+            }
+        else:
+            scores = await _transaction_scores(period)
+        ordered = sorted(
+            users,
+            key=lambda item: (
+                -scores.get(str(item["id"]), 0),
+                str(item.get("name") or "").casefold(),
+                str(item["id"]),
+            ),
+        )
+        period_label = {"day": "День", "week": "Тиждень", "month": "Місяць", "all": "Весь час"}[period]
+        for rank, item in enumerate(ordered, start=1):
+            user_id = str(item["id"])
+            key = f"{user_id}:{period}"
+            score = int(scores.get(user_id, 0))
+            previous = previous_by_key.get(key)
+            old_rank = int(previous.get("rank", 0)) if previous else 0
+            position_updates.append(UpdateOne(
+                {"id": key},
+                {"$set": {"id": key, "user_id": user_id, "period": period, "rank": rank, "score": score, "updated_at": timestamp}},
+                upsert=True,
+            ))
+            if not old_rank or old_rank == rank:
+                continue
+            direction = "піднялися" if rank < old_rank else "змістилися"
+            notification = {
+                "id": str(uuid.uuid4()),
+                "user_id": user_id,
+                "kind": "ranking_change",
+                "category": "ranking",
+                "title": "Зміна позиції в рейтингу",
+                "body": f"Ви {direction} з #{old_rank} на #{rank} · {period_label}.",
+                "link": f"/leaderboard?period={period}",
+                "icon": "trending-up" if rank < old_rank else "trending-down",
+                "read": False,
+                "data": {"previous_rank": old_rank, "rank": rank, "period": period, "score": score},
+                "created_at": timestamp,
+            }
+            notifications.append(notification)
+
+    if position_updates:
+        await db.leaderboard_positions.bulk_write(position_updates, ordered=False)
+    if notifications:
+        await db.notifications.insert_many(notifications)
+        for notification in notifications:
+            _schedule_push(
+                notification["user_id"], notification["kind"], notification["title"],
+                notification["body"], notification["link"], notification["icon"],
+                notification["category"], notification["data"],
+            )
+    return len(notifications)
 
 
 def _clean_task(doc: dict) -> TaskModel:
@@ -7065,6 +7526,414 @@ async def mark_read(notif_id: str, user: dict = Depends(get_current_user)):
     return {"ok": True}
 
 
+# ─── Push subscriptions, preferences and notification center ───
+@api.get("/push/config")
+async def push_config(user: dict = Depends(get_current_user)):
+    return {
+        "supported": bool(webpush and VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY),
+        "public_key": VAPID_PUBLIC_KEY,
+    }
+
+
+@api.get("/push/preferences")
+async def get_push_preferences(user: dict = Depends(get_current_user)):
+    preferences = await _push_preferences(user["id"])
+    subscription_count = await db.push_subscriptions.count_documents({
+        "user_id": user["id"], "active": {"$ne": False}
+    })
+    return {**preferences, "subscription_count": subscription_count}
+
+
+@api.put("/push/preferences")
+async def update_push_preferences(body: PushPreferencesBody, user: dict = Depends(get_current_user)):
+    payload = body.model_dump()
+    payload.update({"user_id": user["id"], "updated_at": now_iso()})
+    await db.notification_preferences.update_one(
+        {"user_id": user["id"]}, {"$set": payload}, upsert=True
+    )
+    return payload
+
+
+@api.post("/push/subscribe", status_code=201)
+async def subscribe_push(body: PushSubscriptionBody, user: dict = Depends(get_current_user)):
+    if not webpush or not VAPID_PUBLIC_KEY or not VAPID_PRIVATE_KEY:
+        raise HTTPException(status_code=503, detail="Web Push ще не налаштовано на сервері")
+    keys = body.keys or {}
+    if not keys.get("p256dh") or not keys.get("auth"):
+        raise HTTPException(status_code=422, detail="Некоректна Push-підписка")
+    now = now_iso()
+    await db.push_subscriptions.update_one(
+        {"endpoint": body.endpoint},
+        {"$set": {
+            "id": str(uuid.uuid4()),
+            "user_id": user["id"],
+            "endpoint": body.endpoint,
+            "expiration_time": body.expirationTime,
+            "keys": {"p256dh": keys.get("p256dh"), "auth": keys.get("auth")},
+            "user_agent": body.user_agent,
+            "active": True,
+            "updated_at": now,
+        }, "$setOnInsert": {"created_at": now}},
+        upsert=True,
+    )
+    await db.notification_preferences.update_one(
+        {"user_id": user["id"]},
+        {"$setOnInsert": {"user_id": user["id"], **PUSH_DEFAULTS, "created_at": now}},
+        upsert=True,
+    )
+    return {"ok": True}
+
+
+@api.delete("/push/unsubscribe")
+async def unsubscribe_push(endpoint: Optional[str] = None, user: dict = Depends(get_current_user)):
+    query = {"user_id": user["id"]}
+    if endpoint:
+        query["endpoint"] = endpoint
+    result = await db.push_subscriptions.delete_many(query)
+    return {"ok": True, "removed": result.deleted_count}
+
+
+@api.post("/push/test")
+async def test_push(user: dict = Depends(get_current_user)):
+    sent = await _push_user(
+        user["id"], "test", "VPDK Bonus готовий до сповіщень",
+        "Тест успішний. Важливі події та нагадування тепер можуть з’являтися навіть із закритою PWA.",
+        "/", "bell", "general", {"test": True},
+    )
+    if not sent:
+        raise HTTPException(status_code=400, detail="Немає активної Push-підписки або сповіщення вимкнені")
+    return {"ok": True, "sent": sent}
+
+
+@api.post("/internal/push-schedule")
+async def run_push_schedule(x_scheduler_token: str = Header(default="", alias="X-Scheduler-Token")):
+    if not PUSH_SCHEDULER_TOKEN or x_scheduler_token != PUSH_SCHEDULER_TOKEN:
+        raise HTTPException(status_code=401, detail="Invalid scheduler token")
+    now = datetime.now(KYIV_TZ)
+    hour = now.hour
+    ranking_notifications = await _refresh_rank_change_notifications()
+    schedule = {
+        9: {
+            "kind": "workday_start",
+            "title": "Доброго ранку! Час увімкнути робочий ритм ☀️",
+            "body": "Перевір графік і цілі, визнач пріоритет на день та починай із найважливішого.",
+            "link": "/",
+            "icon": "sunrise",
+        },
+        12: {
+            "kind": "issuance_reminder",
+            "title": "Проміжна точка: онови табличку видач",
+            "body": "Занеси актуальні видачі, щоб командний звіт залишався точним.",
+            "link": "/goals/debit/me",
+            "icon": "clipboard-list",
+        },
+        15: {
+            "kind": "issuance_reminder",
+            "title": "Час звірити видачі",
+            "body": "Онови табличку видач перед фінальним відрізком робочого дня.",
+            "link": "/goals/debit/me",
+            "icon": "clipboard-list",
+        },
+        17: {
+            "kind": "issuance_reminder",
+            "title": "Фінальне оновлення таблички видач",
+            "body": "Перевір, чи всі сьогоднішні видачі внесені. Нехай підсумок дня буде без білих плям.",
+            "link": "/goals/debit/me",
+            "icon": "check-circle-2",
+        },
+    }
+    item = schedule.get(hour)
+    if not item:
+        return {"ok": True, "sent": 0, "ranking_notifications": ranking_notifications, "skipped": "not_target_hour", "kyiv_time": now.isoformat()}
+    run_key = f"{now.strftime('%Y-%m-%d')}:{hour:02d}"
+    claimed = await db.scheduled_push_runs.update_one(
+        {"id": run_key},
+        {"$setOnInsert": {"id": run_key, "created_at": now_iso(), "kyiv_time": now.isoformat()}},
+        upsert=True,
+    )
+    if claimed.upserted_id is None:
+        return {"ok": True, "sent": 0, "ranking_notifications": ranking_notifications, "skipped": "already_sent", "run_key": run_key}
+    count = await _notify_all_employees(
+        item["kind"], item["title"], item["body"], item["link"], item["icon"],
+        "scheduled_reminders", {"scheduled_hour": hour, "run_key": run_key}, True,
+    )
+    return {"ok": True, "sent": count, "ranking_notifications": ranking_notifications, "run_key": run_key, "kyiv_time": now.isoformat()}
+
+
+def _report_metric_number(value):
+    if value is None or value == "":
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    text = str(value).strip().replace("\u00a0", "").replace(" ", "").replace("%", "").replace(",", ".")
+    try:
+        return float(text)
+    except (TypeError, ValueError):
+        return None
+
+
+async def _store_report_metric_snapshots(body: ReportPublishedWebhookBody | ReportMetricSnapshotBody):
+    snapshot_version = body.snapshot_version
+    snapshot_updated_at = body.snapshot_updated_at or now_iso()
+    teams = await db.teams.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(500)
+    team_by_key = {_normalize_team_report_key(team.get("name")): team for team in teams}
+    credit = body.credit_group_summaries or {}
+    debit = body.debit_group_summaries or {}
+    all_keys = set(credit.keys()) | set(debit.keys())
+    for raw_key in all_keys:
+        team_key = _normalize_team_report_key(raw_key)
+        team = team_by_key.get(team_key) or {}
+        c = credit.get(raw_key) or credit.get(team_key) or {}
+        d = debit.get(raw_key) or debit.get(team_key) or {}
+        timestamp = now_iso()
+        await db.report_metric_snapshots.update_one(
+            {"snapshot_version": snapshot_version, "team_key": team_key},
+            {
+                "$set": {
+                    "snapshot_version": snapshot_version,
+                    "snapshot_updated_at": snapshot_updated_at,
+                    "team_key": team_key,
+                    "team_id": team.get("id"),
+                    "team_name": team.get("name") or raw_key,
+                    "credit_overall": _report_metric_number(c.get("overall")),
+                    "debit_overall": _report_metric_number(d.get("overall")),
+                    "credit": c,
+                    "debit": d,
+                    "updated_at": timestamp,
+                },
+                "$setOnInsert": {"created_at": timestamp},
+            },
+            upsert=True,
+        )
+
+
+@api.post("/internal/reports-published")
+async def reports_published(
+    body: ReportPublishedWebhookBody,
+    x_reports_token: str = Header(default="", alias="X-Reports-Token"),
+):
+    if not REPORTS_WEBHOOK_TOKEN or x_reports_token != REPORTS_WEBHOOK_TOKEN:
+        raise HTTPException(status_code=401, detail="Invalid reports webhook token")
+    inserted = await db.report_publications.update_one(
+        {"snapshot_version": body.snapshot_version},
+        {"$setOnInsert": {**body.model_dump(), "created_at": now_iso()}},
+        upsert=True,
+    )
+    await _store_report_metric_snapshots(body)
+    if inserted.upserted_id is None:
+        return {"ok": True, "duplicate": True}
+    await _notify_all_employees(
+        "reports_updated",
+        "Звіти оновлено",
+        f"Опубліковано новий знімок показників{(' · ' + body.snapshot_updated_at) if body.snapshot_updated_at else ''}.",
+        "/goals",
+        "bar-chart-3",
+        "reports",
+        {"snapshot_version": body.snapshot_version},
+        True,
+    )
+    return {"ok": True, "duplicate": False}
+
+
+@api.post("/analytics/report-snapshot")
+async def save_report_metric_snapshot(body: ReportMetricSnapshotBody, user: dict = Depends(get_current_user)):
+    if user.get("role") != "admin" and not user.get("is_team_leader"):
+        raise HTTPException(status_code=403, detail="Зберігати аналітичний знімок може лише керівник або адміністратор")
+    await _store_report_metric_snapshots(body)
+    return {"ok": True}
+
+
+# ─── Manager analytics ───
+def _manager_period_bounds(period: str) -> tuple[str, str]:
+    now = datetime.now(timezone.utc)
+    if period == "day":
+        return kyiv_day_bounds_utc(kyiv_today_key())
+    days = 7 if period == "week" else 30
+    return (now - timedelta(days=days)).isoformat(), now.isoformat()
+
+
+async def _get_manager_scope(user: dict, requested_team_id: Optional[str]) -> tuple[Optional[str], List[dict], List[dict]]:
+    privileged = user.get("role") == "admin"
+    if not privileged and not user.get("is_team_leader"):
+        raise HTTPException(status_code=403, detail="Аналітика доступна керівнику команди або адміністратору")
+    teams = await db.teams.find({}, {"_id": 0}).sort("name", 1).to_list(500)
+    team_id = requested_team_id if privileged and requested_team_id else user.get("team_id")
+    if not team_id and not privileged:
+        raise HTTPException(status_code=400, detail="Керівника не прив’язано до команди")
+    member_query = {"role": {"$in": PLAYER_ROLES}, "approved": {"$ne": False}}
+    if team_id:
+        member_query["team_id"] = team_id
+    members = await db.users.find(member_query, {
+        "_id": 0, "id": 1, "name": 1, "team_id": 1, "last_active_date": 1,
+        "avatar_initials": 1, "avatar_color": 1, "goals_login": 1,
+    }).sort("name", 1).to_list(5000)
+    return team_id, members, teams
+
+
+@api.get("/manager-analytics")
+async def manager_analytics(
+    period: Literal["day", "week", "month"] = "week",
+    team_id: Optional[str] = None,
+    user: dict = Depends(get_current_user),
+):
+    selected_team_id, members, teams = await _get_manager_scope(user, team_id)
+    start, end = _manager_period_bounds(period)
+    member_ids = [member["id"] for member in members]
+    team_map = {team["id"]: team for team in teams}
+
+    views = await db.page_views.find(
+        {"user_id": {"$in": member_ids}, "created_at": {"$gte": start, "$lt": end}},
+        {"_id": 0, "user_id": 1, "path": 1, "created_at": 1},
+    ).to_list(100000)
+    active_ids = set(view.get("user_id") for view in views)
+    report_ids = set(view.get("user_id") for view in views if str(view.get("path") or "").startswith("/goals"))
+    last_view_pipeline = [
+        {"$match": {"user_id": {"$in": member_ids}}},
+        {"$group": {"_id": "$user_id", "last_seen": {"$max": "$created_at"}}},
+    ]
+    last_seen_rows = await db.page_views.aggregate(last_view_pipeline).to_list(5000)
+    last_seen = {row["_id"]: row.get("last_seen") for row in last_seen_rows}
+
+    tx_pipeline = [
+        {"$match": {"user_id": {"$in": member_ids}, "created_at": {"$gte": start, "$lt": end}}},
+        {"$group": {"_id": "$user_id", "earned": {"$sum": {"$cond": [{"$gt": ["$amount", 0]}, "$amount", 0]}}, "spent": {"$sum": {"$cond": [{"$lt": ["$amount", 0]}, {"$abs": "$amount"}, 0]}}}},
+    ]
+    tx_rows = await db.transactions.aggregate(tx_pipeline).to_list(5000)
+    tx_by_user = {row["_id"]: row for row in tx_rows}
+    total_earned = sum(int(row.get("earned", 0)) for row in tx_rows)
+    total_spent = sum(int(row.get("spent", 0)) for row in tx_rows)
+
+    prize_pipeline = [
+        {"$match": {"user_id": {"$in": member_ids}, "created_at": {"$gte": start, "$lt": end}}},
+        {"$group": {"_id": {"id": "$prize_id", "title": "$prize_title"}, "orders": {"$sum": 1}, "points": {"$sum": "$price"}}},
+        {"$sort": {"orders": -1, "points": -1}},
+        {"$limit": 8},
+    ]
+    popular_prizes = await db.orders.aggregate(prize_pipeline).to_list(8)
+
+    bonus_runs = await db.bonus_match_completions.count_documents({"user_id": {"$in": member_ids}, "updated_at": {"$gte": start, "$lt": end}})
+    sudoku_runs = await db.sudoku_completions.count_documents({"user_id": {"$in": member_ids}, "updated_at": {"$gte": start, "$lt": end}})
+    bonus_profiles = await db.bonus_match_profiles.find({"user_id": {"$in": member_ids}}, {"_id": 0, "current_level": 1}).to_list(5000)
+    sudoku_profiles = await db.sudoku_profiles.find({"user_id": {"$in": member_ids}}, {"_id": 0, "current_level": 1}).to_list(5000)
+    average_bonus_level = round(sum(int(item.get("current_level", 1)) for item in bonus_profiles) / len(bonus_profiles), 1) if bonus_profiles else 0
+    average_sudoku_level = round(sum(int(item.get("current_level", 1)) for item in sudoku_profiles) / len(sudoku_profiles), 1) if sudoku_profiles else 0
+
+    operators = []
+    now_utc = datetime.now(timezone.utc)
+    for member in members:
+        seen = last_seen.get(member["id"])
+        days_inactive = 999
+        if seen:
+            try:
+                days_inactive = max(0, (now_utc - datetime.fromisoformat(str(seen).replace("Z", "+00:00"))).days)
+            except Exception:
+                pass
+        tx = tx_by_user.get(member["id"], {})
+        operators.append({
+            **member,
+            "active": member["id"] in active_ids,
+            "viewed_reports": member["id"] in report_ids,
+            "last_seen": seen,
+            "days_inactive": days_inactive,
+            "earned": int(tx.get("earned", 0)),
+            "spent": int(tx.get("spent", 0)),
+        })
+    operators.sort(key=lambda item: (-int(item["active"]), item["days_inactive"], item["name"].casefold()))
+
+    # Daily activity/Point trend for the selected range.
+    days = 1 if period == "day" else (7 if period == "week" else 30)
+    trend = []
+    for offset in range(days - 1, -1, -1):
+        day = (datetime.now(KYIV_TZ) - timedelta(days=offset)).strftime("%Y-%m-%d")
+        day_start, day_end = kyiv_day_bounds_utc(day)
+        day_views = sum(1 for view in views if day_start <= str(view.get("created_at", "")) < day_end)
+        day_active = len({view.get("user_id") for view in views if day_start <= str(view.get("created_at", "")) < day_end})
+        day_tx = await db.transactions.aggregate([
+            {"$match": {"user_id": {"$in": member_ids}, "created_at": {"$gte": day_start, "$lt": day_end}}},
+            {"$group": {"_id": None, "earned": {"$sum": {"$cond": [{"$gt": ["$amount", 0]}, "$amount", 0]}}, "spent": {"$sum": {"$cond": [{"$lt": ["$amount", 0]}, {"$abs": "$amount"}, 0]}}}},
+        ]).to_list(1)
+        trend.append({"date": day, "views": day_views, "active_users": day_active, "earned": int(day_tx[0].get("earned", 0)) if day_tx else 0, "spent": int(day_tx[0].get("spent", 0)) if day_tx else 0})
+
+    # Comparison across teams uses the same period and is available to leaders as context.
+    all_players = await db.users.find({"role": {"$in": PLAYER_ROLES}, "approved": {"$ne": False}}, {"_id": 0, "id": 1, "team_id": 1}).to_list(5000)
+    ids_by_team = {}
+    for player in all_players:
+        if player.get("team_id"):
+            ids_by_team.setdefault(player["team_id"], []).append(player["id"])
+    comparison = []
+    for team in teams:
+        ids = ids_by_team.get(team["id"], [])
+        if not ids:
+            continue
+        tx = await db.transactions.aggregate([
+            {"$match": {"user_id": {"$in": ids}, "created_at": {"$gte": start, "$lt": end}}},
+            {"$group": {"_id": None, "earned": {"$sum": {"$cond": [{"$gt": ["$amount", 0]}, "$amount", 0]}}, "spent": {"$sum": {"$cond": [{"$lt": ["$amount", 0]}, {"$abs": "$amount"}, 0]}}}},
+        ]).to_list(1)
+        active = await db.page_views.distinct("user_id", {"user_id": {"$in": ids}, "created_at": {"$gte": start, "$lt": end}})
+        comparison.append({
+            "team_id": team["id"], "name": team.get("name"), "color": team.get("color", "#FFB800"),
+            "members": len(ids), "active_users": len(active),
+            "earned": int(tx[0].get("earned", 0)) if tx else 0,
+            "spent": int(tx[0].get("spent", 0)) if tx else 0,
+        })
+    comparison.sort(key=lambda item: (-(item["earned"] - item["spent"]), item["name"].casefold()))
+
+    if selected_team_id:
+        report_trends = await db.report_metric_snapshots.find(
+            {"team_id": selected_team_id}, {"_id": 0}
+        ).sort("created_at", -1).limit(30).to_list(30)
+        report_trends.reverse()
+    else:
+        metric_rows = await db.report_metric_snapshots.find({}, {"_id": 0}).sort("created_at", -1).limit(500).to_list(500)
+        grouped_metrics = {}
+        for metric in metric_rows:
+            group = grouped_metrics.setdefault(metric.get("snapshot_version"), {
+                "snapshot_version": metric.get("snapshot_version"),
+                "snapshot_updated_at": metric.get("snapshot_updated_at"),
+                "created_at": metric.get("created_at"),
+                "credit_values": [],
+                "debit_values": [],
+            })
+            if metric.get("credit_overall") is not None:
+                group["credit_values"].append(float(metric["credit_overall"]))
+            if metric.get("debit_overall") is not None:
+                group["debit_values"].append(float(metric["debit_overall"]))
+        report_trends = []
+        for group in list(grouped_metrics.values())[:30]:
+            report_trends.append({
+                "snapshot_version": group["snapshot_version"],
+                "snapshot_updated_at": group["snapshot_updated_at"],
+                "created_at": group["created_at"],
+                "credit_overall": round(sum(group["credit_values"]) / len(group["credit_values"]), 2) if group["credit_values"] else None,
+                "debit_overall": round(sum(group["debit_values"]) / len(group["debit_values"]), 2) if group["debit_values"] else None,
+            })
+        report_trends.reverse()
+
+    selected_team = team_map.get(selected_team_id) if selected_team_id else None
+    return {
+        "period": period,
+        "team": selected_team,
+        "teams": teams if user.get("role") == "admin" else ([selected_team] if selected_team else []),
+        "summary": {
+            "operators": len(members),
+            "active_operators": len(active_ids),
+            "report_viewers": len(report_ids),
+            "inactive_7d": sum(1 for item in operators if item["days_inactive"] >= 7),
+            "points_earned": total_earned,
+            "points_spent": total_spent,
+            "bonus_match_activity": bonus_runs,
+            "sudoku_activity": sudoku_runs,
+            "average_bonus_level": average_bonus_level,
+            "average_sudoku_level": average_sudoku_level,
+        },
+        "operators": operators,
+        "popular_prizes": [{"prize_id": row["_id"].get("id"), "title": row["_id"].get("title"), "orders": row.get("orders", 0), "points": row.get("points", 0)} for row in popular_prizes],
+        "trend": trend,
+        "team_comparison": comparison,
+        "report_trends": report_trends,
+    }
+
+
 # ─── Admin: Tasks CRUD ───
 @api.get("/admin/tasks", response_model=List[TaskModel])
 async def admin_list_tasks(admin: dict = Depends(get_current_admin)):
@@ -7169,6 +8038,7 @@ async def admin_review_application(app_id: str, body: ReviewBody, admin: dict = 
             "Заявку підтверджено! 🎉",
             f"{app_doc['task_title']} • +{reward} балів, +{xp} XP", "/tasks", "check-circle-2",
         )
+        await _notify_points_awarded(app_doc["user_id"], reward, f"Завдання підтверджено: {app_doc['task_title']}")
     else:
         if not body.reason.strip():
             raise HTTPException(status_code=400, detail="Вкажи причину відхилення")
@@ -7219,6 +8089,8 @@ async def admin_approve_user(user_id: str, admin: dict = Depends(get_current_adm
         await db.users.update_one({"id": user_id}, {"$inc": {"balance": 100, "total_earned": 100, "total_xp": 50}})
     await _notify(user_id, "account_approved", "Акаунт підтверджено! 🎉",
                   "Ласкаво просимо у VPDK Bonus. +100 стартових балів", "/", "party-popper")
+    if not already:
+        await _notify_points_awarded(user_id, 100, "Стартовий бонус за реєстрацію")
     fresh = await db.users.find_one({"id": user_id}, {"_id": 0})
     fresh = await _hydrate_user_team(fresh)
     return _user_with_progress(fresh)
@@ -7571,6 +8443,11 @@ async def sudoku_complete(body: SudokuCompleteBody, user: dict = Depends(get_cur
         },
     })
 
+    if points_awarded:
+        await _notify_points_awarded(user["id"], points_awarded, f"VPDK Sudoku: перше проходження рівня {body.level}")
+    if first_completion and next_level > int(body.level):
+        await _notify(user["id"], "game_level", "Відкрито новий рівень VPDK Sudoku", f"Рівень {next_level} уже доступний.", "/games/sudoku", "grid-3x3", "games", {"game": "sudoku", "level": next_level})
+
     reward = {
         "first_completion": first_completion,
         "points_awarded": points_awarded,
@@ -7641,6 +8518,14 @@ async def seed_phase2():
     await db.applications.create_index([("user_id", 1), ("updated_at", -1)])
     await db.applications.create_index([("status", 1), ("submitted_at", -1)])
     await db.notifications.create_index([("user_id", 1), ("created_at", -1)])
+    await db.push_subscriptions.create_index("endpoint", unique=True)
+    await db.push_subscriptions.create_index([("user_id", 1), ("updated_at", -1)])
+    await db.notification_preferences.create_index("user_id", unique=True)
+    await db.scheduled_push_runs.create_index("id", unique=True)
+    await db.report_publications.create_index("snapshot_version", unique=True)
+    await db.report_metric_snapshots.create_index([("snapshot_version", 1), ("team_key", 1)], unique=True)
+    await db.report_metric_snapshots.create_index([("team_id", 1), ("created_at", 1)])
+    await db.leaderboard_positions.create_index("id", unique=True)
     await db.reactions.create_index([("target_id", 1), ("user_id", 1)], unique=True)
     await db.comments.create_index([("target_id", 1), ("created_at", 1)])
     if await db.tasks.count_documents({}) == 0:

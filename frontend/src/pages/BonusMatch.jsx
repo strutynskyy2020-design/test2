@@ -1974,6 +1974,13 @@ function BonusMatchScreen() {
     };
   }, [isAdmin]);
 
+  // V112: every active board opens in the viewport-only game mode by default.
+  // A user can still leave fullscreen with the in-game button; the effect only
+  // runs again when a different session is opened.
+  useEffect(() => {
+    if (game?.id) setPseudoFullscreen(true);
+  }, [game?.id]);
+
   useEffect(() => {
     const handleFullscreenChange = () => {
       setNativeFullscreenElement(document.fullscreenElement || document.webkitFullscreenElement || null);
@@ -1991,22 +1998,38 @@ function BonusMatchScreen() {
     fullscreenScrollRef.current = window.scrollY;
     const previous = {
       htmlOverflow: document.documentElement.style.overflow,
+      htmlOverscroll: document.documentElement.style.overscrollBehavior,
       bodyOverflow: document.body.style.overflow,
+      bodyOverscroll: document.body.style.overscrollBehavior,
       bodyPosition: document.body.style.position,
       bodyTop: document.body.style.top,
       bodyWidth: document.body.style.width,
+      bodyTouchAction: document.body.style.touchAction,
+    };
+    const preventViewportScroll = (event) => {
+      if (event.cancelable) event.preventDefault();
     };
     document.documentElement.style.overflow = "hidden";
+    document.documentElement.style.overscrollBehavior = "none";
     document.body.style.overflow = "hidden";
+    document.body.style.overscrollBehavior = "none";
     document.body.style.position = "fixed";
     document.body.style.top = `-${fullscreenScrollRef.current}px`;
     document.body.style.width = "100%";
+    document.body.style.touchAction = "none";
+    document.addEventListener("touchmove", preventViewportScroll, { passive: false });
+    document.addEventListener("wheel", preventViewportScroll, { passive: false });
     return () => {
+      document.removeEventListener("touchmove", preventViewportScroll);
+      document.removeEventListener("wheel", preventViewportScroll);
       document.documentElement.style.overflow = previous.htmlOverflow;
+      document.documentElement.style.overscrollBehavior = previous.htmlOverscroll;
       document.body.style.overflow = previous.bodyOverflow;
+      document.body.style.overscrollBehavior = previous.bodyOverscroll;
       document.body.style.position = previous.bodyPosition;
       document.body.style.top = previous.bodyTop;
       document.body.style.width = previous.bodyWidth;
+      document.body.style.touchAction = previous.bodyTouchAction;
       window.scrollTo(0, fullscreenScrollRef.current);
     };
   }, [pseudoFullscreen]);

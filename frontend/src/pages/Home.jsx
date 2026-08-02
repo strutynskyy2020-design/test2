@@ -25,8 +25,11 @@ const ScheduleMiniIcon = ({ type, size = 21 }) => {
 const Badge = ({ ach }) => {
   const Icon = ICONS[ach.icon] || Sparkles;
   return <div className={`relative flex aspect-square flex-col items-center justify-center rounded-2xl border-2 p-3 ${ach.unlocked ? "border-white/10 bg-[#1A1A1E]" : "border-white/5 bg-[#141416] opacity-60"}`}>
-    <div className="mb-2 flex h-12 w-12 items-center justify-center rounded-2xl" style={{ backgroundColor: ach.unlocked ? ach.color + "22" : "#27272A", border: `2px solid ${ach.unlocked ? ach.color : "#2D2D2D"}` }}>
-      {ach.unlocked ? <Icon size={22} strokeWidth={2.75} color={ach.color} /> : <Lock size={18} color="#52525b" />}
+    <div
+      className={`achievement-badge-icon mb-2 flex h-12 w-12 items-center justify-center rounded-2xl ${ach.unlocked ? "is-unlocked" : "is-locked"}`}
+      style={ach.unlocked ? { backgroundColor: ach.color + "22", borderColor: ach.color } : undefined}
+    >
+      {ach.unlocked ? <Icon size={22} strokeWidth={2.75} color={ach.color} /> : <Lock size={18} className="achievement-lock-icon" />}
     </div>
     <div className="line-clamp-2 text-center text-[10px] font-black uppercase leading-tight tracking-tight text-white/90">{ach.title}</div>
   </div>;

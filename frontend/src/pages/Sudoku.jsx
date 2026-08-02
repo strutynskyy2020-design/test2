@@ -200,6 +200,49 @@ export default function Sudoku() {
 
   useEffect(() => { sessionRef.current = session; }, [session]);
 
+  // V112: gameplay owns the viewport. Lock the document so iOS/Android
+  // rubber-band scrolling cannot move the board under the player's finger.
+  useEffect(() => {
+    if (screen !== "game") return undefined;
+    const scrollY = window.scrollY;
+    const previous = {
+      htmlOverflow: document.documentElement.style.overflow,
+      htmlOverscroll: document.documentElement.style.overscrollBehavior,
+      bodyOverflow: document.body.style.overflow,
+      bodyOverscroll: document.body.style.overscrollBehavior,
+      bodyPosition: document.body.style.position,
+      bodyTop: document.body.style.top,
+      bodyWidth: document.body.style.width,
+      bodyTouchAction: document.body.style.touchAction,
+    };
+    const preventViewportScroll = (event) => {
+      if (event.cancelable) event.preventDefault();
+    };
+    document.documentElement.style.overflow = "hidden";
+    document.documentElement.style.overscrollBehavior = "none";
+    document.body.style.overflow = "hidden";
+    document.body.style.overscrollBehavior = "none";
+    document.body.style.position = "fixed";
+    document.body.style.top = `-${scrollY}px`;
+    document.body.style.width = "100%";
+    document.body.style.touchAction = "none";
+    document.addEventListener("touchmove", preventViewportScroll, { passive: false });
+    document.addEventListener("wheel", preventViewportScroll, { passive: false });
+    return () => {
+      document.removeEventListener("touchmove", preventViewportScroll);
+      document.removeEventListener("wheel", preventViewportScroll);
+      document.documentElement.style.overflow = previous.htmlOverflow;
+      document.documentElement.style.overscrollBehavior = previous.htmlOverscroll;
+      document.body.style.overflow = previous.bodyOverflow;
+      document.body.style.overscrollBehavior = previous.bodyOverscroll;
+      document.body.style.position = previous.bodyPosition;
+      document.body.style.top = previous.bodyTop;
+      document.body.style.width = previous.bodyWidth;
+      document.body.style.touchAction = previous.bodyTouchAction;
+      window.scrollTo(0, scrollY);
+    };
+  }, [screen]);
+
   useEffect(() => {
     if (!session || screen !== "game" || session.paused || result || failed) return undefined;
     const timer = window.setInterval(() => {
@@ -446,10 +489,18 @@ export default function Sudoku() {
           <div><Lightbulb size={15} /><span>{Math.max(0, Number(currentLevel.hints || 0) - session.hints_used)}</span></div>
         </div>
 
-        <section className="sudoku-board-shell">
-          <SudokuBoard level={currentLevel} session={session} wrong={wrong} celebrate={celebrate} onSelect={selectCell} />
-          {multiNumber !== null && <div className="sudoku-multifill"><Grid3X3 size={15} /> Мультизаповнення: {multiNumber}<button type="button" onClick={() => setMultiNumber(null)}><X size={14} /></button></div>}
-        </section>
+        <div className="sudoku-board-area">
+          <section className="sudoku-board-shell">
+            <SudokuBoard level={currentLevel} session={session} wrong={wrong} celebrate={celebrate} onSelect={selectCell} />
+          </section>
+          {multiNumber !== null && (
+            <div className="sudoku-multifill" role="status" aria-live="polite">
+              <Grid3X3 size={15} />
+              <span>Мультизаповнення: {multiNumber}</span>
+              <button type="button" onClick={() => setMultiNumber(null)} aria-label="Вимкнути мультизаповнення"><X size={14} /></button>
+            </div>
+          )}
+        </div>
 
         <div className="sudoku-tools">
           <button type="button" onClick={undo} disabled={!session.history.length}><Undo2 size={19} /><span>Назад</span></button>

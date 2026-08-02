@@ -1,4 +1,10 @@
 /* VPDK Bonus — Service Worker
+ * v114 adds the unified notification center, Web Push delivery, scheduled workday
+ * reminders, manager analytics, and Google-report publication notifications.
+ * v113 audits every light-theme route for readable contrast, adds exact balance
+ * correction, and reorganizes the store into compact avatar rarity shelves.
+ * v112 keeps store purchases out of competitive ratings, updates Щедрий Куб rewards,
+ * and opens Bonus Match / Sudoku in a scroll-locked game-only viewport.
  * v111 applies the VPDK rebrand, dark-first theme, refreshed PWA icons, and Sudoku light-theme polish.
  * v109 fixes net Point leaderboards and adds periods to the team rating.
  * v106 fixes admin goals access, team messages, settings compatibility, and projection source mapping.
@@ -9,7 +15,7 @@
  * never be cached as index.html, otherwise browsers can render a giant broken
  * image element over the board.
  */
-const VERSION = "vpdk-v111";
+const VERSION = "vpdk-v114";
 const STATIC_CACHE = `${VERSION}-static`;
 const RUNTIME_CACHE = `${VERSION}-runtime`;
 
@@ -89,6 +95,47 @@ self.addEventListener("activate", (event) => {
 const offlineJson = () => new Response(JSON.stringify({ success: false, error: "offline" }), {
   status: 503,
   headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+});
+
+
+self.addEventListener("push", (event) => {
+  let payload = {};
+  try {
+    payload = event.data ? event.data.json() : {};
+  } catch (_) {
+    payload = { title: "VPDK Bonus", body: event.data ? event.data.text() : "Нове сповіщення" };
+  }
+  const title = payload.title || "VPDK Bonus";
+  const options = {
+    body: payload.body || "",
+    icon: payload.icon || "/icon-192.png",
+    badge: payload.badge || "/favicon-64.png",
+    tag: payload.tag || `vpdk-${payload.kind || "notification"}`,
+    renotify: Boolean(payload.renotify),
+    data: {
+      link: payload.link || "/",
+      kind: payload.kind || "general",
+      ...((payload.data && typeof payload.data === "object") ? payload.data : {}),
+    },
+    vibrate: [120, 60, 120],
+  };
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const link = new URL(event.notification?.data?.link || "/", self.location.origin).href;
+  event.waitUntil((async () => {
+    const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+    for (const client of windows) {
+      if ("focus" in client) {
+        await client.focus();
+        if ("navigate" in client) await client.navigate(link);
+        return;
+      }
+    }
+    if (self.clients.openWindow) await self.clients.openWindow(link);
+  })());
 });
 
 self.addEventListener("fetch", (event) => {

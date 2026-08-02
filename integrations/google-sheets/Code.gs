@@ -1216,6 +1216,42 @@ function reportsNotRefreshedPayload(goalsLogin) {
   };
 }
 
+function notifyBackendReportsPublished(snapshot) {
+  const properties = PropertiesService.getScriptProperties();
+  const backendUrl = String(properties.getProperty("VPDK_BACKEND_URL") || "").replace(/\/+$/, "");
+  const token = String(properties.getProperty("REPORTS_WEBHOOK_TOKEN") || "");
+  if (!backendUrl || !token || !snapshot) return { skipped: true, reason: "webhook_not_configured" };
+
+  const firstReport = snapshot.reports && snapshot.reports.length ? snapshot.reports[0].payload : {};
+  const payload = {
+    snapshot_version: snapshot.snapshotVersion,
+    snapshot_updated_at: snapshot.snapshotUpdatedAt,
+    snapshot_day: snapshot.snapshotDay,
+    updated_profiles: snapshot.reports ? snapshot.reports.length : 0,
+    credit_group_summaries: firstReport.credit_group_summaries || {},
+    debit_group_summaries: firstReport.debit_group_summaries || {},
+  };
+
+  try {
+    const response = UrlFetchApp.fetch(`${backendUrl}/api/internal/reports-published`, {
+      method: "post",
+      contentType: "application/json",
+      headers: { "X-Reports-Token": token },
+      payload: JSON.stringify(payload),
+      muteHttpExceptions: true,
+    });
+    const status = response.getResponseCode();
+    if (status < 200 || status >= 300) {
+      console.warn(`VPDK reports webhook returned ${status}: ${response.getContentText()}`);
+      return { success: false, status };
+    }
+    return { success: true, status };
+  } catch (error) {
+    console.warn(`VPDK reports webhook failed: ${error && error.message ? error.message : error}`);
+    return { success: false, error: String(error) };
+  }
+}
+
 function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu("Звіти")
@@ -1232,6 +1268,7 @@ function refreshReports() {
     SpreadsheetApp.flush();
     const snapshot = buildReportSnapshots(spreadsheet);
     writeReportCache(spreadsheet, snapshot);
+    const webhookResult = notifyBackendReportsPublished(snapshot);
     spreadsheet.toast(
       `Готово: ${snapshot.reports.length} профілів · PWA оновить локальний кеш у фоні без повторних екранів завантаження`,
       "VPDK · Звіти опубліковано",
@@ -1243,6 +1280,7 @@ function refreshReports() {
       snapshot_updated_at: snapshot.snapshotUpdatedAt,
       snapshot_version: snapshot.snapshotVersion,
       snapshot_day: snapshot.snapshotDay,
+      webhook_notified: Boolean(webhookResult && webhookResult.success),
     };
   } catch (error) {
     spreadsheet.toast(

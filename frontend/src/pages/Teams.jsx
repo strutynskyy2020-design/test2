@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { UsersRound, Coins, TrendingUp, Medal } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { UsersRound, Coins, TrendingUp, Medal, BarChart3, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 import api, { extractError } from "@/lib/api";
 import { useApp } from "@/context/AppContext";
@@ -17,6 +18,7 @@ const teamAverage = (entry) => Number(entry?.avg_score ?? entry?.avg_earned ?? 0
 
 export default function Teams() {
   const { user } = useApp();
+  const navigate = useNavigate();
   const [period, setPeriod] = useState("week");
   const [ranking, setRanking] = useState([]);
   const [teams, setTeams] = useState([]);
@@ -47,8 +49,26 @@ export default function Teams() {
     <div className="space-y-5 px-5 pb-8 pt-2" data-testid="teams-page">
       <div>
         <div className="text-[10px] font-black uppercase tracking-[0.25em] text-zinc-500">Разом сильніші</div>
-        <h1 className="mt-1 font-display text-3xl text-white">Рейтинг команд</h1>
+        <h1 className="mt-1 font-display text-3xl text-[#242735] dark:text-white">Рейтинг команд</h1>
       </div>
+
+      {(user?.role === "admin" || user?.is_team_leader) && (
+        <button
+          type="button"
+          data-testid="open-manager-analytics"
+          onClick={() => navigate("/analytics")}
+          className="group flex w-full items-center gap-3 rounded-3xl border border-[#8B5CF6]/30 bg-gradient-to-r from-[#F3EDFF] to-white p-4 text-left shadow-sm transition active:scale-[0.99] dark:border-[#8B5CF6]/35 dark:from-[#22183A] dark:to-[#17171B]"
+        >
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-[#8B5CF6]/25 bg-[#8B5CF6]/12 text-[#7C3AED] dark:text-[#C4A1FF]">
+            <BarChart3 size={23} strokeWidth={2.8} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="text-sm font-black text-[#242735] dark:text-white">Аналітика команди</div>
+            <div className="mt-0.5 text-[10px] font-bold leading-snug text-zinc-500">Активність, звіти, Point, ігри та динаміка показників</div>
+          </div>
+          <ChevronRight size={20} className="shrink-0 text-[#8B5CF6]" />
+        </button>
+      )}
 
       <div className="-mx-1 flex gap-2 overflow-x-auto px-1" data-testid="team-lb-periods">
         {PERIODS.map((item) => (
@@ -60,14 +80,14 @@ export default function Teams() {
             className={`h-11 shrink-0 rounded-full border-2 px-4 text-xs font-black uppercase tracking-wider transition-colors ${
               period === item.id
                 ? "border-[#FFB800] bg-[#FFB800] text-[#0A0A0A]"
-                : "border-white/10 bg-[#1A1A1E] text-zinc-400"
+                : "border-zinc-200 bg-white text-zinc-600 dark:border-white/10 dark:bg-[#1A1A1E] dark:text-zinc-400"
             }`}
           >
             {item.label}
           </button>
         ))}
       </div>
-      <div className="-mt-2 px-1 text-[11px] font-bold text-zinc-500">Командний результат = усі зароблені Point мінус усі витрачені Point учасників.</div>
+      <div className="-mt-2 px-1 text-[11px] font-bold text-zinc-500">Командний результат = зароблені Point мінус ігрові витрати. Покупки в магазині рейтинг не зменшують.</div>
 
       {loading && <div className="py-8 text-center text-sm font-black text-zinc-500">Завантаження...</div>}
 
@@ -89,7 +109,7 @@ export default function Teams() {
               <div
                 key={entry.team_id}
                 data-testid={`team-card-${entry.team_id}`}
-                className={`rounded-3xl border-2 bg-[#1A1A1E] p-4 ${isMine ? "border-[#FFB800]/60 glow-yellow" : "border-white/10"}`}
+                className={`rounded-3xl border-2 bg-white p-4 shadow-sm dark:bg-[#1A1A1E] ${isMine ? "border-[#FFB800]/60 glow-yellow" : "border-zinc-200 dark:border-white/10"}`}
               >
                 <div className="flex items-center gap-3">
                   <div className="w-9 shrink-0 text-center font-display text-2xl" style={{ color: rankColor || "#52525b" }}>
@@ -99,7 +119,7 @@ export default function Teams() {
                     <UsersRound size={22} strokeWidth={2.75} color={entry.color} />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5 truncate text-sm font-black text-white">
+                    <div className="flex items-center gap-1.5 truncate text-sm font-black text-[#242735] dark:text-white">
                       {entry.name}
                       {isMine && <span className="text-[9px] font-black text-[#FFB800]">• ТИ ТУТ</span>}
                     </div>
@@ -114,7 +134,7 @@ export default function Teams() {
                     </div>
                   </div>
                 </div>
-                <div className="mt-3 h-2.5 overflow-hidden rounded-full border border-white/5 bg-[#0A0A0A]">
+                <div className="mt-3 h-2.5 overflow-hidden rounded-full border border-zinc-200 bg-zinc-100 dark:border-white/5 dark:bg-[#0A0A0A]">
                   <div
                     className="h-full rounded-full transition-[width] duration-700"
                     style={{ width: `${progress}%`, background: `linear-gradient(90deg, ${entry.color}, #FFB800)` }}

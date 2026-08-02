@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import api, { clearToken, extractError, getToken, setToken } from "@/lib/api";
 import { clearGoogleReportsCache } from "@/lib/googleReportsCache";
+import { syncExistingPushSubscription } from "@/lib/pushNotifications";
 
 const AppContext = createContext(null);
 const CACHE_KEY = "callhub_cache_v2";
@@ -52,6 +53,7 @@ export const AppProvider = ({ children }) => {
 
   useEffect(() => {
     if (!state.user || !getToken()) return undefined;
+    syncExistingPushSubscription().catch(() => {});
     const verifySession = () => {
       api.get("/auth/me").catch(() => {});
     };
@@ -90,7 +92,12 @@ export const AppProvider = ({ children }) => {
     }
   };
 
-  const logout = () => {
+  const logout = async () => {
+    try {
+      await api.delete("/push/unsubscribe", { timeout: 1500 });
+    } catch (_) {
+      // Logging out must still work if the device is offline.
+    }
     clearToken();
     localStorage.removeItem(CACHE_KEY);
     clearGoogleReportsCache().catch(() => {});

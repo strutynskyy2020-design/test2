@@ -38,6 +38,7 @@ export const GoogleReportsProvider = ({ children }) => {
   const activeIdentityRef = useRef("");
   const lastManifestCheckRef = useRef(0);
   const lastAccessCheckRef = useRef(0);
+  const reportedSnapshotRef = useRef(new Set());
 
   const updateEntry = useCallback((key, updater) => {
     const current = entriesRef.current;
@@ -60,6 +61,7 @@ export const GoogleReportsProvider = ({ children }) => {
     entriesRef.current = {};
     lastManifestCheckRef.current = 0;
     lastAccessCheckRef.current = 0;
+    reportedSnapshotRef.current = new Set();
     setEntries({});
   }, [identity]);
 
@@ -79,6 +81,18 @@ export const GoogleReportsProvider = ({ children }) => {
     const request = fetchGoogleReportsPayload(user, scheduleLogin)
       .then((data) => {
         if (activeIdentityRef.current !== identity) return data;
+        const snapshotVersion = String(data?.snapshot_version || "");
+        if (snapshotVersion && (user?.role === "admin" || user?.is_team_leader) && !reportedSnapshotRef.current.has(snapshotVersion)) {
+          reportedSnapshotRef.current.add(snapshotVersion);
+          api.post("/analytics/report-snapshot", {
+            snapshot_version: snapshotVersion,
+            snapshot_updated_at: data?.snapshot_updated_at || "",
+            credit_group_summaries: data?.credit_group_summaries || {},
+            debit_group_summaries: data?.debit_group_summaries || {},
+          }).catch(() => {
+            reportedSnapshotRef.current.delete(snapshotVersion);
+          });
+        }
         updateEntry(key, {
           scheduleLogin,
           data,

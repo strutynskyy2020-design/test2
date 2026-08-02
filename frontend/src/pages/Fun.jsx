@@ -300,8 +300,8 @@ export default function Fun() {
             <summary><Info size={14} /> Як працює?</summary>
             <div className="generous-cube-prizes">
               {[
-                [1, "0–30"], [2, "31–65"], [3, "66–77"],
-                [4, "78–105"], [5, "106–175"], [6, "176–1000"],
+                [1, "0–15"], [2, "16–35"], [3, "36–70"],
+                [4, "71–105"], [5, "106–175"], [6, "176–1000"],
               ].map(([value, range]) => (
                 <div key={value}><span>{faceGlyph(value)}</span><b>{value}</b><em>{range} Point</em></div>
               ))}

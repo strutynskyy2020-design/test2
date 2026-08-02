@@ -572,7 +572,7 @@ export default function CreditGoals() {
         </section>
       ) : (
         <>
-          <section className="rounded-3xl border p-5" style={{ borderColor: summaryTheme.border, background: "linear-gradient(145deg, rgba(183,140,255,.14), rgba(26,26,30,.98) 52%)" }}>
+          <section className="credit-goals-summary-card rounded-3xl border p-5" style={{ borderColor: summaryTheme.border }}>
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Проекційний результат</div>

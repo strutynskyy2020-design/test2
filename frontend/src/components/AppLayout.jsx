@@ -11,6 +11,7 @@ const PAGE_LABELS = {
   "/tasks": "Завдання",
   "/quests": "Квести",
   "/teams": "Команди",
+  "/analytics": "Аналітика команди",
   "/ai-trainer": "AI-тренажер",
   "/goals": "Цілі",
   "/goals/credit": "Кредитний рейтинг",
@@ -105,14 +106,16 @@ export default function AppLayout() {
   const isAdmin = ["admin", "editor"].includes(user.role);
   const isAdminRoute = loc.pathname.startsWith("/admin");
   const isBonusMatchRoute = loc.pathname === "/games/bonus-match";
+  const isSudokuRoute = loc.pathname === "/games/sudoku";
+  const isGameRoute = isBonusMatchRoute || isSudokuRoute;
 
   return (
-    <div className="min-h-screen w-full flex justify-center">
+    <div className={`${isGameRoute ? "h-[100dvh] overflow-hidden" : "min-h-screen"} w-full flex justify-center`}>
       <div
-        className={`app-theme-shell relative w-full min-h-screen flex flex-col border-x ${isBonusMatchRoute ? "bonus-match-app-shell" : ""} ${isAdminRoute ? "app-shell app-shell-admin" : "app-shell"}`}
-        style={{ maxWidth: isAdminRoute ? "1500px" : "480px" }}
+        className={`app-theme-shell relative w-full flex flex-col ${isGameRoute ? "h-[100dvh] min-h-0 overflow-hidden border-0 game-only-app-shell" : "min-h-screen border-x"} ${isBonusMatchRoute ? "bonus-match-app-shell" : ""} ${isSudokuRoute ? "sudoku-app-shell" : ""} ${isAdminRoute ? "app-shell app-shell-admin" : "app-shell"}`}
+        style={{ maxWidth: isAdminRoute ? "1500px" : isGameRoute ? "none" : "480px" }}
       >
-        <header
+        {!isGameRoute && <header
           className="app-theme-header sticky top-0 z-30 backdrop-blur-sm px-3 min-[390px]:px-5 pb-4 flex items-center justify-between"
           style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 14px)", minHeight: "calc(74px + env(safe-area-inset-top, 0px))" }}
         >
@@ -143,22 +146,28 @@ export default function AppLayout() {
             )}
             <button
               data-testid="logout-btn"
-              onClick={() => { logout(); nav("/login"); }}
+              onClick={async () => { await logout(); nav("/login"); }}
               className="app-header-action w-12 h-12 max-[370px]:w-10 max-[370px]:h-10 touch-manipulation rounded-2xl flex items-center justify-center text-zinc-400 active:scale-95 transition-transform"
               aria-label="Вийти"
             >
               <LogOut size={18} strokeWidth={2.5} />
             </button>
           </div>
-        </header>
+        </header>}
 
-        <main className="flex-1 pb-28 page-enter" data-testid="main-content">
+        <main
+          className={isGameRoute
+            ? "flex-1 min-h-0 overflow-y-auto overscroll-contain page-enter"
+            : "flex-1 pb-28 page-enter"}
+          data-testid="main-content"
+          data-game-route={isGameRoute ? "true" : "false"}
+        >
           <Outlet />
         </main>
 
-        <InstallPrompt />
+        {!isGameRoute && <InstallPrompt />}
 
-        <nav
+        {!isGameRoute && <nav
           data-testid="bottom-nav"
           className={`app-theme-bottom-nav fixed bottom-0 left-1/2 -translate-x-1/2 w-full items-stretch z-40 px-1 max-w-[480px] flex border-t ${isBonusMatchRoute ? "bonus-match-bottom-nav" : ""} ${isAdminRoute ? "admin-bottom-nav" : ""}`}
           style={{ height: "5rem", paddingBottom: "env(safe-area-inset-bottom)" }}
@@ -169,7 +178,7 @@ export default function AppLayout() {
           <NavItem to="/ai-trainer" icon={Bot} label="AI" testId="nav-ai-trainer" />
           <NavItem to="/store" icon={Gift} label="Магазин" testId="nav-store" />
           <NavItem to="/leaderboard" icon={Trophy} label="Рейтинг" testId="nav-board" />
-        </nav>
+        </nav>}
       </div>
     </div>
   );

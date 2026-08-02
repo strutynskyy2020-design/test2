@@ -28,11 +28,11 @@ export default function Feed() {
   }, []);
 
   const filters = [
-    { key: "all", label: "Все", color: "#F5F5F5" },
-    { key: "quest", label: "Квести", color: "#6D3DF5" },
-    { key: "level_up", label: "Рівні", color: "#FF5C00" },
-    { key: "purchase", label: "Покупки", color: "#00F0FF" },
-    { key: "cube", label: "Куб", color: "#FFB800" },
+    { key: "all", label: "Все", color: "#E1E4EC", foreground: "#20242E" },
+    { key: "quest", label: "Квести", color: "#6D3DF5", foreground: "#FFFFFF" },
+    { key: "level_up", label: "Рівні", color: "#FF5C00", foreground: "#0A0A0A" },
+    { key: "purchase", label: "Покупки", color: "#00F0FF", foreground: "#0A0A0A" },
+    { key: "cube", label: "Куб", color: "#FFB800", foreground: "#0A0A0A" },
   ];
 
   const filtered = filter === "all" ? events : events.filter((e) => e.kind === filter);
@@ -62,9 +62,9 @@ export default function Feed() {
               data-testid={`feed-filter-${f.key}`}
               onClick={() => setFilter(f.key)}
               className={`shrink-0 px-3 py-1.5 rounded-2xl border-2 text-[11px] font-black uppercase tracking-widest transition-transform active:scale-95 ${
-                active ? "text-[#0A0A0A]" : "text-zinc-400 border-white/10 bg-[#1A1A1E]"
+                active ? "" : "text-zinc-400 border-white/10 bg-[#1A1A1E]"
               }`}
-              style={active ? { backgroundColor: f.color, borderColor: f.color } : {}}
+              style={active ? { backgroundColor: f.color, borderColor: f.color, color: f.foreground } : {}}
             >
               {f.label}
             </button>

@@ -160,7 +160,7 @@ function ProfileAvatar({ profile, size = "md" }) {
 function GroupOverallValue({ value, teamName = "TM6" }) {
   const theme = getStatus(value);
   return (
-    <div className="rounded-2xl border px-4 py-4 text-center" style={{ borderColor: theme.border, background: "linear-gradient(135deg, rgba(0,240,255,.13), rgba(26,26,30,.94))" }}>
+    <div className="debit-leaderboard-metric-card rounded-2xl border px-4 py-4 text-center" style={{ borderColor: theme.border }}>
       <div className="text-[10px] font-black uppercase tracking-[.16em] text-[#00F0FF]">{teamName} · Загальний</div>
       <div className="mt-1 font-display text-[32px] leading-none" style={{ color: theme.color }}>{formatPercent(value)}</div>
     </div>
@@ -207,11 +207,8 @@ function OperatorRow({ operator, rank, isCurrent }) {
   const overallTheme = getStatus(operator.overall);
   return (
     <article
-      className="border-t px-3 py-3"
-      style={{
-        borderColor: "rgba(255,255,255,.075)",
-        background: isCurrent ? "linear-gradient(90deg, rgba(0,240,255,.12), rgba(26,26,30,.94))" : "transparent",
-      }}
+      className={`debit-operator-row border-t px-3 py-3 ${isCurrent ? "is-current" : ""}`}
+      style={{ borderColor: "var(--operator-divider, rgba(255,255,255,.075))" }}
     >
       <div className="flex items-center gap-2.5">
         <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-black/30 text-[11px] font-black text-zinc-300">{rank}</div>

@@ -891,3 +891,277 @@ html.light .home-sudoku-chevron { color: #6D3DF5; }
   .home-sudoku-card { padding-left: 12px; padding-right: 12px; }
   .home-sudoku-title { font-size: 13px !important; }
 }
+
+/* V112: game routes own the viewport and do not inherit application chrome. */
+.game-only-app-shell {
+  width: 100%;
+  max-width: none;
+  border: 0 !important;
+  background: #08080b;
+}
+.game-only-app-shell > main {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.game-only-app-shell > main::-webkit-scrollbar { display: none; }
+.bonus-match-app-shell > main > [data-testid="bonus-match-page"] {
+  width: min(100%, 560px);
+  margin-inline: auto;
+}
+html.light .game-only-app-shell { background: #f8f7fc; }
+
+/* ==========================================================================
+   V113 · COMPLETE LIGHT-THEME LEGIBILITY AUDIT
+   Every non-game route uses the same contrast-safe semantic palette. The
+   game-only screens keep their dedicated visual systems from v111/v112.
+   ========================================================================== */
+html.light {
+  --light-text-strong: #20242E;
+  --light-text-body: #3F4654;
+  --light-text-muted: #5F6675;
+  --light-text-subtle: #6D7482;
+  --light-surface: #FFFFFF;
+  --light-surface-soft: #F4F2F8;
+  --light-surface-muted: #ECEAF1;
+  --light-border: #D9D5E2;
+  --light-amber: #9A5800;
+  --light-orange: #B9380B;
+  --light-cyan: #00717D;
+  --light-purple: #6D3DF5;
+  --light-green: #15803D;
+  --light-red: #B42318;
+  --light-blue: #1D4ED8;
+}
+
+/* Small captions were the main weak point on white cards. All utility text
+   levels now meet readable contrast instead of fading into the surface. */
+html.light .app-theme-shell:not(.game-only-app-shell) .text-zinc-400 { color: var(--light-text-body) !important; }
+html.light .app-theme-shell:not(.game-only-app-shell) .text-zinc-500 { color: var(--light-text-muted) !important; }
+html.light .app-theme-shell:not(.game-only-app-shell) .text-zinc-600,
+html.light .app-theme-shell:not(.game-only-app-shell) .text-zinc-700 { color: var(--light-text-subtle) !important; }
+html.light .app-theme-shell:not(.game-only-app-shell) .text-white,
+html.light .app-theme-shell:not(.game-only-app-shell) .text-white\/90,
+html.light .app-theme-shell:not(.game-only-app-shell) .text-zinc-100,
+html.light .app-theme-shell:not(.game-only-app-shell) .text-zinc-200,
+html.light .app-theme-shell:not(.game-only-app-shell) .text-zinc-300,
+html.light .app-theme-shell:not(.game-only-app-shell) [class*="text-[#F5F5F5]"] { color: var(--light-text-strong) !important; }
+
+html.light .app-theme-shell:not(.game-only-app-shell) input::placeholder,
+html.light .app-theme-shell:not(.game-only-app-shell) textarea::placeholder { color: var(--light-text-subtle) !important; }
+
+/* Theme-safe accent text. Neon colours remain available as backgrounds, but
+   on white they are replaced by deeper hues with sufficient contrast. */
+html.light .app-theme-shell:not(.game-only-app-shell) [class*="text-[#FFB800]"],
+html.light .app-theme-shell:not(.game-only-app-shell) [style*="color: rgb(255, 184, 0)"],
+html.light .app-theme-shell:not(.game-only-app-shell) [style*="color:#FFB800"],
+html.light .app-theme-shell:not(.game-only-app-shell) [style*="color: #FFB800"] { color: var(--light-amber) !important; }
+html.light .app-theme-shell:not(.game-only-app-shell) [class*="text-[#FF5C00]"],
+html.light .app-theme-shell:not(.game-only-app-shell) [class*="text-[#FF7D36]"],
+html.light .app-theme-shell:not(.game-only-app-shell) [class*="text-[#FF8A3D]"],
+html.light .app-theme-shell:not(.game-only-app-shell) [class*="text-[#FF8A4C]"],
+html.light .app-theme-shell:not(.game-only-app-shell) [style*="color: rgb(255, 92, 0)"] { color: var(--light-orange) !important; }
+html.light .app-theme-shell:not(.game-only-app-shell) [class*="text-[#00F0FF]"],
+html.light .app-theme-shell:not(.game-only-app-shell) [style*="color: rgb(0, 240, 255)"] { color: var(--light-cyan) !important; }
+html.light .app-theme-shell:not(.game-only-app-shell) [class*="text-[#B78CFF]"],
+html.light .app-theme-shell:not(.game-only-app-shell) [class*="text-[#B56CFF]"],
+html.light .app-theme-shell:not(.game-only-app-shell) [class*="text-[#C9A7FF]"],
+html.light .app-theme-shell:not(.game-only-app-shell) [class*="text-[#D8C1FF]"],
+html.light .app-theme-shell:not(.game-only-app-shell) [class*="text-[#D7C0FF]"],
+html.light .app-theme-shell:not(.game-only-app-shell) [class*="text-[#D9B5FF]"],
+html.light .app-theme-shell:not(.game-only-app-shell) [style*="color: rgb(183, 140, 255)"] { color: var(--light-purple) !important; }
+html.light .app-theme-shell:not(.game-only-app-shell) [class*="text-[#39FF14]"],
+html.light .app-theme-shell:not(.game-only-app-shell) [class*="text-[#22C55E]"],
+html.light .app-theme-shell:not(.game-only-app-shell) [style*="color: rgb(57, 255, 20)"],
+html.light .app-theme-shell:not(.game-only-app-shell) [style*="color: rgb(34, 197, 94)"] { color: var(--light-green) !important; }
+html.light .app-theme-shell:not(.game-only-app-shell) [class*="text-[#FF3B30]"],
+html.light .app-theme-shell:not(.game-only-app-shell) [class*="text-[#FF4D55]"],
+html.light .app-theme-shell:not(.game-only-app-shell) [class*="text-[#FF5B63]"],
+html.light .app-theme-shell:not(.game-only-app-shell) [class*="text-[#FF5C5C]"],
+html.light .app-theme-shell:not(.game-only-app-shell) [class*="text-[#FF686F]"],
+html.light .app-theme-shell:not(.game-only-app-shell) [class*="text-[#FF6B65]"],
+html.light .app-theme-shell:not(.game-only-app-shell) [class*="text-[#FF767C]"],
+html.light .app-theme-shell:not(.game-only-app-shell) [class*="text-[#FF7A80]"],
+html.light .app-theme-shell:not(.game-only-app-shell) [class*="text-[#FF858B]"],
+html.light .app-theme-shell:not(.game-only-app-shell) [class*="text-[#FF9CA2]"],
+html.light .app-theme-shell:not(.game-only-app-shell) [class*="text-[#EF5350]"],
+html.light .app-theme-shell:not(.game-only-app-shell) [style*="color: rgb(255, 59, 48)"],
+html.light .app-theme-shell:not(.game-only-app-shell) [style*="color: rgb(239, 83, 80)"] { color: var(--light-red) !important; }
+html.light .app-theme-shell:not(.game-only-app-shell) [class*="text-[#F4B740]"],
+html.light .app-theme-shell:not(.game-only-app-shell) [style*="color: rgb(244, 183, 64)"] { color: var(--light-amber) !important; }
+html.light .app-theme-shell:not(.game-only-app-shell) [class*="text-[#3B82F6]"],
+html.light .app-theme-shell:not(.game-only-app-shell) [style*="color: rgb(59, 130, 246)"] { color: var(--light-blue) !important; }
+html.light .app-theme-shell:not(.game-only-app-shell) [class*="text-[#8B5CF6]"] { color: var(--light-purple) !important; }
+html.light .app-theme-shell:not(.game-only-app-shell) [class*="text-[#A1A1AA]"],
+html.light .app-theme-shell:not(.game-only-app-shell) [class*="text-[#71717A]"] { color: var(--light-text-muted) !important; }
+
+/* Lucide icons that receive hard-coded neon strokes need the same treatment. */
+html.light .app-theme-shell:not(.game-only-app-shell) svg[stroke="#FFB800"] { stroke: var(--light-amber); }
+html.light .app-theme-shell:not(.game-only-app-shell) svg[stroke="#FF5C00"] { stroke: var(--light-orange); }
+html.light .app-theme-shell:not(.game-only-app-shell) svg[stroke="#00F0FF"] { stroke: var(--light-cyan); }
+html.light .app-theme-shell:not(.game-only-app-shell) svg[stroke="#B78CFF"],
+html.light .app-theme-shell:not(.game-only-app-shell) svg[stroke="#B575FF"] { stroke: var(--light-purple); }
+html.light .app-theme-shell:not(.game-only-app-shell) svg[stroke="#39FF14"],
+html.light .app-theme-shell:not(.game-only-app-shell) svg[stroke="#22C55E"] { stroke: var(--light-green); }
+html.light .app-theme-shell:not(.game-only-app-shell) svg[stroke="#FF3B30"],
+html.light .app-theme-shell:not(.game-only-app-shell) svg[stroke="#EF5350"] { stroke: var(--light-red); }
+
+/* Strong coloured controls retain white text and use deeper backgrounds. */
+html.light .app-theme-shell:not(.game-only-app-shell) .bg-\[\#00F0FF\] { background-color: #007F8C !important; }
+html.light .app-theme-shell:not(.game-only-app-shell) .bg-\[\#FF5C00\] { background-color: #C2410C !important; }
+html.light .app-theme-shell:not(.game-only-app-shell) .bg-\[\#FF3B30\] { background-color: #D92D20 !important; }
+html.light .app-theme-shell:not(.game-only-app-shell) .bg-\[\#B78CFF\],
+html.light .app-theme-shell:not(.game-only-app-shell) .bg-\[\#B56CFF\] { background-color: #7041D8 !important; }
+html.light .app-theme-shell:not(.game-only-app-shell) .bg-\[\#7C3AED\] { background-color: #6D3DF5 !important; }
+html.light .app-theme-shell:not(.game-only-app-shell) .bg-\[\#39FF14\] { background-color: #22C55E !important; }
+
+/* Legacy dark one-off surfaces that were not covered by the original token
+   mapping. Without these rules several error cards and editor panels stayed
+   almost black while their text was converted to dark. */
+html.light .app-theme-shell:not(.game-only-app-shell) .bg-\[\#17171B\],
+html.light .app-theme-shell:not(.game-only-app-shell) .bg-\[\#171222\],
+html.light .app-theme-shell:not(.game-only-app-shell) .bg-\[\#11101A\] { background-color: #F4F2F8 !important; }
+html.light .app-theme-shell:not(.game-only-app-shell) .bg-\[\#2A0B10\] { background-color: #FFF1F2 !important; }
+html.light .app-theme-shell:not(.game-only-app-shell) .bg-\[\#2C2100\] { background-color: #FFF7DF !important; }
+html.light .app-theme-shell:not(.game-only-app-shell) .bg-\[\#0A0A0A\]\/98 { background-color: rgba(255,255,255,.98) !important; }
+html.light .app-theme-shell:not(.game-only-app-shell) .border-\[\#141416\] { border-color: #CEC9D7 !important; }
+
+html.light .app-theme-shell:not(.game-only-app-shell) .hover\:text-white:hover { color: var(--light-text-strong) !important; }
+html.light .app-theme-shell:not(.game-only-app-shell) .hover\:bg-white\/5:hover { background-color: rgba(69,56,100,.07) !important; }
+html.light .app-theme-shell:not(.game-only-app-shell) .focus\:border-white\/20:focus { border-color: rgba(109,61,245,.35) !important; }
+
+/* Report cards that used inline dark gradients now have explicit theme-aware
+   surfaces, preventing dark text from landing on a dark panel. */
+.credit-goals-summary-card {
+  background: linear-gradient(145deg, rgba(183,140,255,.14), rgba(26,26,30,.98) 52%);
+}
+.credit-leaderboard-metric-card {
+  background: linear-gradient(135deg, rgba(124,58,237,.20), rgba(26,26,30,.94));
+}
+.debit-leaderboard-metric-card {
+  background: linear-gradient(135deg, rgba(0,240,255,.13), rgba(26,26,30,.94));
+}
+html.light .credit-goals-summary-card {
+  background: linear-gradient(145deg, #F1EAFE, #FFFFFF 58%);
+  box-shadow: 0 12px 30px rgba(80,54,130,.08);
+}
+html.light .credit-leaderboard-metric-card {
+  background: linear-gradient(135deg, #EEE7FF, #FFFFFF 70%);
+}
+html.light .debit-leaderboard-metric-card {
+  background: linear-gradient(135deg, #E7F8FA, #FFFFFF 70%);
+}
+
+/* Home achievement cards. */
+.achievement-badge-icon { border: 2px solid #2D2D2D; }
+.achievement-badge-icon.is-locked { background: #27272A; }
+.achievement-lock-icon { color: #52525B; }
+html.light .achievement-badge-icon.is-locked {
+  background: #ECE9F1;
+  border-color: #D5D0DE;
+}
+html.light .achievement-lock-icon { color: #6D7482; }
+
+/* Store: compact rarity shelves and light-mode surfaces. */
+.store-avatar-row,
+.store-page [data-testid="category-tabs"] {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.store-avatar-row::-webkit-scrollbar,
+.store-page [data-testid="category-tabs"]::-webkit-scrollbar { display: none; }
+.store-avatar-card {
+  border-color: color-mix(in srgb, var(--avatar-rarity-color) 48%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.04);
+}
+.store-avatar-card.is-active {
+  border-color: var(--avatar-rarity-color);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--avatar-rarity-color) 18%, transparent), 0 10px 26px rgba(0,0,0,.20);
+}
+.store-avatar-preview {
+  background: color-mix(in srgb, var(--avatar-rarity-color) 10%, #101014);
+}
+html.light .store-prize-card,
+html.light .store-avatar-tier,
+html.light .store-avatar-card,
+html.light .store-confirm-sheet {
+  background: #FFFFFF !important;
+  border-color: #D9D5E2 !important;
+  box-shadow: 0 10px 28px rgba(52,43,72,.07);
+}
+html.light .store-avatar-card {
+  border-color: color-mix(in srgb, var(--avatar-rarity-color) 48%, #D9D5E2) !important;
+  background: #FBFAFD !important;
+}
+html.light .store-avatar-card.is-active {
+  border-color: var(--avatar-rarity-color) !important;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--avatar-rarity-color) 15%, transparent), 0 10px 26px rgba(52,43,72,.10);
+}
+html.light .store-avatar-preview {
+  background: color-mix(in srgb, var(--avatar-rarity-color) 9%, #F7F5FA);
+}
+html.light .store-prize-media { background: #F1EEF5 !important; }
+html.light .store-confirm-sheet .bg-\[\#0A0A0A\] { background: #F4F2F8 !important; }
+
+@media (max-width: 360px) {
+  .store-avatar-card { width: 126px; padding: 9px; }
+  .store-avatar-preview { width: 70px; height: 70px; }
+}
+
+.credit-operator-row.is-current {
+  background: linear-gradient(90deg, rgba(124,58,237,.22), rgba(26,26,30,.94));
+}
+.debit-operator-row.is-current {
+  background: linear-gradient(90deg, rgba(0,240,255,.12), rgba(26,26,30,.94));
+}
+html.light .credit-operator-row.is-current {
+  background: linear-gradient(90deg, rgba(109,61,245,.12), rgba(255,255,255,.96));
+}
+html.light .debit-operator-row.is-current {
+  background: linear-gradient(90deg, rgba(0,113,125,.10), rgba(255,255,255,.96));
+}
+
+/* Additional dynamic colours found during the route-by-route audit. */
+html.light .app-theme-shell:not(.game-only-app-shell) [style*="color: rgb(245, 245, 245)"],
+html.light .app-theme-shell:not(.game-only-app-shell) [style*="color: rgb(244, 244, 245)"] { color: var(--light-text-strong) !important; }
+html.light .app-theme-shell:not(.game-only-app-shell) [style*="color: rgb(192, 192, 192)"],
+html.light .app-theme-shell:not(.game-only-app-shell) [style*="color: rgb(192, 199, 208)"],
+html.light .app-theme-shell:not(.game-only-app-shell) [style*="color: rgb(156, 163, 175)"],
+html.light .app-theme-shell:not(.game-only-app-shell) [style*="color: rgb(138, 142, 153)"] { color: var(--light-text-muted) !important; }
+html.light .app-theme-shell:not(.game-only-app-shell) [style*="color: rgb(205, 127, 50)"] { color: #9A4E00 !important; }
+html.light .app-theme-shell:not(.game-only-app-shell) [style*="color: rgb(181, 117, 255)"],
+html.light .app-theme-shell:not(.game-only-app-shell) [style*="color: rgb(124, 58, 237)"] { color: var(--light-purple) !important; }
+html.light .app-theme-shell:not(.game-only-app-shell) [style*="color: rgb(255, 215, 0)"] { color: var(--light-amber) !important; }
+html.light .app-theme-shell:not(.game-only-app-shell) [style*="color: rgb(255, 59, 138)"],
+html.light .app-theme-shell:not(.game-only-app-shell) [style*="color: rgb(255, 107, 157)"],
+html.light .app-theme-shell:not(.game-only-app-shell) [class*="text-[#FF6B9D]"] { color: #A91B55 !important; }
+html.light .app-theme-shell:not(.game-only-app-shell) svg[stroke="#FFD700"] { stroke: var(--light-amber); }
+html.light .app-theme-shell:not(.game-only-app-shell) svg[stroke="#FF3B8A"],
+html.light .app-theme-shell:not(.game-only-app-shell) svg[stroke="#FF6B9D"] { stroke: #A91B55; }
+html.light .app-theme-shell:not(.game-only-app-shell) .bg-\[\#FF4D55\],
+html.light .app-theme-shell:not(.game-only-app-shell) .bg-\[\#EF5350\] { background-color: #C9363D !important; }
+html.light .app-theme-shell:not(.game-only-app-shell) .bg-\[\#00BFD0\] { background-color: #007B87 !important; }
+
+/* White labels on saturated actions must stay white after the shared text
+   remap above. This final rule intentionally wins the cascade. */
+html.light .app-theme-shell:not(.game-only-app-shell) .bg-\[\#7C3AED\].text-white,
+html.light .app-theme-shell:not(.game-only-app-shell) .bg-\[\#B78CFF\].text-white,
+html.light .app-theme-shell:not(.game-only-app-shell) .bg-\[\#B56CFF\].text-white,
+html.light .app-theme-shell:not(.game-only-app-shell) .bg-\[\#FF3B30\].text-white,
+html.light .app-theme-shell:not(.game-only-app-shell) .bg-\[\#FF4D55\].text-white,
+html.light .app-theme-shell:not(.game-only-app-shell) .bg-\[\#EF5350\].text-white,
+html.light .app-theme-shell:not(.game-only-app-shell) .bg-\[\#FF5C00\].text-white,
+html.light .app-theme-shell:not(.game-only-app-shell) .bg-\[\#00F0FF\].text-white,
+html.light .app-theme-shell:not(.game-only-app-shell) .bg-destructive.text-white,
+html.light .app-theme-shell:not(.game-only-app-shell) [class*="bg-[#7C3AED]"] .text-white,
+html.light .app-theme-shell:not(.game-only-app-shell) [class*="bg-[#B78CFF]"] .text-white,
+html.light .app-theme-shell:not(.game-only-app-shell) [class*="bg-[#FF3B30]"] .text-white,
+html.light .app-theme-shell:not(.game-only-app-shell) [class*="bg-[#FF4D55]"] .text-white,
+html.light .app-theme-shell:not(.game-only-app-shell) [class*="bg-[#FF5C00]"] .text-white,
+html.light .app-theme-shell:not(.game-only-app-shell) [class*="bg-[#00F0FF]"] .text-white {
+  color: #FFFFFF !important;
+}
+html.light .app-theme-shell:not(.game-only-app-shell) .bg-\[\#B78CFF\].text-\[\#0A0A0A\],
+html.light .app-theme-shell:not(.game-only-app-shell) .bg-\[\#B56CFF\].text-\[\#0A0A0A\],
+html.light .app-theme-shell:not(.game-only-app-shell) .bg-\[\#7C3AED\].text-\[\#0A0A0A\] {
+  color: #FFFFFF !important;
+}

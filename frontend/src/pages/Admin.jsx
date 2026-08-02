@@ -18,6 +18,7 @@ const TABS = [
   { id: "moderation", label: "Модерація", icon: UserCheck },
   { id: "applications", label: "Заявки", icon: Inbox },
   { id: "users", label: "Юзери", icon: Users },
+  { id: "points", label: "Бали та баланс", icon: Coins },
   { id: "teams", label: "Команди", icon: UsersRound },
   { id: "achievements", label: "Досягнення", icon: Award },
   { id: "bonus-match", label: "Bonus Match", icon: Gamepad2 },
@@ -1003,29 +1004,51 @@ const AdjustPointsSheet = ({ user, onClose, onDone }) => {
   const [description, setDescription] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const submit = async (sign) => {
-    const n = parseInt(amount, 10);
-    if (!n || isNaN(n)) { toast.error("Введи число"); return; }
+  const parsedAmount = Number.parseInt(amount, 10);
+  const validAmount = Number.isFinite(parsedAmount) && parsedAmount >= 0;
+
+  const currentBalance = Number(user.balance || 0);
+  const canSubtract = validAmount && parsedAmount > 0 && parsedAmount <= currentBalance;
+
+  const submit = async (action) => {
+    if (!validAmount) { toast.error("Введи ціле число від 0"); return; }
+    if (action !== "set" && parsedAmount === 0) { toast.error("Кількість має бути більшою за 0"); return; }
+    if (action === "subtract" && !canSubtract) { toast.error("Не можна списати більше за поточний баланс"); return; }
+
+    const payload = action === "set"
+      ? { amount: parsedAmount, mode: "set", description: description || "Встановлення точного балансу" }
+      : { amount: (action === "add" ? 1 : -1) * Math.abs(parsedAmount), mode: "delta", description: description || "Ручне коригування" };
+
     setBusy(true);
     try {
-      await api.patch(`/admin/users/${user.id}/points`, { amount: sign * Math.abs(n), description: description || "Ручне коригування" });
-      toast.success(`${sign > 0 ? "+" : "-"}${Math.abs(n)} балів`);
+      await api.patch(`/admin/users/${user.id}/points`, payload);
+      if (action === "set") toast.success(`Баланс встановлено: ${parsedAmount.toLocaleString("uk-UA")} Point`);
+      else toast.success(`${action === "add" ? "+" : "-"}${Math.abs(parsedAmount)} Point`);
       onDone();
       onClose();
     } catch (e) { toast.error(extractError(e)); }
     setBusy(false);
   };
 
+  const preview = validAmount ? {
+    add: currentBalance + parsedAmount,
+    subtract: currentBalance - parsedAmount,
+    set: parsedAmount,
+  } : null;
+
   return (
     <BottomSheet onClose={onClose}>
-      <div className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Коригування балів</div>
+      <div className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Бали та баланс</div>
       <h3 className="font-display text-xl text-white mt-1">{user.name}</h3>
-      <div className="text-zinc-400 text-xs mt-1">Поточний баланс: {user.balance.toLocaleString("uk-UA")}</div>
+      <div className="text-zinc-400 text-xs mt-1">Поточний баланс: <b className="text-[#FFB800]">{currentBalance.toLocaleString("uk-UA")} Point</b></div>
 
-      <label className="block text-[11px] font-black uppercase text-zinc-500 mt-4 mb-1">Кількість</label>
+      <label className="block text-[11px] font-black uppercase text-zinc-500 mt-4 mb-1">Кількість або новий баланс</label>
       <input
         data-testid="adjust-amount"
         type="number"
+        min="0"
+        step="1"
+        inputMode="numeric"
         value={amount}
         onChange={(e) => setAmount(e.target.value)}
         placeholder="100"
@@ -1037,28 +1060,45 @@ const AdjustPointsSheet = ({ user, onClose, onDone }) => {
         data-testid="adjust-description"
         value={description}
         onChange={(e) => setDescription(e.target.value)}
-        placeholder="Бонус за проєкт"
+        placeholder="Бонус, штраф або виправлення помилки"
         className="w-full h-12 px-4 rounded-xl bg-[#0A0A0A] border-2 border-white/10 text-white focus:border-[#FFB800] outline-none"
       />
+
+      {preview && (
+        <div className="mt-4 grid grid-cols-3 gap-2 text-center">
+          <div className="rounded-xl border border-[#39FF14]/30 bg-[#39FF14]/10 p-2"><div className="text-[8px] font-black uppercase text-zinc-500">Після +</div><div className="mt-1 text-xs font-black text-[#39FF14]">{preview.add.toLocaleString("uk-UA")}</div></div>
+          <div className="rounded-xl border border-[#FF3B30]/30 bg-[#FF3B30]/10 p-2"><div className="text-[8px] font-black uppercase text-zinc-500">Після −</div><div className="mt-1 text-xs font-black text-[#FF3B30]">{preview.subtract.toLocaleString("uk-UA")}</div></div>
+          <div className="rounded-xl border border-[#B78CFF]/30 bg-[#B78CFF]/10 p-2"><div className="text-[8px] font-black uppercase text-zinc-500">Точно</div><div className="mt-1 text-xs font-black text-[#B78CFF]">{preview.set.toLocaleString("uk-UA")}</div></div>
+        </div>
+      )}
 
       <div className="grid grid-cols-2 gap-3 mt-5">
         <button
           data-testid="adjust-subtract"
-          onClick={() => submit(-1)}
-          disabled={busy}
+          onClick={() => submit("subtract")}
+          disabled={busy || !canSubtract}
           className="arcade-btn h-12 bg-[#FF3B30] border-[#7a1c17] text-white font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 disabled:opacity-60"
         >
           <Minus size={14} strokeWidth={3} /> Списати
         </button>
         <button
           data-testid="adjust-add"
-          onClick={() => submit(1)}
+          onClick={() => submit("add")}
           disabled={busy}
           className="arcade-btn h-12 bg-[#39FF14] border-[#1a7a0a] text-[#0A0A0A] font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 disabled:opacity-60"
         >
           <Plus size={14} strokeWidth={3} /> Нарахувати
         </button>
+        <button
+          data-testid="adjust-set"
+          onClick={() => submit("set")}
+          disabled={busy}
+          className="arcade-btn col-span-2 h-12 border-[#5B21B6] bg-[#7C3AED] text-white font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 disabled:opacity-60"
+        >
+          <Target size={14} strokeWidth={3} /> Встановити точний баланс
+        </button>
       </div>
+      <p className="mt-3 text-[10px] font-bold leading-relaxed text-zinc-500">Точне коригування змінює лише баланс Point і не нараховує XP. Це зручно для виправлення помилкової суми.</p>
     </BottomSheet>
   );
 };
@@ -2132,7 +2172,7 @@ const PointsManager = () => {
     {users.map((u) => <div key={u.id} className="flex items-center gap-3 rounded-2xl border border-white/10 bg-[#1A1A1E] p-3">
       <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl font-display text-sm text-black" style={{backgroundColor:u.avatar_color||"#FFB800"}}>{u.avatar_initials||"?"}</div>
       <div className="min-w-0 flex-1"><div className="truncate text-sm font-black text-white">{u.name}</div><div className="text-xs text-zinc-500">Баланс: {u.balance.toLocaleString("uk-UA")} Point</div></div>
-      <button type="button" onClick={() => setAdjustFor(u)} className="flex h-10 w-10 items-center justify-center rounded-xl border border-[#FFB800]/40 bg-black/30 text-[#FFB800]" aria-label="Нарахувати бали"><Coins size={16}/></button>
+      <button type="button" onClick={() => setAdjustFor(u)} className="flex h-10 w-10 items-center justify-center rounded-xl border border-[#FFB800]/40 bg-black/30 text-[#FFB800]" aria-label="Керувати балами та балансом"><Coins size={16}/></button>
     </div>)}
     {adjustFor && <AdjustPointsSheet user={adjustFor} onClose={() => setAdjustFor(null)} onDone={load}/>}
   </div>;
@@ -2424,7 +2464,7 @@ export default function Admin() {
   const isEditor = user?.role === "editor";
   const editorTabs = [
     { id: "daily-tasks", label: "Завдання дня", icon: CalendarDays },
-    { id: "points", label: "Нарахувати бали", icon: Coins },
+    { id: "points", label: "Бали та баланс", icon: Coins },
   ];
   const availableTabs = isEditor ? editorTabs : TABS;
   const [tab, setTab] = useState(user?.role === "editor" ? "daily-tasks" : "analytics");
