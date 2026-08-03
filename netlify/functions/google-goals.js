@@ -81,18 +81,14 @@ const filterRowsByAllowedLogins = (rows, allowedLogins) => {
   return rows.filter((row) => allowedLogins.has(rowLogin(row)));
 };
 
-const applyTeamOverall = (rows, teamKey) => (Array.isArray(rows) ? rows : []).map((row) => {
-  const teamValues = teamKey && row?.team_overall && typeof row.team_overall === "object"
-    ? row.team_overall[teamKey]
-    : null;
+const applyTeamOverall = (rows, _teamKey) => (Array.isArray(rows) ? rows : []).map((row) => {
   const { team_overall: _privateTeamValues, ...safeRow } = row || {};
-  if (!teamKey) return safeRow;
-  if (teamValues && typeof teamValues === "object") return { ...safeRow, ...teamValues };
 
-  // Never substitute another team's projection when this team's summary column is absent.
-  return Object.fromEntries(
-    Object.entries(safeRow).filter(([key]) => !String(key).endsWith("_overall")),
-  );
+  // Columns explicitly named “Загальний підсумок” are shared comparison values
+  // for every team. Apps Script already writes them to the regular *_overall
+  // fields. Team-specific summary columns are private parsing metadata and must
+  // neither replace nor delete the published general values.
+  return safeRow;
 });
 
 const selectGroupSummaries = (summaries, teamKey, allowAll) => {

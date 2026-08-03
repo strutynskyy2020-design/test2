@@ -1,10 +1,11 @@
 import { getToken } from "@/lib/api";
 
-const CACHE_PREFIX = "tm6-google-reports-v106:";
+const CACHE_PREFIX = "vpdk-google-reports-v115:";
 const LEGACY_CACHE_PREFIX = "tm6-google-reports-v104:";
+const STALE_CACHE_PREFIXES = ["tm6-google-reports-v106:", LEGACY_CACHE_PREFIX];
 const VERSION_ENDPOINT = "/.netlify/functions/google-goals-version";
 const REPORTS_ENDPOINT = "/.netlify/functions/google-goals";
-const DB_NAME = "tm6-google-reports-v106";
+const DB_NAME = "vpdk-google-reports-v115";
 const DB_VERSION = 1;
 const REPORTS_STORE = "reports";
 const FALLBACK_PREFIX = `${CACHE_PREFIX}fallback:`;
@@ -40,10 +41,6 @@ const scheduleFor = (scheduleLogin = "") => normalize(scheduleLogin || "self");
 
 export const getGoogleReportsCacheKey = (user, scheduleLogin = "") => (
   `${CACHE_PREFIX}${identityFor(user)}:${scheduleFor(scheduleLogin)}`
-);
-
-const getLegacyGoogleReportsCacheKey = (user, scheduleLogin = "") => (
-  `${LEGACY_CACHE_PREFIX}${identityFor(user)}:${scheduleFor(scheduleLogin)}`
 );
 
 const parseRecord = (raw) => {
@@ -131,31 +128,6 @@ const writeLocalFallback = (key, record) => {
   }
 };
 
-const migrateLegacyRecord = async (user, scheduleLogin, key) => {
-  if (typeof window === "undefined") return null;
-  const legacyKey = getLegacyGoogleReportsCacheKey(user, scheduleLogin);
-  try {
-    const legacy = parseRecord(window.localStorage.getItem(legacyKey));
-    if (!legacy) return null;
-    const migrated = {
-      ...legacy,
-      schema: 2,
-      key,
-      identity: identityFor(user),
-      schedule: scheduleFor(scheduleLogin),
-    };
-    try {
-      await idbPut(migrated);
-      window.localStorage.removeItem(legacyKey);
-    } catch (_) {
-      writeLocalFallback(key, migrated);
-    }
-    return migrated;
-  } catch (_) {
-    return null;
-  }
-};
-
 export const readGoogleReportsCache = async (user, scheduleLogin = "") => {
   if (typeof window === "undefined" || !user) return null;
   const key = getGoogleReportsCacheKey(user, scheduleLogin);
@@ -170,8 +142,9 @@ export const readGoogleReportsCache = async (user, scheduleLogin = "") => {
   const fallback = readLocalFallback(key);
   if (fallback) return decorateRecord(fallback, key);
 
-  const migrated = await migrateLegacyRecord(user, scheduleLogin, key);
-  return decorateRecord(migrated, key);
+  // v115 intentionally does not migrate old report payloads: v106 could remove
+  // valid “Загальний підсумок” fields while applying the team filter.
+  return null;
 };
 
 const pruneIdentityRecords = async (identity, keepKey) => {
@@ -223,7 +196,7 @@ export const clearGoogleReportsCache = async () => {
     for (let index = 0; index < window.localStorage.length; index += 1) {
       const key = window.localStorage.key(index);
       if (
-        key?.startsWith(LEGACY_CACHE_PREFIX)
+        STALE_CACHE_PREFIXES.some((prefix) => key?.startsWith(prefix))
         || key?.startsWith(FALLBACK_PREFIX)
         || key?.startsWith(CACHE_PREFIX)
       ) keys.push(key);

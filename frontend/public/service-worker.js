@@ -1,4 +1,5 @@
 /* VPDK Bonus — Service Worker
+ * v115 preserves the shared “Загальний підсумок” in Google reports and refreshes stale report cache.
  * v114 adds the unified notification center, Web Push delivery, scheduled workday
  * reminders, manager analytics, and Google-report publication notifications.
  * v113 audits every light-theme route for readable contrast, adds exact balance
@@ -15,7 +16,7 @@
  * never be cached as index.html, otherwise browsers can render a giant broken
  * image element over the board.
  */
-const VERSION = "vpdk-v114";
+const VERSION = "vpdk-v115";
 const STATIC_CACHE = `${VERSION}-static`;
 const RUNTIME_CACHE = `${VERSION}-runtime`;
 
