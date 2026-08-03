@@ -1,0 +1,164 @@
+diff --git a/VPDK-Code-v121.gs b/VPDK-Code-v122.gs
+index 6e34bbc..ee6afe1 100644
+--- a/VPDK-Code-v121.gs
++++ b/VPDK-Code-v122.gs
+@@ -10,7 +10,7 @@ const SCHEDULE_SHEET_NAME = "Schedule";
+ const SCHEDULE_TIMEZONE = "Europe/Kyiv";
+ const REPORT_CACHE_SHEET_NAME = "_TM6_REPORT_CACHE";
+ const REPORT_CACHE_CHUNK_SIZE = 45000;
+-const REPORT_CACHE_API_VERSION = "v121-deposit-projection-block-detection";
++const REPORT_CACHE_API_VERSION = "v122-deposit-projection-compact-layout";
+ const TEAM_MESSAGES_SHEET_NAME = "_TM6_TEAM_MESSAGES";
+ 
+ function normalizeKey(value) {
+@@ -277,7 +277,7 @@ function isDepositProjectionLogin(value) {
+   return /^[a-zа-яіїєґ0-9._-]{2,}$/i.test(text);
+ }
+ 
+-function scoreDepositProjectionBlock(values, headerRowIndex, teamColumnIndex, loginColumnIndex, valueColumnIndex) {
++function scoreDepositProjectionBlock(values, headerRowIndex, teamColumnIndex, loginColumnIndex, valueColumnIndex, layout) {
+   let currentTeamKey = "";
+   let teamCount = 0;
+   let summaryCount = 0;
+@@ -301,7 +301,9 @@ function scoreDepositProjectionBlock(values, headerRowIndex, teamColumnIndex, lo
+     }
+     emptyRowsAfterData = 0;
+ 
+-    const detectedTeamKey = teamReportKey(rawTeam);
++    const teamFromTeamColumn = teamReportKey(rawTeam);
++    const teamFromLoginColumn = loginColumnIndex === teamColumnIndex ? "" : teamReportKey(rawLogin);
++    const detectedTeamKey = teamFromTeamColumn || teamFromLoginColumn;
+     if (detectedTeamKey) {
+       currentTeamKey = detectedTeamKey;
+       teamCount += 1;
+@@ -310,7 +312,11 @@ function scoreDepositProjectionBlock(values, headerRowIndex, teamColumnIndex, lo
+       continue;
+     }
+ 
+-    if (currentTeamKey && isDepositProjectionLogin(rawLogin) && isDepositProjectionValue(rawValue)) {
++    let operatorLogin = isDepositProjectionLogin(rawLogin) ? rawLogin : "";
++    if (!operatorLogin && loginColumnIndex !== teamColumnIndex && isDepositProjectionLogin(rawTeam)) {
++      operatorLogin = rawTeam;
++    }
++    if (currentTeamKey && operatorLogin && isDepositProjectionValue(rawValue)) {
+       operatorCount += 1;
+       rowsWithData += 1;
+     }
+@@ -319,6 +325,7 @@ function scoreDepositProjectionBlock(values, headerRowIndex, teamColumnIndex, lo
+   const valid = teamCount > 0 && operatorCount > 0;
+   return {
+     valid,
++    layout,
+     score: valid ? operatorCount * 20 + summaryCount * 8 + teamCount * 3 : -1,
+     team_count: teamCount,
+     summary_count: summaryCount,
+@@ -336,25 +343,52 @@ function findDepositProjectionBlock(values) {
+       const isDepositHeader = key === "deposit" || key === "депозит" || key === "депозити" || key.startsWith("deposit_");
+       if (!isDepositHeader) continue;
+ 
+-      // The current production layout is Team | Login | Result, but try a few
+-      // nearby offsets so inserted helper columns do not silently break reports.
++      // Compact production layout: the team labels and operator logins share
++      // one column, while the percentage is stored in the next nearby column.
++      // Example: T = TM_6 / fedun / stets, U = 93,28% / 113,45% / 98,43%.
++      for (let valueOffset = 1; valueOffset <= 3; valueOffset += 1) {
++        const evaluation = scoreDepositProjectionBlock(
++          values,
++          rowIndex,
++          columnIndex,
++          columnIndex,
++          columnIndex + valueOffset,
++          "compact"
++        );
++        if (evaluation.valid) {
++          candidates.push({
++            header_row_index: rowIndex,
++            team_column_index: columnIndex,
++            login_column_index: columnIndex,
++            value_column_index: columnIndex + valueOffset,
++            layout: evaluation.layout,
++            score: evaluation.score,
++            team_count: evaluation.team_count,
++            summary_count: evaluation.summary_count,
++            operator_count: evaluation.operator_count,
++          });
++        }
++      }
++
++      // Split layout fallback: Team | Login | Result, with optional helper
++      // columns inserted between the logical fields.
+       for (let loginOffset = 1; loginOffset <= 3; loginOffset += 1) {
+         for (let valueOffset = loginOffset + 1; valueOffset <= loginOffset + 3; valueOffset += 1) {
+-          const loginColumnIndex = columnIndex + loginOffset;
+-          const valueColumnIndex = columnIndex + valueOffset;
+           const evaluation = scoreDepositProjectionBlock(
+             values,
+             rowIndex,
+             columnIndex,
+-            loginColumnIndex,
+-            valueColumnIndex
++            columnIndex + loginOffset,
++            columnIndex + valueOffset,
++            "split"
+           );
+           if (!evaluation.valid) continue;
+           candidates.push({
+             header_row_index: rowIndex,
+             team_column_index: columnIndex,
+-            login_column_index: loginColumnIndex,
+-            value_column_index: valueColumnIndex,
++            login_column_index: columnIndex + loginOffset,
++            value_column_index: columnIndex + valueOffset,
++            layout: evaluation.layout,
+             score: evaluation.score,
+             team_count: evaluation.team_count,
+             summary_count: evaluation.summary_count,
+@@ -368,6 +402,8 @@ function findDepositProjectionBlock(values) {
+   candidates.sort((left, right) => {
+     if (right.score !== left.score) return right.score - left.score;
+     if (right.operator_count !== left.operator_count) return right.operator_count - left.operator_count;
++    if (right.summary_count !== left.summary_count) return right.summary_count - left.summary_count;
++    if (left.layout !== right.layout) return left.layout === "compact" ? -1 : 1;
+     if (left.header_row_index !== right.header_row_index) return left.header_row_index - right.header_row_index;
+     return left.team_column_index - right.team_column_index;
+   });
+@@ -416,10 +452,12 @@ function getDepositProjectionLeaderboard(spreadsheet) {
+     }
+     emptyRowsAfterData = 0;
+ 
+-    const detectedTeamKey = teamReportKey(rawTeam);
++    const teamFromTeamColumn = teamReportKey(rawTeam);
++    const teamFromLoginColumn = block.login_column_index === block.team_column_index ? "" : teamReportKey(rawLogin);
++    const detectedTeamKey = teamFromTeamColumn || teamFromLoginColumn;
+     if (detectedTeamKey) {
+       currentTeamKey = detectedTeamKey;
+-      currentTeamName = rawTeam;
++      currentTeamName = teamFromTeamColumn ? rawTeam : rawLogin;
+       if (isDepositProjectionValue(rawValue)) {
+         groupSummaries[currentTeamKey] = {
+           team_key: currentTeamKey,
+@@ -432,9 +470,14 @@ function getDepositProjectionLeaderboard(spreadsheet) {
+       continue;
+     }
+ 
+-    if (!currentTeamKey || !isDepositProjectionLogin(rawLogin) || !isDepositProjectionValue(rawValue)) continue;
++    let operatorLogin = isDepositProjectionLogin(rawLogin) ? rawLogin : "";
++    if (!operatorLogin && block.login_column_index !== block.team_column_index && isDepositProjectionLogin(rawTeam)) {
++      operatorLogin = rawTeam;
++    }
++    if (!currentTeamKey || !operatorLogin || !isDepositProjectionValue(rawValue)) continue;
++
+     rows.push({
+-      login: normalizeKey(rawLogin),
++      login: normalizeKey(operatorLogin),
+       team_key: currentTeamKey,
+       team_name: currentTeamName,
+       projective_rate: rawValue,
+@@ -449,6 +492,7 @@ function getDepositProjectionLeaderboard(spreadsheet) {
+     updated_at: Utilities.formatDate(new Date(), Session.getScriptTimeZone() || "Europe/Kyiv", "dd.MM.yyyy HH:mm"),
+     diagnostics: {
+       reason: rows.length ? null : "deposit_projection_rows_not_found",
++      layout: block.layout,
+       header_row: block.header_row_index + 1,
+       team_column: block.team_column_index + 1,
+       login_column: block.login_column_index + 1,

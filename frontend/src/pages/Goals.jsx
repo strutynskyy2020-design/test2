@@ -6,6 +6,9 @@ import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import api, { extractError, getToken } from "@/lib/api";
 import { useGoalsAccess } from "@/hooks/useGoalsAccess";
+import depositProjection from "@/lib/depositProjection";
+
+const { resolveDepositProjectionCurrent } = depositProjection;
 
 const metricMeta = {
   credit: { label: "Кредитний напрямок", icon: CreditCard, color: "#FFB800", openLabel: "Переглянути рейтинг і показники" },
@@ -197,8 +200,12 @@ export default function Goals() {
     }
 
     const goals = report.goals;
+    const depositProjection = resolveDepositProjectionCurrent(report, user);
     const metric = (name) => {
-      const current = parseSheetNumber(firstDefined(goals, [`${name}_actual`, `${name}_current`]));
+      const goalsCurrent = parseSheetNumber(firstDefined(goals, [`${name}_actual`, `${name}_current`]));
+      const current = name === "deposit" && depositProjection.current !== null
+        ? depositProjection.current
+        : goalsCurrent;
       const target = parseSheetNumber(firstDefined(goals, [`${name}_target`]));
       const modeValue = goals[`${name}_mode`] === "maintain" ? "maintain" : "reach";
       return {
@@ -206,6 +213,7 @@ export default function Goals() {
         target,
         mode: modeValue,
         complete: target > 0 && current >= target,
+        source: name === "deposit" ? depositProjection.source : "goals_sheet",
       };
     };
 
@@ -225,7 +233,7 @@ export default function Goals() {
       },
       emptyMessage: "",
     };
-  }, [error, mode, report]);
+  }, [error, mode, report, user]);
 
   const loading = mode !== "mock" && reportsLoading && !report;
   const weeklyDone = useMemo(() => data ? [data.credit, data.debit, data.deposit].filter(x => x?.complete).length : 0, [data]);
