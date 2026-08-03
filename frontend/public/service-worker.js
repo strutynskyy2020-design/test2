@@ -1,4 +1,5 @@
 /* VPDK Bonus — Service Worker
+ * v120 fixes Team Bank creation and adds deposit projection-first navigation.
  * v117 adds per-team bank administration and resettable collection cycles.
  * v116 adds private per-team banks for the 15 000 Point group-meeting goal.
  * v115 preserves the shared “Загальний підсумок” in Google reports and refreshes stale report cache.
@@ -18,7 +19,7 @@
  * never be cached as index.html, otherwise browsers can render a giant broken
  * image element over the board.
  */
-const VERSION = "vpdk-v118";
+const VERSION = "vpdk-v120";
 const STATIC_CACHE = `${VERSION}-static`;
 const RUNTIME_CACHE = `${VERSION}-runtime`;
 

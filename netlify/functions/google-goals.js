@@ -317,6 +317,9 @@ exports.handler = async (event) => {
         debit_leaderboard_updated_at: null,
         debit_issuances: [],
         deposit_metrics: [],
+        deposit_projection_leaderboard: [],
+        deposit_projection_group_summaries: {},
+        deposit_projection_updated_at: null,
         deposit_leaderboard: [],
         deposit_group_summaries: { month: {}, yesterday: {} },
         deposit_leaderboard_updated_at: null,
@@ -401,6 +404,11 @@ exports.handler = async (event) => {
       currentTeamKey,
       allowCrossTeamReports,
     );
+    const depositProjectionGroupSummaries = selectGroupSummaries(
+      baseData.deposit_projection_group_summaries,
+      currentTeamKey,
+      allowCrossTeamReports,
+    );
     const depositGroupSummaries = selectDepositGroupSummaries(
       baseData.deposit_group_summaries,
       currentTeamKey,
@@ -419,6 +427,10 @@ exports.handler = async (event) => {
     );
     const debitLeaderboard = enrichRowsWithParticipants(
       filterRowsByAllowedLogins(baseData.debit_leaderboard, allowedLogins),
+      participants,
+    );
+    const depositProjectionLeaderboard = enrichRowsWithParticipants(
+      filterRowsByAllowedLogins(baseData.deposit_projection_leaderboard, allowedLogins),
       participants,
     );
     const depositLeaderboard = enrichRowsWithParticipants(
@@ -451,6 +463,9 @@ exports.handler = async (event) => {
       debit_leaderboard_updated_at: baseData.debit_leaderboard_updated_at || null,
       debit_issuances: viewerHasOwnReport && Array.isArray(baseData.debit_issuances) ? baseData.debit_issuances : [],
       deposit_metrics: viewerHasOwnReport ? applyDepositTeamOverall(baseData.deposit_metrics, currentTeamKey) : [],
+      deposit_projection_leaderboard: depositProjectionLeaderboard,
+      deposit_projection_group_summaries: depositProjectionGroupSummaries,
+      deposit_projection_updated_at: baseData.deposit_projection_updated_at || baseData.snapshot_updated_at || null,
       deposit_leaderboard: depositLeaderboard,
       deposit_group_summaries: depositGroupSummaries,
       deposit_leaderboard_updated_at: baseData.deposit_leaderboard_updated_at || null,

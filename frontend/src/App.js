@@ -41,6 +41,7 @@ const CreditLeaderboard = lazy(() => import("@/pages/CreditLeaderboard"));
 const DebitLeaderboard = lazy(() => import("@/pages/DebitLeaderboard"));
 const DebitIssuances = lazy(() => import("@/pages/DebitIssuances"));
 const DepositLeaderboard = lazy(() => import("@/pages/DepositLeaderboard"));
+const DepositIssuanceLeaderboard = lazy(() => import("@/pages/DepositIssuanceLeaderboard"));
 const DepositGoals = lazy(() => import("@/pages/DepositGoals"));
 const BonusMatch = lazy(() => import("@/pages/BonusMatch"));
 const Sudoku = lazy(() => import("@/pages/Sudoku"));
@@ -151,6 +152,7 @@ function App() {
             <Route path="/goals/debit" element={<LazyPage><DebitLeaderboard /></LazyPage>} />
             <Route path="/goals/debit/me" element={<LazyPage><DebitIssuances /></LazyPage>} />
             <Route path="/goals/deposit" element={<LazyPage><DepositLeaderboard /></LazyPage>} />
+            <Route path="/goals/deposit/issuances" element={<LazyPage><DepositIssuanceLeaderboard /></LazyPage>} />
             <Route path="/goals/deposit/me" element={<LazyPage><DepositGoals /></LazyPage>} />
             <Route path="/store" element={<LazyPage><Store /></LazyPage>} />
             <Route path="/leaderboard" element={<LazyPage><Leaderboard /></LazyPage>} />

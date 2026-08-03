@@ -5,6 +5,7 @@ import {
   BriefcaseBusiness,
   CalendarCheck2,
   CheckCircle2,
+  ChevronRight,
   HandCoins,
   Landmark,
   RefreshCcw,
@@ -132,6 +133,16 @@ export default function DepositGoals() {
       </section>
 
       <PeriodTabs value={period} onChange={setPeriod} />
+
+      <button
+        type="button"
+        onClick={() => navigate(`/goals/deposit/issuances?period=${period}`)}
+        className="flex w-full items-center gap-3 rounded-2xl border border-[#FFB800]/25 bg-[#FFB800]/[.06] p-4 text-left active:scale-[.99]"
+      >
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#FFB800]/10 text-[#FFB800]"><HandCoins size={21} strokeWidth={2.8} /></div>
+        <div className="min-w-0 flex-1"><div className="font-black text-white">Рейтинг по видачах</div><div className="mt-1 text-xs text-zinc-500">Порівняти операторів своєї команди</div></div>
+        <ChevronRight size={18} className="shrink-0 text-zinc-600" />
+      </button>
 
       {!active ? (
         <section className="rounded-3xl border border-white/10 bg-[#1A1A1E] p-7 text-center">

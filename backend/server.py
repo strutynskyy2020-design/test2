@@ -712,10 +712,22 @@ async def _ensure_team_bank(team_id: Optional[str]) -> dict:
         "created_at": current_time,
         "updated_at": current_time,
     }
+    # MongoDB rejects an upsert when the same field is present in both
+    # $setOnInsert and $set. Keep immutable / initial fields in $setOnInsert and
+    # refresh the public bank configuration separately in $set.
     await db.team_banks.update_one(
         {"team_id": team_id},
         {
-            "$setOnInsert": defaults,
+            "$setOnInsert": {
+                "id": defaults["id"],
+                "team_id": team_id,
+                "current_points": 0,
+                "cycle_number": 1,
+                "unlocked_at": None,
+                "last_reset_at": None,
+                "last_reset_by": None,
+                "created_at": current_time,
+            },
             "$set": {
                 "team_name": defaults["team_name"],
                 "goal_points": TEAM_BANK_GOAL_POINTS,

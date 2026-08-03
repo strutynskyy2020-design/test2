@@ -10,7 +10,7 @@ const SCHEDULE_SHEET_NAME = "Schedule";
 const SCHEDULE_TIMEZONE = "Europe/Kyiv";
 const REPORT_CACHE_SHEET_NAME = "_TM6_REPORT_CACHE";
 const REPORT_CACHE_CHUNK_SIZE = 45000;
-const REPORT_CACHE_API_VERSION = "v118-deposit-reports";
+const REPORT_CACHE_API_VERSION = "v120-deposit-projection-ranking";
 const TEAM_MESSAGES_SHEET_NAME = "_TM6_TEAM_MESSAGES";
 
 function normalizeKey(value) {
@@ -253,6 +253,93 @@ function getDebitLeaderboard(spreadsheet) {
   return {
     rows,
     group_summary: groupSummaries.tm6 || (firstSummaryKey ? groupSummaries[firstSummaryKey] : null),
+    group_summaries: groupSummaries,
+    updated_at: Utilities.formatDate(new Date(), Session.getScriptTimeZone() || "Europe/Kyiv", "dd.MM.yyyy HH:mm"),
+  };
+}
+
+function getDepositProjectionLeaderboard(spreadsheet) {
+  const sourceSpreadsheet = spreadsheet || SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sheet = sourceSpreadsheet.getSheetByName(CREDIT_LEADERBOARD_SHEET_NAME);
+  if (!sheet) return { rows: [], group_summaries: {}, updated_at: "" };
+
+  const values = sheet.getDataRange().getDisplayValues();
+  if (!values.length) return { rows: [], group_summaries: {}, updated_at: "" };
+
+  let headerRowIndex = -1;
+  let teamColumnIndex = -1;
+  for (let rowIndex = 0; rowIndex < values.length; rowIndex += 1) {
+    const row = values[rowIndex] || [];
+    for (let columnIndex = 0; columnIndex < row.length; columnIndex += 1) {
+      const key = normalizeHeaderKey(row[columnIndex]);
+      if (key === "deposit" || key === "депозит" || key === "депозити") {
+        headerRowIndex = rowIndex;
+        teamColumnIndex = columnIndex;
+        break;
+      }
+    }
+    if (headerRowIndex !== -1) break;
+  }
+
+  if (headerRowIndex === -1 || teamColumnIndex === -1) {
+    return { rows: [], group_summaries: {}, updated_at: "" };
+  }
+
+  const loginColumnIndex = teamColumnIndex + 1;
+  const valueColumnIndex = teamColumnIndex + 2;
+  const rows = [];
+  const groupSummaries = {};
+  let currentTeamKey = "";
+  let currentTeamName = "";
+  let foundData = false;
+  let emptyRowsAfterData = 0;
+
+  for (let rowIndex = headerRowIndex + 1; rowIndex < values.length; rowIndex += 1) {
+    const row = values[rowIndex] || [];
+    const rawTeam = String(row[teamColumnIndex] || "").trim();
+    const rawLogin = String(row[loginColumnIndex] || "").trim();
+    const rawValue = String(row[valueColumnIndex] || "").trim();
+
+    if (!rawTeam && !rawLogin && !rawValue) {
+      if (foundData) {
+        emptyRowsAfterData += 1;
+        if (emptyRowsAfterData >= 4) break;
+      }
+      continue;
+    }
+    emptyRowsAfterData = 0;
+
+    if (rawTeam) {
+      const detectedTeamKey = teamReportKey(rawTeam);
+      if (detectedTeamKey) {
+        currentTeamKey = detectedTeamKey;
+        currentTeamName = rawTeam;
+        if (rawValue) {
+          groupSummaries[currentTeamKey] = {
+            team_key: currentTeamKey,
+            team_name: currentTeamName,
+            projective_rate: rawValue,
+            overall: rawValue,
+          };
+          foundData = true;
+        }
+      }
+    }
+
+    const login = normalizeKey(rawLogin);
+    if (!login || !currentTeamKey || !rawValue) continue;
+    rows.push({
+      login,
+      team_key: currentTeamKey,
+      team_name: currentTeamName,
+      projective_rate: rawValue,
+      overall: rawValue,
+    });
+    foundData = true;
+  }
+
+  return {
+    rows,
     group_summaries: groupSummaries,
     updated_at: Utilities.formatDate(new Date(), Session.getScriptTimeZone() || "Europe/Kyiv", "dd.MM.yyyy HH:mm"),
   };
@@ -1168,6 +1255,7 @@ function buildReportSnapshots(spreadsheet) {
   const sources = loadReportSources(spreadsheet);
   const leaderboard = getCreditLeaderboard(spreadsheet);
   const debitLeaderboard = getDebitLeaderboard(spreadsheet);
+  const depositProjection = getDepositProjectionLeaderboard(spreadsheet);
   const depositGiving = getDepositGivingData(sources.depositValues);
   const now = new Date();
   const timezone = Session.getScriptTimeZone() || SCHEDULE_TIMEZONE;
@@ -1180,7 +1268,8 @@ function buildReportSnapshots(spreadsheet) {
     .filter(Boolean);
   const scheduleLogins = getScheduleLogins(sources.schedule);
   const depositLogins = getDepositLogins(depositGiving);
-  const logins = Array.from(new Set(goalLogins.concat(scheduleLogins, depositLogins))).sort();
+  const depositProjectionLogins = (depositProjection.rows || []).map((row) => normalizeKey(row.login)).filter(Boolean);
+  const logins = Array.from(new Set(goalLogins.concat(scheduleLogins, depositLogins, depositProjectionLogins))).sort();
 
   const reports = logins.map((goalsLogin) => {
     const found = findGoalRow(context, goalsLogin);
@@ -1213,6 +1302,9 @@ function buildReportSnapshots(spreadsheet) {
         debit_leaderboard_updated_at: snapshotUpdatedAt,
         debit_issuances: getDebitIssuanceRows(goalsLogin, sources.debitIssuanceValues),
         deposit_metrics: getDepositMetricRows(goalsLogin, sources.depositValues),
+        deposit_projection_leaderboard: depositProjection.rows,
+        deposit_projection_group_summaries: depositProjection.group_summaries || {},
+        deposit_projection_updated_at: depositProjection.updated_at || snapshotUpdatedAt,
         deposit_leaderboard: depositGiving.rows,
         deposit_group_summaries: depositGiving.group_summaries || { month: {}, yesterday: {} },
         deposit_leaderboard_updated_at: snapshotUpdatedAt,
@@ -1459,6 +1551,9 @@ function reportsNotRefreshedPayload(goalsLogin) {
     debit_leaderboard_updated_at: updatedAt,
     debit_issuances: [],
     deposit_metrics: [],
+    deposit_projection_leaderboard: [],
+    deposit_projection_group_summaries: {},
+    deposit_projection_updated_at: updatedAt,
     deposit_leaderboard: [],
     deposit_group_summaries: { month: {}, yesterday: {} },
     deposit_leaderboard_updated_at: updatedAt,

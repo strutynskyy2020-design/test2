@@ -7,6 +7,7 @@ import {
   Clock4,
   Gift,
   ShoppingBag,
+  RefreshCcw,
   UserRound,
   X,
 } from "lucide-react";
@@ -203,7 +204,7 @@ const AvatarCatalog = ({ groups, balance, onBuy, ownedIds, activeId }) => (
 
 const TEAM_BANK_PRESETS = [50, 100, 250, 500];
 
-const TeamBankPanel = ({ teamBank, user, selectedAmount, onSelectAmount, onContribute, loading, submitting }) => {
+const TeamBankPanel = ({ teamBank, user, selectedAmount, onSelectAmount, onContribute, onRetry, loading, submitting, error }) => {
   if (!user?.team_id) {
     return (
       <div className="rounded-3xl border border-white/10 bg-[#1A1A1E] p-8 text-center">
@@ -226,7 +227,16 @@ const TeamBankPanel = ({ teamBank, user, selectedAmount, onSelectAmount, onContr
     return (
       <div className="rounded-3xl border border-[#FF5C7A]/20 bg-[#1A1A1E] p-8 text-center">
         <div className="text-sm font-black text-white">Не вдалося завантажити Банку Команди</div>
-        <div className="mt-1 text-xs text-zinc-500">Спробуйте відкрити сторінку ще раз або перевірте підключення до сервера.</div>
+        <div className="mt-2 text-xs leading-relaxed text-zinc-500">{error || "Спробуйте повторити запит або перевірте підключення до backend."}</div>
+        <button
+          type="button"
+          onClick={onRetry}
+          disabled={loading}
+          className="mx-auto mt-4 flex h-11 items-center justify-center gap-2 rounded-2xl border border-[#FFB800]/35 bg-[#FFB800]/10 px-5 text-xs font-black uppercase tracking-wider text-[#FFB800] disabled:opacity-50"
+        >
+          <RefreshCcw size={15} strokeWidth={3} className={loading ? "animate-spin" : ""} />
+          Повторити
+        </button>
       </div>
     );
   }
@@ -409,6 +419,7 @@ export default function Store() {
   const [submitting, setSubmitting] = useState(false);
   const [teamBank, setTeamBank] = useState(null);
   const [teamBankLoading, setTeamBankLoading] = useState(false);
+  const [teamBankError, setTeamBankError] = useState("");
   const [teamBankSubmitting, setTeamBankSubmitting] = useState(false);
   const [teamContributionAmount, setTeamContributionAmount] = useState(100);
 
@@ -441,11 +452,13 @@ export default function Store() {
       return;
     }
     setTeamBankLoading(true);
+    setTeamBankError("");
     try {
       const { data } = await api.get("/team-bank");
       setTeamBank(data);
-    } catch (_) {
+    } catch (error) {
       setTeamBank(null);
+      setTeamBankError(extractError(error, "Backend не повернув дані Банки Команди"));
     } finally {
       setTeamBankLoading(false);
     }
@@ -556,8 +569,10 @@ export default function Store() {
           selectedAmount={teamContributionAmount}
           onSelectAmount={setTeamContributionAmount}
           onContribute={contributeTeamBank}
+          onRetry={loadTeamBank}
           loading={teamBankLoading}
           submitting={teamBankSubmitting}
+          error={teamBankError}
         />
       ) : generalPrizes.length ? (
         <div className="grid grid-cols-2 gap-3" data-testid="prize-grid">
