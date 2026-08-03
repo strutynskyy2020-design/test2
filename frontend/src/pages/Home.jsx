@@ -11,8 +11,12 @@ import FeedItem from "@/components/FeedItem";
 import ThemeToggle from "@/components/ThemeToggle";
 import PalmOnSandIcon from "@/components/PalmOnSandIcon";
 import { addIsoDays, formatShiftTime, getScheduleStatus, kyivTodayIso } from "@/lib/workSchedule";
+import depositProjection from "@/lib/depositProjection";
+import { normalizeReportProfile } from "@/lib/activationReports";
 
 const ICONS = { flame: Flame, trophy: Trophy, "graduation-cap": GraduationCap, sparkles: Sparkles, crown: Crown, award: Award, medal: Medal, star: Star };
+const { resolveDepositProjectionCurrent } = depositProjection;
+
 const ScheduleMiniIcon = ({ type, size = 21 }) => {
   if (type === "late_shift") return <CalendarClock size={size} strokeWidth={2.6} />;
   if (type === "weekend_shift") return <CalendarDays size={size} strokeWidth={2.6} />;
@@ -57,9 +61,13 @@ const firstDefined = (object, keys) => {
   return 0;
 };
 
-const mapGoogleGoals = (sheetGoals) => {
+const mapGoogleGoals = (sheetGoals, report, user) => {
+  const depositProjection = resolveDepositProjectionCurrent(report, user);
   const metric = (name) => {
-    const current = parseSheetNumber(firstDefined(sheetGoals, [`${name}_actual`, `${name}_current`]));
+    const sheetCurrent = parseSheetNumber(firstDefined(sheetGoals, [`${name}_actual`, `${name}_current`]));
+    const current = name === "deposit" && depositProjection.current !== null
+      ? depositProjection.current
+      : sheetCurrent;
     const target = parseSheetNumber(firstDefined(sheetGoals, [`${name}_target`]));
     return {
       current,
@@ -69,6 +77,7 @@ const mapGoogleGoals = (sheetGoals) => {
   };
 
   return {
+    report_profile: "sales",
     credit: metric("credit"),
     debit: metric("debit"),
     deposit: metric("deposit"),
@@ -77,9 +86,30 @@ const mapGoogleGoals = (sheetGoals) => {
   };
 };
 
+const mapActivationGoals = (sheetGoals) => {
+  const metric = (name) => {
+    const current = parseSheetNumber(firstDefined(sheetGoals, [`${name}_actual`, `${name}_current`]));
+    const target = parseSheetNumber(firstDefined(sheetGoals, [`${name}_target`]));
+    return { current, target, complete: target > 0 && current >= target };
+  };
+  return {
+    report_profile: "activation",
+    pumb_online: metric("pumb_online"),
+    cards: metric("cards"),
+    monthly_bonus_current: parseSheetNumber(firstDefined(sheetGoals, ["monthly_bonus_actual", "monthly_bonus_current"])),
+    monthly_bonus_target: parseSheetNumber(firstDefined(sheetGoals, ["monthly_bonus_target"])),
+  };
+};
+
 const defaultGoals = {
-  credit: { current: 0, target: 0, complete: false }, debit: { current: 0, target: 0, complete: false }, deposit: { current: 0, target: 0, complete: false },
-  monthly_bonus_current: 0, monthly_bonus_target: 0,
+  report_profile: "sales",
+  credit: { current: 0, target: 0, complete: false },
+  debit: { current: 0, target: 0, complete: false },
+  deposit: { current: 0, target: 0, complete: false },
+  pumb_online: { current: 0, target: 0, complete: false },
+  cards: { current: 0, target: 0, complete: false },
+  monthly_bonus_current: 0,
+  monthly_bonus_target: 0,
 };
 
 let bonusMatchWarmup = null;
@@ -126,7 +156,10 @@ export default function Home() {
     if (!user) return;
 
     if (mode === "mock") {
-      setGoals({ credit: { current: 92, target: 100, complete: false }, debit: { current: 111, target: 110, complete: true }, deposit: { current: 86, target: 95, complete: false }, monthly_bonus_current: 14250, monthly_bonus_target: 18000 });
+      const mockProfile = normalizeReportProfile(user?.report_profile);
+      setGoals(mockProfile === "activation"
+        ? { ...defaultGoals, report_profile: "activation", pumb_online: { current: 108.7, target: 100, complete: true }, cards: { current: 103.3, target: 100, complete: true }, monthly_bonus_current: 14250, monthly_bonus_target: 18000 }
+        : { ...defaultGoals, report_profile: "sales", credit: { current: 92, target: 100, complete: false }, debit: { current: 111, target: 110, complete: true }, deposit: { current: 86, target: 95, complete: false }, monthly_bonus_current: 14250, monthly_bonus_target: 18000 });
       const mockToday = kyivTodayIso();
       setWorkSchedule({
         found: true,
@@ -139,10 +172,13 @@ export default function Home() {
       return;
     }
 
-    if (googleReports?.found && googleReports.goals) {
-      setGoals(mapGoogleGoals(googleReports.goals));
+    const reportProfile = normalizeReportProfile(googleReports?.report_profile || user?.report_profile);
+    if (googleReports?.found && reportProfile === "activation" && googleReports.activation_goals) {
+      setGoals(mapActivationGoals(googleReports.activation_goals));
+    } else if (googleReports?.found && googleReports.goals) {
+      setGoals(mapGoogleGoals(googleReports.goals, googleReports, user));
     } else {
-      setGoals(defaultGoals);
+      setGoals({ ...defaultGoals, report_profile: reportProfile });
     }
     setWorkSchedule(googleReports?.schedule && typeof googleReports.schedule === "object" ? googleReports.schedule : null);
   }, [googleReports, mode, user]);
@@ -177,7 +213,12 @@ export default function Home() {
     .map((item) => ({ ...item, unlocked: true, custom: true }));
   const achievements = [...automaticAchievements, ...customAchievements];
   const avatarSrc = resolveAvatarUrl(user.avatar_url);
-  const weeklyDone = [goals.credit, goals.debit, goals.deposit].filter(g => g?.complete).length;
+  const isActivationProfile = normalizeReportProfile(goals.report_profile || user?.report_profile) === "activation";
+  const goalEntries = isActivationProfile
+    ? [["ПУМБ Online", goals.pumb_online], ["Картки", goals.cards]]
+    : [["Кредити", goals.credit], ["Дебет", goals.debit], ["Депозити", goals.deposit]];
+  const weeklyTotal = goalEntries.length;
+  const weeklyDone = goalEntries.filter(([, goal]) => goal?.complete).length;
   const bonusCurrent = Number(goals.monthly_bonus_current || 0);
   const bonusTarget = Number(goals.monthly_bonus_target || 0);
   const bonusPct = bonusTarget > 0 ? Math.min(100, Math.round(bonusCurrent / bonusTarget * 100)) : 0;
@@ -224,9 +265,9 @@ export default function Home() {
 
     {/* 4. Goals banner */}
     <button onClick={() => nav("/goals")} className="w-full rounded-3xl border border-[#B78CFF]/45 bg-gradient-to-br from-[#B78CFF]/18 to-[#1A1A1E] p-5 text-left active:scale-[.99]">
-      <div className="flex items-center gap-3"><div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#B78CFF]/20"><Target size={24} strokeWidth={3} color="#B78CFF" /></div><div className="flex-1"><div className="font-display text-xl text-white">МОЇ ЦІЛІ</div><div className="text-xs text-zinc-400">Тиждень: {weeklyDone}/3 • Бонус: {bonusPct}%</div></div><ChevronRight color="#B78CFF" /></div>
-      <div className="mt-4 grid grid-cols-4 gap-2">{[["Кредити",goals.credit],["Дебет",goals.debit],["Депозити",goals.deposit]].map(([label,g]) => <div key={label}><div className="truncate text-[9px] font-black uppercase text-zinc-500">{label}</div><div className={`mt-1 text-sm font-black ${g?.complete ? "text-[#39FF14]" : "text-white"}`}>{Number(g?.current||0)}%</div></div>)}<div><div className="text-[9px] font-black uppercase text-zinc-500">Бонус</div><div className="mt-1 text-sm font-black text-[#FFB800]">{bonusPct}%</div></div></div>
-      <div className="mt-3 h-2 overflow-hidden rounded-full bg-black/40"><div className="h-full rounded-full bg-[#B78CFF]" style={{ width: `${weeklyDone / 3 * 100}%` }} /></div>
+      <div className="flex items-center gap-3"><div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#B78CFF]/20"><Target size={24} strokeWidth={3} color="#B78CFF" /></div><div className="flex-1"><div className="font-display text-xl text-white">МОЇ ЦІЛІ</div><div className="text-xs text-zinc-400">Тиждень: {weeklyDone}/{weeklyTotal} • Бонус: {bonusPct}%</div></div><ChevronRight color="#B78CFF" /></div>
+      <div className={`mt-4 grid gap-2 ${isActivationProfile ? "grid-cols-3" : "grid-cols-4"}`}>{goalEntries.map(([label,g]) => <div key={label}><div className="truncate text-[9px] font-black uppercase text-zinc-500">{label}</div><div className={`mt-1 text-sm font-black ${g?.complete ? "text-[#39FF14]" : "text-white"}`}>{Number(g?.current||0)}%</div></div>)}<div><div className="text-[9px] font-black uppercase text-zinc-500">Бонус</div><div className="mt-1 text-sm font-black text-[#FFB800]">{bonusPct}%</div></div></div>
+      <div className="mt-3 h-2 overflow-hidden rounded-full bg-black/40"><div className="h-full rounded-full bg-[#B78CFF]" style={{ width: `${weeklyTotal ? weeklyDone / weeklyTotal * 100 : 0}%` }} /></div>
     </button>
 
     {/* 5. Quests / store */}

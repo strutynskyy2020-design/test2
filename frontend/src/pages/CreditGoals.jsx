@@ -508,7 +508,7 @@ export default function CreditGoals() {
 
   const details = useMemo(() => {
     if (mode === "mock") return FEDUN_DEMO;
-    if (!report?.found || !report?.goals) return null;
+    if (!report) return null;
     return buildDetailsFromMetricRows(report.credit_metrics) || buildDetailsFromSheet(report.goals);
   }, [mode, report]);
 
@@ -516,10 +516,10 @@ export default function CreditGoals() {
     if (mode === "mock" || details) return "";
     if (error) return "Не вдалося завантажити деталізацію з опублікованого звіту.";
     if (!report) return "";
-    if (!report.found || !report.goals) {
-      return "Для вашого профілю ще не додано детальні показники кредитного напрямку.";
+    if (!report.report_found && !report.found) {
+      return "Для вашого профілю ще не знайдено кредитний звіт.";
     }
-    return "У Google Таблиці є цілі, але ще немає колонок деталізації X-Sell, Web Apps та INB.";
+    return "У Google Таблиці ще немає колонок деталізації X-Sell, Web Apps та INB для вашого логіна.";
   }, [details, error, mode, report]);
 
   const loading = mode !== "mock" && reportsLoading && !report;

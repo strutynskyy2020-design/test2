@@ -191,6 +191,7 @@ class UserPublic(BaseModel):
     telegram: Optional[str] = None
     telegram_id: Optional[str] = None
     goals_login: Optional[str] = None
+    report_profile: Literal["sales", "activation"] = "sales"
     team_id: Optional[str] = None
     team_name: Optional[str] = None
     is_team_leader: bool = False
@@ -283,6 +284,7 @@ class RegisterBody(BaseModel):
     phone: Optional[str] = None
     telegram: Optional[str] = None
     goals_login: Optional[str] = None
+    report_profile: Literal["sales", "activation"] = "sales"
     team_id: Optional[str] = None
 
 
@@ -340,6 +342,7 @@ class UserAdminUpdateBody(BaseModel):
     phone: Optional[str] = None
     telegram: Optional[str] = None
     goals_login: Optional[str] = None
+    report_profile: Optional[Literal["sales", "activation"]] = None
     department: Optional[str] = None
     position: Optional[str] = None
     avatar_color: Optional[str] = None
@@ -577,6 +580,8 @@ def _sanitize_user(doc: dict) -> UserPublic:
     doc.setdefault("telegram_id", None)
     doc.setdefault("telegram", None)
     doc.setdefault("goals_login", None)
+    if doc.get("report_profile") not in {"sales", "activation"}:
+        doc["report_profile"] = "sales"
     doc.setdefault("phone", None)
     doc.setdefault("first_name", "")
     doc.setdefault("last_name", "")
@@ -859,6 +864,7 @@ def _goals_access_signature(
             "login": login,
             "team_id": str(participant.get("team_id") or ""),
             "team_key": _normalize_team_report_key(participant.get("team_name")),
+            "report_profile": str(participant.get("report_profile") or "sales"),
         })
     participant_teams.sort(key=lambda item: (item["login"], item["team_id"], item["team_key"]))
     payload = {
@@ -924,6 +930,7 @@ async def auth_register(body: RegisterBody, admin: dict = Depends(get_current_ad
         "telegram": body.telegram,
         "telegram_id": None,
         "goals_login": (body.goals_login or "").strip().lower() or None,
+        "report_profile": body.report_profile,
         "team_id": body.team_id,
         "is_team_leader": False,
         "approved": True,
@@ -980,6 +987,7 @@ async def auth_register_self(body: SelfRegisterBody):
         "telegram": body.telegram or None,
         "telegram_id": None,
         "goals_login": None,
+        "report_profile": "sales",
         "team_id": body.team_id,
         "is_team_leader": False,
         "approved": False,
@@ -1780,6 +1788,7 @@ async def get_goal_participants(user: dict = Depends(get_current_user)):
             "avatar_color": 1,
             "avatar_url": 1,
             "avatar_rarity": 1,
+            "report_profile": 1,
         },
     ).sort("name", 1).to_list(2000)
     team_ids = list({doc.get("team_id") for doc in docs if doc.get("team_id")})
@@ -1790,6 +1799,7 @@ async def get_goal_participants(user: dict = Depends(get_current_user)):
     for doc in docs:
         doc["team_name"] = team_names.get(doc.get("team_id"))
         doc["team_key"] = _normalize_team_report_key(doc.get("team_name"))
+        doc["report_profile"] = doc.get("report_profile") if doc.get("report_profile") in {"sales", "activation"} else "sales"
     return docs
 
 
@@ -1821,6 +1831,7 @@ async def goals_report_access(user: dict = Depends(get_current_user)):
             "avatar_color": 1,
             "avatar_url": 1,
             "avatar_rarity": 1,
+            "report_profile": 1,
         },
     ).sort("name", 1).to_list(3000)
     teams = await db.teams.find({}, {"_id": 0, "id": 1, "name": 1, "color": 1}).sort("name", 1).to_list(500)
@@ -1833,6 +1844,7 @@ async def goals_report_access(user: dict = Depends(get_current_user)):
         participant = dict(member)
         participant["team_name"] = (team_map.get(member.get("team_id")) or {}).get("name", "")
         participant["team_key"] = _normalize_team_report_key(participant.get("team_name"))
+        participant["report_profile"] = participant.get("report_profile") if participant.get("report_profile") in {"sales", "activation"} else "sales"
         participants.append(participant)
     allowed_logins = [str(member.get("goals_login") or "").strip().lower() for member in members]
     allowed_logins = [value for value in dict.fromkeys(allowed_logins) if value]

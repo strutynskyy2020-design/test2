@@ -36,13 +36,138 @@ const teamReportKey = (value = "") => {
   return match ? `tm${match[1]}` : normalized;
 };
 
+const normalizeReportProfile = (value) => normalizeKey(value) === "activation" ? "activation" : "sales";
+
 const rowLogin = (row = {}) => normalizeKey(row.login || row.goals_login || row.operator || row.credit || row.debit);
+
+
+const hasArrayItems = (value) => Array.isArray(value) && value.length > 0;
+
+const reportRowForLogin = (rows, login) => (
+  (Array.isArray(rows) ? rows : []).find((row) => rowLogin(row) === normalizeKey(login)) || null
+);
+
+const firstReportValue = (object, keys) => {
+  for (const key of keys) {
+    const value = object?.[key];
+    if (value !== undefined && value !== null && String(value).trim() !== "") return String(value).trim();
+  }
+  return "";
+};
+
+const reportHasPersonalData = (data, login) => {
+  if (!data || !login) return false;
+  if (data.report_found === true || data.found === true || data.goals) return true;
+  if (
+    hasArrayItems(data.credit_metrics)
+    || hasArrayItems(data.debit_issuances)
+    || hasArrayItems(data.deposit_metrics)
+    || hasArrayItems(data.deposit_issuances)
+    || hasArrayItems(data.activation_pumb_metrics)
+    || hasArrayItems(data.activation_pumb_giving)
+    || hasArrayItems(data.activation_cards_metrics)
+    || hasArrayItems(data.activation_cards_giving)
+    || data.schedule?.found
+  ) return true;
+  return Boolean(
+    reportRowForLogin(data.credit_leaderboard, login)
+    || reportRowForLogin(data.debit_leaderboard, login)
+    || reportRowForLogin(data.deposit_projection_leaderboard, login)
+    || reportRowForLogin(data.deposit_leaderboard, login)
+    || reportRowForLogin(data.activation_pumb_leaderboard, login)
+    || reportRowForLogin(data.activation_pumb_giving_leaderboard, login)
+    || reportRowForLogin(data.activation_cards_leaderboard, login)
+    || reportRowForLogin(data.activation_cards_giving_leaderboard, login)
+  );
+};
+
+const buildAutomaticGoals = (data, login) => {
+  const creditRow = reportRowForLogin(data?.credit_leaderboard, login) || {};
+  const debitRow = reportRowForLogin(data?.debit_leaderboard, login) || {};
+  const depositProjectionRow = reportRowForLogin(data?.deposit_projection_leaderboard, login) || {};
+  const depositMonth = (Array.isArray(data?.deposit_metrics) ? data.deposit_metrics : []).find((row) => {
+    const period = normalizeKey(row?.period);
+    return period.includes("month") || period.includes("міся");
+  }) || data?.deposit_metrics?.[0] || {};
+
+  const creditActual = firstReportValue(creditRow, ["overall", "projective_rate", "result", "value"]) || "0";
+  const debitActual = firstReportValue(debitRow, ["overall", "projective_rate", "result", "value"]) || "0";
+  const depositActual = firstReportValue(
+    depositProjectionRow,
+    ["projective_rate", "projection_rate", "projective", "projection", "overall", "result", "value"],
+  ) || firstReportValue(depositMonth, ["projective_rate", "projection_rate", "projective", "projection"]) || "0";
+
+  return {
+    goals_login: normalizeKey(login),
+    credit_actual: creditActual,
+    credit_current: creditActual,
+    credit_target: "110",
+    credit_mode: "reach",
+    debit_actual: debitActual,
+    debit_current: debitActual,
+    debit_target: "105",
+    debit_mode: "reach",
+    deposit_actual: depositActual,
+    deposit_current: depositActual,
+    deposit_target: "100",
+    deposit_mode: "reach",
+    monthly_bonus_actual: "0",
+    monthly_bonus_current: "0",
+    monthly_bonus_target: "10000",
+    weekly_complete: "false",
+    monthly_complete: "false",
+    weekly_reward_awarded: "false",
+    monthly_reward_awarded: "false",
+    note: "",
+    goals_auto_generated: "true",
+  };
+};
+
+const buildAutomaticActivationGoals = (data, login) => {
+  const pumbRow = reportRowForLogin(data?.activation_pumb_leaderboard, login) || {};
+  const cardsRow = reportRowForLogin(data?.activation_cards_leaderboard, login) || {};
+  const pumbMonth = (Array.isArray(data?.activation_pumb_metrics) ? data.activation_pumb_metrics : []).find((row) => normalizeKey(row?.period) === "month") || {};
+  const pumbActual = firstReportValue(pumbRow, ["projective_rate", "projection_rate", "overall", "result", "value"])
+    || firstReportValue(pumbMonth, ["projective_rate", "projection_rate"]) || "0";
+  const cardsActual = firstReportValue(cardsRow, ["projective_rate", "projection_rate", "overall", "result", "value"]) || "0";
+  return {
+    goals_login: normalizeKey(login),
+    pumb_online_actual: pumbActual,
+    pumb_online_current: pumbActual,
+    pumb_online_target: "100",
+    pumb_online_mode: "reach",
+    cards_actual: cardsActual,
+    cards_current: cardsActual,
+    cards_target: "100",
+    cards_mode: "reach",
+    monthly_bonus_actual: "0",
+    monthly_bonus_current: "0",
+    monthly_bonus_target: "10000",
+    weekly_complete: "false",
+    monthly_complete: "false",
+    weekly_reward_awarded: "false",
+    monthly_reward_awarded: "false",
+    note: "",
+    goals_auto_generated: "true",
+  };
+};
 
 const participantMap = (participants = []) => new Map(
   (Array.isArray(participants) ? participants : [])
     .map((participant) => [normalizeKey(participant?.goals_login || participant?.login), participant])
     .filter(([login]) => login),
 );
+
+const allowedLoginsForProfile = (allowedLogins, participants, profile) => {
+  const participantRows = Array.isArray(participants) ? participants : [];
+  if (!participantRows.length) return allowedLogins;
+  const profileLogins = new Set(participantRows
+    .filter((participant) => normalizeReportProfile(participant?.report_profile) === profile)
+    .map((participant) => normalizeKey(participant?.goals_login || participant?.login))
+    .filter(Boolean));
+  if (allowedLogins === null) return profileLogins;
+  return new Set(Array.from(allowedLogins || []).filter((login) => profileLogins.has(normalizeKey(login))));
+};
 
 const enrichRowsWithParticipants = (rows, participants = []) => {
   const profiles = participantMap(participants);
@@ -70,6 +195,7 @@ const enrichRowsWithParticipants = (rows, participants = []) => {
       avatar_color: participant.avatar_color || row?.avatar_color || "#27272A",
       avatar_url: participant.avatar_url || row?.avatar_url || null,
       avatar_rarity: participant.avatar_rarity || row?.avatar_rarity || "basic",
+      report_profile: normalizeReportProfile(participant.report_profile),
     };
   });
 };
@@ -205,6 +331,7 @@ exports.handler = async (event) => {
     const writeToken = String(process.env.GOOGLE_GOALS_WRITE_TOKEN || "").trim();
 
     const isPrivileged = user.role === "admin" || user.role === "editor";
+    const reportProfile = normalizeReportProfile(user.report_profile);
     let reportAccess = await fetchBackendJson("/goals/report-access", authorization, { allowFailure: true });
 
     let fallbackSettings = null;
@@ -248,6 +375,7 @@ exports.handler = async (event) => {
           avatar_color: user.avatar_color || "#27272A",
           avatar_url: user.avatar_url || null,
           avatar_rarity: user.avatar_rarity || "basic",
+          report_profile: normalizeReportProfile(user.report_profile),
         }] : []);
       reportAccess = {
         allow_cross_team_reports: Boolean(isPrivileged || fallbackSettings?.allow_cross_team_reports),
@@ -301,11 +429,15 @@ exports.handler = async (event) => {
       return makeResponse(200, {
         success: true,
         found: false,
+        report_found: false,
+        goals_found: false,
         reason: "goals_login_missing",
         viewer_has_own_report: false,
         privileged_overview: isPrivileged,
+        report_profile: reportProfile,
         goals_login: null,
         goals: null,
+        activation_goals: null,
         credit_metrics: [],
         credit_leaderboard: [],
         credit_group_summary: null,
@@ -325,15 +457,38 @@ exports.handler = async (event) => {
         deposit_group_summaries: { month: {}, yesterday: {} },
         deposit_leaderboard_updated_at: null,
         deposit_issuances: [],
+        activation_pumb_metrics: [],
+        activation_pumb_leaderboard: [],
+        activation_pumb_group_summaries: { month: {}, yesterday: {} },
+        activation_pumb_giving: [],
+        activation_pumb_giving_leaderboard: [],
+        activation_pumb_giving_group_summaries: { month: {}, yesterday: {} },
+        activation_pumb_updated_at: null,
+        activation_pumb_diagnostics: {},
+        activation_cards_metrics: [],
+        activation_cards_leaderboard: [],
+        activation_cards_group_summaries: {},
+        activation_cards_transformation_group_summaries: { month: {}, yesterday: {} },
+        activation_cards_giving: [],
+        activation_cards_giving_leaderboard: [],
+        activation_cards_giving_group_summaries: { month: {}, yesterday: {} },
+        activation_cards_updated_at: null,
+        activation_cards_diagnostics: {},
         report_access: reportAccess,
         schedule: emptySchedule("schedule_login_missing", lookup),
       });
     }
 
     const selectedReportLogin = normalizeKey(baseData.goals_login || baseLogin);
+    const selectedHasReportData = reportHasPersonalData(baseData, selectedReportLogin);
     const viewerHasOwnReport = Boolean(
-      baseData.found && selectedReportLogin && ownCandidates.includes(selectedReportLogin),
+      selectedHasReportData && selectedReportLogin && ownCandidates.includes(selectedReportLogin),
     );
+    const effectiveGoals = baseData.goals
+      || (selectedHasReportData ? buildAutomaticGoals(baseData, selectedReportLogin) : null);
+    const effectiveActivationGoals = selectedHasReportData
+      ? buildAutomaticActivationGoals(baseData, selectedReportLogin)
+      : null;
 
     const scheduleCandidates = isPrivileged
       ? uniqueKeys([requestedScheduleLogin, profileGoalsLogin, selectedReportLogin])
@@ -415,6 +570,31 @@ exports.handler = async (event) => {
       currentTeamKey,
       allowCrossTeamReports,
     );
+    const activationPumbGroupSummaries = selectDepositGroupSummaries(
+      baseData.activation_pumb_group_summaries,
+      currentTeamKey,
+      allowCrossTeamReports,
+    );
+    const activationPumbGivingGroupSummaries = selectDepositGroupSummaries(
+      baseData.activation_pumb_giving_group_summaries,
+      currentTeamKey,
+      allowCrossTeamReports,
+    );
+    const activationCardsGroupSummaries = selectGroupSummaries(
+      baseData.activation_cards_group_summaries,
+      currentTeamKey,
+      allowCrossTeamReports,
+    );
+    const activationCardsTransformationGroupSummaries = selectDepositGroupSummaries(
+      baseData.activation_cards_transformation_group_summaries,
+      currentTeamKey,
+      allowCrossTeamReports,
+    );
+    const activationCardsGivingGroupSummaries = selectDepositGroupSummaries(
+      baseData.activation_cards_giving_group_summaries,
+      currentTeamKey,
+      allowCrossTeamReports,
+    );
     const selectedCreditSummary = currentTeamKey
       ? (creditGroupSummaries[currentTeamKey] || null)
       : (isPrivileged ? null : (baseData.credit_group_summary || null));
@@ -422,20 +602,38 @@ exports.handler = async (event) => {
       ? (debitGroupSummaries[currentTeamKey] || null)
       : (isPrivileged ? null : (baseData.debit_group_summary || null));
     const participants = Array.isArray(reportAccess?.participants) ? reportAccess.participants : [];
+    const salesAllowedLogins = allowedLoginsForProfile(allowedLogins, participants, "sales");
+    const activationAllowedLogins = allowedLoginsForProfile(allowedLogins, participants, "activation");
     const creditLeaderboard = enrichRowsWithParticipants(
-      filterRowsByAllowedLogins(baseData.credit_leaderboard, allowedLogins),
+      filterRowsByAllowedLogins(baseData.credit_leaderboard, salesAllowedLogins),
       participants,
     );
     const debitLeaderboard = enrichRowsWithParticipants(
-      filterRowsByAllowedLogins(baseData.debit_leaderboard, allowedLogins),
+      filterRowsByAllowedLogins(baseData.debit_leaderboard, salesAllowedLogins),
       participants,
     );
     const depositProjectionLeaderboard = enrichRowsWithParticipants(
-      filterRowsByAllowedLogins(baseData.deposit_projection_leaderboard, allowedLogins),
+      filterRowsByAllowedLogins(baseData.deposit_projection_leaderboard, salesAllowedLogins),
       participants,
     );
     const depositLeaderboard = enrichRowsWithParticipants(
-      filterRowsByAllowedLogins(baseData.deposit_leaderboard, allowedLogins),
+      filterRowsByAllowedLogins(baseData.deposit_leaderboard, salesAllowedLogins),
+      participants,
+    );
+    const activationPumbLeaderboard = enrichRowsWithParticipants(
+      filterRowsByAllowedLogins(baseData.activation_pumb_leaderboard, activationAllowedLogins),
+      participants,
+    );
+    const activationPumbGivingLeaderboard = enrichRowsWithParticipants(
+      filterRowsByAllowedLogins(baseData.activation_pumb_giving_leaderboard, activationAllowedLogins),
+      participants,
+    );
+    const activationCardsLeaderboard = enrichRowsWithParticipants(
+      filterRowsByAllowedLogins(baseData.activation_cards_leaderboard, activationAllowedLogins),
+      participants,
+    );
+    const activationCardsGivingLeaderboard = enrichRowsWithParticipants(
+      filterRowsByAllowedLogins(baseData.activation_cards_giving_leaderboard, activationAllowedLogins),
       participants,
     );
 
@@ -446,13 +644,17 @@ exports.handler = async (event) => {
       snapshot_version: baseData.snapshot_version || null,
       snapshot_updated_at: baseData.snapshot_updated_at || null,
       snapshot_day: baseData.snapshot_day || null,
-      found: Boolean(baseData.found),
-      reason: baseData.reason || null,
+      found: Boolean(baseData.found || baseData.report_found || selectedHasReportData),
+      report_found: Boolean(baseData.report_found || selectedHasReportData),
+      goals_found: Boolean(baseData.goals_found ?? baseData.goals),
+      reason: selectedHasReportData ? null : (baseData.reason || null),
       viewer_has_own_report: viewerHasOwnReport,
       privileged_overview: Boolean(isPrivileged && !viewerHasOwnReport),
+      report_profile: reportProfile,
       selected_report_login: selectedReportLogin || null,
       goals_login: viewerHasOwnReport ? selectedReportLogin : null,
-      goals: viewerHasOwnReport ? (baseData.goals || null) : null,
+      goals: viewerHasOwnReport ? effectiveGoals : null,
+      activation_goals: viewerHasOwnReport ? effectiveActivationGoals : null,
       credit_metrics: viewerHasOwnReport ? applyTeamOverall(baseData.credit_metrics, currentTeamKey) : [],
       credit_leaderboard: creditLeaderboard,
       credit_group_summary: selectedCreditSummary,
@@ -472,6 +674,23 @@ exports.handler = async (event) => {
       deposit_group_summaries: depositGroupSummaries,
       deposit_leaderboard_updated_at: baseData.deposit_leaderboard_updated_at || null,
       deposit_issuances: viewerHasOwnReport && Array.isArray(baseData.deposit_issuances) ? baseData.deposit_issuances : [],
+      activation_pumb_metrics: viewerHasOwnReport && Array.isArray(baseData.activation_pumb_metrics) ? baseData.activation_pumb_metrics : [],
+      activation_pumb_leaderboard: activationPumbLeaderboard,
+      activation_pumb_group_summaries: activationPumbGroupSummaries,
+      activation_pumb_giving: viewerHasOwnReport && Array.isArray(baseData.activation_pumb_giving) ? baseData.activation_pumb_giving : [],
+      activation_pumb_giving_leaderboard: activationPumbGivingLeaderboard,
+      activation_pumb_giving_group_summaries: activationPumbGivingGroupSummaries,
+      activation_pumb_updated_at: baseData.activation_pumb_updated_at || baseData.snapshot_updated_at || null,
+      activation_pumb_diagnostics: baseData.activation_pumb_diagnostics || {},
+      activation_cards_metrics: viewerHasOwnReport && Array.isArray(baseData.activation_cards_metrics) ? baseData.activation_cards_metrics : [],
+      activation_cards_leaderboard: activationCardsLeaderboard,
+      activation_cards_group_summaries: activationCardsGroupSummaries,
+      activation_cards_transformation_group_summaries: activationCardsTransformationGroupSummaries,
+      activation_cards_giving: viewerHasOwnReport && Array.isArray(baseData.activation_cards_giving) ? baseData.activation_cards_giving : [],
+      activation_cards_giving_leaderboard: activationCardsGivingLeaderboard,
+      activation_cards_giving_group_summaries: activationCardsGivingGroupSummaries,
+      activation_cards_updated_at: baseData.activation_cards_updated_at || baseData.snapshot_updated_at || null,
+      activation_cards_diagnostics: baseData.activation_cards_diagnostics || {},
       report_access: {
         signature: reportAccess?.access_signature || null,
         allow_cross_team_reports: allowCrossTeamReports,
@@ -480,6 +699,7 @@ exports.handler = async (event) => {
         teams: Array.isArray(reportAccess?.teams) ? reportAccess.teams : (currentTeam ? [currentTeam] : []),
         participants,
         compatibility_mode: Boolean(reportAccess?.compatibility_mode),
+        report_profile: reportProfile,
       },
       schedule,
     });

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Target, CreditCard, Landmark, WalletCards, Coins, Trophy, CalendarDays, ChevronRight, Eye, MessageSquareText, X, CheckCircle2, Circle, Save, BarChart3, UsersRound, ShieldCheck } from "lucide-react";
+import { Target, CreditCard, Landmark, WalletCards, Coins, Trophy, CalendarDays, ChevronRight, Eye, MessageSquareText, X, CheckCircle2, Circle, Save, BarChart3, UsersRound, ShieldCheck, Smartphone } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { useDailyGoogleReports } from "@/hooks/useGoogleReports";
 import { useNavigate } from "react-router-dom";
@@ -7,13 +7,16 @@ import { toast } from "sonner";
 import api, { extractError, getToken } from "@/lib/api";
 import { useGoalsAccess } from "@/hooks/useGoalsAccess";
 import depositProjection from "@/lib/depositProjection";
+import { normalizeReportProfile } from "@/lib/activationReports";
 
 const { resolveDepositProjectionCurrent } = depositProjection;
 
 const metricMeta = {
-  credit: { label: "Кредитний напрямок", icon: CreditCard, color: "#FFB800", openLabel: "Переглянути рейтинг і показники" },
-  debit: { label: "Дебетовий напрямок", icon: WalletCards, color: "#00F0FF", openLabel: "Переглянути рейтинг і видачі" },
-  deposit: { label: "Депозитний напрямок", icon: Landmark, color: "#39FF14", openLabel: "Переглянути рейтинг і показники" },
+  credit: { label: "Кредитний напрямок", icon: CreditCard, color: "#FFB800", openLabel: "Переглянути рейтинг і показники", route: "/goals/credit" },
+  debit: { label: "Дебетовий напрямок", icon: WalletCards, color: "#00F0FF", openLabel: "Переглянути рейтинг і видачі", route: "/goals/debit" },
+  deposit: { label: "Депозитний напрямок", icon: Landmark, color: "#39FF14", openLabel: "Переглянути рейтинг і показники", route: "/goals/deposit" },
+  pumb_online: { label: "ПУМБ Online", icon: Smartphone, color: "#39FF14", openLabel: "Переглянути проекцію і видачі", route: "/goals/activation/pumb" },
+  cards: { label: "Активація карток", icon: CreditCard, color: "#00F0FF", openLabel: "Переглянути показники та сегменти A · B · C · D", route: "/goals/activation/cards" },
 };
 
 const pct = (current, target) => target > 0 ? Math.min(100, Math.max(0, (current / target) * 100)) : 0;
@@ -165,19 +168,32 @@ export default function Goals() {
     }
   };
 
+  const reportProfile = normalizeReportProfile(report?.report_profile || user?.report_profile);
+
   const { data, emptyMessage } = useMemo(() => {
     if (mode === "mock") {
+      if (reportProfile === "activation") {
+        return {
+          data: {
+            report_profile: "activation",
+            pumb_online: { current: 108.7, target: 100, mode: "reach", complete: true },
+            cards: { current: 103.3, target: 100, mode: "reach", complete: true },
+            monthly_bonus_current: 14250,
+            monthly_bonus_target: 18000,
+            note: "",
+          },
+          emptyMessage: "",
+        };
+      }
       return {
         data: {
+          report_profile: "sales",
           credit: { current: 92, target: 100, mode: "reach", complete: false },
           debit: { current: 111, target: 110, mode: "maintain", complete: true },
           deposit: { current: 86, target: 95, mode: "reach", complete: false },
           monthly_bonus_current: 14250,
           monthly_bonus_target: 18000,
-          weekly_complete: false,
-          monthly_complete: false,
-          weekly_reward_awarded: false,
-          monthly_reward_awarded: false,
+          note: "",
         },
         emptyMessage: "",
       };
@@ -190,53 +206,64 @@ export default function Goals() {
       };
     }
 
-    if (!report.found || !report.goals) {
+    const goals = reportProfile === "activation" ? report.activation_goals : report.goals;
+    if (!report.found || !goals) {
       const message = report.reason === "goals_login_missing"
         ? "Керівник ще не прив’язав ваш профіль до Google Таблиці."
         : report.reason === "reports_not_refreshed"
           ? 'У Google Таблиці ще не натискали кнопку "Оновити звіти".'
-          : "Для вашого ключа ще не додано рядок із цілями в Google Таблиці.";
+          : reportProfile === "activation"
+            ? 'Для вашого ключа ще немає даних на вкладках "Activation Pumb Online" та "Activation Cards".'
+            : "Для вашого ключа ще не додано рядок із цілями в Google Таблиці.";
       return { data: null, emptyMessage: message };
     }
 
-    const goals = report.goals;
-    const depositProjection = resolveDepositProjectionCurrent(report, user);
     const metric = (name) => {
-      const goalsCurrent = parseSheetNumber(firstDefined(goals, [`${name}_actual`, `${name}_current`]));
-      const current = name === "deposit" && depositProjection.current !== null
-        ? depositProjection.current
-        : goalsCurrent;
+      const current = parseSheetNumber(firstDefined(goals, [`${name}_actual`, `${name}_current`]));
       const target = parseSheetNumber(firstDefined(goals, [`${name}_target`]));
       const modeValue = goals[`${name}_mode`] === "maintain" ? "maintain" : "reach";
+      return { current, target, mode: modeValue, complete: target > 0 && current >= target };
+    };
+
+    const base = {
+      report_profile: reportProfile,
+      monthly_bonus_current: parseSheetNumber(firstDefined(goals, ["monthly_bonus_actual", "monthly_bonus_current"])),
+      monthly_bonus_target: parseSheetNumber(firstDefined(goals, ["monthly_bonus_target"])),
+      note: goals.note || "",
+      updated_at: report.snapshot_updated_at || goals.updated_at || "",
+    };
+
+    if (reportProfile === "activation") {
       return {
+        data: { ...base, pumb_online: metric("pumb_online"), cards: metric("cards") },
+        emptyMessage: "",
+      };
+    }
+
+    const depositProjection = resolveDepositProjectionCurrent(report, user);
+    const salesMetric = (name) => {
+      const result = metric(name);
+      const current = name === "deposit" && depositProjection.current !== null
+        ? depositProjection.current
+        : result.current;
+      return {
+        ...result,
         current,
-        target,
-        mode: modeValue,
-        complete: target > 0 && current >= target,
+        complete: result.target > 0 && current >= result.target,
         source: name === "deposit" ? depositProjection.source : "goals_sheet",
       };
     };
 
     return {
-      data: {
-        credit: metric("credit"),
-        debit: metric("debit"),
-        deposit: metric("deposit"),
-        monthly_bonus_current: parseSheetNumber(firstDefined(goals, ["monthly_bonus_actual", "monthly_bonus_current"])),
-        monthly_bonus_target: parseSheetNumber(firstDefined(goals, ["monthly_bonus_target"])),
-        weekly_complete: String(goals.weekly_complete || "").toLowerCase() === "true",
-        monthly_complete: String(goals.monthly_complete || "").toLowerCase() === "true",
-        weekly_reward_awarded: String(goals.weekly_reward_awarded || "").toLowerCase() === "true",
-        monthly_reward_awarded: String(goals.monthly_reward_awarded || "").toLowerCase() === "true",
-        note: goals.note || "",
-        updated_at: report.snapshot_updated_at || goals.updated_at || "",
-      },
+      data: { ...base, credit: salesMetric("credit"), debit: salesMetric("debit"), deposit: salesMetric("deposit") },
       emptyMessage: "",
     };
-  }, [error, mode, report, user]);
+  }, [error, mode, report, reportProfile, user]);
 
   const loading = mode !== "mock" && reportsLoading && !report;
-  const weeklyDone = useMemo(() => data ? [data.credit, data.debit, data.deposit].filter(x => x?.complete).length : 0, [data]);
+  const metricNames = data?.report_profile === "activation" ? ["pumb_online", "cards"] : ["credit", "debit", "deposit"];
+  const weeklyTotal = metricNames.length;
+  const weeklyDone = data ? metricNames.filter((name) => data[name]?.complete).length : 0;
   if (loading) return <div className="p-8 text-center text-sm text-zinc-500">Завантаження цілей...</div>;
   if (isPrivilegedViewer && report?.privileged_overview) return (
     <div className="space-y-4 px-5 pb-8 pt-2" data-testid="admin-goals-overview">
@@ -262,6 +289,14 @@ export default function Goals() {
       <button type="button" onClick={() => navigate("/goals/deposit")} className="flex w-full items-center gap-3 rounded-3xl border border-[#39FF14]/30 bg-[#39FF14]/[.07] p-4 text-left active:scale-[.99]">
         <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#39FF14]/15"><Landmark size={21} color="#39FF14" /></div>
         <div className="min-w-0 flex-1"><div className="font-black text-white">Депозитний рейтинг</div><div className="mt-1 text-xs text-zinc-500">Видачі, проекційні показники та команди</div></div><ChevronRight size={19} className="text-[#39FF14]" />
+      </button>
+      <button type="button" onClick={() => navigate("/goals/activation/pumb")} className="flex w-full items-center gap-3 rounded-3xl border border-[#39FF14]/30 bg-[#39FF14]/[.07] p-4 text-left active:scale-[.99]">
+        <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#39FF14]/15"><Smartphone size={21} color="#39FF14" /></div>
+        <div className="min-w-0 flex-1"><div className="font-black text-white">ПУМБ Online</div><div className="mt-1 text-xs text-zinc-500">Проекція, показники та видачі активаторів</div></div><ChevronRight size={19} className="text-[#39FF14]" />
+      </button>
+      <button type="button" onClick={() => navigate("/goals/activation/cards")} className="flex w-full items-center gap-3 rounded-3xl border border-[#00F0FF]/30 bg-[#00F0FF]/[.07] p-4 text-left active:scale-[.99]">
+        <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#00F0FF]/15"><CreditCard size={21} color="#00F0FF" /></div>
+        <div className="min-w-0 flex-1"><div className="font-black text-white">Активація карток</div><div className="mt-1 text-xs text-zinc-500">Проекція, трансформація та сегменти A · B · C · D</div></div><ChevronRight size={19} className="text-[#00F0FF]" />
       </button>
     </div>
   );
@@ -299,16 +334,16 @@ export default function Goals() {
         <div className="flex items-center justify-between">
           <div>
             <div className="text-[10px] font-black uppercase tracking-widest text-[#B78CFF]">Цілі тижня</div>
-            <div className="mt-1 font-display text-2xl text-white">{weeklyDone} із 3 виконано</div>
+            <div className="mt-1 font-display text-2xl text-white">{weeklyDone} із {weeklyTotal} виконано</div>
           </div>
           <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#FFB800]/15 border border-[#FFB800]/40"><Trophy size={26} strokeWidth={3} color="#FFB800" /></div>
         </div>
-        <div className="mt-4 h-3 overflow-hidden rounded-full bg-black/40"><div className="h-full rounded-full bg-[#B78CFF]" style={{ width: `${weeklyDone / 3 * 100}%` }} /></div>
-        <div className="mt-3 text-xs font-black text-zinc-300">Нагорода за всі три цілі: <span className="text-[#FFB800]">+200 Point</span> <span className="text-[#B78CFF]">• +100 XP</span></div>
+        <div className="mt-4 h-3 overflow-hidden rounded-full bg-black/40"><div className="h-full rounded-full bg-[#B78CFF]" style={{ width: `${weeklyTotal ? weeklyDone / weeklyTotal * 100 : 0}%` }} /></div>
+        <div className="mt-3 text-xs font-black text-zinc-300">{data.report_profile === "activation" ? "Нагорода за обидві цілі:" : "Нагорода за всі три цілі:"} <span className="text-[#FFB800]">+200 Point</span> <span className="text-[#B78CFF]">• +100 XP</span></div>
       </section>
 
-      {Object.keys(metricMeta).map((name) => {
-        const route = name === "credit" ? "/goals/credit" : name === "debit" ? "/goals/debit" : "/goals/deposit";
+      {metricNames.map((name) => {
+        const route = metricMeta[name]?.route;
         return <MetricCard key={name} name={name} metric={data[name]} onOpen={route ? () => navigate(route) : undefined} />;
       })}
 

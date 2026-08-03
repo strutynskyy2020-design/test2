@@ -507,6 +507,7 @@ const UsersView = () => {
               <span>LVL {u.level} • {u.balance.toLocaleString("uk-UA")} б.</span>
               {u.team_name && <span className="text-[#00F0FF] truncate">{u.team_name}</span>}
               {u.goals_login && <span className="text-[#B78CFF] truncate">Цілі: {u.goals_login}</span>}
+              <span className={u.report_profile === "activation" ? "text-[#39FF14] truncate" : "text-[#FFB800] truncate"}>{u.report_profile === "activation" ? "Активатор" : "Продажник"}</span>
             </div>
           </div>
           <div className="flex gap-1.5 shrink-0">
@@ -629,6 +630,7 @@ const UserEditSheet = ({ user, teams, onClose, onDone }) => {
     phone: user.phone || "",
     telegram: user.telegram || "",
     goals_login: user.goals_login || "",
+    report_profile: user.report_profile === "activation" ? "activation" : "sales",
     department: user.department || "",
     position: user.position || "Оператор",
     team_id: user.team_id || "",
@@ -689,6 +691,14 @@ const UserEditSheet = ({ user, teams, onClose, onDone }) => {
             className="w-full h-11 px-3 rounded-xl bg-[#0A0A0A] border-2 border-white/10 text-white focus:border-[#B78CFF] outline-none"
           />
           <div className="mt-1 text-[10px] leading-4 text-zinc-600">Має точно збігатися зі значенням goals_login у Google Таблиці.</div>
+        </div>
+        <div>
+          <label className="block text-[11px] font-black uppercase text-zinc-500 mb-1">Тип звітів</label>
+          <select data-testid="user-edit-report-profile" value={f.report_profile} onChange={(e) => setF({ ...f, report_profile: e.target.value })} className="w-full h-11 px-3 rounded-xl bg-[#0A0A0A] border-2 border-white/10 text-white focus:border-[#39FF14] outline-none">
+            <option value="sales">Продажник · кредити, дебет, депозити</option>
+            <option value="activation">Активатор · ПУМБ Online і картки</option>
+          </select>
+          <div className="mt-1 text-[10px] leading-4 text-zinc-600">Визначає, які сторінки та показники бачить оператор у розділі «Цілі».</div>
         </div>
         <div>
           <label className="block text-[11px] font-black uppercase text-zinc-500 mb-1">Роль</label>
@@ -1105,7 +1115,7 @@ const AdjustPointsSheet = ({ user, onClose, onDone }) => {
 };
 
 const CreateUserSheet = ({ onClose, onDone }) => {
-  const [f, setF] = useState({ email: "", password: "demo123", name: "", position: "Оператор", department: "", avatar_color: "#FFB800" });
+  const [f, setF] = useState({ email: "", password: "demo123", name: "", position: "Оператор", department: "", avatar_color: "#FFB800", report_profile: "sales" });
   const [busy, setBusy] = useState(false);
 
   const save = async () => {
@@ -1140,6 +1150,13 @@ const CreateUserSheet = ({ onClose, onDone }) => {
           />
         </div>
       ))}
+      <div className="mb-3">
+        <label className="block text-[11px] font-black uppercase text-zinc-500 mb-1">Тип звітів</label>
+        <select data-testid="create-user-report-profile" value={f.report_profile} onChange={(e) => setF({ ...f, report_profile: e.target.value })} className="w-full h-11 px-3 rounded-xl bg-[#0A0A0A] border-2 border-white/10 text-white focus:border-[#39FF14] outline-none">
+          <option value="sales">Продажник</option>
+          <option value="activation">Активатор</option>
+        </select>
+      </div>
       <button
         data-testid="create-user-submit"
         onClick={save}
