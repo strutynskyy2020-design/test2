@@ -50,7 +50,14 @@ export const GoogleReportsProvider = ({ children }) => {
   }, []);
 
   const identity = user
-    ? String(user.id || user.goals_login || user.email || "anonymous")
+    ? [
+      user.id || user.email || "anonymous",
+      user.report_profile || "sales",
+      user.goals_login || "",
+      user.team_id || "",
+      user.role || "employee",
+      user.is_team_leader ? "leader" : "member",
+    ].map((value) => String(value)).join(":")
     : "";
 
   useEffect(() => {
@@ -227,13 +234,23 @@ export const GoogleReportsProvider = ({ children }) => {
       if (document.visibilityState === "visible") checkForeground();
     };
     const onFocus = () => checkForeground();
+    const onReportAccessChanged = async () => {
+      initializedRef.current = new Set();
+      entriesRef.current = {};
+      setEntries({});
+      lastAccessCheckRef.current = 0;
+      await ensureReport("").catch(() => null);
+      await checkReportAccess({ force: true }).catch(() => null);
+    };
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("focus", onFocus);
+    window.addEventListener("vpdk-report-access-changed", onReportAccessChanged);
 
     return () => {
       cancelled = true;
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("focus", onFocus);
+      window.removeEventListener("vpdk-report-access-changed", onReportAccessChanged);
     };
   }, [checkPublishedUpdate, checkReportAccess, ensureReport, mode, user]);
 

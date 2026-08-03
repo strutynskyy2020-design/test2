@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import api, { clearToken, extractError, getToken, setToken } from "@/lib/api";
 import { clearGoogleReportsCache } from "@/lib/googleReportsCache";
@@ -17,6 +17,40 @@ const emptyState = {
 
 export const AppProvider = ({ children }) => {
   const [state, setState] = useState(emptyState);
+  const reportAccessScopeRef = useRef("");
+
+  const applyFreshUser = useCallback((nextUser) => {
+    if (!nextUser) return;
+    setState((current) => {
+      if (current.user && JSON.stringify(current.user) === JSON.stringify(nextUser)) return current;
+      return { ...current, mode: "live", user: nextUser };
+    });
+  }, []);
+
+  const reportAccessScope = state.user
+    ? [
+      state.user.id || state.user.email || "anonymous",
+      state.user.report_profile || "sales",
+      state.user.goals_login || "",
+      state.user.team_id || "",
+      state.user.role || "employee",
+      state.user.is_team_leader ? "leader" : "member",
+    ].map((value) => String(value)).join(":")
+    : "";
+
+  useEffect(() => {
+    const previousScope = reportAccessScopeRef.current;
+    reportAccessScopeRef.current = reportAccessScope;
+    if (!previousScope || !reportAccessScope || previousScope === reportAccessScope) return;
+
+    clearGoogleReportsCache().catch(() => {});
+    window.dispatchEvent(new CustomEvent("vpdk-report-access-changed", {
+      detail: {
+        report_profile: state.user?.report_profile || "sales",
+        goals_login: state.user?.goals_login || null,
+      },
+    }));
+  }, [reportAccessScope, state.user?.goals_login, state.user?.report_profile]);
 
   useEffect(() => {
     const boot = async () => {
@@ -54,8 +88,13 @@ export const AppProvider = ({ children }) => {
   useEffect(() => {
     if (!state.user || !getToken()) return undefined;
     syncExistingPushSubscription().catch(() => {});
-    const verifySession = () => {
-      api.get("/auth/me").catch(() => {});
+    const verifySession = async () => {
+      try {
+        const { data } = await api.get("/auth/me");
+        applyFreshUser(data);
+      } catch (_) {
+        // The axios interceptor handles invalid sessions.
+      }
     };
     const timer = window.setInterval(verifySession, 60_000);
     const onFocus = () => verifySession();
@@ -69,7 +108,7 @@ export const AppProvider = ({ children }) => {
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [state.user?.id]);
+  }, [applyFreshUser, state.user?.id]);
 
   const login = async (email, password) => {
     try {
@@ -106,7 +145,8 @@ export const AppProvider = ({ children }) => {
 
   const refreshMe = async () => {
     const { data } = await api.get("/auth/me");
-    setState((current) => ({ ...current, user: data }));
+    applyFreshUser(data);
+    return data;
   };
 
   const imageToAvatarDataUrl = (file) => new Promise((resolve, reject) => {

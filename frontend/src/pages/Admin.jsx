@@ -648,9 +648,32 @@ const UserEditSheet = ({ user, teams, onClose, onDone }) => {
         goals_login: String(f.goals_login || "").trim().toLowerCase() || null,
       };
       if (!payload.team_id) payload.team_id = null;
-      await api.patch(`/admin/users/${user.id}`, payload);
-      toast.success("Оновлено");
-      onDone();
+      const requestedProfile = payload.report_profile === "activation" ? "activation" : "sales";
+      let { data: updatedUser } = await api.patch(`/admin/users/${user.id}`, payload);
+
+      // v125-compatible backends could accept the request but silently discard
+      // an unknown report_profile field. Verify the response and use the
+      // dedicated v126 endpoint instead of showing a false “Оновлено”.
+      if (updatedUser?.report_profile !== requestedProfile) {
+        try {
+          const response = await api.patch(`/admin/users/${user.id}/report-profile`, {
+            report_profile: requestedProfile,
+          });
+          updatedUser = response.data;
+        } catch (profileError) {
+          if (profileError?.response?.status === 404 || profileError?.response?.status === 405) {
+            throw new Error("Backend v126 ще не розгорнуто. Оновіть backend, після цього тип звітів збережеться.");
+          }
+          throw profileError;
+        }
+      }
+
+      if (updatedUser?.report_profile !== requestedProfile) {
+        throw new Error("Сервер не підтвердив зміну типу звітів");
+      }
+
+      toast.success(requestedProfile === "activation" ? "Оновлено: активатор" : "Оновлено: продажник");
+      await onDone(updatedUser);
       onClose();
     } catch (e) { toast.error(extractError(e)); }
     setBusy(false);

@@ -1,5 +1,5 @@
 /* VPDK Bonus — Service Worker
- * v125 separates sales and activation report profiles and adds PUMB Online / Card activation reports.
+ * v126 persists report-profile changes and invalidates stale operator report caches.
  * v124 publishes reports for every operator found in TM7/TM10 and auto-fills missing goal rows.
  * v117 adds per-team bank administration and resettable collection cycles.
  * v116 adds private per-team banks for the 15 000 Point group-meeting goal.
@@ -20,7 +20,7 @@
  * never be cached as index.html, otherwise browsers can render a giant broken
  * image element over the board.
  */
-const VERSION = "vpdk-v125";
+const VERSION = "vpdk-v126";
 const STATIC_CACHE = `${VERSION}-static`;
 const RUNTIME_CACHE = `${VERSION}-runtime`;
 

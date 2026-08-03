@@ -336,6 +336,10 @@ class PageViewBody(BaseModel):
     session_id: Optional[str] = Field(default=None, max_length=80)
 
 
+class ReportProfileUpdateBody(BaseModel):
+    report_profile: Literal["sales", "activation"]
+
+
 class UserAdminUpdateBody(BaseModel):
     first_name: Optional[str] = None
     last_name: Optional[str] = None
@@ -1347,6 +1351,8 @@ async def admin_update_user(user_id: str, body: UserAdminUpdateBody, admin: dict
     if not target:
         raise HTTPException(status_code=404, detail="Користувача не знайдено")
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
+    if "report_profile" in updates:
+        updates["report_profile"] = "activation" if updates["report_profile"] == "activation" else "sales"
     if "goals_login" in updates:
         normalized_goals_login = str(updates["goals_login"] or "").strip().lower()
         updates["goals_login"] = normalized_goals_login or None
@@ -1380,8 +1386,44 @@ async def admin_update_user(user_id: str, body: UserAdminUpdateBody, admin: dict
             {"team_id": team_id, "is_team_leader": True, "id": {"$ne": user_id}},
             {"$set": {"is_team_leader": False}},
         )
-    await db.users.update_one({"id": user_id}, {"$set": updates})
+    result = await db.users.update_one({"id": user_id}, {"$set": updates})
+    if result.matched_count != 1:
+        raise HTTPException(status_code=404, detail="Користувача не знайдено")
     fresh = await db.users.find_one({"id": user_id}, {"_id": 0})
+    if not fresh:
+        raise HTTPException(status_code=404, detail="Користувача не знайдено")
+    if "report_profile" in updates and fresh.get("report_profile") != updates["report_profile"]:
+        raise HTTPException(status_code=500, detail="Тип звітів не збережено. Оновіть backend до v126")
+    fresh = await _hydrate_user_team(fresh)
+    return _user_with_progress(fresh)
+
+
+@api.patch("/admin/users/{user_id}/report-profile", response_model=UserWithProgress)
+async def admin_update_user_report_profile(
+    user_id: str,
+    body: ReportProfileUpdateBody,
+    admin: dict = Depends(get_current_admin),
+):
+    """Persist the report type through a dedicated, verifiable endpoint.
+
+    The separate route prevents older backends from silently ignoring the new
+    field while the admin UI still reports a successful generic profile save.
+    """
+    target = await db.users.find_one({"id": user_id}, {"_id": 0, "id": 1})
+    if not target:
+        raise HTTPException(status_code=404, detail="Користувача не знайдено")
+
+    requested = "activation" if body.report_profile == "activation" else "sales"
+    result = await db.users.update_one(
+        {"id": user_id},
+        {"$set": {"report_profile": requested, "report_profile_updated_at": now_iso()}},
+    )
+    if result.matched_count != 1:
+        raise HTTPException(status_code=404, detail="Користувача не знайдено")
+
+    fresh = await db.users.find_one({"id": user_id}, {"_id": 0})
+    if not fresh or fresh.get("report_profile") != requested:
+        raise HTTPException(status_code=500, detail="Тип звітів не вдалося зберегти")
     fresh = await _hydrate_user_team(fresh)
     return _user_with_progress(fresh)
 
