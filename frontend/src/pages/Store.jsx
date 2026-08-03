@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Check,
   Coins,
@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useApp } from "@/context/AppContext";
+import api, { extractError } from "@/lib/api";
 import { fireConfetti } from "@/lib/confetti";
 import AvatarFrame from "@/components/AvatarFrame";
 
@@ -27,6 +28,7 @@ const PRIZE_CATEGORIES = [
   { id: "all", label: "Все" },
   { id: "privilege", label: "Привілеї" },
   { id: "avatar", label: "Аватарки" },
+  { id: "team_bank", label: "Банка Команди" },
 ];
 
 const HIDDEN_STORE_CATEGORIES = new Set(["merch", "certificate"]);
@@ -199,6 +201,169 @@ const AvatarCatalog = ({ groups, balance, onBuy, ownedIds, activeId }) => (
   </div>
 );
 
+const TEAM_BANK_PRESETS = [50, 100, 250, 500];
+
+const TeamBankPanel = ({ teamBank, user, selectedAmount, onSelectAmount, onContribute, loading, submitting }) => {
+  if (!user?.team_id) {
+    return (
+      <div className="rounded-3xl border border-white/10 bg-[#1A1A1E] p-8 text-center">
+        <Gift size={36} className="mx-auto text-zinc-500" />
+        <div className="mt-3 text-sm font-black text-white">Банка Команди доступна лише учасникам команди</div>
+        <div className="mt-1 text-xs text-zinc-500">Після прив’язки до команди тут з’явиться спільна ціль та внески учасників.</div>
+      </div>
+    );
+  }
+
+  if (loading && !teamBank) {
+    return (
+      <div className="rounded-3xl border border-white/10 bg-[#1A1A1E] p-8 text-center text-sm font-black text-white">
+        Завантаження банки команди…
+      </div>
+    );
+  }
+
+  if (!teamBank) {
+    return (
+      <div className="rounded-3xl border border-[#FF5C7A]/20 bg-[#1A1A1E] p-8 text-center">
+        <div className="text-sm font-black text-white">Не вдалося завантажити Банку Команди</div>
+        <div className="mt-1 text-xs text-zinc-500">Спробуйте відкрити сторінку ще раз або перевірте підключення до сервера.</div>
+      </div>
+    );
+  }
+
+  const progress = Number(teamBank.progress_percent || 0);
+  const contributors = Array.isArray(teamBank.contributors) ? teamBank.contributors : [];
+
+  return (
+    <div className="space-y-4" data-testid="team-bank-panel">
+      <section className="overflow-hidden rounded-[28px] border border-[#B78CFF]/25 bg-[radial-gradient(circle_at_top_left,_rgba(183,140,255,0.18),_transparent_45%),linear-gradient(180deg,_rgba(26,26,30,1),_rgba(12,12,14,1))] p-5">
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <div className="text-[10px] font-black uppercase tracking-[0.24em] text-[#B78CFF]">Окремо для кожної групи</div>
+            <h2 className="mt-1 text-2xl font-black leading-tight text-white">Банка Команди</h2>
+            <p className="mt-1 text-sm text-zinc-400">{teamBank.team_name || user.team_name || "Ваша команда"} збирає Point на спільну нагороду</p>
+          </div>
+          <div className={`shrink-0 rounded-full border px-3 py-1 text-[11px] font-black uppercase tracking-wider ${teamBank.unlocked ? "border-[#39FF14]/35 bg-[#39FF14]/10 text-[#39FF14]" : "border-[#00F0FF]/25 bg-[#00F0FF]/10 text-[#00F0FF]"}`}>
+            {teamBank.unlocked ? "Ціль досягнута" : `${progress}%`}
+          </div>
+        </div>
+
+        <div className="mt-5 grid gap-3 sm:grid-cols-[1.4fr_1fr]">
+          <div className="rounded-3xl border border-white/10 bg-black/25 p-4">
+            <div className="text-[11px] font-black uppercase tracking-widest text-zinc-500">Ціль</div>
+            <div className="mt-2 font-display text-4xl text-[#B78CFF]">{Number(teamBank.goal_points || 0).toLocaleString("uk-UA")}</div>
+            <div className="mt-1 text-xs font-black uppercase tracking-wider text-zinc-500">Point</div>
+
+            <div className="mt-5 flex items-end justify-between gap-3">
+              <div>
+                <div className="text-[11px] font-black uppercase tracking-widest text-zinc-500">Зібрано</div>
+                <div className="mt-1 font-display text-2xl text-white">
+                  {Number(teamBank.current_points || 0).toLocaleString("uk-UA")}
+                  <span className="text-base text-zinc-500"> / {Number(teamBank.goal_points || 0).toLocaleString("uk-UA")}</span>
+                </div>
+              </div>
+              <div className="text-right">
+                <div className="text-[11px] font-black uppercase tracking-widest text-zinc-500">Залишилось</div>
+                <div className="mt-1 text-xl font-black text-[#FFB800]">{Number(teamBank.remaining_points || 0).toLocaleString("uk-UA")}</div>
+              </div>
+            </div>
+
+            <div className="mt-4 h-3 overflow-hidden rounded-full bg-white/10">
+              <div className="h-full rounded-full bg-gradient-to-r from-[#7C3AED] via-[#B78CFF] to-[#FFB800]" style={{ width: `${progress}%` }} />
+            </div>
+          </div>
+
+          <div className="rounded-3xl border border-white/10 bg-black/25 p-4">
+            <div className="text-[11px] font-black uppercase tracking-widest text-zinc-500">Нагорода</div>
+            <div className="mt-2 text-xl font-black leading-tight text-white">{teamBank.reward_title || "Групова зустріч на 30 хв"}</div>
+            <p className="mt-2 text-sm text-zinc-400">{teamBank.description || "Разом збираємо на групову зустріч"}</p>
+            <div className="mt-5 rounded-2xl border border-[#B78CFF]/25 bg-[#B78CFF]/10 px-3 py-2 text-sm font-black text-[#E9D8FF]">
+              Ваш внесок: {Number(teamBank.my_total || 0).toLocaleString("uk-UA")} Point
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="rounded-3xl border border-white/10 bg-[#1A1A1E] p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="text-lg font-black text-white">Мій внесок</h3>
+            <p className="mt-1 text-xs text-zinc-500">Інші групи не бачать цю банку — кожна команда має власну спільну ціль.</p>
+          </div>
+          <button
+            disabled={submitting || loading || Number(user.balance || 0) < Number(selectedAmount || 0)}
+            onClick={onContribute}
+            className={`h-11 rounded-2xl px-5 text-xs font-black uppercase tracking-wider ${submitting || loading || Number(user.balance || 0) < Number(selectedAmount || 0) ? "cursor-not-allowed border border-white/10 bg-[#27272A] text-zinc-500" : "border border-[#7a5900] bg-[#FFB800] text-[#0A0A0A]"}`}
+          >
+            {submitting ? "Надсилаємо…" : "Скинути бали"}
+          </button>
+        </div>
+        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {TEAM_BANK_PRESETS.map((amount) => {
+            const active = Number(selectedAmount) === amount;
+            return (
+              <button
+                key={amount}
+                onClick={() => onSelectAmount(amount)}
+                className={`rounded-2xl border px-4 py-3 text-left transition-colors ${active ? "border-[#B78CFF] bg-[#B78CFF]/10" : "border-white/10 bg-[#111114]"}`}
+              >
+                <div className={`flex items-center gap-1.5 text-sm font-black ${active ? "text-[#E9D8FF]" : "text-white"}`}>
+                  <Coins size={14} strokeWidth={3} className={active ? "text-[#B78CFF]" : "text-[#FFB800]"} />
+                  {amount.toLocaleString("uk-UA")}
+                </div>
+                <div className="mt-1 text-[10px] font-bold uppercase tracking-wider text-zinc-500">Point</div>
+              </button>
+            );
+          })}
+        </div>
+        <div className="mt-3 text-[11px] text-zinc-500">Після внеску Point переходять у спільну банку команди та не повертаються назад на баланс.</div>
+      </section>
+
+      <section className="rounded-3xl border border-white/10 bg-[#1A1A1E] p-4">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h3 className="text-lg font-black text-white">Внески команди</h3>
+            <p className="mt-1 text-xs text-zinc-500">Сортування за сумою внеску</p>
+          </div>
+          <div className="rounded-full bg-black/25 px-3 py-1 text-[11px] font-black uppercase tracking-wider text-zinc-400">
+            {contributors.length} учасн.
+          </div>
+        </div>
+
+        <div className="mt-4 space-y-2">
+          {contributors.length ? contributors.map((item, index) => (
+            <div key={item.user_id || index} className="flex items-center justify-between gap-3 rounded-2xl border border-white/5 bg-black/20 px-3 py-2.5">
+              <div className="flex min-w-0 items-center gap-3">
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#111114]">
+                  <AvatarFrame
+                    src={item.avatar_url}
+                    alt={item.user_name}
+                    initials={item.avatar_initials || "?"}
+                    rarity={item.avatar_rarity || "basic"}
+                    size="sm"
+                  />
+                </div>
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-black text-white">{item.user_name}</div>
+                  <div className="text-[11px] text-zinc-500">{item.contribution_count} внесків</div>
+                </div>
+              </div>
+              <div className="text-right">
+                <div className="font-display text-lg text-[#B78CFF]">{Number(item.total_amount || 0).toLocaleString("uk-UA")}</div>
+                <div className="text-[10px] font-black uppercase tracking-wider text-zinc-500">Point</div>
+              </div>
+            </div>
+          )) : (
+            <div className="rounded-2xl border border-dashed border-white/10 bg-black/15 p-5 text-center text-sm font-bold text-zinc-500">
+              Поки що внесків немає. Станьте першим, хто поповнить Банку Команди.
+            </div>
+          )}
+        </div>
+      </section>
+    </div>
+  );
+};
+
 const ConfirmSheet = ({ prize, balance, onConfirm, onClose, submitting, owned }) => {
   if (!prize) return null;
   const effectivePrice = owned ? 0 : Number(prize.price || 0);
@@ -238,10 +403,14 @@ const ConfirmSheet = ({ prize, balance, onConfirm, onClose, submitting, owned })
 };
 
 export default function Store() {
-  const { user, prizes, orders, buyPrize } = useApp();
+  const { user, prizes, orders, buyPrize, refreshMe } = useApp();
   const [cat, setCat] = useState("all");
   const [pending, setPending] = useState(null);
   const [submitting, setSubmitting] = useState(false);
+  const [teamBank, setTeamBank] = useState(null);
+  const [teamBankLoading, setTeamBankLoading] = useState(false);
+  const [teamBankSubmitting, setTeamBankSubmitting] = useState(false);
+  const [teamContributionAmount, setTeamContributionAmount] = useState(100);
 
   const storefrontPrizes = useMemo(
     () => (Array.isArray(prizes) ? prizes : []).filter((prize) => !HIDDEN_STORE_CATEGORIES.has(prize.category)),
@@ -266,6 +435,28 @@ export default function Store() {
     return groups;
   }, [storefrontPrizes]);
 
+  const loadTeamBank = async () => {
+    if (!user?.team_id) {
+      setTeamBank(null);
+      return;
+    }
+    setTeamBankLoading(true);
+    try {
+      const { data } = await api.get("/team-bank");
+      setTeamBank(data);
+    } catch (_) {
+      setTeamBank(null);
+    } finally {
+      setTeamBankLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!user?.id) return;
+    loadTeamBank();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, user?.team_id]);
+
   if (!user) return null;
 
   const doBuy = async () => {
@@ -284,6 +475,28 @@ export default function Store() {
       duration: 3000,
     });
     setPending(null);
+  };
+
+  const contributeTeamBank = async () => {
+    const amount = Number(teamContributionAmount || 0);
+    if (!amount || amount <= 0) {
+      toast.error("Оберіть суму внеску");
+      return;
+    }
+    setTeamBankSubmitting(true);
+    try {
+      const { data } = await api.post("/team-bank/contribute", { amount });
+      setTeamBank(data.bank);
+      await refreshMe();
+      fireConfetti();
+      toast.success("Бали зараховано до Банки Команди", {
+        description: `Ви додали ${amount.toLocaleString("uk-UA")} Point до спільної цілі.`,
+      });
+    } catch (error) {
+      toast.error(extractError(error, "Не вдалося поповнити Банку Команди"));
+    } finally {
+      setTeamBankSubmitting(false);
+    }
   };
 
   const ownedAvatarIds = user.owned_avatar_ids || [];
@@ -316,7 +529,7 @@ export default function Store() {
         ))}
       </div>
 
-      {cat !== "avatar" && orders.length > 0 && (
+      {cat !== "avatar" && cat !== "team_bank" && orders.length > 0 && (
         <div data-testid="orders-strip" className="flex items-center gap-3 rounded-3xl border border-white/10 bg-[#1A1A1E] p-4">
           <div className="flex h-11 w-11 items-center justify-center rounded-2xl border-2 border-[#00F0FF]/50 bg-[#00F0FF]/15 text-[#00F0FF]">
             <ShoppingBag size={20} strokeWidth={3} />
@@ -335,6 +548,16 @@ export default function Store() {
           onBuy={setPending}
           ownedIds={ownedAvatarIds}
           activeId={user.active_avatar_prize_id}
+        />
+      ) : cat === "team_bank" ? (
+        <TeamBankPanel
+          teamBank={teamBank}
+          user={user}
+          selectedAmount={teamContributionAmount}
+          onSelectAmount={setTeamContributionAmount}
+          onContribute={contributeTeamBank}
+          loading={teamBankLoading}
+          submitting={teamBankSubmitting}
         />
       ) : generalPrizes.length ? (
         <div className="grid grid-cols-2 gap-3" data-testid="prize-grid">

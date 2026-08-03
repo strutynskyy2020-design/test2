@@ -10,7 +10,7 @@ import { useGoalsAccess } from "@/hooks/useGoalsAccess";
 const metricMeta = {
   credit: { label: "Кредитний напрямок", icon: CreditCard, color: "#FFB800", openLabel: "Переглянути рейтинг і показники" },
   debit: { label: "Дебетовий напрямок", icon: WalletCards, color: "#00F0FF", openLabel: "Переглянути рейтинг і видачі" },
-  deposit: { label: "Депозитний напрямок", icon: Landmark, color: "#39FF14" },
+  deposit: { label: "Депозитний напрямок", icon: Landmark, color: "#39FF14", openLabel: "Переглянути рейтинг і показники" },
 };
 
 const pct = (current, target) => target > 0 ? Math.min(100, Math.max(0, (current / target) * 100)) : 0;
@@ -251,6 +251,10 @@ export default function Goals() {
         <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#00F0FF]/15"><UsersRound size={21} color="#00F0FF" /></div>
         <div className="min-w-0 flex-1"><div className="font-black text-white">Дебетовий рейтинг</div><div className="mt-1 text-xs text-zinc-500">Командні результати та видачі</div></div><ChevronRight size={19} className="text-[#00F0FF]" />
       </button>
+      <button type="button" onClick={() => navigate("/goals/deposit")} className="flex w-full items-center gap-3 rounded-3xl border border-[#39FF14]/30 bg-[#39FF14]/[.07] p-4 text-left active:scale-[.99]">
+        <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#39FF14]/15"><Landmark size={21} color="#39FF14" /></div>
+        <div className="min-w-0 flex-1"><div className="font-black text-white">Депозитний рейтинг</div><div className="mt-1 text-xs text-zinc-500">Видачі, проекційні показники та команди</div></div><ChevronRight size={19} className="text-[#39FF14]" />
+      </button>
     </div>
   );
   if (!data) return (
@@ -296,7 +300,7 @@ export default function Goals() {
       </section>
 
       {Object.keys(metricMeta).map((name) => {
-        const route = name === "credit" ? "/goals/credit" : name === "debit" ? "/goals/debit" : null;
+        const route = name === "credit" ? "/goals/credit" : name === "debit" ? "/goals/debit" : "/goals/deposit";
         return <MetricCard key={name} name={name} metric={data[name]} onOpen={route ? () => navigate(route) : undefined} />;
       })}
 

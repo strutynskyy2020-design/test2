@@ -4,7 +4,7 @@ import {
   Users, Swords, Gift, ShoppingBag, BarChart3, Plus, Pencil, Trash2, X, Minus, Check, Coins, Trophy, ChevronRight,
   UserCog, ShieldCheck, Crown, UsersRound, Inbox, UserCheck, ClipboardList, CheckCircle2, XCircle,
   ArrowUp, ArrowDown, FileText, BrainCircuit, Clock3, TrendingUp, Search, CalendarDays, Target, Save, ChevronDown,
-  KeyRound, Award, Medal, Star, Sparkles, Send, Gamepad2, RotateCcw,
+  KeyRound, Award, Medal, Star, Sparkles, Send, Gamepad2, RotateCcw, PiggyBank,
 } from "lucide-react";
 import api, { extractError, API_BASE, getToken } from "@/lib/api";
 import { useApp } from "@/context/AppContext";
@@ -23,6 +23,7 @@ const TABS = [
   { id: "achievements", label: "Досягнення", icon: Award },
   { id: "bonus-match", label: "Bonus Match", icon: Gamepad2 },
   { id: "prizes", label: "Призи", icon: Gift },
+  { id: "team-banks", label: "Банка Команди", icon: PiggyBank },
   { id: "orders", label: "Замовлення", icon: ShoppingBag },
 ];
 
@@ -1350,6 +1351,138 @@ const PrizesView = () => {
   );
 };
 
+const TeamBanksAdminView = () => {
+  const [banks, setBanks] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [resettingTeamId, setResettingTeamId] = useState(null);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const { data } = await api.get("/admin/team-banks");
+      setBanks(Array.isArray(data) ? data : []);
+    } catch (error) {
+      toast.error(extractError(error, "Не вдалося завантажити банки команд"));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const resetBank = async (bank) => {
+    const message = [
+      `Скинути Банку Команди «${bank.team_name}»?`,
+      "",
+      `Поточний прогрес ${Number(bank.current_points || 0).toLocaleString("uk-UA")} Point буде закрито,`,
+      "розпочнеться новий збір з 0 / 15 000 Point.",
+      "Внесені бали користувачам не повертаються.",
+    ].join("\n");
+    if (!window.confirm(message)) return;
+    setResettingTeamId(bank.team_id);
+    try {
+      const { data } = await api.post(`/admin/team-banks/${bank.team_id}/reset`);
+      setBanks((current) => current.map((item) => item.team_id === data.team_id ? data : item));
+      toast.success(`Банку «${bank.team_name}» скинуто`, {
+        description: "Розпочато новий збір на 15 000 Point.",
+      });
+    } catch (error) {
+      toast.error(extractError(error, "Не вдалося скинути банку"));
+    } finally {
+      setResettingTeamId(null);
+    }
+  };
+
+  if (loading) return <div className="py-10 text-center text-sm font-black text-zinc-500">Завантаження банок команд…</div>;
+
+  return (
+    <div className="space-y-4" data-testid="team-banks-admin-view">
+      <div className="rounded-3xl border border-[#B78CFF]/30 bg-[#B78CFF]/10 p-4">
+        <div className="flex items-start gap-3">
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-[#B78CFF]/30 bg-black/20 text-[#C9A7FF]">
+            <PiggyBank size={23} strokeWidth={2.6} />
+          </div>
+          <div>
+            <div className="text-sm font-black uppercase tracking-wider text-white">Керування Банками Команд</div>
+            <div className="mt-1 text-xs leading-relaxed text-zinc-400">
+              Кожна команда має окрему банку. Скидання закриває поточний цикл і запускає новий збір з 0 до 15 000 Point.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <button
+        type="button"
+        onClick={load}
+        className="flex h-11 w-full items-center justify-center gap-2 rounded-2xl border border-white/10 bg-[#1A1A1E] text-xs font-black uppercase tracking-wider text-white"
+      >
+        <RotateCcw size={15} strokeWidth={3} /> Оновити дані
+      </button>
+
+      <div className="grid gap-3 xl:grid-cols-2">
+        {banks.map((bank) => {
+          const progress = Math.max(0, Math.min(100, Number(bank.progress_percent || 0)));
+          const isResetting = resettingTeamId === bank.team_id;
+          return (
+            <section key={bank.team_id} className="rounded-3xl border border-white/10 bg-[#1A1A1E] p-4" data-testid={`admin-team-bank-${bank.team_id}`}>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500">Цикл #{Number(bank.cycle_number || 1)}</div>
+                  <h2 className="mt-1 truncate text-xl font-black text-white">{bank.team_name}</h2>
+                  <div className="mt-1 text-xs text-zinc-500">{bank.reward_title || "Групова зустріч на 30 хв"}</div>
+                </div>
+                <div className={`shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-wider ${bank.unlocked ? "border-[#39FF14]/35 bg-[#39FF14]/10 text-[#39FF14]" : "border-[#00F0FF]/25 bg-[#00F0FF]/10 text-[#00F0FF]"}`}>
+                  {bank.unlocked ? "Ціль досягнута" : `${progress}%`}
+                </div>
+              </div>
+
+              <div className="mt-4 grid grid-cols-3 gap-2">
+                <div className="rounded-2xl bg-black/25 p-3">
+                  <div className="text-[9px] font-black uppercase tracking-wider text-zinc-600">Зібрано</div>
+                  <div className="mt-1 text-lg font-black text-[#B78CFF]">{Number(bank.current_points || 0).toLocaleString("uk-UA")}</div>
+                </div>
+                <div className="rounded-2xl bg-black/25 p-3">
+                  <div className="text-[9px] font-black uppercase tracking-wider text-zinc-600">Залишилось</div>
+                  <div className="mt-1 text-lg font-black text-[#FFB800]">{Number(bank.remaining_points || 0).toLocaleString("uk-UA")}</div>
+                </div>
+                <div className="rounded-2xl bg-black/25 p-3">
+                  <div className="text-[9px] font-black uppercase tracking-wider text-zinc-600">Учасників</div>
+                  <div className="mt-1 text-lg font-black text-white">{Array.isArray(bank.contributors) ? bank.contributors.length : 0}</div>
+                </div>
+              </div>
+
+              <div className="mt-3 h-3 overflow-hidden rounded-full bg-black/40">
+                <div className="h-full rounded-full bg-gradient-to-r from-[#7C3AED] via-[#B78CFF] to-[#FFB800]" style={{ width: `${progress}%` }} />
+              </div>
+              <div className="mt-2 flex items-center justify-between gap-3 text-[10px] font-bold text-zinc-500">
+                <span>{Number(bank.current_points || 0).toLocaleString("uk-UA")} / {Number(bank.goal_points || 15000).toLocaleString("uk-UA")} Point</span>
+                <span>Оновлено {bank.updated_at ? new Date(bank.updated_at).toLocaleString("uk-UA") : "—"}</span>
+              </div>
+
+              <button
+                type="button"
+                disabled={isResetting}
+                onClick={() => resetBank(bank)}
+                className="mt-4 flex h-11 w-full items-center justify-center gap-2 rounded-2xl border border-[#FF5C00]/40 bg-[#FF5C00]/10 text-xs font-black uppercase tracking-wider text-[#FF7D36] disabled:opacity-60"
+              >
+                <RotateCcw size={15} strokeWidth={3} /> {isResetting ? "Скидаємо…" : "Скинути ціль банки"}
+              </button>
+              <div className="mt-2 text-center text-[10px] text-zinc-600">Старий цикл зберігається в історії. Point не повертаються на особисті баланси.</div>
+            </section>
+          );
+        })}
+      </div>
+
+      {!banks.length && (
+        <div className="rounded-3xl border border-dashed border-white/10 bg-[#1A1A1E] p-8 text-center text-sm font-bold text-zinc-500">
+          Команд ще немає. Створіть команду, і для неї автоматично з’явиться окрема банка.
+        </div>
+      )}
+    </div>
+  );
+};
+
+
 const PrizeEditor = ({ prize, teams, onClose, onSaved }) => {
   const isNew = !prize.id;
   const [f, setF] = useState({
@@ -2483,7 +2616,7 @@ export default function Admin() {
     );
   }
 
-  const V = { analytics: AnalyticsView, "ai-team": AITeamDashboard, "daily-tasks": DailyTasksManager, points: PointsManager, goals: GoalsManager, moderation: ModerationView, applications: ApplicationsView, users: UsersView, teams: TeamsView, achievements: AchievementsView, "bonus-match": BonusMatchLevelsView, prizes: PrizesView, orders: OrdersView }[tab];
+  const V = { analytics: AnalyticsView, "ai-team": AITeamDashboard, "daily-tasks": DailyTasksManager, points: PointsManager, goals: GoalsManager, moderation: ModerationView, applications: ApplicationsView, users: UsersView, teams: TeamsView, achievements: AchievementsView, "bonus-match": BonusMatchLevelsView, prizes: PrizesView, "team-banks": TeamBanksAdminView, orders: OrdersView }[tab];
 
   return (
     <div className="px-5 pt-2 pb-8 lg:px-7 lg:pt-6" data-testid="admin-page">

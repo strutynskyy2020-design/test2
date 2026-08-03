@@ -26,7 +26,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
-from pymongo import UpdateOne
+from pymongo import UpdateOne, ReturnDocument
 from pydantic import BaseModel, Field, EmailStr, ConfigDict
 
 try:
@@ -497,6 +497,41 @@ class PrizeUpdateBody(BaseModel):
     task_replacements: Optional[int] = None
 
 
+class TeamBankContributorModel(BaseModel):
+    user_id: str
+    user_name: str
+    avatar_initials: str = ""
+    avatar_color: str = "#FFB800"
+    avatar_url: Optional[str] = None
+    avatar_rarity: str = "basic"
+    total_amount: int = 0
+    contribution_count: int = 0
+    last_contributed_at: Optional[str] = None
+
+
+class TeamBankModel(BaseModel):
+    id: str
+    team_id: str
+    team_name: str
+    cycle_number: int = 1
+    goal_points: int = 15000
+    current_points: int = 0
+    reward_title: str = "Групова зустріч на 30 хв"
+    description: str = "Разом збираємо на групову зустріч"
+    progress_percent: int = 0
+    remaining_points: int = 0
+    unlocked: bool = False
+    unlocked_at: Optional[str] = None
+    my_total: int = 0
+    contributors: List[TeamBankContributorModel] = Field(default_factory=list)
+    updated_at: str
+    created_at: str
+
+
+class TeamBankContributionBody(BaseModel):
+    amount: int = Field(default=100, ge=1, le=5000)
+
+
 class OrderModel(BaseModel):
     id: str
     user_id: str
@@ -648,6 +683,134 @@ async def _hydrate_user_team(doc: dict) -> dict:
     if doc.get("team_id") and not doc.get("team_name"):
         doc["team_name"] = await _resolve_team_name(doc.get("team_id"))
     return doc
+
+
+TEAM_BANK_GOAL_POINTS = 15000
+TEAM_BANK_REWARD_TITLE = "Групова зустріч на 30 хв"
+TEAM_BANK_DESCRIPTION = "Разом збираємо на групову зустріч"
+
+
+async def _ensure_team_bank(team_id: Optional[str]) -> dict:
+    if not team_id:
+        raise HTTPException(status_code=400, detail="Користувач не прив’язаний до команди")
+    team = await db.teams.find_one({"id": team_id}, {"_id": 0, "id": 1, "name": 1})
+    if not team:
+        raise HTTPException(status_code=404, detail="Команду не знайдено")
+    current_time = now_iso()
+    defaults = {
+        "id": f"team-bank-{team_id}",
+        "team_id": team_id,
+        "team_name": team.get("name") or "Команда",
+        "goal_points": TEAM_BANK_GOAL_POINTS,
+        "current_points": 0,
+        "reward_title": TEAM_BANK_REWARD_TITLE,
+        "description": TEAM_BANK_DESCRIPTION,
+        "cycle_number": 1,
+        "unlocked_at": None,
+        "last_reset_at": None,
+        "last_reset_by": None,
+        "created_at": current_time,
+        "updated_at": current_time,
+    }
+    await db.team_banks.update_one(
+        {"team_id": team_id},
+        {
+            "$setOnInsert": defaults,
+            "$set": {
+                "team_name": defaults["team_name"],
+                "goal_points": TEAM_BANK_GOAL_POINTS,
+                "reward_title": TEAM_BANK_REWARD_TITLE,
+                "description": TEAM_BANK_DESCRIPTION,
+                "updated_at": current_time,
+            },
+        },
+        upsert=True,
+    )
+    doc = await db.team_banks.find_one({"team_id": team_id}, {"_id": 0}) or defaults
+    doc.setdefault("created_at", current_time)
+    doc.setdefault("updated_at", current_time)
+    doc.setdefault("goal_points", TEAM_BANK_GOAL_POINTS)
+    doc.setdefault("current_points", 0)
+    doc.setdefault("reward_title", TEAM_BANK_REWARD_TITLE)
+    doc.setdefault("description", TEAM_BANK_DESCRIPTION)
+    doc.setdefault("cycle_number", 1)
+    doc.setdefault("last_reset_at", None)
+    doc.setdefault("last_reset_by", None)
+    return doc
+
+
+async def _team_bank_response(team_id: str, current_user_id: Optional[str] = None) -> TeamBankModel:
+    bank = await _ensure_team_bank(team_id)
+    cycle_number = max(1, int(bank.get("cycle_number") or 1))
+    contribution_match = {"team_id": team_id, "cycle_number": cycle_number}
+    if cycle_number == 1:
+        contribution_match = {
+            "team_id": team_id,
+            "$or": [
+                {"cycle_number": 1},
+                {"cycle_number": {"$exists": False}},
+            ],
+        }
+    rows = await db.team_bank_contributions.aggregate([
+        {"$match": contribution_match},
+        {"$group": {
+            "_id": "$user_id",
+            "total_amount": {"$sum": "$amount"},
+            "contribution_count": {"$sum": 1},
+            "last_contributed_at": {"$max": "$created_at"},
+        }},
+        {"$sort": {"total_amount": -1, "last_contributed_at": 1, "_id": 1}},
+    ]).to_list(5000)
+    user_ids = [str(row.get("_id")) for row in rows if row.get("_id")]
+    user_map = {}
+    if user_ids:
+        users = await db.users.find(
+            {"id": {"$in": user_ids}},
+            {"_id": 0, "id": 1, "name": 1, "avatar_initials": 1, "avatar_color": 1, "avatar_url": 1, "avatar_rarity": 1},
+        ).to_list(len(user_ids) + 5)
+        user_map = {str(doc["id"]): doc for doc in users}
+    contributors = []
+    my_total = 0
+    for row in rows:
+        user_id = str(row.get("_id") or "")
+        profile = user_map.get(user_id, {})
+        total_amount = int(row.get("total_amount") or 0)
+        if current_user_id and user_id == current_user_id:
+            my_total = total_amount
+        contributors.append(TeamBankContributorModel(
+            user_id=user_id,
+            user_name=profile.get("name") or "Користувач",
+            avatar_initials=profile.get("avatar_initials", "?"),
+            avatar_color=profile.get("avatar_color", "#FFB800"),
+            avatar_url=profile.get("avatar_url"),
+            avatar_rarity=profile.get("avatar_rarity", "basic"),
+            total_amount=total_amount,
+            contribution_count=int(row.get("contribution_count") or 0),
+            last_contributed_at=row.get("last_contributed_at"),
+        ))
+    goal_points = max(1, int(bank.get("goal_points") or TEAM_BANK_GOAL_POINTS))
+    current_points = max(0, int(bank.get("current_points") or 0))
+    progress_percent = min(100, int(round((current_points / goal_points) * 100)))
+    remaining_points = max(0, goal_points - current_points)
+    unlocked_at = bank.get("unlocked_at")
+    return TeamBankModel(
+        id=str(bank.get("id") or f"team-bank-{team_id}"),
+        team_id=team_id,
+        team_name=bank.get("team_name") or "Команда",
+        cycle_number=cycle_number,
+        goal_points=goal_points,
+        current_points=current_points,
+        reward_title=bank.get("reward_title") or TEAM_BANK_REWARD_TITLE,
+        description=bank.get("description") or TEAM_BANK_DESCRIPTION,
+        progress_percent=progress_percent,
+        remaining_points=remaining_points,
+        unlocked=bool(unlocked_at or current_points >= goal_points),
+        unlocked_at=unlocked_at,
+        my_total=my_total,
+        contributors=contributors,
+        updated_at=bank.get("updated_at") or now_iso(),
+        created_at=bank.get("created_at") or bank.get("updated_at") or now_iso(),
+    )
 
 
 async def _goals_settings() -> dict:
@@ -1743,7 +1906,7 @@ async def leader_goal_views_today(user: dict = Depends(get_current_user)):
         state["report_viewed"] = True
         state["report_viewed_at"] = state["report_viewed_at"] or view.get("created_at")
         path = str(view.get("path") or "").split("?", 1)[0]
-        if path in {"/goals/credit/me", "/goals/debit/me"}:
+        if path in {"/goals/credit/me", "/goals/debit/me", "/goals/deposit/me"}:
             state["metrics_viewed"] = True
             state["metrics_viewed_at"] = state["metrics_viewed_at"] or view.get("created_at")
     rows = []
@@ -2293,6 +2456,154 @@ async def buy_prize(prize_id: str, user: dict = Depends(get_current_user)):
     return {"order": OrderModel(**order), "user": _user_with_progress(fresh), "equipped": is_avatar, "already_owned": owned}
 
 
+@api.get("/team-bank", response_model=TeamBankModel)
+async def get_team_bank(user: dict = Depends(get_current_user)):
+    if not user.get("team_id"):
+        raise HTTPException(status_code=400, detail="Для цієї функції потрібно бути в команді")
+    return await _team_bank_response(user["team_id"], user["id"])
+
+
+@api.post("/team-bank/contribute")
+async def contribute_team_bank(body: TeamBankContributionBody, user: dict = Depends(get_current_user)):
+    team_id = user.get("team_id")
+    if not team_id:
+        raise HTTPException(status_code=400, detail="Для внеску потрібно бути в команді")
+    amount = int(body.amount or 0)
+    if amount <= 0:
+        raise HTTPException(status_code=400, detail="Сума внеску має бути більшою за нуль")
+
+    bank_before = await _ensure_team_bank(team_id)
+    team_name = bank_before.get("team_name") or (await _resolve_team_name(team_id)) or "Команда"
+    fresh_user = await db.users.find_one_and_update(
+        {"id": user["id"], "balance": {"$gte": amount}},
+        {"$inc": {"balance": -amount}},
+        return_document=ReturnDocument.AFTER,
+        projection={"_id": 0},
+    )
+    if not fresh_user:
+        raise HTTPException(status_code=400, detail="Недостатньо балів")
+
+    current_time = now_iso()
+    previous_points = int(bank_before.get("current_points") or 0)
+    goal_points = max(1, int(bank_before.get("goal_points") or TEAM_BANK_GOAL_POINTS))
+    updated_current_points = previous_points + amount
+    bank_updates = {
+        "$inc": {"current_points": amount},
+        "$set": {"team_name": team_name, "updated_at": current_time, "goal_points": goal_points, "reward_title": TEAM_BANK_REWARD_TITLE, "description": TEAM_BANK_DESCRIPTION},
+    }
+    reached_goal_now = previous_points < goal_points <= updated_current_points and not bank_before.get("unlocked_at")
+    if reached_goal_now:
+        bank_updates.setdefault("$set", {})["unlocked_at"] = current_time
+    await db.team_banks.update_one({"team_id": team_id}, bank_updates, upsert=True)
+
+    contribution_id = str(uuid.uuid4())
+    cycle_number = max(1, int(bank_before.get("cycle_number") or 1))
+    await db.team_bank_contributions.insert_one({
+        "id": contribution_id,
+        "team_id": team_id,
+        "cycle_number": cycle_number,
+        "team_name": team_name,
+        "user_id": user["id"],
+        "user_name": user.get("name") or "Користувач",
+        "amount": amount,
+        "created_at": current_time,
+    })
+    await db.transactions.insert_one({
+        "id": str(uuid.uuid4()),
+        "user_id": user["id"],
+        "kind": "team_bank_contribution",
+        "amount": -amount,
+        "description": f"Внесок у Банку Команди: {team_name}",
+        "created_at": current_time,
+        "meta": {"source": "team_bank", "team_id": team_id, "cycle_number": cycle_number, "contribution_id": contribution_id},
+    })
+
+    await _notify_team(
+        team_id,
+        "team_bank",
+        f"{user.get('name') or 'Учасник'} поповнив Банку Команди",
+        f"+{amount} Point до спільної цілі «{TEAM_BANK_REWARD_TITLE}».",
+        "/store",
+        "gift",
+        "prizes",
+        {"team_id": team_id, "amount": amount},
+        False,
+    )
+    if reached_goal_now:
+        await _notify_team(
+            team_id,
+            "team_bank_goal",
+            "Банка Команди зібрана!",
+            f"Команда зібрала {goal_points} Point і отримує нагороду: {TEAM_BANK_REWARD_TITLE}.",
+            "/store",
+            "gift",
+            "prizes",
+            {"team_id": team_id, "goal_points": goal_points},
+            True,
+        )
+
+    bank = await _team_bank_response(team_id, user["id"])
+    return {"bank": bank, "user": _user_with_progress(fresh_user)}
+
+
+@api.get("/admin/team-banks", response_model=List[TeamBankModel])
+async def admin_list_team_banks(admin: dict = Depends(get_current_admin)):
+    teams = await db.teams.find({}, {"_id": 0, "id": 1, "name": 1}).sort("name", 1).to_list(500)
+    result = []
+    for team in teams:
+        result.append(await _team_bank_response(team["id"]))
+    return result
+
+
+@api.post("/admin/team-banks/{team_id}/reset", response_model=TeamBankModel)
+async def admin_reset_team_bank(team_id: str, admin: dict = Depends(get_current_admin)):
+    bank = await _ensure_team_bank(team_id)
+    previous_cycle = max(1, int(bank.get("cycle_number") or 1))
+    current_time = now_iso()
+    await db.team_bank_cycles.insert_one({
+        "id": str(uuid.uuid4()),
+        "team_id": team_id,
+        "team_name": bank.get("team_name") or "Команда",
+        "cycle_number": previous_cycle,
+        "goal_points": int(bank.get("goal_points") or TEAM_BANK_GOAL_POINTS),
+        "final_points": int(bank.get("current_points") or 0),
+        "reward_title": bank.get("reward_title") or TEAM_BANK_REWARD_TITLE,
+        "unlocked_at": bank.get("unlocked_at"),
+        "started_at": bank.get("created_at"),
+        "closed_at": current_time,
+        "closed_by": admin.get("id"),
+        "closed_by_name": admin.get("name") or admin.get("email") or "Адміністратор",
+    })
+    await db.team_banks.update_one(
+        {"team_id": team_id},
+        {
+            "$set": {
+                "current_points": 0,
+                "unlocked_at": None,
+                "updated_at": current_time,
+                "last_reset_at": current_time,
+                "last_reset_by": admin.get("id"),
+                "goal_points": TEAM_BANK_GOAL_POINTS,
+                "reward_title": TEAM_BANK_REWARD_TITLE,
+                "description": TEAM_BANK_DESCRIPTION,
+            },
+            "$inc": {"cycle_number": 1},
+        },
+    )
+    await _notify_team(
+        team_id,
+        "team_bank_reset",
+        "Банку Команди скинуто",
+        f"Розпочато новий збір: {TEAM_BANK_GOAL_POINTS} Point на нагороду «{TEAM_BANK_REWARD_TITLE}».",
+        "/store",
+        "gift",
+        "prizes",
+        {"team_id": team_id, "cycle_number": previous_cycle + 1},
+        True,
+    )
+    return await _team_bank_response(team_id)
+
+
 @api.get("/orders", response_model=List[OrderModel])
 async def my_orders(user: dict = Depends(get_current_user)):
     docs = await db.orders.find({"user_id": user["id"]}, {"_id": 0}).sort("created_at", -1).to_list(200)
@@ -2346,13 +2657,16 @@ def _leaderboard_period_match(period: Literal["day", "week", "month"]) -> dict:
 def _store_purchase_exclusion() -> dict:
     """Match transactions that are not prize-store purchases.
 
-    `meta.source=store` is used by v112+ records. The description fallback keeps
-    historical purchases from older releases out of the rating as well.
+    `meta.source=store` is used by v112+ records. Team Bank contributions are
+    also treated as non-competitive spending, so collective goals do not lower
+    a player's rating.
     """
     return {
         "$nor": [
             {"meta.source": "store"},
+            {"meta.source": "team_bank"},
             {"kind": "purchase", "description": {"$regex": r"^Купівля:"}},
+            {"kind": "team_bank_contribution"},
         ]
     }
 
@@ -2367,13 +2681,19 @@ async def _transaction_scores(period: Literal["day", "week", "month"]) -> dict[s
 
 
 async def _store_spending_by_user() -> dict[str, int]:
-    """Return absolute all-time store spending per user, including old records."""
+    """Return absolute all-time non-competitive spending per user.
+
+    This includes prize-store purchases and Team Bank contributions because both
+    reduce wallet balance but should not lower the all-time competitive rating.
+    """
     pipeline = [
         {
             "$match": {
                 "$or": [
                     {"meta.source": "store"},
+                    {"meta.source": "team_bank"},
                     {"kind": "purchase", "description": {"$regex": r"^Купівля:"}},
+                    {"kind": "team_bank_contribution"},
                 ],
                 "amount": {"$lt": 0},
             }
@@ -6775,6 +7095,11 @@ async def seed_all():
     await db.page_views.create_index([("date", 1), ("user_id", 1), ("path", 1)])
     await db.app_settings.create_index("id", unique=True)
     await db.team_goal_messages.create_index("team_id", unique=True)
+    await db.team_banks.create_index("team_id", unique=True)
+    await db.team_bank_contributions.create_index([("team_id", 1), ("created_at", -1)])
+    await db.team_bank_contributions.create_index([("user_id", 1), ("team_id", 1)])
+    await db.team_bank_contributions.create_index([("team_id", 1), ("cycle_number", 1), ("created_at", -1)])
+    await db.team_bank_cycles.create_index([("team_id", 1), ("cycle_number", -1)], unique=True)
     await db.prizes.create_index("team_id", sparse=True)
 
     # Teams — only administrator-created teams are used in production.
@@ -7049,6 +7374,7 @@ class ReportPublishedWebhookBody(BaseModel):
     updated_profiles: int = Field(default=0, ge=0, le=100000)
     credit_group_summaries: dict = Field(default_factory=dict)
     debit_group_summaries: dict = Field(default_factory=dict)
+    deposit_group_summaries: dict = Field(default_factory=dict)
 
 
 class ReportMetricSnapshotBody(BaseModel):
@@ -7056,6 +7382,7 @@ class ReportMetricSnapshotBody(BaseModel):
     snapshot_updated_at: str = Field(default="", max_length=100)
     credit_group_summaries: dict = Field(default_factory=dict)
     debit_group_summaries: dict = Field(default_factory=dict)
+    deposit_group_summaries: dict = Field(default_factory=dict)
 
 
 # ─── Notification + Web Push helpers ───
@@ -7084,6 +7411,9 @@ KIND_TO_CATEGORY = {
     "reports_updated": "reports",
     "game_level": "games",
     "ranking_change": "ranking",
+    "team_bank": "prizes",
+    "team_bank_goal": "prizes",
+    "team_bank_reset": "prizes",
     "workday_start": "scheduled_reminders",
     "issuance_reminder": "scheduled_reminders",
 }
@@ -7679,12 +8009,14 @@ async def _store_report_metric_snapshots(body: ReportPublishedWebhookBody | Repo
     team_by_key = {_normalize_team_report_key(team.get("name")): team for team in teams}
     credit = body.credit_group_summaries or {}
     debit = body.debit_group_summaries or {}
-    all_keys = set(credit.keys()) | set(debit.keys())
+    deposit = body.deposit_group_summaries or {}
+    all_keys = set(credit.keys()) | set(debit.keys()) | set(deposit.keys())
     for raw_key in all_keys:
         team_key = _normalize_team_report_key(raw_key)
         team = team_by_key.get(team_key) or {}
         c = credit.get(raw_key) or credit.get(team_key) or {}
         d = debit.get(raw_key) or debit.get(team_key) or {}
+        dep = deposit.get(raw_key) or deposit.get(team_key) or {}
         timestamp = now_iso()
         await db.report_metric_snapshots.update_one(
             {"snapshot_version": snapshot_version, "team_key": team_key},
@@ -7697,8 +8029,10 @@ async def _store_report_metric_snapshots(body: ReportPublishedWebhookBody | Repo
                     "team_name": team.get("name") or raw_key,
                     "credit_overall": _report_metric_number(c.get("overall")),
                     "debit_overall": _report_metric_number(d.get("overall")),
+                    "deposit_overall": _report_metric_number(dep.get("overall")),
                     "credit": c,
                     "debit": d,
+                    "deposit": dep,
                     "updated_at": timestamp,
                 },
                 "$setOnInsert": {"created_at": timestamp},
@@ -7893,11 +8227,14 @@ async def manager_analytics(
                 "created_at": metric.get("created_at"),
                 "credit_values": [],
                 "debit_values": [],
+                "deposit_values": [],
             })
             if metric.get("credit_overall") is not None:
                 group["credit_values"].append(float(metric["credit_overall"]))
             if metric.get("debit_overall") is not None:
                 group["debit_values"].append(float(metric["debit_overall"]))
+            if metric.get("deposit_overall") is not None:
+                group["deposit_values"].append(float(metric["deposit_overall"]))
         report_trends = []
         for group in list(grouped_metrics.values())[:30]:
             report_trends.append({
@@ -7906,6 +8243,7 @@ async def manager_analytics(
                 "created_at": group["created_at"],
                 "credit_overall": round(sum(group["credit_values"]) / len(group["credit_values"]), 2) if group["credit_values"] else None,
                 "debit_overall": round(sum(group["debit_values"]) / len(group["debit_values"]), 2) if group["debit_values"] else None,
+                "deposit_overall": round(sum(group["deposit_values"]) / len(group["deposit_values"]), 2) if group["deposit_values"] else None,
             })
         report_trends.reverse()
 

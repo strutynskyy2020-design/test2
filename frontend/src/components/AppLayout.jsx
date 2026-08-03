@@ -18,6 +18,8 @@ const PAGE_LABELS = {
   "/goals/credit/me": "Мої кредитні показники",
   "/goals/debit": "Дебетовий рейтинг",
   "/goals/debit/me": "Мої дебетові видачі",
+  "/goals/deposit": "Депозитний рейтинг",
+  "/goals/deposit/me": "Мої депозитні показники",
   "/store": "Магазин",
   "/leaderboard": "Загальний рейтинг",
   "/fun": "Щедрий куб",
@@ -31,7 +33,7 @@ const PAGE_LABELS = {
 const getPageLabel = (pathname, search) => {
   const base = PAGE_LABELS[pathname] || pathname;
   const params = new URLSearchParams(search || "");
-  if (pathname === "/goals/debit/me") {
+  if (pathname === "/goals/debit/me" || pathname === "/goals/deposit/me") {
     return `${base} · ${params.get("period") === "yesterday" ? "Вчора" : "Місяць"}`;
   }
   if (pathname === "/goals/credit/me") {

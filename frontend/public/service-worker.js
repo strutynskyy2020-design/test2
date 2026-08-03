@@ -1,4 +1,6 @@
 /* VPDK Bonus — Service Worker
+ * v117 adds per-team bank administration and resettable collection cycles.
+ * v116 adds private per-team banks for the 15 000 Point group-meeting goal.
  * v115 preserves the shared “Загальний підсумок” in Google reports and refreshes stale report cache.
  * v114 adds the unified notification center, Web Push delivery, scheduled workday
  * reminders, manager analytics, and Google-report publication notifications.
@@ -16,7 +18,7 @@
  * never be cached as index.html, otherwise browsers can render a giant broken
  * image element over the board.
  */
-const VERSION = "vpdk-v115";
+const VERSION = "vpdk-v118";
 const STATIC_CACHE = `${VERSION}-static`;
 const RUNTIME_CACHE = `${VERSION}-runtime`;
 

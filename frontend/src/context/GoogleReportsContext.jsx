@@ -89,6 +89,7 @@ export const GoogleReportsProvider = ({ children }) => {
             snapshot_updated_at: data?.snapshot_updated_at || "",
             credit_group_summaries: data?.credit_group_summaries || {},
             debit_group_summaries: data?.debit_group_summaries || {},
+            deposit_group_summaries: data?.deposit_group_summaries?.month || {},
           }).catch(() => {
             reportedSnapshotRef.current.delete(snapshotVersion);
           });

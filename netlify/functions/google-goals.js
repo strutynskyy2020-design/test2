@@ -91,11 +91,29 @@ const applyTeamOverall = (rows, _teamKey) => (Array.isArray(rows) ? rows : []).m
   return safeRow;
 });
 
+const applyDepositTeamOverall = (rows, teamKey) => (Array.isArray(rows) ? rows : []).map((row) => {
+  const teamValues = row?.team_overall && teamKey ? row.team_overall[teamKey] : null;
+  const { team_overall: _privateTeamValues, ...safeRow } = row || {};
+  if (!teamValues || typeof teamValues !== "object") return safeRow;
+  return Object.entries(teamValues).reduce((result, [key, value]) => {
+    if (value !== undefined && value !== null && String(value).trim() !== "") result[key] = value;
+    return result;
+  }, { ...safeRow });
+});
+
 const selectGroupSummaries = (summaries, teamKey, allowAll) => {
   const source = summaries && typeof summaries === "object" ? summaries : {};
   if (allowAll) return source;
   if (!teamKey || !source[teamKey]) return {};
   return { [teamKey]: source[teamKey] };
+};
+
+const selectDepositGroupSummaries = (summaries, teamKey, allowAll) => {
+  const source = summaries && typeof summaries === "object" ? summaries : {};
+  return ["month", "yesterday"].reduce((result, period) => {
+    result[period] = selectGroupSummaries(source[period], teamKey, allowAll);
+    return result;
+  }, {});
 };
 
 const readJson = async (response) => {
@@ -298,6 +316,11 @@ exports.handler = async (event) => {
         debit_group_summaries: {},
         debit_leaderboard_updated_at: null,
         debit_issuances: [],
+        deposit_metrics: [],
+        deposit_leaderboard: [],
+        deposit_group_summaries: { month: {}, yesterday: {} },
+        deposit_leaderboard_updated_at: null,
+        deposit_issuances: [],
         report_access: reportAccess,
         schedule: emptySchedule("schedule_login_missing", lookup),
       });
@@ -378,6 +401,11 @@ exports.handler = async (event) => {
       currentTeamKey,
       allowCrossTeamReports,
     );
+    const depositGroupSummaries = selectDepositGroupSummaries(
+      baseData.deposit_group_summaries,
+      currentTeamKey,
+      allowCrossTeamReports,
+    );
     const selectedCreditSummary = currentTeamKey
       ? (creditGroupSummaries[currentTeamKey] || null)
       : (isPrivileged ? null : (baseData.credit_group_summary || null));
@@ -391,6 +419,10 @@ exports.handler = async (event) => {
     );
     const debitLeaderboard = enrichRowsWithParticipants(
       filterRowsByAllowedLogins(baseData.debit_leaderboard, allowedLogins),
+      participants,
+    );
+    const depositLeaderboard = enrichRowsWithParticipants(
+      filterRowsByAllowedLogins(baseData.deposit_leaderboard, allowedLogins),
       participants,
     );
 
@@ -418,6 +450,11 @@ exports.handler = async (event) => {
       debit_group_summaries: debitGroupSummaries,
       debit_leaderboard_updated_at: baseData.debit_leaderboard_updated_at || null,
       debit_issuances: viewerHasOwnReport && Array.isArray(baseData.debit_issuances) ? baseData.debit_issuances : [],
+      deposit_metrics: viewerHasOwnReport ? applyDepositTeamOverall(baseData.deposit_metrics, currentTeamKey) : [],
+      deposit_leaderboard: depositLeaderboard,
+      deposit_group_summaries: depositGroupSummaries,
+      deposit_leaderboard_updated_at: baseData.deposit_leaderboard_updated_at || null,
+      deposit_issuances: viewerHasOwnReport && Array.isArray(baseData.deposit_issuances) ? baseData.deposit_issuances : [],
       report_access: {
         signature: reportAccess?.access_signature || null,
         allow_cross_team_reports: allowCrossTeamReports,
