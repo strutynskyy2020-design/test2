@@ -10,12 +10,21 @@ const FRAME_ASSETS = {
   legendary: "/avatar-frames/legendary.png",
 };
 
-const diamondFrameAsset = (avatarUrl = "") => {
-  const source = String(avatarUrl || "").toLowerCase();
-  return source.includes("male-diamond-")
-    ? "/avatar-frames/diamond-male.png"
-    : "/avatar-frames/diamond-female-floral-v134.webp";
+export const getDiamondAvatarVariant = (avatarUrl = "") => {
+  const source = String(avatarUrl || "")
+    .trim()
+    .toLowerCase()
+    .split("?")[0]
+    .split("#")[0];
+  const filename = source.split("/").pop() || "";
+  return filename.startsWith("male-diamond-") ? "male" : "female";
 };
+
+const diamondFrameAsset = (avatarUrl = "") => (
+  getDiamondAvatarVariant(avatarUrl) === "male"
+    ? "/avatar-frames/diamond-male.png"
+    : "/avatar-frames/diamond-female-floral-v135.webp"
+);
 
 export const resolveAvatarRarity = (rarity, avatarUrl = "") => {
   const normalized = String(rarity || "").trim().toLowerCase();
@@ -52,7 +61,7 @@ export default function AvatarFrame({
   const resolvedRarity = resolveAvatarRarity(rarity, src);
   const frameAsset = resolveAvatarFrameAsset(resolvedRarity, src);
   const diamondVariant = resolvedRarity === "diamond"
-    ? (String(src || "").toLowerCase().includes("male-diamond-") ? "male" : "female")
+    ? getDiamondAvatarVariant(src)
     : undefined;
 
   return (

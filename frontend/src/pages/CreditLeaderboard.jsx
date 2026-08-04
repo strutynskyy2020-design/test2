@@ -12,7 +12,7 @@ import {
 import api from "@/lib/api";
 import { useApp } from "@/context/AppContext";
 import { useDailyGoogleReports } from "@/hooks/useGoogleReports";
-import { resolveAvatarUrl } from "@/lib/avatar";
+import AvatarFrame from "@/components/AvatarFrame";
 import { useGoalsAccess } from "@/hooks/useGoalsAccess";
 import {
   calculatedGroupSummary,
@@ -146,18 +146,16 @@ function TableMetricValue({ label, value }) {
 }
 
 function ProfileAvatar({ profile, size = "md" }) {
-  const avatar = resolveAvatarUrl(profile?.avatar_url);
   const fallback = String(profile?.avatar_initials || profile?.login || "?").slice(0, 2).toUpperCase();
-  const sizeClass = size === "lg" ? "h-12 w-12 text-xs" : "h-9 w-9 text-[10px]";
   return (
-    <div
-      className={`flex shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/[.12] font-black text-white ${sizeClass}`}
-      style={{ backgroundColor: profile?.avatar_color || "#27272A" }}
-    >
-      {avatar ? (
-        <img src={avatar} alt={profile?.login || "Аватар"} className="h-full w-full object-cover" loading="lazy" />
-      ) : fallback}
-    </div>
+    <AvatarFrame
+      src={profile?.avatar_url}
+      alt={profile?.login || "Аватар"}
+      initials={fallback}
+      color={profile?.avatar_color || "#27272A"}
+      rarity={profile?.avatar_rarity}
+      size={size === "lg" ? "compact" : "xxs"}
+    />
   );
 }
 

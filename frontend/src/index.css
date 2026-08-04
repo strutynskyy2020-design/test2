@@ -120,7 +120,10 @@ body {
   overflow: visible;
 }
 
+.avatar-frame--xxs { --frame-size: 36px; }
 .avatar-frame--xs { --frame-size: 44px; }
+.avatar-frame--compact { --frame-size: 48px; }
+.avatar-frame--report { --frame-size: 56px; }
 .avatar-frame--sm { --frame-size: 64px; }
 .avatar-frame--md { --frame-size: 80px; }
 .avatar-frame--lg { --frame-size: 104px; }

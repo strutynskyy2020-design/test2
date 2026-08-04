@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { useDailyGoogleReports } from "@/hooks/useGoogleReports";
-import { resolveAvatarUrl } from "@/lib/avatar";
+import AvatarFrame from "@/components/AvatarFrame";
 
 const PERIODS = [
   { id: "month", label: "Місяць" },
@@ -135,7 +135,6 @@ export default function DebitIssuances() {
     return !best || value > best.value ? { ...direction, value } : best;
   }, null) : null, [activeData]);
   const activeDirections = activeData ? DIRECTIONS.filter((direction) => Number(activeData[direction.key] || 0) > 0).length : 0;
-  const avatar = resolveAvatarUrl(user?.avatar_url);
   const fallback = String(user?.avatar_initials || user?.goals_login || user?.name || "?").slice(0, 2).toUpperCase();
 
   if (loading) return <div className="p-8 text-center text-sm text-zinc-500">Завантаження видач...</div>;
@@ -163,9 +162,14 @@ export default function DebitIssuances() {
         <>
           <section className="rounded-3xl border border-[#00F0FF]/30 bg-gradient-to-br from-[#00F0FF]/12 to-[#1A1A1E] p-5">
             <div className="flex items-center gap-3">
-              <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full border border-[#00F0FF]/35 bg-[#27272A] font-black text-white">
-                {avatar ? <img src={avatar} alt="Аватар" className="h-full w-full object-cover" /> : fallback}
-              </div>
+              <AvatarFrame
+                src={user?.avatar_url}
+                alt={user?.name || "Аватар"}
+                initials={fallback}
+                color={user?.avatar_color || "#27272A"}
+                rarity={user?.avatar_rarity}
+                size="report"
+              />
               <div className="min-w-0 flex-1">
                 <div className="text-[10px] font-black uppercase tracking-widest text-[#00F0FF]">Загальна кількість видач</div>
                 <div className="mt-1 font-display text-[38px] leading-none text-white">{Number(activeData.overall || 0).toLocaleString("uk-UA")}</div>

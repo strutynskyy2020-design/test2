@@ -5,7 +5,7 @@ import { useApp } from "@/context/AppContext";
 import { useDailyGoogleReports } from "@/hooks/useGoogleReports";
 import { useGoalsAccess } from "@/hooks/useGoalsAccess";
 import { enrichReportRowsWithParticipants, normalizeReportLogin, normalizeTeamKey, rowMatchesTeam } from "@/lib/teamReports";
-import { resolveAvatarUrl } from "@/lib/avatar";
+import AvatarFrame from "@/components/AvatarFrame";
 
 const PERIODS = [
   { id: "month", label: "Місяць" },
@@ -36,12 +36,16 @@ const normalizeRows = (rows = []) => (Array.isArray(rows) ? rows : []).map((row)
 }));
 
 function Avatar({ row }) {
-  const src = resolveAvatarUrl(row?.avatar_url);
   const fallback = String(row?.avatar_initials || row?.login || "?").slice(0, 2).toUpperCase();
   return (
-    <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-[#27272A] text-xs font-black text-white" style={{ backgroundColor: row?.avatar_color || "#27272A" }}>
-      {src ? <img src={src} alt={row?.login || "Аватар"} className="h-full w-full object-cover" /> : fallback}
-    </div>
+    <AvatarFrame
+      src={row?.avatar_url}
+      alt={row?.login || "Аватар"}
+      initials={fallback}
+      color={row?.avatar_color || "#27272A"}
+      rarity={row?.avatar_rarity}
+      size="xs"
+    />
   );
 }
 

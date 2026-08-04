@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { useDailyGoogleReports } from "@/hooks/useGoogleReports";
-import { resolveAvatarUrl } from "@/lib/avatar";
+import AvatarFrame from "@/components/AvatarFrame";
 import {
   currentTeamKey,
   formatCount,
@@ -86,9 +86,17 @@ function MetricCard({ metric, own, project }) {
 }
 
 function Avatar({ row }) {
-  const src = resolveAvatarUrl(row?.avatar_url);
   const fallback = String(row?.avatar_initials || row?.login || row?.name || "?").slice(0, 2).toUpperCase();
-  return <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-[#27272A] text-xs font-black text-white" style={{ backgroundColor: row?.avatar_color || undefined }}>{src ? <img src={src} alt="" className="h-full w-full object-cover" /> : fallback}</div>;
+  return (
+    <AvatarFrame
+      src={row?.avatar_url}
+      alt={row?.name || row?.login || "Аватар"}
+      initials={fallback}
+      color={row?.avatar_color || "#27272A"}
+      rarity={row?.avatar_rarity}
+      size="xs"
+    />
+  );
 }
 
 export default function ActivationCardsGoals() {

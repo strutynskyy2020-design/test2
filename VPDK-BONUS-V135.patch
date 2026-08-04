@@ -1,0 +1,648 @@
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' vpdk-bonus-v134-correct-female-diamond-frame/AVATAR_FRAMES_ALL_REPORTS_V135.md vpdk-bonus-v135-avatar-frames-all-reports/AVATAR_FRAMES_ALL_REPORTS_V135.md
+--- vpdk-bonus-v134-correct-female-diamond-frame/AVATAR_FRAMES_ALL_REPORTS_V135.md	1970-01-01 00:00:00.000000000 +0000
++++ vpdk-bonus-v135-avatar-frames-all-reports/AVATAR_FRAMES_ALL_REPORTS_V135.md	2026-08-04 17:14:36.096338857 +0000
+@@ -0,0 +1,46 @@
++# VPDK Bonus v135: рамки аватарів у всіх звітах
++
++## Виправлена причина жіночої рамки
++
++Попередня перевірка використовувала `includes("male-diamond-")`. Назва `female-diamond-1.webp` теж містить фрагмент `male-diamond-`, тому жіночі алмазні аватарки помилково отримували чоловічу рамку.
++
++У v135 перевіряється лише початок назви файлу:
++
++```js
++const filename = source.split("/").pop() || "";
++return filename.startsWith("male-diamond-") ? "male" : "female";
++```
++
++Результат:
++
++- `male-diamond-1.webp` → `diamond-male.png`;
++- `female-diamond-1.webp` → `diamond-female-floral-v135.webp`;
++- `female-diamond-2.webp` → `diamond-female-floral-v135.webp`;
++- `female-diamond-3.webp` → `diamond-female-floral-v135.webp`.
++
++## Двошарова логіка не змінена
++
++- `avatar_url` зберігає портрет;
++- `avatar_rarity` зберігає рідкісність;
++- `AvatarFrame` окремо накладає рамку;
++- алмазна рамка визначається за назвою алмазного портрета.
++
++## Рамки у звітах
++
++Компонент `AvatarFrame` тепер використовується у:
++
++- кредитному рейтингу;
++- дебетовому рейтингу;
++- особистому звіті дебетових видач;
++- депозитному проекційному рейтингу;
++- рейтингу депозитних видач;
++- рейтингу ПУМБ Online;
++- рейтингу активації карток;
++- адмін-звіті завдань дня;
++- адмін-звіті цілей.
++
++Глобальний LeaderBoard, стрічка, головна сторінка, магазин і Bonus Match уже використовували `AvatarFrame` раніше.
++
++## Backend
++
++До відповідей адмін-звітів додано `avatar_rarity`, щоб інтерфейс завжди отримував одночасно портрет і тип рамки.
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' vpdk-bonus-v134-correct-female-diamond-frame/VPDK-BONUS-V135-INSTALL.md vpdk-bonus-v135-avatar-frames-all-reports/VPDK-BONUS-V135-INSTALL.md
+--- vpdk-bonus-v134-correct-female-diamond-frame/VPDK-BONUS-V135-INSTALL.md	1970-01-01 00:00:00.000000000 +0000
++++ vpdk-bonus-v135-avatar-frames-all-reports/VPDK-BONUS-V135-INSTALL.md	2026-08-04 17:14:36.100338857 +0000
+@@ -0,0 +1,19 @@
++# Встановлення VPDK Bonus v135
++
++## Що оновити
++
++Потрібно розгорнути:
++
++1. frontend / Netlify;
++2. backend.
++
++Google Apps Script не змінюється. Залишається поточна робоча версія `VPDK-Code-v130.gs`.
++
++## Після деплою
++
++1. Виконайте `Ctrl + Shift + R` у браузері.
++2. Для встановленої PWA повністю закрийте застосунок і відкрийте його повторно.
++3. Перевірте жіночу алмазну аватарку у квестах, профілі та рейтингах.
++4. Перевірте чоловічу алмазну аватарку, вона повинна зберегти темну крижану рамку.
++
++Service Worker оновлено до `vpdk-v135`, а жіноча рамка отримала нову адресу `diamond-female-floral-v135.webp`, тому старий файл не повинен залишитися в кеші.
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' vpdk-bonus-v134-correct-female-diamond-frame/VPDK-BONUS-V135.patch vpdk-bonus-v135-avatar-frames-all-reports/VPDK-BONUS-V135.patch
+--- vpdk-bonus-v134-correct-female-diamond-frame/VPDK-BONUS-V135.patch	1970-01-01 00:00:00.000000000 +0000
++++ vpdk-bonus-v135-avatar-frames-all-reports/VPDK-BONUS-V135.patch	2026-08-04 17:15:14.996338419 +0000
+@@ -0,0 +1,73 @@
++diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' vpdk-bonus-v134-correct-female-diamond-frame/AVATAR_FRAMES_ALL_REPORTS_V135.md vpdk-bonus-v135-avatar-frames-all-reports/AVATAR_FRAMES_ALL_REPORTS_V135.md
++--- vpdk-bonus-v134-correct-female-diamond-frame/AVATAR_FRAMES_ALL_REPORTS_V135.md	1970-01-01 00:00:00.000000000 +0000
+++++ vpdk-bonus-v135-avatar-frames-all-reports/AVATAR_FRAMES_ALL_REPORTS_V135.md	2026-08-04 17:14:36.096338857 +0000
++@@ -0,0 +1,46 @@
+++# VPDK Bonus v135: рамки аватарів у всіх звітах
+++
+++## Виправлена причина жіночої рамки
+++
+++Попередня перевірка використовувала `includes("male-diamond-")`. Назва `female-diamond-1.webp` теж містить фрагмент `male-diamond-`, тому жіночі алмазні аватарки помилково отримували чоловічу рамку.
+++
+++У v135 перевіряється лише початок назви файлу:
+++
+++```js
+++const filename = source.split("/").pop() || "";
+++return filename.startsWith("male-diamond-") ? "male" : "female";
+++```
+++
+++Результат:
+++
+++- `male-diamond-1.webp` → `diamond-male.png`;
+++- `female-diamond-1.webp` → `diamond-female-floral-v135.webp`;
+++- `female-diamond-2.webp` → `diamond-female-floral-v135.webp`;
+++- `female-diamond-3.webp` → `diamond-female-floral-v135.webp`.
+++
+++## Двошарова логіка не змінена
+++
+++- `avatar_url` зберігає портрет;
+++- `avatar_rarity` зберігає рідкісність;
+++- `AvatarFrame` окремо накладає рамку;
+++- алмазна рамка визначається за назвою алмазного портрета.
+++
+++## Рамки у звітах
+++
+++Компонент `AvatarFrame` тепер використовується у:
+++
+++- кредитному рейтингу;
+++- дебетовому рейтингу;
+++- особистому звіті дебетових видач;
+++- депозитному проекційному рейтингу;
+++- рейтингу депозитних видач;
+++- рейтингу ПУМБ Online;
+++- рейтингу активації карток;
+++- адмін-звіті завдань дня;
+++- адмін-звіті цілей.
+++
+++Глобальний LeaderBoard, стрічка, головна сторінка, магазин і Bonus Match уже використовували `AvatarFrame` раніше.
+++
+++## Backend
+++
+++До відповідей адмін-звітів додано `avatar_rarity`, щоб інтерфейс завжди отримував одночасно портрет і тип рамки.
++diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' vpdk-bonus-v134-correct-female-diamond-frame/VPDK-BONUS-V135-INSTALL.md vpdk-bonus-v135-avatar-frames-all-reports/VPDK-BONUS-V135-INSTALL.md
++--- vpdk-bonus-v134-correct-female-diamond-frame/VPDK-BONUS-V135-INSTALL.md	1970-01-01 00:00:00.000000000 +0000
+++++ vpdk-bonus-v135-avatar-frames-all-reports/VPDK-BONUS-V135-INSTALL.md	2026-08-04 17:14:36.100338857 +0000
++@@ -0,0 +1,19 @@
+++# Встановлення VPDK Bonus v135
+++
+++## Що оновити
+++
+++Потрібно розгорнути:
+++
+++1. frontend / Netlify;
+++2. backend.
+++
+++Google Apps Script не змінюється. Залишається поточна робоча версія `VPDK-Code-v130.gs`.
+++
+++## Після деплою
+++
+++1. Виконайте `Ctrl + Shift + R` у браузері.
+++2. Для встановленої PWA повністю закрийте застосунок і відкрийте його повторно.
+++3. Перевірте жіночу алмазну аватарку у квестах, профілі та рейтингах.
+++4. Перевірте чоловічу алмазну аватарку, вона повинна зберегти темну крижану рамку.
+++
+++Service Worker оновлено до `vpdk-v135`, а жіноча рамка отримала нову адресу `diamond-female-floral-v135.webp`, тому старий файл не повинен залишитися в кеші.
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' vpdk-bonus-v134-correct-female-diamond-frame/backend/server.py vpdk-bonus-v135-avatar-frames-all-reports/backend/server.py
+--- vpdk-bonus-v134-correct-female-diamond-frame/backend/server.py	2026-08-04 16:33:22.480366708 +0000
++++ vpdk-bonus-v135-avatar-frames-all-reports/backend/server.py	2026-08-04 17:12:01.960340592 +0000
+@@ -2258,7 +2258,7 @@
+             "role": {"$in": PLAYER_ROLES},
+             "approved": {"$ne": False},
+         },
+-        {"_id": 0, "id": 1, "name": 1, "avatar_initials": 1, "avatar_color": 1, "goals_login": 1},
++        {"_id": 0, "id": 1, "name": 1, "avatar_initials": 1, "avatar_color": 1, "avatar_url": 1, "avatar_rarity": 1, "goals_login": 1},
+     ).sort("name", 1).to_list(1000)
+     member_ids = [member["id"] for member in members]
+     views = await db.page_views.find(
+@@ -2317,7 +2317,7 @@
+         user_query["team_id"] = team_id
+     users = await db.users.find(
+         user_query,
+-        {"_id": 0, "id": 1, "name": 1, "avatar_initials": 1, "avatar_color": 1, "avatar_url": 1,
++        {"_id": 0, "id": 1, "name": 1, "avatar_initials": 1, "avatar_color": 1, "avatar_url": 1, "avatar_rarity": 1,
+          "position": 1, "department": 1, "goals_login": 1, "team_id": 1, "report_profile": 1},
+     ).sort("name", 1).to_list(1000)
+     team_name = await _resolve_team_name(team_id) if team_id else None
+@@ -2629,7 +2629,7 @@
+         user_query["team_id"] = team_id
+     users = await db.users.find(
+         user_query,
+-        {"_id": 0, "id": 1, "name": 1, "avatar_initials": 1, "avatar_color": 1, "avatar_url": 1, "position": 1, "department": 1, "total_xp": 1, "team_id": 1, "report_profile": 1},
++        {"_id": 0, "id": 1, "name": 1, "avatar_initials": 1, "avatar_color": 1, "avatar_url": 1, "avatar_rarity": 1, "position": 1, "department": 1, "total_xp": 1, "team_id": 1, "report_profile": 1},
+     ).sort("name", 1).to_list(1000)
+ 
+     team_ids = list({employee.get("team_id") for employee in users if employee.get("team_id")})
+Binary files vpdk-bonus-v134-correct-female-diamond-frame/frontend/public/avatar-frames/diamond-female-floral-v135.webp and vpdk-bonus-v135-avatar-frames-all-reports/frontend/public/avatar-frames/diamond-female-floral-v135.webp differ
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' vpdk-bonus-v134-correct-female-diamond-frame/frontend/public/service-worker.js vpdk-bonus-v135-avatar-frames-all-reports/frontend/public/service-worker.js
+--- vpdk-bonus-v134-correct-female-diamond-frame/frontend/public/service-worker.js	2026-08-04 16:52:53.176353527 +0000
++++ vpdk-bonus-v135-avatar-frames-all-reports/frontend/public/service-worker.js	2026-08-04 17:12:01.960340592 +0000
+@@ -1,4 +1,5 @@
+ /* VPDK Bonus — Service Worker
++ * v135 fixes exact male/female diamond-frame detection and renders rarity frames in every employee report avatar.
+  * v134 pins the exact floral crystal frame supplied for all female diamond avatars and busts stale frame caches.
+  * v133 adds temporary admin-issued diamond avatars, separate male/female frames, and the permanent diamond challenge.
+  * v129 fixes misspelled activation period boundaries and prevents month/yesterday data mixing.
+@@ -22,7 +23,7 @@
+  * never be cached as index.html, otherwise browsers can render a giant broken
+  * image element over the board.
+  */
+-const VERSION = "vpdk-v134";
++const VERSION = "vpdk-v135";
+ const STATIC_CACHE = `${VERSION}-static`;
+ const RUNTIME_CACHE = `${VERSION}-runtime`;
+ 
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' vpdk-bonus-v134-correct-female-diamond-frame/frontend/src/components/AvatarFrame.jsx vpdk-bonus-v135-avatar-frames-all-reports/frontend/src/components/AvatarFrame.jsx
+--- vpdk-bonus-v134-correct-female-diamond-frame/frontend/src/components/AvatarFrame.jsx	2026-08-04 16:52:53.176353527 +0000
++++ vpdk-bonus-v135-avatar-frames-all-reports/frontend/src/components/AvatarFrame.jsx	2026-08-04 17:12:01.940340593 +0000
+@@ -10,13 +10,22 @@
+   legendary: "/avatar-frames/legendary.png",
+ };
+ 
+-const diamondFrameAsset = (avatarUrl = "") => {
+-  const source = String(avatarUrl || "").toLowerCase();
+-  return source.includes("male-diamond-")
+-    ? "/avatar-frames/diamond-male.png"
+-    : "/avatar-frames/diamond-female-floral-v134.webp";
++export const getDiamondAvatarVariant = (avatarUrl = "") => {
++  const source = String(avatarUrl || "")
++    .trim()
++    .toLowerCase()
++    .split("?")[0]
++    .split("#")[0];
++  const filename = source.split("/").pop() || "";
++  return filename.startsWith("male-diamond-") ? "male" : "female";
+ };
+ 
++const diamondFrameAsset = (avatarUrl = "") => (
++  getDiamondAvatarVariant(avatarUrl) === "male"
++    ? "/avatar-frames/diamond-male.png"
++    : "/avatar-frames/diamond-female-floral-v135.webp"
++);
++
+ export const resolveAvatarRarity = (rarity, avatarUrl = "") => {
+   const normalized = String(rarity || "").trim().toLowerCase();
+   if (RARITIES.includes(normalized)) return normalized;
+@@ -52,7 +61,7 @@
+   const resolvedRarity = resolveAvatarRarity(rarity, src);
+   const frameAsset = resolveAvatarFrameAsset(resolvedRarity, src);
+   const diamondVariant = resolvedRarity === "diamond"
+-    ? (String(src || "").toLowerCase().includes("male-diamond-") ? "male" : "female")
++    ? getDiamondAvatarVariant(src)
+     : undefined;
+ 
+   return (
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' vpdk-bonus-v134-correct-female-diamond-frame/frontend/src/index.css vpdk-bonus-v135-avatar-frames-all-reports/frontend/src/index.css
+--- vpdk-bonus-v134-correct-female-diamond-frame/frontend/src/index.css	2026-08-04 16:25:51.504371785 +0000
++++ vpdk-bonus-v135-avatar-frames-all-reports/frontend/src/index.css	2026-08-04 17:12:01.944340593 +0000
+@@ -120,7 +120,10 @@
+   overflow: visible;
+ }
+ 
++.avatar-frame--xxs { --frame-size: 36px; }
+ .avatar-frame--xs { --frame-size: 44px; }
++.avatar-frame--compact { --frame-size: 48px; }
++.avatar-frame--report { --frame-size: 56px; }
+ .avatar-frame--sm { --frame-size: 64px; }
+ .avatar-frame--md { --frame-size: 80px; }
+ .avatar-frame--lg { --frame-size: 104px; }
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' vpdk-bonus-v134-correct-female-diamond-frame/frontend/src/lib/pwa.js vpdk-bonus-v135-avatar-frames-all-reports/frontend/src/lib/pwa.js
+--- vpdk-bonus-v134-correct-female-diamond-frame/frontend/src/lib/pwa.js	2026-08-04 16:52:53.176353527 +0000
++++ vpdk-bonus-v135-avatar-frames-all-reports/frontend/src/lib/pwa.js	2026-08-04 17:12:01.960340592 +0000
+@@ -10,7 +10,7 @@
+   window.addEventListener("load", async () => {
+     try {
+       const registration = await navigator.serviceWorker.register(
+-        "/service-worker.js?v=134",
++        "/service-worker.js?v=135",
+         { scope: "/", updateViaCache: "none" }
+       );
+ 
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' vpdk-bonus-v134-correct-female-diamond-frame/frontend/src/pages/ActivationCardsGoals.jsx vpdk-bonus-v135-avatar-frames-all-reports/frontend/src/pages/ActivationCardsGoals.jsx
+--- vpdk-bonus-v134-correct-female-diamond-frame/frontend/src/pages/ActivationCardsGoals.jsx	2026-08-04 15:22:09.172414821 +0000
++++ vpdk-bonus-v135-avatar-frames-all-reports/frontend/src/pages/ActivationCardsGoals.jsx	2026-08-04 17:12:01.944340593 +0000
+@@ -14,7 +14,7 @@
+ } from "lucide-react";
+ import { useApp } from "@/context/AppContext";
+ import { useDailyGoogleReports } from "@/hooks/useGoogleReports";
+-import { resolveAvatarUrl } from "@/lib/avatar";
++import AvatarFrame from "@/components/AvatarFrame";
+ import {
+   currentTeamKey,
+   formatCount,
+@@ -86,9 +86,17 @@
+ }
+ 
+ function Avatar({ row }) {
+-  const src = resolveAvatarUrl(row?.avatar_url);
+   const fallback = String(row?.avatar_initials || row?.login || row?.name || "?").slice(0, 2).toUpperCase();
+-  return <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-[#27272A] text-xs font-black text-white" style={{ backgroundColor: row?.avatar_color || undefined }}>{src ? <img src={src} alt="" className="h-full w-full object-cover" /> : fallback}</div>;
++  return (
++    <AvatarFrame
++      src={row?.avatar_url}
++      alt={row?.name || row?.login || "Аватар"}
++      initials={fallback}
++      color={row?.avatar_color || "#27272A"}
++      rarity={row?.avatar_rarity}
++      size="xs"
++    />
++  );
+ }
+ 
+ export default function ActivationCardsGoals() {
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' vpdk-bonus-v134-correct-female-diamond-frame/frontend/src/pages/ActivationPumbGoals.jsx vpdk-bonus-v135-avatar-frames-all-reports/frontend/src/pages/ActivationPumbGoals.jsx
+--- vpdk-bonus-v134-correct-female-diamond-frame/frontend/src/pages/ActivationPumbGoals.jsx	2026-08-04 14:52:10.420435073 +0000
++++ vpdk-bonus-v135-avatar-frames-all-reports/frontend/src/pages/ActivationPumbGoals.jsx	2026-08-04 17:12:01.944340593 +0000
+@@ -15,7 +15,7 @@
+ } from "lucide-react";
+ import { useApp } from "@/context/AppContext";
+ import { useDailyGoogleReports } from "@/hooks/useGoogleReports";
+-import { resolveAvatarUrl } from "@/lib/avatar";
++import AvatarFrame from "@/components/AvatarFrame";
+ import {
+   currentTeamKey,
+   formatCount,
+@@ -92,13 +92,17 @@
+   );
+ }
+ 
+-function Avatar({ row, size = "h-11 w-11" }) {
+-  const src = resolveAvatarUrl(row?.avatar_url);
++function Avatar({ row }) {
+   const fallback = String(row?.avatar_initials || row?.login || row?.name || "?").slice(0, 2).toUpperCase();
+   return (
+-    <div className={`flex ${size} shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-[#27272A] text-xs font-black text-white`} style={{ backgroundColor: row?.avatar_color || undefined }}>
+-      {src ? <img src={src} alt="" className="h-full w-full object-cover" /> : fallback}
+-    </div>
++    <AvatarFrame
++      src={row?.avatar_url}
++      alt={row?.name || row?.login || "Аватар"}
++      initials={fallback}
++      color={row?.avatar_color || "#27272A"}
++      rarity={row?.avatar_rarity}
++      size="xs"
++    />
+   );
+ }
+ 
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' vpdk-bonus-v134-correct-female-diamond-frame/frontend/src/pages/Admin.jsx vpdk-bonus-v135-avatar-frames-all-reports/frontend/src/pages/Admin.jsx
+--- vpdk-bonus-v134-correct-female-diamond-frame/frontend/src/pages/Admin.jsx	2026-08-04 16:28:51.188369762 +0000
++++ vpdk-bonus-v135-avatar-frames-all-reports/frontend/src/pages/Admin.jsx	2026-08-04 17:13:23.156339678 +0000
+@@ -245,13 +245,6 @@
+ 
+ 
+ // ─────────────── Daily tasks manager ───────────────
+-const resolveAvatarUrl = (url) => {
+-  if (!url) return null;
+-  if (url.startsWith("http") || url.startsWith("data:")) return url;
+-  const base = (process.env.REACT_APP_BACKEND_URL || "").replace(/\/api\/?$/, "");
+-  return `${base}${url}`;
+-};
+-
+ const DAILY_DIFFICULTY = {
+   easy: { label: "Легке", color: "#39FF14" },
+   medium: { label: "Середнє", color: "#FFB800" },
+@@ -377,9 +370,14 @@
+         {operators.map((operator) => (
+           <section key={operator.id} className="overflow-hidden rounded-3xl border border-white/10 bg-[#1A1A1E]">
+             <div className="flex items-center gap-3 border-b border-white/10 p-4">
+-              <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-2xl font-display text-sm text-[#0A0A0A]" style={{ backgroundColor: operator.avatar_color || "#FFB800" }}>
+-                {operator.avatar_url ? <img src={resolveAvatarUrl(operator.avatar_url)} alt={operator.name} className="h-full w-full scale-[1.22] object-cover" /> : (operator.avatar_initials || "?")}
+-              </div>
++              <AvatarFrame
++                src={operator.avatar_url}
++                alt={operator.name}
++                initials={operator.avatar_initials || "?"}
++                color={operator.avatar_color || "#FFB800"}
++                rarity={operator.avatar_rarity}
++                size="compact"
++              />
+               <div className="min-w-0 flex-1">
+                 <div className="truncate text-base font-black text-white">{operator.name}</div>
+                 <div className="mt-0.5 text-[10px] font-black uppercase tracking-wider text-zinc-500">{operator.position || "Оператор"}</div>
+@@ -425,9 +423,14 @@
+           {operators.map((operator) => (
+             <div key={operator.id} className="grid grid-cols-[230px_repeat(3,minmax(210px,1fr))_190px] items-stretch px-5 transition-colors hover:bg-white/[0.02]">
+               <div className="flex items-center gap-3 border-r border-white/5 py-5 pr-4">
+-                <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-2xl font-display text-sm text-[#0A0A0A]" style={{ backgroundColor: operator.avatar_color || "#FFB800" }}>
+-                  {operator.avatar_url ? <img src={resolveAvatarUrl(operator.avatar_url)} alt={operator.name} className="h-full w-full scale-[1.22] object-cover" /> : (operator.avatar_initials || "?")}
+-                </div>
++                <AvatarFrame
++                  src={operator.avatar_url}
++                  alt={operator.name}
++                  initials={operator.avatar_initials || "?"}
++                  color={operator.avatar_color || "#FFB800"}
++                  rarity={operator.avatar_rarity}
++                  size="compact"
++                />
+                 <div className="min-w-0">
+                   <div className="truncate text-sm font-black text-white">{operator.name}</div>
+                   <div className="mt-1 text-[10px] font-bold uppercase tracking-wider text-zinc-500">{operator.position || "Оператор"}</div>
+@@ -2448,10 +2451,9 @@
+     <div className="space-y-4">
+       {visible.map((u) => {
+         const f = forms[u.id] || normalizeGoalForm();
+-        const avatar = u.avatar_url ? (u.avatar_url.startsWith("http") ? u.avatar_url : `${API_BASE.replace(/\/api$/, "")}${u.avatar_url}`) : null;
+         return <section key={u.id} className="rounded-3xl border border-white/10 bg-[#1A1A1E] p-4 lg:p-5">
+           <div className="mb-4 flex items-center gap-3">
+-            <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-2xl font-display text-sm text-black" style={{ backgroundColor: u.avatar_color || "#FFB800" }}>{avatar ? <img src={avatar} alt={u.name} className="h-full w-full scale-[1.22] object-cover"/> : u.avatar_initials || "?"}</div>
++            <AvatarFrame src={u.avatar_url} alt={u.name} initials={u.avatar_initials || "?"} color={u.avatar_color || "#FFB800"} rarity={u.avatar_rarity} size="compact" />
+             <div className="min-w-0 flex-1"><div className="truncate font-black text-white">{u.name}</div><div className="truncate text-xs text-zinc-500">{u.position || u.department || "Оператор"}</div><div className={`mt-1 text-[9px] font-black uppercase ${u.google_synced ? "text-[#39FF14]" : "text-zinc-600"}`}>{u.goals_login ? (u.google_synced ? `Google: ${u.goals_login}` : `Ключ: ${u.goals_login} • рядок не знайдено`) : "Google-ключ не задано"}</div></div>
+             <div className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase ${u.goals?.weekly_complete ? "bg-[#39FF14]/15 text-[#39FF14]" : "bg-[#FFB800]/10 text-[#FFB800]"}`}>{u.goals?.weekly_complete ? "3/3" : `${[u.goals?.credit,u.goals?.debit,u.goals?.deposit].filter(x=>x?.complete).length}/3`}</div>
+           </div>
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' vpdk-bonus-v134-correct-female-diamond-frame/frontend/src/pages/CreditLeaderboard.jsx vpdk-bonus-v135-avatar-frames-all-reports/frontend/src/pages/CreditLeaderboard.jsx
+--- vpdk-bonus-v134-correct-female-diamond-frame/frontend/src/pages/CreditLeaderboard.jsx	2026-08-02 12:56:07.000000000 +0000
++++ vpdk-bonus-v135-avatar-frames-all-reports/frontend/src/pages/CreditLeaderboard.jsx	2026-08-04 17:12:01.944340593 +0000
+@@ -12,7 +12,7 @@
+ import api from "@/lib/api";
+ import { useApp } from "@/context/AppContext";
+ import { useDailyGoogleReports } from "@/hooks/useGoogleReports";
+-import { resolveAvatarUrl } from "@/lib/avatar";
++import AvatarFrame from "@/components/AvatarFrame";
+ import { useGoalsAccess } from "@/hooks/useGoalsAccess";
+ import {
+   calculatedGroupSummary,
+@@ -146,18 +146,16 @@
+ }
+ 
+ function ProfileAvatar({ profile, size = "md" }) {
+-  const avatar = resolveAvatarUrl(profile?.avatar_url);
+   const fallback = String(profile?.avatar_initials || profile?.login || "?").slice(0, 2).toUpperCase();
+-  const sizeClass = size === "lg" ? "h-12 w-12 text-xs" : "h-9 w-9 text-[10px]";
+   return (
+-    <div
+-      className={`flex shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/[.12] font-black text-white ${sizeClass}`}
+-      style={{ backgroundColor: profile?.avatar_color || "#27272A" }}
+-    >
+-      {avatar ? (
+-        <img src={avatar} alt={profile?.login || "Аватар"} className="h-full w-full object-cover" loading="lazy" />
+-      ) : fallback}
+-    </div>
++    <AvatarFrame
++      src={profile?.avatar_url}
++      alt={profile?.login || "Аватар"}
++      initials={fallback}
++      color={profile?.avatar_color || "#27272A"}
++      rarity={profile?.avatar_rarity}
++      size={size === "lg" ? "compact" : "xxs"}
++    />
+   );
+ }
+ 
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' vpdk-bonus-v134-correct-female-diamond-frame/frontend/src/pages/DebitIssuances.jsx vpdk-bonus-v135-avatar-frames-all-reports/frontend/src/pages/DebitIssuances.jsx
+--- vpdk-bonus-v134-correct-female-diamond-frame/frontend/src/pages/DebitIssuances.jsx	2026-07-31 14:06:37.000000000 +0000
++++ vpdk-bonus-v135-avatar-frames-all-reports/frontend/src/pages/DebitIssuances.jsx	2026-08-04 17:12:01.944340593 +0000
+@@ -13,7 +13,7 @@
+ } from "lucide-react";
+ import { useApp } from "@/context/AppContext";
+ import { useDailyGoogleReports } from "@/hooks/useGoogleReports";
+-import { resolveAvatarUrl } from "@/lib/avatar";
++import AvatarFrame from "@/components/AvatarFrame";
+ 
+ const PERIODS = [
+   { id: "month", label: "Місяць" },
+@@ -135,7 +135,6 @@
+     return !best || value > best.value ? { ...direction, value } : best;
+   }, null) : null, [activeData]);
+   const activeDirections = activeData ? DIRECTIONS.filter((direction) => Number(activeData[direction.key] || 0) > 0).length : 0;
+-  const avatar = resolveAvatarUrl(user?.avatar_url);
+   const fallback = String(user?.avatar_initials || user?.goals_login || user?.name || "?").slice(0, 2).toUpperCase();
+ 
+   if (loading) return <div className="p-8 text-center text-sm text-zinc-500">Завантаження видач...</div>;
+@@ -163,9 +162,14 @@
+         <>
+           <section className="rounded-3xl border border-[#00F0FF]/30 bg-gradient-to-br from-[#00F0FF]/12 to-[#1A1A1E] p-5">
+             <div className="flex items-center gap-3">
+-              <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full border border-[#00F0FF]/35 bg-[#27272A] font-black text-white">
+-                {avatar ? <img src={avatar} alt="Аватар" className="h-full w-full object-cover" /> : fallback}
+-              </div>
++              <AvatarFrame
++                src={user?.avatar_url}
++                alt={user?.name || "Аватар"}
++                initials={fallback}
++                color={user?.avatar_color || "#27272A"}
++                rarity={user?.avatar_rarity}
++                size="report"
++              />
+               <div className="min-w-0 flex-1">
+                 <div className="text-[10px] font-black uppercase tracking-widest text-[#00F0FF]">Загальна кількість видач</div>
+                 <div className="mt-1 font-display text-[38px] leading-none text-white">{Number(activeData.overall || 0).toLocaleString("uk-UA")}</div>
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' vpdk-bonus-v134-correct-female-diamond-frame/frontend/src/pages/DebitLeaderboard.jsx vpdk-bonus-v135-avatar-frames-all-reports/frontend/src/pages/DebitLeaderboard.jsx
+--- vpdk-bonus-v134-correct-female-diamond-frame/frontend/src/pages/DebitLeaderboard.jsx	2026-08-02 12:56:07.000000000 +0000
++++ vpdk-bonus-v135-avatar-frames-all-reports/frontend/src/pages/DebitLeaderboard.jsx	2026-08-04 17:12:01.944340593 +0000
+@@ -13,7 +13,7 @@
+ import api from "@/lib/api";
+ import { useApp } from "@/context/AppContext";
+ import { useDailyGoogleReports } from "@/hooks/useGoogleReports";
+-import { resolveAvatarUrl } from "@/lib/avatar";
++import AvatarFrame from "@/components/AvatarFrame";
+ import { useGoalsAccess } from "@/hooks/useGoalsAccess";
+ import {
+   calculatedGroupSummary,
+@@ -144,16 +144,16 @@
+ }, null);
+ 
+ function ProfileAvatar({ profile, size = "md" }) {
+-  const avatar = resolveAvatarUrl(profile?.avatar_url);
+   const fallback = String(profile?.avatar_initials || profile?.login || "?").slice(0, 2).toUpperCase();
+-  const sizeClass = size === "lg" ? "h-12 w-12 text-xs" : "h-9 w-9 text-[10px]";
+   return (
+-    <div
+-      className={`flex shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/[.12] font-black text-white ${sizeClass}`}
+-      style={{ backgroundColor: profile?.avatar_color || "#27272A" }}
+-    >
+-      {avatar ? <img src={avatar} alt={profile?.login || "Аватар"} className="h-full w-full object-cover" loading="lazy" /> : fallback}
+-    </div>
++    <AvatarFrame
++      src={profile?.avatar_url}
++      alt={profile?.login || "Аватар"}
++      initials={fallback}
++      color={profile?.avatar_color || "#27272A"}
++      rarity={profile?.avatar_rarity}
++      size={size === "lg" ? "compact" : "xxs"}
++    />
+   );
+ }
+ 
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' vpdk-bonus-v134-correct-female-diamond-frame/frontend/src/pages/DepositIssuanceLeaderboard.jsx vpdk-bonus-v135-avatar-frames-all-reports/frontend/src/pages/DepositIssuanceLeaderboard.jsx
+--- vpdk-bonus-v134-correct-female-diamond-frame/frontend/src/pages/DepositIssuanceLeaderboard.jsx	2026-08-03 12:03:40.000000000 +0000
++++ vpdk-bonus-v135-avatar-frames-all-reports/frontend/src/pages/DepositIssuanceLeaderboard.jsx	2026-08-04 17:12:01.944340593 +0000
+@@ -5,7 +5,7 @@
+ import { useDailyGoogleReports } from "@/hooks/useGoogleReports";
+ import { useGoalsAccess } from "@/hooks/useGoalsAccess";
+ import { enrichReportRowsWithParticipants, normalizeReportLogin, normalizeTeamKey, rowMatchesTeam } from "@/lib/teamReports";
+-import { resolveAvatarUrl } from "@/lib/avatar";
++import AvatarFrame from "@/components/AvatarFrame";
+ 
+ const PERIODS = [
+   { id: "month", label: "Місяць" },
+@@ -36,12 +36,16 @@
+ }));
+ 
+ function Avatar({ row }) {
+-  const src = resolveAvatarUrl(row?.avatar_url);
+   const fallback = String(row?.avatar_initials || row?.login || "?").slice(0, 2).toUpperCase();
+   return (
+-    <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-[#27272A] text-xs font-black text-white" style={{ backgroundColor: row?.avatar_color || "#27272A" }}>
+-      {src ? <img src={src} alt={row?.login || "Аватар"} className="h-full w-full object-cover" /> : fallback}
+-    </div>
++    <AvatarFrame
++      src={row?.avatar_url}
++      alt={row?.login || "Аватар"}
++      initials={fallback}
++      color={row?.avatar_color || "#27272A"}
++      rarity={row?.avatar_rarity}
++      size="xs"
++    />
+   );
+ }
+ 
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' vpdk-bonus-v134-correct-female-diamond-frame/frontend/src/pages/DepositLeaderboard.jsx vpdk-bonus-v135-avatar-frames-all-reports/frontend/src/pages/DepositLeaderboard.jsx
+--- vpdk-bonus-v134-correct-female-diamond-frame/frontend/src/pages/DepositLeaderboard.jsx	2026-08-03 12:03:40.000000000 +0000
++++ vpdk-bonus-v135-avatar-frames-all-reports/frontend/src/pages/DepositLeaderboard.jsx	2026-08-04 17:12:01.944340593 +0000
+@@ -5,7 +5,7 @@
+ import { useDailyGoogleReports } from "@/hooks/useGoogleReports";
+ import { useGoalsAccess } from "@/hooks/useGoalsAccess";
+ import { enrichReportRowsWithParticipants, normalizeReportLogin, normalizeTeamKey, rowMatchesTeam } from "@/lib/teamReports";
+-import { resolveAvatarUrl } from "@/lib/avatar";
++import AvatarFrame from "@/components/AvatarFrame";
+ 
+ const parsePercent = (value) => {
+   const parsed = Number(
+@@ -27,15 +27,16 @@
+ }));
+ 
+ function Avatar({ row }) {
+-  const src = resolveAvatarUrl(row?.avatar_url);
+   const fallback = String(row?.avatar_initials || row?.login || "?").slice(0, 2).toUpperCase();
+   return (
+-    <div
+-      className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-[#27272A] text-xs font-black text-white"
+-      style={{ backgroundColor: row?.avatar_color || "#27272A" }}
+-    >
+-      {src ? <img src={src} alt={row?.login || "Аватар"} className="h-full w-full object-cover" /> : fallback}
+-    </div>
++    <AvatarFrame
++      src={row?.avatar_url}
++      alt={row?.login || "Аватар"}
++      initials={fallback}
++      color={row?.avatar_color || "#27272A"}
++      rarity={row?.avatar_rarity}
++      size="xs"
++    />
+   );
+ }
+ 
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' vpdk-bonus-v134-correct-female-diamond-frame/validate_avatar_frames_v135.py vpdk-bonus-v135-avatar-frames-all-reports/validate_avatar_frames_v135.py
+--- vpdk-bonus-v134-correct-female-diamond-frame/validate_avatar_frames_v135.py	1970-01-01 00:00:00.000000000 +0000
++++ vpdk-bonus-v135-avatar-frames-all-reports/validate_avatar_frames_v135.py	2026-08-04 17:14:36.092338857 +0000
+@@ -0,0 +1,64 @@
++from pathlib import Path
++from PIL import Image
++
++ROOT = Path(__file__).resolve().parent
++
++avatar_frame = (ROOT / 'frontend/src/components/AvatarFrame.jsx').read_text()
++assert 'filename.startsWith("male-diamond-")' in avatar_frame
++assert 'source.includes("male-diamond-")' not in avatar_frame
++assert '/avatar-frames/diamond-female-floral-v135.webp' in avatar_frame
++assert '/avatar-frames/diamond-male.png' in avatar_frame
++
++
++def variant(url: str) -> str:
++    source = str(url or '').strip().lower().split('?')[0].split('#')[0]
++    filename = source.split('/')[-1] if source else ''
++    return 'male' if filename.startswith('male-diamond-') else 'female'
++
++assert variant('/avatars/male-diamond-1.webp') == 'male'
++assert variant('/avatars/female-diamond-1.webp') == 'female'
++assert variant('/avatars/female-diamond-2.webp?v=135') == 'female'
++assert variant('https://cdn.example.com/avatars/male-diamond-1.webp#preview') == 'male'
++
++report_pages = [
++    'frontend/src/pages/CreditLeaderboard.jsx',
++    'frontend/src/pages/DebitLeaderboard.jsx',
++    'frontend/src/pages/DebitIssuances.jsx',
++    'frontend/src/pages/DepositLeaderboard.jsx',
++    'frontend/src/pages/DepositIssuanceLeaderboard.jsx',
++    'frontend/src/pages/ActivationPumbGoals.jsx',
++    'frontend/src/pages/ActivationCardsGoals.jsx',
++]
++for relative in report_pages:
++    text = (ROOT / relative).read_text()
++    assert 'import AvatarFrame from "@/components/AvatarFrame";' in text, relative
++    assert '<AvatarFrame' in text, relative
++    assert 'rarity=' in text, relative
++    assert 'resolveAvatarUrl' not in text, relative
++
++admin = (ROOT / 'frontend/src/pages/Admin.jsx').read_text()
++assert admin.count('<AvatarFrame') >= 4
++assert 'operator.avatar_rarity' in admin
++assert 'u.avatar_rarity' in admin
++
++backend = (ROOT / 'backend/server.py').read_text()
++assert '"avatar_url": 1, "avatar_rarity": 1, "position": 1' in backend
++assert '"avatar_url": 1, "avatar_rarity": 1,\n         "position": 1' in backend
++
++for relative, expected_format in [
++    ('frontend/public/avatar-frames/diamond-male.png', 'PNG'),
++    ('frontend/public/avatar-frames/diamond-female-floral-v135.webp', 'WEBP'),
++]:
++    path = ROOT / relative
++    assert path.exists(), relative
++    with Image.open(path) as image:
++        assert image.format == expected_format, (relative, image.format)
++        assert image.size == (1024, 1024), (relative, image.size)
++        assert 'A' in image.mode, (relative, image.mode)
++
++service_worker = (ROOT / 'frontend/public/service-worker.js').read_text()
++pwa = (ROOT / 'frontend/src/lib/pwa.js').read_text()
++assert 'const VERSION = "vpdk-v135";' in service_worker
++assert '/service-worker.js?v=135' in pwa
++
++print('v135 avatar-frame validation passed')

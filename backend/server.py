@@ -2258,7 +2258,7 @@ async def leader_goal_views_today(user: dict = Depends(get_current_user)):
             "role": {"$in": PLAYER_ROLES},
             "approved": {"$ne": False},
         },
-        {"_id": 0, "id": 1, "name": 1, "avatar_initials": 1, "avatar_color": 1, "goals_login": 1},
+        {"_id": 0, "id": 1, "name": 1, "avatar_initials": 1, "avatar_color": 1, "avatar_url": 1, "avatar_rarity": 1, "goals_login": 1},
     ).sort("name", 1).to_list(1000)
     member_ids = [member["id"] for member in members]
     views = await db.page_views.find(
@@ -2317,7 +2317,7 @@ async def admin_goals_dashboard(
         user_query["team_id"] = team_id
     users = await db.users.find(
         user_query,
-        {"_id": 0, "id": 1, "name": 1, "avatar_initials": 1, "avatar_color": 1, "avatar_url": 1,
+        {"_id": 0, "id": 1, "name": 1, "avatar_initials": 1, "avatar_color": 1, "avatar_url": 1, "avatar_rarity": 1,
          "position": 1, "department": 1, "goals_login": 1, "team_id": 1, "report_profile": 1},
     ).sort("name", 1).to_list(1000)
     team_name = await _resolve_team_name(team_id) if team_id else None
@@ -2629,7 +2629,7 @@ async def admin_daily_tasks_dashboard(
         user_query["team_id"] = team_id
     users = await db.users.find(
         user_query,
-        {"_id": 0, "id": 1, "name": 1, "avatar_initials": 1, "avatar_color": 1, "avatar_url": 1, "position": 1, "department": 1, "total_xp": 1, "team_id": 1, "report_profile": 1},
+        {"_id": 0, "id": 1, "name": 1, "avatar_initials": 1, "avatar_color": 1, "avatar_url": 1, "avatar_rarity": 1, "position": 1, "department": 1, "total_xp": 1, "team_id": 1, "report_profile": 1},
     ).sort("name", 1).to_list(1000)
 
     team_ids = list({employee.get("team_id") for employee in users if employee.get("team_id")})
