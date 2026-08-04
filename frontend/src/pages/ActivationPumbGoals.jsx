@@ -23,9 +23,8 @@ import {
   formatPercent,
   normalizeLogin,
   normalizeReportProfile,
-  normalizePeriod,
   parseReportNumber,
-  periodRow,
+  periodRowForLogin,
   periodSummary,
   valueStatus,
 } from "@/lib/activationReports";
@@ -111,15 +110,16 @@ export default function ActivationPumbGoals() {
   const reportProfile = normalizeReportProfile(report?.report_profile || user?.report_profile);
   const canViewActivationReports = reportProfile === "activation" || user?.role === "admin" || user?.role === "editor" || Boolean(user?.is_team_leader);
 
-  const active = useMemo(() => periodRow(report?.activation_pumb_metrics, period), [period, report]);
-  const giving = useMemo(() => periodRow(report?.activation_pumb_giving, period), [period, report]);
+  const active = useMemo(() => periodRowForLogin(report?.activation_pumb_metrics, period, login), [period, report, login]);
+  const giving = useMemo(() => periodRowForLogin(report?.activation_pumb_giving, period, login), [period, report, login]);
   const teamMetrics = useMemo(() => periodSummary(report?.activation_pumb_group_summaries, period, teamKey), [period, report, teamKey]);
   const teamGiving = useMemo(() => periodSummary(report?.activation_pumb_giving_group_summaries, period, teamKey), [period, report, teamKey]);
   const leaderboard = useMemo(() => (Array.isArray(report?.activation_pumb_leaderboard) ? report.activation_pumb_leaderboard : [])
     .filter((row) => parseReportNumber(row?.projective_rate) !== null)
     .sort((left, right) => (parseReportNumber(right.projective_rate) || 0) - (parseReportNumber(left.projective_rate) || 0)), [report]);
   const projection = active?.projective_rate || leaderboard.find((row) => normalizeLogin(row?.login || row?.goals_login) === login)?.projective_rate;
-  const teamProjection = teamMetrics?.projective_rate;
+  const teamProjection = active?.projective_rate_team || active?.team_summary?.projective_rate || teamMetrics?.projective_rate;
+  const teamGivingValue = giving?.team_overall || teamGiving?.overall;
   const status = valueStatus(projection, 100);
 
   const setPeriod = (value) => {
@@ -179,12 +179,17 @@ export default function ActivationPumbGoals() {
             </div>
             <div className="mt-4 grid grid-cols-2 gap-2">
               <div className="rounded-2xl border border-white/10 bg-black/25 p-3"><div className="text-[9px] font-black uppercase tracking-wider text-zinc-600">Команда</div><div className="mt-1 text-xl font-black text-white">{formatPercent(teamProjection)}</div></div>
-              <div className="rounded-2xl border border-white/10 bg-black/25 p-3"><div className="text-[9px] font-black uppercase tracking-wider text-zinc-600">Видачі</div><div className="mt-1 text-xl font-black text-[#FFB800]">{formatCount(giving?.overall, "—")}</div><div className="mt-0.5 text-[9px] font-bold text-zinc-600">команда {formatCount(teamGiving?.overall, "—")}</div></div>
+              <div className="rounded-2xl border border-white/10 bg-black/25 p-3"><div className="text-[9px] font-black uppercase tracking-wider text-zinc-600">Видачі</div><div className="mt-1 text-xl font-black text-[#FFB800]">{formatCount(giving?.overall, "—")}</div><div className="mt-0.5 text-[9px] font-bold text-zinc-600">команда {formatCount(teamGivingValue, "—")}</div></div>
             </div>
           </section>
 
           {active ? <section className="grid grid-cols-2 gap-2.5">
-            {METRICS.map((metric) => <MetricCard key={metric.key} metric={metric} own={active?.[metric.key]} team={teamMetrics?.[metric.key] || active?.[`${metric.key}_overall`]} />)}
+            {METRICS.map((metric) => <MetricCard
+              key={metric.key}
+              metric={metric}
+              own={active?.[metric.key]}
+              team={active?.[`${metric.key}_team`] || active?.team_summary?.[metric.key] || teamMetrics?.[metric.key] || active?.[`${metric.key}_overall`]}
+            />)}
           </section> : <section className="rounded-2xl border border-white/10 bg-[#1A1A1E] p-5 text-center text-sm font-bold text-zinc-500">Для вибраного періоду особисті показники відсутні.</section>}
 
           <section className="rounded-3xl border border-white/10 bg-[#1A1A1E] p-5">
@@ -194,7 +199,7 @@ export default function ActivationPumbGoals() {
             </div>
             <div className="mt-4 grid grid-cols-2 gap-2">
               <div className="rounded-2xl border border-white/10 bg-black/25 p-4"><div className="text-[9px] font-black uppercase tracking-wider text-zinc-600">Мої видачі</div><div className="mt-1 font-display text-3xl text-[#FFB800]">{formatCount(giving?.overall, "—")}</div></div>
-              <div className="rounded-2xl border border-white/10 bg-black/25 p-4"><div className="text-[9px] font-black uppercase tracking-wider text-zinc-600">Підсумок команди</div><div className="mt-1 font-display text-3xl text-white">{formatCount(teamGiving?.overall, "—")}</div></div>
+              <div className="rounded-2xl border border-white/10 bg-black/25 p-4"><div className="text-[9px] font-black uppercase tracking-wider text-zinc-600">Підсумок команди</div><div className="mt-1 font-display text-3xl text-white">{formatCount(teamGivingValue, "—")}</div></div>
             </div>
           </section>
 

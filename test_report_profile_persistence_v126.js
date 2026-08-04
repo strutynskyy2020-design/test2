@@ -19,9 +19,9 @@ assert(appContext.includes('applyFreshUser(data)'));
 assert(appContext.includes('vpdk-report-access-changed'));
 assert(reportsContext.includes('user.report_profile || "sales"'));
 assert(reportsContext.includes('onReportAccessChanged'));
-assert(reportsCache.includes('vpdk-google-reports-v126:'));
+assert(reportsCache.includes('vpdk-google-reports-v128:'));
 assert(reportsCache.includes('vpdk-google-reports-v125:'));
-assert(sw.includes('const VERSION = "vpdk-v126"'));
+assert(sw.includes('const VERSION = "vpdk-v128"'));
 assert(pwa.includes('/service-worker.js?v=126'));
 
-console.log("v126 report-profile persistence checks passed");
+console.log("v128 report-profile persistence checks passed");

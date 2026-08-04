@@ -23,9 +23,9 @@ const user = {
 
 const activationSnapshot = {
   success: true,
-  api_version: "v125-activation-report-profiles",
+  api_version: "v128-activation-data-tasks-team-filters",
   report_mode: "manual_snapshot",
-  snapshot_version: "snapshot-v125",
+  snapshot_version: "snapshot-v128",
   snapshot_updated_at: "03.08.2026 19:46",
   goals_login: "dzhunuso",
   found: true,
@@ -99,7 +99,7 @@ global.fetch = async (url) => {
         { id: user.id, name: user.name, goals_login: "dzhunuso", team_id: "team-7", team_name: "TM7", team_key: "tm7", report_profile: "activation" },
         { id: "kubraky-user", name: "Кубрак Юлія", goals_login: "kubraky", team_id: "team-7", team_name: "TM7", team_key: "tm7", report_profile: "sales" },
       ],
-      access_signature: "sig-v125",
+      access_signature: "sig-v128",
     });
   }
   if (target.startsWith(process.env.GOOGLE_GOALS_SCRIPT_URL)) return jsonResponse(activationSnapshot);
@@ -108,7 +108,7 @@ global.fetch = async (url) => {
 
 (async () => {
   const gas = fs.readFileSync("integrations/google-sheets/Code.gs", "utf8");
-  assert(gas.includes('REPORT_CACHE_API_VERSION = "v125-activation-report-profiles"'));
+  assert(gas.includes('REPORT_CACHE_API_VERSION = "v128-activation-data-tasks-team-filters"'));
   assert(gas.includes('ACTIVATION_PUMB_SHEET_NAME = "Activation Pumb Online"'));
   assert(gas.includes('ACTIVATION_CARDS_SHEET_NAME = "Activation Cards"'));
   assert(gas.includes("segment_a"));
@@ -144,7 +144,7 @@ global.fetch = async (url) => {
   assert.deepEqual(body.activation_pumb_leaderboard.map((row) => row.login), ["dzhunuso"]);
   assert.deepEqual(body.activation_cards_leaderboard.map((row) => row.login), ["dzhunuso"]);
   assert.equal(body.report_access.participants.find((row) => row.goals_login === "dzhunuso").report_profile, "activation");
-  console.log("Activation report profile v125 gateway: PASS");
+  console.log("Activation report profile v128 gateway: PASS");
 })().catch((error) => {
   console.error(error);
   process.exitCode = 1;

@@ -71,6 +71,14 @@ export const periodRow = (rows, period) => (
   (Array.isArray(rows) ? rows : []).find((row) => normalizePeriod(row?.period) === period) || null
 );
 
+export const periodRowForLogin = (rows, period, login) => {
+  const target = normalizeLogin(login);
+  return (Array.isArray(rows) ? rows : []).find((row) => (
+    normalizePeriod(row?.period) === period
+    && normalizeLogin(row?.goals_login || row?.login || row?.agent || row?.operator) === target
+  )) || null;
+};
+
 export const periodSummary = (summaries, period, teamKey) => {
   const periodObject = summaries?.[period] && typeof summaries[period] === "object"
     ? summaries[period]

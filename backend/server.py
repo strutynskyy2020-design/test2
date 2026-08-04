@@ -547,6 +547,8 @@ class OrderModel(BaseModel):
     prize_title: str
     price: int
     status: Literal["processing", "ready", "delivered", "cancelled"]
+    team_id: Optional[str] = None
+    team_name: Optional[str] = None
     created_at: str
 
 
@@ -1177,12 +1179,24 @@ async def save_ai_training_result(
 
 
 @api.get("/admin/ai-training-dashboard")
-async def admin_ai_training_dashboard(admin: dict = Depends(get_current_admin)):
+async def admin_ai_training_dashboard(
+    team_id: Optional[str] = None,
+    admin: dict = Depends(get_current_admin),
+):
+    user_query = {"role": {"$in": PLAYER_ROLES}, "approved": {"$ne": False}}
+    if team_id:
+        user_query["team_id"] = team_id
     users = await db.users.find(
-        {"role": {"$in": PLAYER_ROLES}, "approved": {"$ne": False}},
-        {"_id": 0, "id": 1, "name": 1, "avatar_initials": 1, "avatar_color": 1},
+        user_query,
+        {"_id": 0, "id": 1, "name": 1, "avatar_initials": 1, "avatar_color": 1, "team_id": 1},
     ).to_list(1000)
-    results = await db.ai_training_results.find({}, {"_id": 0}).sort("created_at", -1).to_list(2000)
+    user_ids = [user["id"] for user in users]
+    results_query = {"user_id": {"$in": user_ids}} if user_ids else {"user_id": "__none__"}
+    results = await db.ai_training_results.find(results_query, {"_id": 0}).sort("created_at", -1).to_list(2000)
+    team_name = await _resolve_team_name(team_id) if team_id else None
+    if team_name:
+        for user in users:
+            user["team_name"] = team_name
 
     by_user = {}
     for result in results:
@@ -1471,9 +1485,21 @@ async def admin_reset_user_password(
 # Achievements admin
 # ────────────────────────────────────────────────────────────────────────
 @api.get("/admin/achievements-dashboard")
-async def admin_achievements_dashboard(admin: dict = Depends(get_current_admin)):
+async def admin_achievements_dashboard(
+    team_id: Optional[str] = None,
+    admin: dict = Depends(get_current_admin),
+):
     achievements = await db.achievements.find({}, {"_id": 0}).sort("created_at", 1).to_list(500)
-    grants = await db.user_achievements.find({}, {"_id": 0}).to_list(5000)
+    user_query = {"role": {"$in": PLAYER_ROLES}}
+    if team_id:
+        user_query["team_id"] = team_id
+    users = await db.users.find(
+        user_query,
+        {"_id": 0, "id": 1, "name": 1, "email": 1, "avatar_initials": 1, "avatar_color": 1, "role": 1, "team_id": 1},
+    ).sort("name", 1).to_list(1000)
+    user_ids = [item["id"] for item in users]
+    grants_query = {"user_id": {"$in": user_ids}} if team_id else {}
+    grants = await db.user_achievements.find(grants_query, {"_id": 0}).to_list(5000)
     grant_count = {}
     grants_by_user = {}
     for grant in grants:
@@ -1483,10 +1509,10 @@ async def admin_achievements_dashboard(admin: dict = Depends(get_current_admin))
             grant_count[achievement_id] = grant_count.get(achievement_id, 0) + 1
         if user_id and achievement_id:
             grants_by_user.setdefault(user_id, []).append(achievement_id)
-    users = await db.users.find(
-        {"role": {"$in": PLAYER_ROLES}},
-        {"_id": 0, "id": 1, "name": 1, "email": 1, "avatar_initials": 1, "avatar_color": 1, "role": 1},
-    ).sort("name", 1).to_list(1000)
+    team_name = await _resolve_team_name(team_id) if team_id else None
+    if team_name:
+        for item in users:
+            item["team_name"] = team_name
     return {
         "achievements": [{**item, "granted_count": grant_count.get(item["id"], 0)} for item in achievements],
         "users": [{**item, "achievement_ids": grants_by_user.get(item["id"], [])} for item in users],
@@ -1679,7 +1705,7 @@ async def claim_quest(quest_id: str, user: dict = Depends(get_current_user)):
 # ────────────────────────────────────────────────────────────────────────
 # Daily tasks — 3 per Kyiv day, one replacement allowed
 # ────────────────────────────────────────────────────────────────────────
-DAILY_TASK_CATALOG = [
+SALES_DAILY_TASK_CATALOG = [
     {"id": 1, "title": "А наша Галя дуже балована", "text": "Скиньте в Teams фото карти дзвінка з клієнткою на ім'я Галина. Приз: 10 Point.", "difficulty": "easy", "reward": 10},
     {"id": 2, "title": "Чий ти будеш, козаче?", "text": "Скиньте в Teams фото карти дзвінка з іноземним ім'ям. Приз: 20 Point.", "difficulty": "medium", "reward": 20},
     {"id": 3, "title": "Оптом дешевше", "text": "Зробіть дві видачі кредитних продуктів одному й тому самому клієнту. Приз: 50 Point.", "difficulty": "hard", "reward": 50},
@@ -1720,6 +1746,48 @@ DAILY_TASK_CATALOG = [
     {"id": 38, "title": "Ефектний фінал", "text": "Оформіть видачу за годину до завершення робочої зміни. Приз: 20 Point.", "difficulty": "medium", "reward": 20},
     {"id": 39, "title": "Акула продажів", "text": "Зробіть найбільшу кількість видач у команді за день. Приз: 50 Point.", "difficulty": "hard", "reward": 50},
 ]
+
+
+# V128: activators have a separate daily-task universe. IDs intentionally live
+# in a different range so reviews and historical task sets can never collide
+# with sales tasks.
+ACTIVATION_DAILY_TASK_CATALOG = [
+    {"id": 1001, "title": "Агент 777", "text": "Знайдіть у номері телефону клієнта або ІПН три однакові цифри поспіль, наприклад 777. Скиньте скриншот картки в Teams. Приз: 10 Point.", "difficulty": "easy", "reward": 10},
+    {"id": 1002, "title": "Ровесник", "text": "Знайдіть клієнта, який народився в один рік із вами. Скиньте карту дзвінка. Приз: 10 Point.", "difficulty": "easy", "reward": 10},
+    {"id": 1003, "title": "Молода кров", "text": "Скиньте карту дзвінка з наймолодшим клієнтом за день, дата народження — 2008 рік або пізніше. Приз: 10 Point.", "difficulty": "easy", "reward": 10},
+    {"id": 1004, "title": "Назад у майбутнє", "text": "Скиньте карту дзвінка з клієнтом, який народився у круглому році, наприклад 1970, 1980, 1990 або 2000. Приз: 10 Point.", "difficulty": "easy", "reward": 10},
+    {"id": 1005, "title": "Тезка", "text": "Знайдіть клієнта зі своїм ім'ям. Приз: 10 Point.", "difficulty": "easy", "reward": 10},
+    {"id": 1006, "title": "Алфавіт", "text": "Знайдіть клієнта, у якого ім'я та прізвище починаються на одну літеру. Приз: 10 Point.", "difficulty": "easy", "reward": 10},
+    {"id": 1007, "title": "Ну ти і фартовий", "text": "Напишіть у Teams: «Я фартовий/фартова». Приз: 10 Point.", "difficulty": "easy", "reward": 10},
+    {"id": 1008, "title": "Олег, ти що плачеш?", "text": "Знайдіть клієнта на ім'я Олег і скиньте скриншот карти дзвінка в Teams. Приз: 10 Point.", "difficulty": "easy", "reward": 10},
+    {"id": 1009, "title": "Вкинув мем — врятував колег", "text": "Надішліть у командний чат смішний мем про роботу, клієнтів або кол-центр. Приз: 10 Point.", "difficulty": "easy", "reward": 10},
+    {"id": 1010, "title": "Місія нездійсненна: одна хвилина", "text": "Клієнт сказав: «У вас хвилина, тільки швидко». Проведіть з ним повноцінну розмову. Приз: 10 Point.", "difficulty": "easy", "reward": 10},
+
+    {"id": 1011, "title": "Не чує баба", "text": "Скиньте фото карти дзвінка з клієнтом, який народився у 1955 році або раніше. Приз: 20 Point.", "difficulty": "medium", "reward": 20},
+    {"id": 1012, "title": "Турбо-старт", "text": "Зробіть перші 10 розмов без жодної відмови від клієнта. Приз: 20 Point.", "difficulty": "medium", "reward": 20},
+    {"id": 1013, "title": "Чий ти будеш, козаче?", "text": "Скиньте в Teams фото карти дзвінка з іноземним ім'ям. Приз: 20 Point.", "difficulty": "medium", "reward": 20},
+    {"id": 1014, "title": "Сарафанне радіо", "text": "Після активації кредитної картки клієнт погодився ще й на реферальну програму. Приз: 20 Point.", "difficulty": "medium", "reward": 20},
+    {"id": 1015, "title": "Іронія долі", "text": "Знайдіть клієнта, який народився того ж дня і місяця, що й ви. Приз: 20 Point.", "difficulty": "medium", "reward": 20},
+    {"id": 1016, "title": "День бабака", "text": "Знайдіть дату народження з повторенням дня й місяця, наприклад 01.01, 02.02 або 12.12. Приз: 20 Point.", "difficulty": "medium", "reward": 20},
+    {"id": 1017, "title": "Золотий вік", "text": "Отримайте згоду від клієнта на активацію 6.0, який народився у 1960-х роках. Скиньте карту дзвінка. Приз: 20 Point.", "difficulty": "medium", "reward": 20},
+    {"id": 1018, "title": "Погашення після згоди", "text": "Після згоди клієнта скористатися кредитною карткою отримайте його згоду на офер 6.0 «Погашення» — поповнити картку після здійснення розрахунку. Приз: 20 Point.", "difficulty": "medium", "reward": 20},
+    {"id": 1019, "title": "А наша Галя балувана", "text": "Проведіть повноцінну розмову з клієнткою на ім'я Галина і скиньте скриншот карти дзвінка. Приз: 20 Point.", "difficulty": "medium", "reward": 20},
+    {"id": 1020, "title": "Вип'ємо еспресо", "text": "У період з 13:00 до 14:00 отримайте три згоди від клієнтів на оновлення застосунку ПУМБ. Приз: 20 Point.", "difficulty": "medium", "reward": 20},
+
+    {"id": 1021, "title": "Бери бика за рога", "text": "Виконайте будь-який офер на лінії з клієнтом по активації 6.0. Приз: 30 Point.", "difficulty": "hard", "reward": 30},
+    {"id": 1022, "title": "Зарплата прийшла!", "text": "Отримайте згоду від клієнта на офер «Отримання ЗП». Приз: 30 Point.", "difficulty": "hard", "reward": 30},
+    {"id": 1023, "title": "Подвійний удар", "text": "Запропонуйте одразу два офери активації 6.0 та отримайте згоду клієнта по кожному, окрім розрахунку та першої покупки від 200 грн. Приз: 40 Point.", "difficulty": "hard", "reward": 40},
+    {"id": 1024, "title": "Колишніх не буває", "text": "Опрацюйте заперечення клієнта «Я хочу закрити цю картку» та переконайте його активувати картку, здійснивши будь-який розрахунок. Приз: 40 Point.", "difficulty": "hard", "reward": 40},
+    {"id": 1025, "title": "Місія нездійсненна: три заперечення", "text": "Опрацюйте три заперечення клієнта, який відмовився користуватися карткою. Приз: 30 Point.", "difficulty": "hard", "reward": 30},
+    {"id": 1026, "title": "В яблучко", "text": "Пропрацюйте день так, щоб мати не менше 80% згод від клієнтів скористатися кредитною карткою. Приз: 30 Point.", "difficulty": "hard", "reward": 30},
+    {"id": 1027, "title": "Контрольний постріл", "text": "Виконайте на лінії встановлення або вхід у застосунок з клієнтом, у якого є офер 6.0 «Встановлення мобільного застосунку та вхід». Приз: 50 Point.", "difficulty": "hard", "reward": 50},
+    {"id": 1028, "title": "Багатий тато", "text": "Знайдіть клієнта з по батькові «Богданович» або «Русланович» і отримайте успішну згоду скористатися офером 6.0. Приз: 30 Point.", "difficulty": "hard", "reward": 30},
+    {"id": 1029, "title": "Тарас Бульба", "text": "Отримайте успішну згоду скористатися карткою від клієнта на ім'я Тарас. Приз: 30 Point.", "difficulty": "hard", "reward": 30},
+    {"id": 1030, "title": "Дідусівська версія", "text": "Зробіть на лінії з клієнтом оновлення застосунку. Приз: 50 Point.", "difficulty": "hard", "reward": 50},
+]
+
+# Backwards-compatible name used by old migrations/tests.
+DAILY_TASK_CATALOG = SALES_DAILY_TASK_CATALOG
 
 
 # ────────────────────────────────────────────────────────────────────────
@@ -2009,12 +2077,22 @@ async def admin_update_goals_settings(body: GoalsSettingsUpdateBody, admin: dict
 
 
 @api.get("/admin/goals-dashboard")
-async def admin_goals_dashboard(admin: dict = Depends(get_current_admin)):
+async def admin_goals_dashboard(
+    team_id: Optional[str] = None,
+    admin: dict = Depends(get_current_admin),
+):
+    user_query = {"role": {"$in": PLAYER_ROLES}, "approved": {"$ne": False}}
+    if team_id:
+        user_query["team_id"] = team_id
     users = await db.users.find(
-        {"role": {"$in": PLAYER_ROLES}, "approved": {"$ne": False}},
+        user_query,
         {"_id": 0, "id": 1, "name": 1, "avatar_initials": 1, "avatar_color": 1, "avatar_url": 1,
-         "position": 1, "department": 1, "goals_login": 1},
+         "position": 1, "department": 1, "goals_login": 1, "team_id": 1, "report_profile": 1},
     ).sort("name", 1).to_list(1000)
+    team_name = await _resolve_team_name(team_id) if team_id else None
+    if team_name:
+        for item in users:
+            item["team_name"] = team_name
     docs = await db.user_goals.find({"user_id": {"$in": [u["id"] for u in users]}}, {"_id": 0}).to_list(1000)
     by_user = {d["user_id"]: d for d in docs}
     return [{**u, "goals": _goals_public(by_user.get(u["id"]))} for u in users]
@@ -2062,43 +2140,74 @@ async def update_user_goals(user_id: str, body: UserGoalsUpdateBody, admin: dict
 
 
 DAILY_TASK_XP = {"easy": 10, "medium": 20, "hard": 30}
+DAILY_TASK_CATALOG_VERSION = {"sales": "sales-v1", "activation": "activation-v1"}
 
 
-def _daily_task_by_id(task_id: int) -> Optional[dict]:
-    task = next((task for task in DAILY_TASK_CATALOG if task["id"] == task_id), None)
+def _daily_task_profile(value: Optional[str]) -> str:
+    return "activation" if value == "activation" else "sales"
+
+
+def _daily_task_catalog(profile: Optional[str]) -> List[dict]:
+    return ACTIVATION_DAILY_TASK_CATALOG if _daily_task_profile(profile) == "activation" else SALES_DAILY_TASK_CATALOG
+
+
+def _daily_task_by_id(task_id: int, profile: Optional[str] = None) -> Optional[dict]:
+    catalogs = [_daily_task_catalog(profile)] if profile else [SALES_DAILY_TASK_CATALOG, ACTIVATION_DAILY_TASK_CATALOG]
+    task = next((task for catalog in catalogs for task in catalog if task["id"] == task_id), None)
     if not task:
         return None
-    return {**task, "xp": DAILY_TASK_XP.get(task.get("difficulty"), 10)}
+    task_profile = "activation" if int(task.get("id", 0)) >= 1000 else "sales"
+    return {**task, "xp": DAILY_TASK_XP.get(task.get("difficulty"), 10), "report_profile": task_profile}
 
-async def _get_or_create_daily_task_set(user_id: str) -> dict:
+async def _get_or_create_daily_task_set(user_or_id) -> dict:
     import hashlib
     import random
+    if isinstance(user_or_id, dict):
+        user = user_or_id
+    else:
+        user = await db.users.find_one({"id": str(user_or_id)}, {"_id": 0, "id": 1, "report_profile": 1}) or {"id": str(user_or_id)}
+    user_id = str(user.get("id") or "")
+    profile = _daily_task_profile(user.get("report_profile"))
+    catalog = _daily_task_catalog(profile)
+    catalog_version = DAILY_TASK_CATALOG_VERSION[profile]
     date_key = kyiv_today_key()
     doc = await db.daily_task_sets.find_one({"user_id": user_id, "date": date_key}, {"_id": 0})
-    if doc:
+    if doc and doc.get("catalog_profile") == profile and doc.get("catalog_version") == catalog_version:
         return doc
-    seed = int(hashlib.sha256(f"{user_id}:{date_key}:tm6".encode()).hexdigest(), 16)
+    seed = int(hashlib.sha256(f"{user_id}:{date_key}:{profile}:v128".encode()).hexdigest(), 16)
     rng = random.Random(seed)
     # Smart random: avoid missions the operator has seen during the last 14 days.
     recent_sets = await db.daily_task_sets.find(
-        {"user_id": user_id, "date": {"$lt": date_key}}, {"_id": 0, "task_ids": 1, "date": 1}
+        {"user_id": user_id, "date": {"$lt": date_key}, "catalog_profile": profile}, {"_id": 0, "task_ids": 1, "date": 1}
     ).sort("date", -1).limit(14).to_list(14)
     recent_ids = {int(task_id) for item in recent_sets for task_id in item.get("task_ids", [])}
     chosen = []
     for difficulty in ("easy", "medium", "hard"):
-        full_pool = [task for task in DAILY_TASK_CATALOG if task["difficulty"] == difficulty]
+        full_pool = [task for task in catalog if task["difficulty"] == difficulty]
         fresh_pool = [task for task in full_pool if task["id"] not in recent_ids]
         pool = fresh_pool or full_pool
         chosen.append(rng.choice(pool)["id"])
+    replacement_limit_state = {
+        "replacement_used": False,
+        "replacements_used": 0,
+    }
     doc = {
         "user_id": user_id,
         "date": date_key,
         "task_ids": chosen,
-        "replacement_used": False,
-        "replacements_used": 0,
+        **replacement_limit_state,
+        "catalog_profile": profile,
+        "catalog_version": catalog_version,
         "created_at": now_iso(),
     }
-    await db.daily_task_sets.insert_one(doc)
+    # If an operator changes profile during the day, replace only the task set.
+    # Existing review/transaction history remains immutable and cannot collide
+    # because activation task IDs use a separate range.
+    await db.daily_task_sets.update_one(
+        {"user_id": user_id, "date": date_key},
+        {"$set": doc},
+        upsert=True,
+    )
     doc.pop("_id", None)
     return doc
 
@@ -2246,14 +2355,14 @@ async def daily_battle(user: dict = Depends(get_current_user)):
 
 @api.get("/daily-tasks")
 async def get_daily_tasks(user: dict = Depends(get_current_user)):
-    task_set = await _get_or_create_daily_task_set(user["id"])
+    task_set = await _get_or_create_daily_task_set(user)
     reviews = await db.daily_task_reviews.find(
         {"user_id": user["id"], "date": task_set["date"]}, {"_id": 0}
     ).to_list(20)
     review_map = {int(r["task_id"]): r for r in reviews}
     tasks = []
     for task_id in task_set["task_ids"]:
-        task = _daily_task_by_id(task_id)
+        task = _daily_task_by_id(task_id, task_set.get("catalog_profile"))
         if not task:
             continue
         review = review_map.get(int(task_id))
@@ -2266,6 +2375,8 @@ async def get_daily_tasks(user: dict = Depends(get_current_user)):
     return {
         "date": task_set["date"],
         "tasks": tasks,
+        "report_profile": task_set.get("catalog_profile", _daily_task_profile(user.get("report_profile"))),
+        "catalog_version": task_set.get("catalog_version"),
         "replacement_used": bool(task_set.get("replacement_used")),
         "replacements_used": int(task_set.get("replacements_used", 1 if task_set.get("replacement_used") else 0)),
         "replacement_limit": 1 + max(0, int(user.get("avatar_task_replacements") or 0)),
@@ -2277,15 +2388,30 @@ async def get_daily_tasks(user: dict = Depends(get_current_user)):
 
 
 @api.get("/admin/daily-tasks-dashboard")
-async def admin_daily_tasks_dashboard(admin: dict = Depends(get_current_admin_or_editor)):
+async def admin_daily_tasks_dashboard(
+    team_id: Optional[str] = None,
+    admin: dict = Depends(get_current_admin_or_editor),
+):
     date_key = kyiv_today_key()
+    user_query = {"role": {"$in": PLAYER_ROLES}, "approved": {"$ne": False}}
+    if team_id:
+        user_query["team_id"] = team_id
     users = await db.users.find(
-        {"role": {"$in": PLAYER_ROLES}, "approved": {"$ne": False}},
-        {"_id": 0, "id": 1, "name": 1, "avatar_initials": 1, "avatar_color": 1, "avatar_url": 1, "position": 1, "department": 1, "total_xp": 1},
+        user_query,
+        {"_id": 0, "id": 1, "name": 1, "avatar_initials": 1, "avatar_color": 1, "avatar_url": 1, "position": 1, "department": 1, "total_xp": 1, "team_id": 1, "report_profile": 1},
     ).sort("name", 1).to_list(1000)
 
+    team_ids = list({employee.get("team_id") for employee in users if employee.get("team_id")})
+    team_names = {}
+    if team_ids:
+        async for team in db.teams.find({"id": {"$in": team_ids}}, {"_id": 0, "id": 1, "name": 1}):
+            team_names[team["id"]] = team.get("name", "")
     for employee in users:
-        await _get_or_create_daily_task_set(employee["id"])
+        employee["team_name"] = team_names.get(employee.get("team_id"))
+        employee["report_profile"] = _daily_task_profile(employee.get("report_profile"))
+
+    for employee in users:
+        await _get_or_create_daily_task_set(employee)
 
     task_sets = await db.daily_task_sets.find({"date": date_key}, {"_id": 0}).to_list(2000)
     task_set_map = {row["user_id"]: row for row in task_sets}
@@ -2297,10 +2423,12 @@ async def admin_daily_tasks_dashboard(admin: dict = Depends(get_current_admin_or
     awarded_xp = 0
     decided_count = 0
     for employee in users:
-        task_set = task_set_map.get(employee["id"]) or await _get_or_create_daily_task_set(employee["id"])
+        task_set = task_set_map.get(employee["id"])
+        if not task_set or task_set.get("catalog_profile") != employee.get("report_profile"):
+            task_set = await _get_or_create_daily_task_set(employee)
         task_items = []
         for task_id in task_set.get("task_ids", []):
-            task = _daily_task_by_id(int(task_id))
+            task = _daily_task_by_id(int(task_id), task_set.get("catalog_profile"))
             if not task:
                 continue
             review = review_map.get((employee["id"], int(task_id)))
@@ -2348,10 +2476,10 @@ async def admin_review_daily_task(
     target = await db.users.find_one({"id": user_id, "role": {"$in": PLAYER_ROLES}}, {"_id": 0})
     if not target:
         raise HTTPException(status_code=404, detail="Оператора не знайдено")
-    task_set = await _get_or_create_daily_task_set(user_id)
+    task_set = await _get_or_create_daily_task_set(target)
     if task_id not in task_set.get("task_ids", []):
         raise HTTPException(status_code=404, detail="Це завдання не призначене оператору сьогодні")
-    task = _daily_task_by_id(task_id)
+    task = _daily_task_by_id(task_id, task_set.get("catalog_profile"))
     if not task:
         raise HTTPException(status_code=404, detail="Завдання не знайдено")
     existing = await db.daily_task_reviews.find_one(
@@ -2414,7 +2542,7 @@ async def admin_review_daily_task(
 async def replace_daily_task(task_id: int, user: dict = Depends(get_current_user)):
     import hashlib
     import random
-    task_set = await _get_or_create_daily_task_set(user["id"])
+    task_set = await _get_or_create_daily_task_set(user)
     replacement_limit = 1 + max(0, int(user.get("avatar_task_replacements") or 0))
     replacements_used = int(task_set.get("replacements_used", 1 if task_set.get("replacement_used") else 0))
     if replacements_used >= replacement_limit:
@@ -2424,7 +2552,7 @@ async def replace_daily_task(task_id: int, user: dict = Depends(get_current_user
     decided = await db.daily_task_reviews.find_one({"user_id": user["id"], "date": task_set["date"], "task_id": task_id})
     if decided:
         raise HTTPException(status_code=400, detail="Перевірене завдання вже не можна замінити")
-    current = _daily_task_by_id(task_id)
+    current = _daily_task_by_id(task_id, task_set.get("catalog_profile"))
     if not current:
         raise HTTPException(status_code=404, detail="Завдання не знайдено")
     recent_sets = await db.daily_task_sets.find(
@@ -2432,7 +2560,7 @@ async def replace_daily_task(task_id: int, user: dict = Depends(get_current_user
     ).sort("date", -1).limit(14).to_list(14)
     recent_ids = {int(value) for item in recent_sets for value in item.get("task_ids", [])}
     full_pool = [
-        task for task in DAILY_TASK_CATALOG
+        task for task in _daily_task_catalog(task_set.get("catalog_profile"))
         if task["difficulty"] == current["difficulty"] and task["id"] not in task_set["task_ids"]
     ]
     pool = [task for task in full_pool if task["id"] not in recent_ids] or full_pool
@@ -2447,7 +2575,7 @@ async def replace_daily_task(task_id: int, user: dict = Depends(get_current_user
     )
     return {
         "date": task_set["date"],
-        "tasks": [_daily_task_by_id(value) for value in new_ids],
+        "tasks": [_daily_task_by_id(value, task_set.get("catalog_profile")) for value in new_ids],
         "replacement_used": True,
         "replacements_used": replacements_used + 1,
         "replacement_limit": replacement_limit,
@@ -2508,6 +2636,7 @@ async def buy_prize(prize_id: str, user: dict = Depends(get_current_user)):
     order = {
         "id": str(uuid.uuid4()), "user_id": user["id"], "user_name": user["name"],
         "prize_id": prize_id, "prize_title": prize["title"], "price": price,
+        "team_id": user.get("team_id"), "team_name": await _resolve_team_name(user.get("team_id")),
         "status": "delivered" if is_avatar else "processing", "created_at": now_iso(),
     }
     await db.orders.insert_one(order)
@@ -6578,6 +6707,8 @@ async def add_comment(event_id: str, body: CommentBody, user: dict = Depends(get
         "user_name": user["name"],
         "avatar_initials": user.get("avatar_initials", ""),
         "avatar_color": user.get("avatar_color", "#FFB800"),
+        "team_id": user.get("team_id"),
+        "team_name": await _resolve_team_name(user.get("team_id")),
         "text": text,
         "created_at": now_iso(),
     }
@@ -6814,9 +6945,34 @@ async def admin_delete_prize(prize_id: str, admin: dict = Depends(get_current_ad
 
 
 @api.get("/admin/orders", response_model=List[OrderModel])
-async def admin_list_orders(admin: dict = Depends(get_current_admin)):
-    docs = await db.orders.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
-    return [OrderModel(**d) for d in docs]
+async def admin_list_orders(
+    team_id: Optional[str] = None,
+    admin: dict = Depends(get_current_admin),
+):
+    query = {}
+    docs = await db.orders.find(query, {"_id": 0}).sort("created_at", -1).to_list(500)
+    # Backfill team metadata for historical orders created before V128.
+    missing_user_ids = list({doc.get("user_id") for doc in docs if doc.get("user_id") and not doc.get("team_id")})
+    user_map = {}
+    if missing_user_ids:
+        async for item in db.users.find({"id": {"$in": missing_user_ids}}, {"_id": 0, "id": 1, "team_id": 1}):
+            user_map[item["id"]] = item.get("team_id")
+    team_ids = list({doc.get("team_id") or user_map.get(doc.get("user_id")) for doc in docs if doc.get("team_id") or user_map.get(doc.get("user_id"))})
+    team_names = {}
+    if team_ids:
+        async for team in db.teams.find({"id": {"$in": team_ids}}, {"_id": 0, "id": 1, "name": 1}):
+            team_names[team["id"]] = team.get("name", "")
+    result = []
+    for doc in docs:
+        resolved_team_id = doc.get("team_id") or user_map.get(doc.get("user_id"))
+        if team_id and resolved_team_id != team_id:
+            continue
+        result.append(OrderModel(**{
+            **doc,
+            "team_id": resolved_team_id,
+            "team_name": doc.get("team_name") or team_names.get(resolved_team_id),
+        }))
+    return result
 
 
 @api.patch("/admin/orders/{order_id}", response_model=OrderModel)
@@ -6839,36 +6995,60 @@ async def admin_update_order(order_id: str, body: OrderStatusBody, admin: dict =
             f"{doc.get('prize_title', 'Приз')}. {message}",
             "/store", icon, "orders", {"order_id": order_id, "status": body.status},
         )
+    if not doc.get("team_id") and doc.get("user_id"):
+        owner = await db.users.find_one({"id": doc["user_id"]}, {"_id": 0, "team_id": 1}) or {}
+        doc["team_id"] = owner.get("team_id")
+    if doc.get("team_id") and not doc.get("team_name"):
+        doc["team_name"] = await _resolve_team_name(doc.get("team_id"))
     return OrderModel(**doc)
 
 
 @api.get("/admin/analytics")
-async def admin_analytics(admin: dict = Depends(get_current_admin)):
-    total_users = await db.users.count_documents({"role": {"$in": PLAYER_ROLES}})
-    total_quests = await db.quests.count_documents({"active": True})
-    total_prizes = await db.prizes.count_documents({"active": True})
-    orders_processing = await db.orders.count_documents({"status": "processing"})
-    total_points_earned_pipeline = [
-        {"$match": {"amount": {"$gt": 0}}},
-        {"$group": {"_id": None, "sum": {"$sum": "$amount"}}},
-    ]
-    total_points_spent_pipeline = [
-        {"$match": {"amount": {"$lt": 0}}},
-        {"$group": {"_id": None, "sum": {"$sum": "$amount"}}},
-    ]
-    earned = await db.transactions.aggregate(total_points_earned_pipeline).to_list(1)
-    spent = await db.transactions.aggregate(total_points_spent_pipeline).to_list(1)
-    top_earners = await db.users.find(
-        {"role": {"$in": PLAYER_ROLES}}, {"_id": 0, "id": 1, "name": 1, "total_earned": 1, "avatar_color": 1, "avatar_initials": 1}
-    ).sort("total_earned", -1).limit(5).to_list(5)
+async def admin_analytics(
+    team_id: Optional[str] = None,
+    admin: dict = Depends(get_current_admin),
+):
+    user_query = {"role": {"$in": PLAYER_ROLES}}
+    if team_id:
+        user_query["team_id"] = team_id
+    scoped_users = await db.users.find(
+        user_query,
+        {"_id": 0, "id": 1, "name": 1, "total_earned": 1, "avatar_color": 1, "avatar_initials": 1, "team_id": 1},
+    ).sort("total_earned", -1).to_list(5000)
+    scoped_user_ids = [row["id"] for row in scoped_users]
+    user_match = {"user_id": {"$in": scoped_user_ids}} if team_id else {}
 
-    # popular quests by claim count in daily_progress
-    pop_pipeline = [
+    total_users = len(scoped_users)
+    total_quests = await db.quests.count_documents({"active": True})
+    prize_query = {"active": True}
+    if team_id:
+        prize_query["$or"] = [{"team_id": team_id}, {"team_id": None}, {"team_id": {"$exists": False}}]
+    total_prizes = await db.prizes.count_documents(prize_query)
+    order_query = {"status": "processing", **user_match}
+    orders_processing = await db.orders.count_documents(order_query)
+
+    earned_match = {"amount": {"$gt": 0}, **user_match}
+    spent_match = {"amount": {"$lt": 0}, **user_match}
+    earned = await db.transactions.aggregate([
+        {"$match": earned_match},
+        {"$group": {"_id": None, "sum": {"$sum": "$amount"}}},
+    ]).to_list(1)
+    spent = await db.transactions.aggregate([
+        {"$match": spent_match},
+        {"$group": {"_id": None, "sum": {"$sum": "$amount"}}},
+    ]).to_list(1)
+    top_earners = scoped_users[:5]
+
+    pop_match = {"user_id": {"$in": scoped_user_ids}} if team_id else {}
+    pop_pipeline = []
+    if pop_match:
+        pop_pipeline.append({"$match": pop_match})
+    pop_pipeline.extend([
         {"$unwind": "$claimed"},
         {"$group": {"_id": "$claimed", "count": {"$sum": 1}}},
         {"$sort": {"count": -1}},
         {"$limit": 5},
-    ]
+    ])
     pop = await db.daily_progress.aggregate(pop_pipeline).to_list(5)
     quest_titles = {}
     for q in await db.quests.find({}, {"_id": 0, "id": 1, "title": 1}).to_list(500):
@@ -6876,8 +7056,11 @@ async def admin_analytics(admin: dict = Depends(get_current_admin)):
     popular_quests = [{"title": quest_titles.get(p["_id"], "—"), "claims": p["count"]} for p in pop]
 
     usage_cutoff = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+    usage_match = {"created_at": {"$gte": usage_cutoff}, "role": {"$in": PLAYER_ROLES}}
+    if team_id:
+        usage_match["user_id"] = {"$in": scoped_user_ids}
     usage_pipeline = [
-        {"$match": {"created_at": {"$gte": usage_cutoff}, "role": {"$in": PLAYER_ROLES}}},
+        {"$match": usage_match},
         {"$group": {
             "_id": {"path": "$path", "label": "$label"},
             "views": {"$sum": 1},
@@ -6896,10 +7079,12 @@ async def admin_analytics(admin: dict = Depends(get_current_admin)):
         {"$limit": 15},
     ]
     popular_pages = await db.page_views.aggregate(usage_pipeline).to_list(15)
-    total_page_views = await db.page_views.count_documents({"created_at": {"$gte": usage_cutoff}, "role": {"$in": PLAYER_ROLES}})
-    unique_page_users = await db.page_views.distinct("user_id", {"created_at": {"$gte": usage_cutoff}, "role": {"$in": PLAYER_ROLES}})
+    total_page_views = await db.page_views.count_documents(usage_match)
+    unique_page_users = await db.page_views.distinct("user_id", usage_match)
 
     return {
+        "team_id": team_id,
+        "team_name": await _resolve_team_name(team_id) if team_id else None,
         "total_users": total_users,
         "total_quests": total_quests,
         "total_prizes": total_prizes,
@@ -7371,6 +7556,8 @@ class ApplicationModel(BaseModel):
     user_name: str
     avatar_initials: str = ""
     avatar_color: str = "#FFB800"
+    team_id: Optional[str] = None
+    team_name: Optional[str] = None
     values: dict = {}
     status: Literal["draft", "submitted", "pending_review", "approved", "rejected"]
     reward: int = 0
@@ -7827,6 +8014,8 @@ async def _build_application_doc(task: dict, user: dict, values: dict, status: s
         "user_name": user["name"],
         "avatar_initials": user.get("avatar_initials", ""),
         "avatar_color": user.get("avatar_color", "#FFB800"),
+        "team_id": user.get("team_id"),
+        "team_name": await _resolve_team_name(user.get("team_id")),
         "values": values,
         "status": status,
         "reward": int(task.get("reward", 0)),
@@ -8383,7 +8572,9 @@ async def admin_delete_task(task_id: str, admin: dict = Depends(get_current_admi
 # ─── Admin: Applications moderation ───
 @api.get("/admin/applications", response_model=List[ApplicationModel])
 async def admin_list_applications(
-    status: Optional[str] = None, admin: dict = Depends(get_current_admin)
+    status: Optional[str] = None,
+    team_id: Optional[str] = None,
+    admin: dict = Depends(get_current_admin),
 ):
     query: dict = {}
     if status and status in APPLICATION_STATUSES:
@@ -8391,7 +8582,28 @@ async def admin_list_applications(
     else:
         query["status"] = {"$ne": "draft"}
     docs = await db.applications.find(query, {"_id": 0}).sort("submitted_at", -1).to_list(500)
-    return [_clean_app(d) for d in docs]
+    # Backfill historical records that predate team metadata.
+    missing_user_ids = list({doc.get("user_id") for doc in docs if doc.get("user_id") and not doc.get("team_id")})
+    user_map = {}
+    if missing_user_ids:
+        async for item in db.users.find({"id": {"$in": missing_user_ids}}, {"_id": 0, "id": 1, "team_id": 1}):
+            user_map[item["id"]] = item.get("team_id")
+    team_ids = list({doc.get("team_id") or user_map.get(doc.get("user_id")) for doc in docs if doc.get("team_id") or user_map.get(doc.get("user_id"))})
+    team_names = {}
+    if team_ids:
+        async for team in db.teams.find({"id": {"$in": team_ids}}, {"_id": 0, "id": 1, "name": 1}):
+            team_names[team["id"]] = team.get("name", "")
+    result = []
+    for doc in docs:
+        resolved_team_id = doc.get("team_id") or user_map.get(doc.get("user_id"))
+        if team_id and resolved_team_id != team_id:
+            continue
+        result.append(_clean_app({
+            **doc,
+            "team_id": resolved_team_id,
+            "team_name": doc.get("team_name") or team_names.get(resolved_team_id),
+        }))
+    return result
 
 
 @api.patch("/admin/applications/{app_id}/start", response_model=ApplicationModel)

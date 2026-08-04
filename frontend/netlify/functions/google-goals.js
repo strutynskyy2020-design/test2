@@ -47,6 +47,29 @@ const reportRowForLogin = (rows, login) => (
   (Array.isArray(rows) ? rows : []).find((row) => rowLogin(row) === normalizeKey(login)) || null
 );
 
+const reportPeriod = (value) => {
+  const key = normalizeKey(value);
+  if (key.includes("yesterday") || key.includes("вчора")) return "yesterday";
+  if (key.includes("month") || key.includes("міся")) return "month";
+  return "";
+};
+
+const personalPeriodRows = (rows, login) => {
+  const target = normalizeKey(login);
+  const filtered = (Array.isArray(rows) ? rows : []).filter((row) => {
+    const rowKey = rowLogin(row);
+    return Boolean(target && rowKey === target && reportPeriod(row?.period));
+  });
+  const byPeriod = new Map();
+  filtered.forEach((row) => {
+    const period = reportPeriod(row?.period);
+    // Prefer the first exact personal row for each period. Old snapshots could
+    // contain duplicated/group rows; they must never replace personal data.
+    if (!byPeriod.has(period)) byPeriod.set(period, row);
+  });
+  return ["month", "yesterday"].map((period) => byPeriod.get(period)).filter(Boolean);
+};
+
 const firstReportValue = (object, keys) => {
   for (const key of keys) {
     const value = object?.[key];
@@ -636,6 +659,18 @@ exports.handler = async (event) => {
       filterRowsByAllowedLogins(baseData.activation_cards_giving_leaderboard, activationAllowedLogins),
       participants,
     );
+    const activationPumbMetrics = viewerHasOwnReport
+      ? personalPeriodRows(baseData.activation_pumb_metrics, selectedReportLogin)
+      : [];
+    const activationPumbGiving = viewerHasOwnReport
+      ? personalPeriodRows(baseData.activation_pumb_giving, selectedReportLogin)
+      : [];
+    const activationCardsMetrics = viewerHasOwnReport
+      ? personalPeriodRows(baseData.activation_cards_metrics, selectedReportLogin)
+      : [];
+    const activationCardsGiving = viewerHasOwnReport
+      ? personalPeriodRows(baseData.activation_cards_giving, selectedReportLogin)
+      : [];
 
     return makeResponse(200, {
       success: true,
@@ -674,19 +709,19 @@ exports.handler = async (event) => {
       deposit_group_summaries: depositGroupSummaries,
       deposit_leaderboard_updated_at: baseData.deposit_leaderboard_updated_at || null,
       deposit_issuances: viewerHasOwnReport && Array.isArray(baseData.deposit_issuances) ? baseData.deposit_issuances : [],
-      activation_pumb_metrics: viewerHasOwnReport && Array.isArray(baseData.activation_pumb_metrics) ? baseData.activation_pumb_metrics : [],
+      activation_pumb_metrics: activationPumbMetrics,
       activation_pumb_leaderboard: activationPumbLeaderboard,
       activation_pumb_group_summaries: activationPumbGroupSummaries,
-      activation_pumb_giving: viewerHasOwnReport && Array.isArray(baseData.activation_pumb_giving) ? baseData.activation_pumb_giving : [],
+      activation_pumb_giving: activationPumbGiving,
       activation_pumb_giving_leaderboard: activationPumbGivingLeaderboard,
       activation_pumb_giving_group_summaries: activationPumbGivingGroupSummaries,
       activation_pumb_updated_at: baseData.activation_pumb_updated_at || baseData.snapshot_updated_at || null,
       activation_pumb_diagnostics: baseData.activation_pumb_diagnostics || {},
-      activation_cards_metrics: viewerHasOwnReport && Array.isArray(baseData.activation_cards_metrics) ? baseData.activation_cards_metrics : [],
+      activation_cards_metrics: activationCardsMetrics,
       activation_cards_leaderboard: activationCardsLeaderboard,
       activation_cards_group_summaries: activationCardsGroupSummaries,
       activation_cards_transformation_group_summaries: activationCardsTransformationGroupSummaries,
-      activation_cards_giving: viewerHasOwnReport && Array.isArray(baseData.activation_cards_giving) ? baseData.activation_cards_giving : [],
+      activation_cards_giving: activationCardsGiving,
       activation_cards_giving_leaderboard: activationCardsGivingLeaderboard,
       activation_cards_giving_group_summaries: activationCardsGivingGroupSummaries,
       activation_cards_updated_at: baseData.activation_cards_updated_at || baseData.snapshot_updated_at || null,

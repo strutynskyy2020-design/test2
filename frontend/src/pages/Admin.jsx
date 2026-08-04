@@ -47,6 +47,24 @@ const APP_STATUS = {
 const DIFFICULTIES = ["easy", "medium", "hard"];
 const CATEGORIES = ["avatar", "merch", "privilege", "certificate"];
 
+const withTeamQuery = (path, teamFilter) => {
+  if (!teamFilter) return path;
+  const separator = path.includes("?") ? "&" : "?";
+  return `${path}${separator}team_id=${encodeURIComponent(teamFilter)}`;
+};
+
+const rowTeamId = (row) => String(
+  row?.team_id
+  || row?.user_team_id
+  || row?.operator?.team_id
+  || row?.user?.team_id
+  || "",
+);
+
+const filterRowsByTeam = (rows, teamFilter) => (
+  !teamFilter ? (Array.isArray(rows) ? rows : []) : (Array.isArray(rows) ? rows : []).filter((row) => rowTeamId(row) === teamFilter)
+);
+
 // ─────────────── Analytics ───────────────
 const StatBox = ({ label, value, accent }) => (
   <div className="bg-[#1A1A1E] border border-white/10 rounded-2xl p-4">
@@ -55,11 +73,12 @@ const StatBox = ({ label, value, accent }) => (
   </div>
 );
 
-const AnalyticsView = () => {
+const AnalyticsView = ({ teamFilter }) => {
   const [data, setData] = useState(null);
   useEffect(() => {
-    api.get("/admin/analytics").then((r) => setData(r.data)).catch((e) => toast.error(extractError(e)));
-  }, []);
+    setData(null);
+    api.get(withTeamQuery("/admin/analytics", teamFilter)).then((r) => setData(r.data)).catch((e) => toast.error(extractError(e)));
+  }, [teamFilter]);
   if (!data) return <div className="text-zinc-500 text-sm py-8 text-center">Завантаження...</div>;
   return (
     <div className="space-y-4" data-testid="analytics-view">
@@ -149,16 +168,17 @@ const AnalyticsView = () => {
 
 
 // ─────────────── AI team manager dashboard ───────────────
-const AITeamDashboard = () => {
+const AITeamDashboard = ({ teamFilter }) => {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [openSession, setOpenSession] = useState(null);
   useEffect(() => {
-    api.get("/admin/ai-training-dashboard")
+    setLoading(true);
+    api.get(withTeamQuery("/admin/ai-training-dashboard", teamFilter))
       .then((r) => setData(r.data))
       .catch((e) => toast.error(extractError(e)))
       .finally(() => setLoading(false));
-  }, []);
+  }, [teamFilter]);
   if (loading) return <div className="text-zinc-500 text-sm py-8 text-center">Завантаження статистики...</div>;
   if (!data) return <div className="text-zinc-500 text-sm py-8 text-center">Немає даних тренувань</div>;
   return <div className="space-y-4" data-testid="ai-team-dashboard">
@@ -236,15 +256,16 @@ const DAILY_DIFFICULTY = {
   hard: { label: "Важке", color: "#FF5C00" },
 };
 
-const DailyTasksManager = () => {
+const DailyTasksManager = ({ teamFilter }) => {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [busyKey, setBusyKey] = useState(null);
 
   const load = async () => {
+    setLoading(true);
     try {
-      const response = await api.get("/admin/daily-tasks-dashboard");
+      const response = await api.get(withTeamQuery("/admin/daily-tasks-dashboard", teamFilter));
       setData(response.data);
     } catch (e) {
       toast.error(extractError(e, "Не вдалося завантажити завдання"));
@@ -253,7 +274,7 @@ const DailyTasksManager = () => {
     }
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [teamFilter]);
 
   const decide = async (operator, task, decision) => {
     const key = `${operator.id}:${task.id}`;
@@ -293,7 +314,7 @@ const DailyTasksManager = () => {
   if (!data) return <div className="py-10 text-center text-sm font-black text-zinc-500">Немає даних</div>;
 
   const query = search.trim().toLowerCase();
-  const operators = data.operators.filter((operator) => !query || operator.name.toLowerCase().includes(query));
+  const operators = filterRowsByTeam(data.operators, teamFilter).filter((operator) => !query || operator.name.toLowerCase().includes(query));
 
   const taskActions = (operator, task, compact = false) => {
     const key = `${operator.id}:${task.id}`;
@@ -445,7 +466,7 @@ const DailyTasksManager = () => {
 
 
 // ─────────────── Users ───────────────
-const UsersView = () => {
+const UsersView = ({ teamFilter }) => {
   const [users, setUsers] = useState([]);
   const [teams, setTeams] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -487,7 +508,7 @@ const UsersView = () => {
 
       {loading && <div className="text-zinc-500 text-sm py-4 text-center">Завантаження...</div>}
 
-      {users.map((u) => (
+      {filterRowsByTeam(users, teamFilter).map((u) => (
         <div key={u.id} data-testid={`user-row-${u.id}`} className="bg-[#1A1A1E] border border-white/10 rounded-2xl p-3 flex items-center gap-3">
           <div
             className="w-11 h-11 rounded-xl flex items-center justify-center font-display text-sm text-[#0A0A0A] shrink-0"
@@ -779,7 +800,7 @@ const ACHIEVEMENT_ICON_OPTIONS = [
 ];
 const achievementIcon = (name) => ACHIEVEMENT_ICON_OPTIONS.find((item) => item.value === name)?.Icon || Award;
 
-const AchievementsView = () => {
+const AchievementsView = ({ teamFilter }) => {
   const [data, setData] = useState({ achievements: [], users: [] });
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(null);
@@ -788,12 +809,12 @@ const AchievementsView = () => {
   const load = async () => {
     setLoading(true);
     try {
-      const { data: dashboard } = await api.get("/admin/achievements-dashboard");
+      const { data: dashboard } = await api.get(withTeamQuery("/admin/achievements-dashboard", teamFilter));
       setData({ achievements: dashboard.achievements || [], users: dashboard.users || [] });
     } catch (e) { toast.error(extractError(e)); }
     finally { setLoading(false); }
   };
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [teamFilter]);
 
   return <div className="space-y-3" data-testid="achievements-admin-view">
     <button type="button" onClick={() => setEditing({ isNew: true })} className="arcade-btn flex h-11 w-full items-center justify-center gap-2 border-[#7a5900] bg-[#FFB800] text-xs font-black uppercase tracking-wider text-[#0A0A0A]">
@@ -891,7 +912,7 @@ const AchievementGrantSheet = ({ achievement, users, onClose, onDone }) => {
 // ─────────────── Teams admin ───────────────
 const TEAM_COLORS = ["#FFB800", "#00F0FF", "#39FF14", "#FF5C00", "#B78CFF", "#FF3B8A"];
 
-const TeamsView = () => {
+const TeamsView = ({ teamFilter }) => {
   const [teams, setTeams] = useState([]);
   const [users, setUsers] = useState([]);
   const [editing, setEditing] = useState(null);
@@ -926,7 +947,7 @@ const TeamsView = () => {
 
       {teams.length === 0 && <div className="text-zinc-500 text-sm py-6 text-center">Ще немає команд</div>}
 
-      {teams.map((t) => {
+      {teams.filter((team) => !teamFilter || String(team.id) === teamFilter).map((t) => {
         const leader = users.find((u) => u.id === t.leader_id);
         return (
           <div key={t.id} data-testid={`admin-team-${t.id}`} className="bg-[#1A1A1E] border border-white/10 rounded-2xl p-3">
@@ -1330,7 +1351,7 @@ const QuestEditor = ({ quest, onClose, onSaved }) => {
 };
 
 // ─────────────── Prizes admin ───────────────
-const PrizesView = () => {
+const PrizesView = ({ teamFilter }) => {
   const [prizes, setPrizes] = useState([]);
   const [teams, setTeams] = useState([]);
   const [editing, setEditing] = useState(null);
@@ -1365,7 +1386,7 @@ const PrizesView = () => {
       >
         <Plus size={16} strokeWidth={3} /> Новий приз
       </button>
-      {prizes.map((p) => (
+      {prizes.filter((p) => !teamFilter || !p.team_id || String(p.team_id) === teamFilter).map((p) => (
         <div key={p.id} data-testid={`admin-prize-${p.id}`} className={`bg-[#1A1A1E] border rounded-2xl p-3 flex items-center gap-3 ${p.active ? "border-white/10" : "border-white/5 opacity-50"}`}>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
@@ -1391,7 +1412,7 @@ const PrizesView = () => {
   );
 };
 
-const TeamBanksAdminView = () => {
+const TeamBanksAdminView = ({ teamFilter }) => {
   const [banks, setBanks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [resettingTeamId, setResettingTeamId] = useState(null);
@@ -1460,7 +1481,7 @@ const TeamBanksAdminView = () => {
       </button>
 
       <div className="grid gap-3 xl:grid-cols-2">
-        {banks.map((bank) => {
+        {filterRowsByTeam(banks, teamFilter).map((bank) => {
           const progress = Math.max(0, Math.min(100, Number(bank.progress_percent || 0)));
           const isResetting = resettingTeamId === bank.team_id;
           return (
@@ -1610,15 +1631,15 @@ const PrizeEditor = ({ prize, teams, onClose, onSaved }) => {
 };
 
 // ─────────────── Orders admin ───────────────
-const OrdersView = () => {
+const OrdersView = ({ teamFilter }) => {
   const [orders, setOrders] = useState([]);
   const load = async () => {
     try {
-      const { data } = await api.get("/admin/orders");
+      const { data } = await api.get(withTeamQuery("/admin/orders", teamFilter));
       setOrders(data);
     } catch (e) { toast.error(extractError(e)); }
   };
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [teamFilter]);
 
   const setStatus = async (o, status) => {
     try {
@@ -1646,6 +1667,7 @@ const OrdersView = () => {
               <div className="flex-1 min-w-0">
                 <div className="text-white font-black text-sm truncate">{o.prize_title}</div>
                 <div className="text-zinc-500 text-xs truncate">{o.user_name} • {new Date(o.created_at).toLocaleString("uk-UA")}</div>
+                {o.team_name && <div className="mt-0.5 text-[10px] font-black text-[#00F0FF]">{o.team_name}</div>}
               </div>
               <div className="text-[10px] font-black uppercase px-2 py-1 rounded-full" style={{ backgroundColor: st.color + "22", color: st.color }}>
                 {st.label}
@@ -1696,7 +1718,7 @@ const BottomSheet = ({ children, onClose, title }) => (
 );
 
 // ─────────────── Moderation: pending user approvals ───────────────
-const ModerationView = () => {
+const ModerationView = ({ teamFilter }) => {
   const [pending, setPending] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -1721,10 +1743,10 @@ const ModerationView = () => {
   return (
     <div className="space-y-3" data-testid="moderation-view">
       {loading && <div className="text-zinc-500 text-sm py-6 text-center">Завантаження...</div>}
-      {!loading && pending.length === 0 && (
+      {!loading && filterRowsByTeam(pending, teamFilter).length === 0 && (
         <div className="text-center text-zinc-500 py-10 text-sm font-black">Немає заявок на підтвердження 🎉</div>
       )}
-      {pending.map((u) => (
+      {filterRowsByTeam(pending, teamFilter).map((u) => (
         <div key={u.id} data-testid={`pending-user-${u.id}`} className="bg-[#1A1A1E] border-2 border-[#FFB800]/30 rounded-2xl p-3">
           <div className="flex items-center gap-3">
             <div className="w-11 h-11 rounded-xl flex items-center justify-center font-display text-sm text-[#0A0A0A] shrink-0" style={{ backgroundColor: u.avatar_color }}>{u.avatar_initials || "?"}</div>
@@ -1753,7 +1775,7 @@ const ModerationView = () => {
 // ─────────────── Applications moderation ───────────────
 const fileUrl = (u) => (u?.startsWith("http") ? u : `${API_BASE.replace(/\/api$/, "")}${u}`);
 
-const ApplicationsView = () => {
+const ApplicationsView = ({ teamFilter }) => {
   const [apps, setApps] = useState([]);
   const [filter, setFilter] = useState("submitted");
   const [detail, setDetail] = useState(null);
@@ -1762,13 +1784,13 @@ const ApplicationsView = () => {
   const load = async () => {
     setLoading(true);
     try {
-      const q = filter === "all" ? "" : `?status=${filter}`;
-      const { data } = await api.get(`/admin/applications${q}`);
+      const q = filter === "all" ? "/admin/applications" : `/admin/applications?status=${filter}`;
+      const { data } = await api.get(withTeamQuery(q, teamFilter));
       setApps(data);
     } catch (e) { toast.error(extractError(e)); }
     setLoading(false);
   };
-  useEffect(() => { load(); }, [filter]);
+  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [filter, teamFilter]);
 
   const FILTERS = [
     { v: "submitted", l: "Нові" }, { v: "pending_review", l: "На перевірці" },
@@ -1798,6 +1820,7 @@ const ApplicationsView = () => {
               <div className="flex-1 min-w-0">
                 <div className="text-white font-black text-sm truncate">{a.task_title}</div>
                 <div className="text-zinc-500 text-xs truncate">{a.user_name} • {new Date(a.submitted_at || a.updated_at).toLocaleString("uk-UA")}</div>
+                {a.team_name && <div className="mt-0.5 text-[10px] font-black text-[#00F0FF]">{a.team_name}</div>}
               </div>
               <span className="text-[9px] font-black uppercase px-2 py-1 rounded-full shrink-0" style={{ backgroundColor: st.color + "22", color: st.color }}>{st.label}</span>
             </div>
@@ -2130,7 +2153,7 @@ const GoalMetricEditor = ({ label, value, onChange, color }) => (
   </div>
 );
 
-const GoalsManager = () => {
+const GoalsManager = ({ teamFilter }) => {
   const [items, setItems] = useState([]);
   const [forms, setForms] = useState({});
   const [loading, setLoading] = useState(true);
@@ -2153,7 +2176,7 @@ const GoalsManager = () => {
         return data;
       });
       const [dashboardResult, adminUsersResult, settingsResult] = await Promise.allSettled([
-        api.get("/admin/goals-dashboard"),
+        api.get(withTeamQuery("/admin/goals-dashboard", teamFilter)),
         api.get("/admin/users"),
         settingsRequest,
       ]);
@@ -2162,7 +2185,7 @@ const GoalsManager = () => {
         : [];
       const dashboardUsers = dashboardResult.status === "fulfilled" && Array.isArray(dashboardResult.value?.data)
         ? dashboardResult.value.data
-        : adminUsers.filter((user) => user.role !== "admin").map((user) => ({ ...user, goals: normalizeGoalForm() }));
+        : filterRowsByTeam(adminUsers.filter((user) => user.role !== "admin"), teamFilter).map((user) => ({ ...user, goals: normalizeGoalForm() }));
       const settingsData = settingsResult.status === "fulfilled"
         ? settingsResult.value
         : { allow_cross_team_reports: false, compatibility_mode: true };
@@ -2213,7 +2236,7 @@ const GoalsManager = () => {
     }
     setLoading(false);
   };
-  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
+  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [teamFilter]);
 
   const save = async (u) => {
     setSaving((v) => ({ ...v, [u.id]: true }));
@@ -2329,7 +2352,7 @@ const GoalsManager = () => {
 };
 
 // ─────────────── Editor points manager ───────────────
-const PointsManager = () => {
+const PointsManager = ({ teamFilter }) => {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [adjustFor, setAdjustFor] = useState(null);
@@ -2342,7 +2365,7 @@ const PointsManager = () => {
   useEffect(() => { load(); }, []);
   return <div className="space-y-3">
     {loading && <div className="py-8 text-center text-sm text-zinc-500">Завантаження...</div>}
-    {users.map((u) => <div key={u.id} className="flex items-center gap-3 rounded-2xl border border-white/10 bg-[#1A1A1E] p-3">
+    {filterRowsByTeam(users, teamFilter).map((u) => <div key={u.id} className="flex items-center gap-3 rounded-2xl border border-white/10 bg-[#1A1A1E] p-3">
       <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl font-display text-sm text-black" style={{backgroundColor:u.avatar_color||"#FFB800"}}>{u.avatar_initials||"?"}</div>
       <div className="min-w-0 flex-1"><div className="truncate text-sm font-black text-white">{u.name}</div><div className="text-xs text-zinc-500">Баланс: {u.balance.toLocaleString("uk-UA")} Point</div></div>
       <button type="button" onClick={() => setAdjustFor(u)} className="flex h-10 w-10 items-center justify-center rounded-xl border border-[#FFB800]/40 bg-black/30 text-[#FFB800]" aria-label="Керувати балами та балансом"><Coins size={16}/></button>
@@ -2567,7 +2590,7 @@ const BonusMatchLevelEditor = ({ level, obstacleCatalog, boardShapeCatalog = [],
   </BottomSheet>;
 };
 
-const BonusMatchLevelsView = () => {
+const BonusMatchLevelsView = ({ teamFilter }) => {
   const [data, setData] = useState(null);
   const [editing, setEditing] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -2605,6 +2628,7 @@ const BonusMatchLevelsView = () => {
   const nextLevel = Math.min(data.level_limit, Math.max(...data.levels.map((item) => Number(item.level)), 0) + 1);
 
   return <div className="space-y-3" data-testid="bonus-match-levels-admin">
+    {teamFilter && <div className="rounded-2xl border border-white/10 bg-white/[.03] px-4 py-3 text-[10px] font-bold leading-relaxed text-zinc-500">Рівні Bonus Match є глобальними для всіх команд. Командний фільтр залишається активним для інших вкладок.</div>}
     <div className="rounded-2xl border border-[#B78CFF]/30 bg-[#B78CFF]/10 p-4">
       <div className="flex items-center gap-3"><Gamepad2 size={22} className="text-[#B78CFF]" /><div><div className="text-sm font-black uppercase text-white">РЕДАКТОР BONUS MATCH</div><div className="mt-1 text-[10px] text-zinc-500">Змінюй складність, цілі, ходи та точне розташування перешкод.</div></div></div>
     </div>
@@ -2641,6 +2665,36 @@ export default function Admin() {
   ];
   const availableTabs = isEditor ? editorTabs : TABS;
   const [tab, setTab] = useState(user?.role === "editor" ? "daily-tasks" : "analytics");
+  const [adminTeams, setAdminTeams] = useState([]);
+  const [teamFilter, setTeamFilter] = useState(() => {
+    if (typeof window === "undefined") return "";
+    return window.localStorage.getItem("vpdk_admin_team_filter_v128") || "";
+  });
+
+  useEffect(() => {
+    let active = true;
+    api.get("/teams")
+      .then(({ data }) => {
+        if (!active) return;
+        setAdminTeams(Array.isArray(data) ? data : []);
+      })
+      .catch(() => {
+        if (active) setAdminTeams([]);
+      });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("vpdk_admin_team_filter_v128", teamFilter);
+    }
+  }, [teamFilter]);
+
+  useEffect(() => {
+    if (teamFilter && adminTeams.length && !adminTeams.some((team) => String(team.id) === teamFilter)) {
+      setTeamFilter("");
+    }
+  }, [adminTeams, teamFilter]);
 
   if (!user) return null;
   if (!["admin", "editor"].includes(user.role)) {
@@ -2692,6 +2746,26 @@ export default function Admin() {
             <h1 className="mt-1 font-display text-3xl text-white lg:text-4xl">{availableTabs.find((item) => item.id === tab)?.label || "Панель"}</h1>
           </div>
 
+          <section className="rounded-2xl border border-[#00F0FF]/20 bg-[#00F0FF]/[.05] p-3" data-testid="admin-team-filter">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[#00F0FF]/25 bg-[#00F0FF]/10 text-[#00F0FF]">
+                <UsersRound size={17} strokeWidth={3} />
+              </div>
+              <label className="min-w-0 flex-1">
+                <span className="mb-1 block text-[9px] font-black uppercase tracking-[0.18em] text-zinc-500">Фільтр команди для всіх вкладок</span>
+                <select
+                  value={teamFilter}
+                  onChange={(event) => setTeamFilter(event.target.value)}
+                  className="h-11 w-full rounded-xl border border-white/10 bg-[#121318] px-3 text-sm font-black text-white outline-none focus:border-[#00F0FF]"
+                  data-testid="admin-global-team-filter"
+                >
+                  <option value="">Усі команди</option>
+                  {adminTeams.map((team) => <option key={team.id} value={String(team.id)}>{team.name}</option>)}
+                </select>
+              </label>
+            </div>
+          </section>
+
           <div className="flex flex-wrap gap-2 pb-1 lg:hidden" data-testid="admin-tabs">
             {availableTabs.map((t) => {
               const Icon = t.icon;
@@ -2711,7 +2785,7 @@ export default function Admin() {
             })}
           </div>
 
-          <V />
+          <V teamFilter={teamFilter} teams={adminTeams} />
         </div>
       </div>
     </div>

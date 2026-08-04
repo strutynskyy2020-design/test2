@@ -23,7 +23,7 @@ import {
   normalizeLogin,
   normalizeReportProfile,
   parseReportNumber,
-  periodRow,
+  periodRowForLogin,
   periodSummary,
   rowForLogin,
   valueStatus,
@@ -99,8 +99,8 @@ export default function ActivationCardsGoals() {
   const reportProfile = normalizeReportProfile(report?.report_profile || user?.report_profile);
   const canViewActivationReports = reportProfile === "activation" || user?.role === "admin" || user?.role === "editor" || Boolean(user?.is_team_leader);
 
-  const active = useMemo(() => periodRow(report?.activation_cards_metrics, period), [period, report]);
-  const giving = useMemo(() => periodRow(report?.activation_cards_giving, period), [period, report]);
+  const active = useMemo(() => periodRowForLogin(report?.activation_cards_metrics, period, login), [period, report, login]);
+  const giving = useMemo(() => periodRowForLogin(report?.activation_cards_giving, period, login), [period, report, login]);
   const teamMetrics = useMemo(() => periodSummary(report?.activation_cards_transformation_group_summaries, period, teamKey), [period, report, teamKey]);
   const teamGiving = useMemo(() => periodSummary(report?.activation_cards_giving_group_summaries, period, teamKey), [period, report, teamKey]);
   const projectionRow = useMemo(() => rowForLogin(report?.activation_cards_leaderboard, login), [login, report]);
@@ -113,6 +113,7 @@ export default function ActivationCardsGoals() {
     .sort((left, right) => (parseReportNumber(right.projective_rate) || 0) - (parseReportNumber(left.projective_rate) || 0)), [report]);
   const projection = projectionRow?.projective_rate;
   const status = valueStatus(projection, 100);
+  const teamGivingValue = giving?.team_overall || teamGiving?.overall;
 
   const setPeriod = (value) => {
     const next = new URLSearchParams(searchParams);
@@ -165,12 +166,12 @@ export default function ActivationCardsGoals() {
             </div>
             <div className="mt-4 grid grid-cols-2 gap-2">
               <div className="rounded-2xl border border-white/10 bg-black/25 p-3"><div className="text-[9px] font-black uppercase tracking-wider text-zinc-600">Команда</div><div className="mt-1 text-xl font-black text-white">{formatPercent(projectionTeam?.projective_rate)}</div></div>
-              <div className="rounded-2xl border border-white/10 bg-black/25 p-3"><div className="text-[9px] font-black uppercase tracking-wider text-zinc-600">Видачі карток</div><div className="mt-1 text-xl font-black text-[#FFB800]">{formatCount(giving?.overall, "—")}</div><div className="mt-0.5 text-[9px] font-bold text-zinc-600">команда {formatCount(teamGiving?.overall, "—")}</div></div>
+              <div className="rounded-2xl border border-white/10 bg-black/25 p-3"><div className="text-[9px] font-black uppercase tracking-wider text-zinc-600">Видачі карток</div><div className="mt-1 text-xl font-black text-[#FFB800]">{formatCount(giving?.overall, "—")}</div><div className="mt-0.5 text-[9px] font-bold text-zinc-600">команда {formatCount(teamGivingValue, "—")}</div></div>
             </div>
           </section>
 
           {active ? <section className="grid grid-cols-2 gap-2.5">
-            {METRICS.map((metric, index) => <div key={metric.key} className={index === METRICS.length - 1 ? "col-span-2" : ""}><MetricCard metric={metric} own={active?.[metric.key]} team={teamMetrics?.[metric.key] || active?.[`${metric.key}_overall`]} /></div>)}
+            {METRICS.map((metric, index) => <div key={metric.key} className={index === METRICS.length - 1 ? "col-span-2" : ""}><MetricCard metric={metric} own={active?.[metric.key]} team={active?.[`${metric.key}_team`] || active?.team_summary?.[metric.key] || teamMetrics?.[metric.key] || active?.[`${metric.key}_overall`]} /></div>)}
           </section> : <section className="rounded-2xl border border-white/10 bg-[#1A1A1E] p-5 text-center text-sm font-bold text-zinc-500">Для вибраного періоду особисті показники відсутні.</section>}
 
           <section className="rounded-3xl border border-[#FFB800]/30 bg-[#1A1A1E] p-5">
@@ -182,11 +183,11 @@ export default function ActivationCardsGoals() {
               {SEGMENTS.map((segment) => (
                 <article key={segment.key} className="rounded-2xl border border-white/10 bg-black/25 p-4">
                   <div className="flex items-center justify-between"><div className="flex h-9 w-9 items-center justify-center rounded-xl text-lg font-black" style={{ color: segment.color, background: `${segment.color}16`, border: `1px solid ${segment.color}40` }}>{segment.label}</div><div className="font-display text-3xl" style={{ color: segment.color }}>{formatCount(giving?.[segment.key], "—")}</div></div>
-                  <div className="mt-3 flex items-center justify-between text-[10px] font-black"><span className="uppercase tracking-wider text-zinc-600">Команда</span><span className="text-white">{formatCount(teamGiving?.[segment.key], "—")}</span></div>
+                  <div className="mt-3 flex items-center justify-between text-[10px] font-black"><span className="uppercase tracking-wider text-zinc-600">Команда</span><span className="text-white">{formatCount(giving?.team_summary?.[segment.key] || teamGiving?.[segment.key], "—")}</span></div>
                 </article>
               ))}
             </div>
-            <div className="mt-3 flex items-center justify-between rounded-2xl border border-white/10 bg-black/30 p-4"><div><div className="text-[9px] font-black uppercase tracking-wider text-zinc-600">Загальний підсумок</div><div className="mt-1 text-xs font-bold text-zinc-500">Усі чотири сегменти</div></div><div className="text-right"><div className="font-display text-3xl text-[#FFB800]">{formatCount(giving?.overall, "—")}</div><div className="text-[10px] font-black text-zinc-500">команда {formatCount(teamGiving?.overall, "—")}</div></div></div>
+            <div className="mt-3 flex items-center justify-between rounded-2xl border border-white/10 bg-black/30 p-4"><div><div className="text-[9px] font-black uppercase tracking-wider text-zinc-600">Загальний підсумок</div><div className="mt-1 text-xs font-bold text-zinc-500">Усі чотири сегменти</div></div><div className="text-right"><div className="font-display text-3xl text-[#FFB800]">{formatCount(giving?.overall, "—")}</div><div className="text-[10px] font-black text-zinc-500">команда {formatCount(teamGivingValue, "—")}</div></div></div>
           </section>
 
           <section className="rounded-3xl border border-white/10 bg-[#1A1A1E] p-5">

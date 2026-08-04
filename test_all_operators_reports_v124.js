@@ -64,7 +64,7 @@ global.fetch = async (url) => {
 
 (async () => {
   const gas = fs.readFileSync("integrations/google-sheets/Code.gs", "utf8");
-  assert(gas.includes('REPORT_CACHE_API_VERSION = "v125-activation-report-profiles"'));
+  assert(gas.includes('REPORT_CACHE_API_VERSION = "v128-activation-data-tasks-team-filters"'));
   assert(gas.includes("scheduleLogins, creditLogins, debitLogins, depositLogins, depositProjectionLogins"));
   assert(gas.includes("credit_metrics: creditMetrics"));
   assert(!gas.includes("credit_metrics: hasGoalRow ? getCreditMetricRows"));
