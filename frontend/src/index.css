@@ -182,6 +182,25 @@ body {
 .avatar-frame--rare { --portrait-inset: 12%; }
 .avatar-frame--epic { --portrait-inset: 12.5%; }
 .avatar-frame--legendary { --portrait-inset: 12.5%; }
+.avatar-frame--diamond { --portrait-inset: 13.5%; }
+.avatar-frame--diamond[data-diamond-variant="female"] { --portrait-inset: 14.5%; }
+.avatar-frame--diamond .avatar-frame__portrait-image { object-position: 50% 42%; }
+.avatar-frame--diamond .avatar-frame__art {
+  filter: drop-shadow(0 0 calc(var(--frame-size) * .08) rgba(96,165,250,.72));
+}
+.avatar-frame--diamond[data-diamond-variant="female"] .avatar-frame__art {
+  animation: diamond-frame-pulse 2.8s ease-in-out infinite;
+  transform-origin: 50% 50%;
+}
+
+@keyframes diamond-frame-pulse {
+  0%, 100% { filter: drop-shadow(0 0 calc(var(--frame-size) * .06) rgba(96,165,250,.55)) brightness(1); }
+  50% { filter: drop-shadow(0 0 calc(var(--frame-size) * .14) rgba(192,132,252,.9)) brightness(1.16); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .avatar-frame--diamond[data-diamond-variant="female"] .avatar-frame__art { animation: none; }
+}
 
 @media (max-width: 360px) {
   .avatar-frame--xl { --frame-size: 128px; }

@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CalendarClock, CheckCircle2, Coins, RefreshCw, Sparkles, Swords, Trophy, XCircle, Zap } from "lucide-react";
+import { CalendarClock, CheckCircle2, Coins, Gem, RefreshCw, Sparkles, Swords, Trophy, XCircle, Zap } from "lucide-react";
 import { toast } from "sonner";
 import api, { extractError } from "@/lib/api";
+import AvatarFrame from "@/components/AvatarFrame";
+import { useApp } from "@/context/AppContext";
+import { DIAMOND_AVATARS, DIAMOND_AVATAR_BENEFITS } from "@/data/diamondAvatars";
 
 const DIFFICULTY = {
   easy: { label: "Легке", color: "#39FF14", glow: "rgba(57,255,20,0.18)" },
@@ -96,6 +99,58 @@ const TaskCard = ({ task, canReplace, replacing, onReplace }) => {
   );
 };
 
+const DiamondChallengeCard = ({ user }) => {
+  const active = Boolean(user?.diamond_avatar_active && user?.diamond_avatar_expires_at);
+  const expiry = active
+    ? new Date(user.diamond_avatar_expires_at).toLocaleString("uk-UA", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })
+    : null;
+
+  return (
+    <section className="relative overflow-hidden rounded-[28px] border-2 border-[#7DD3FC]/40 bg-[radial-gradient(circle_at_top,_rgba(96,165,250,.18),_transparent_48%),linear-gradient(160deg,_#111827,_#111116_68%)] p-5 shadow-[0_18px_50px_rgba(59,130,246,.12)]" data-testid="diamond-daily-challenge">
+      <div className="absolute -right-12 -top-12 h-36 w-36 rounded-full bg-[#B78CFF]/10 blur-3xl" />
+      <div className="relative">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-[#7DD3FC]"><Gem size={15} strokeWidth={3} /> Постійне завдання</div>
+            <h2 className="mt-2 font-display text-2xl leading-tight text-white">Алмазний виклик</h2>
+          </div>
+          <span className="rounded-full border border-[#39FF14]/30 bg-[#39FF14]/10 px-3 py-1 text-[9px] font-black uppercase tracking-wider text-[#39FF14]">Щодня</span>
+        </div>
+
+        <p className="mt-3 text-sm font-black leading-relaxed text-white">Зроби 10 видач кредитних продуктів за день і отримай алмазну аватарку.</p>
+        <p className="mt-2 text-xs font-semibold leading-relaxed text-zinc-400">Після виконання адміністратор обирає один із чотирьох варіантів і видає його на {DIAMOND_AVATAR_BENEFITS.durationDays} дні.</p>
+
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          <div className="rounded-2xl border border-[#39FF14]/20 bg-[#39FF14]/[.07] p-3">
+            <div className="font-display text-xl text-[#39FF14]">+{DIAMOND_AVATAR_BENEFITS.dailyPoints}</div>
+            <div className="mt-0.5 text-[9px] font-black uppercase tracking-wider text-zinc-500">Point кожного дня</div>
+          </div>
+          <div className="rounded-2xl border border-[#B78CFF]/20 bg-[#B78CFF]/[.07] p-3">
+            <div className="font-display text-xl text-[#B78CFF]">+{DIAMOND_AVATAR_BENEFITS.taskReplacements}</div>
+            <div className="mt-0.5 text-[9px] font-black uppercase tracking-wider text-zinc-500">заміни завдань</div>
+          </div>
+        </div>
+
+        <div className="mt-4 rounded-3xl border border-white/10 bg-black/25 p-3">
+          <div className="mb-2 text-center text-[9px] font-black uppercase tracking-[0.18em] text-zinc-500">Доступні алмазні аватарки</div>
+          <div className="grid grid-cols-4 gap-1.5">
+            {DIAMOND_AVATARS.map((avatar) => (
+              <div key={avatar.code} className="min-w-0 text-center">
+                <AvatarFrame src={avatar.image} rarity="diamond" initials="?" size="sm" className="mx-auto" />
+                <div className="mt-1 truncate text-[8px] font-black text-zinc-400">{avatar.gender === "male" ? "Чоловіча" : "Жіноча"}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className={`mt-4 rounded-2xl border px-4 py-3 text-xs font-black leading-relaxed ${active ? "border-[#39FF14]/30 bg-[#39FF14]/10 text-[#39FF14]" : "border-[#7DD3FC]/25 bg-[#7DD3FC]/[.07] text-[#BAE6FD]"}`}>
+          {active ? `Алмазний аватар уже активний до ${expiry}.` : "Виконав 10 видач? Повідом адміністратора, щоб він видав аватарку в адмін-панелі."}
+        </div>
+      </div>
+    </section>
+  );
+};
+
 const BattleCard = ({ battle }) => {
   if (!battle || battle.status === "waiting") {
     return (
@@ -156,6 +211,7 @@ const BattleCard = ({ battle }) => {
 };
 
 export default function Tasks() {
+  const { user } = useApp();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [replacingId, setReplacingId] = useState(null);
@@ -258,6 +314,8 @@ export default function Tasks() {
           )}
         </div>
       )}
+
+      <DiamondChallengeCard user={user} />
     </div>
   );
 }

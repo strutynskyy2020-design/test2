@@ -1,11 +1,11 @@
 import { getToken } from "@/lib/api";
 
-const CACHE_PREFIX = "vpdk-google-reports-v128:";
+const CACHE_PREFIX = "vpdk-google-reports-v132:";
 const LEGACY_CACHE_PREFIX = "tm6-google-reports-v104:";
-const STALE_CACHE_PREFIXES = ["vpdk-google-reports-v126:", "vpdk-google-reports-v125:", "vpdk-google-reports-v124:", "vpdk-google-reports-v123:", "vpdk-google-reports-v120:", "vpdk-google-reports-v115:", "tm6-google-reports-v106:", LEGACY_CACHE_PREFIX];
+const STALE_CACHE_PREFIXES = ["vpdk-google-reports-v131:", "vpdk-google-reports-v128:", "vpdk-google-reports-v126:", "vpdk-google-reports-v125:", "vpdk-google-reports-v124:", "vpdk-google-reports-v123:", "vpdk-google-reports-v120:", "vpdk-google-reports-v115:", "tm6-google-reports-v106:", LEGACY_CACHE_PREFIX];
 const VERSION_ENDPOINT = "/.netlify/functions/google-goals-version";
 const REPORTS_ENDPOINT = "/.netlify/functions/google-goals";
-const DB_NAME = "vpdk-google-reports-v128";
+const DB_NAME = "vpdk-google-reports-v132";
 const DB_VERSION = 1;
 const REPORTS_STORE = "reports";
 const FALLBACK_PREFIX = `${CACHE_PREFIX}fallback:`;

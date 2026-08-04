@@ -1,0 +1,311 @@
+--- ../vpdk-bonus-v130-deposit-giving-header-fix/frontend/src/pages/ActivationPumbGoals.jsx	2026-08-04 07:50:12.000000000 +0000
++++ frontend/src/pages/ActivationPumbGoals.jsx	2026-08-04 14:52:10.420435073 +0000
+@@ -38,7 +38,7 @@
+   { key: "processed_tasks", label: "Оброблено клієнтів", icon: Headphones, count: true, color: "#B78CFF" },
+   { key: "aht", label: "Середній час AHT", icon: Clock3, duration: true, color: "#00F0FF" },
+   { key: "agreement_rate", label: "Рівень згод", icon: BadgeCheck, color: "#FFB800" },
+-  { key: "completion_rate", label: "Всього виконано", icon: ListChecks, color: "#FF6B9D" },
++  { key: "completion_rate", label: "Зайшли в додаток після згоди", icon: ListChecks, color: "#FF6B9D" },
+   { key: "activation_from_agreements_rate", label: "Активації від згод", icon: CheckCircle2, color: "#39FF14" },
+   { key: "activation_online_rate", label: "ПУМБ Online від оброблених", icon: Smartphone, color: "#00F0FF" },
+ ];
+@@ -49,6 +49,10 @@
+   return formatPercent(value);
+ };
+ 
++const firstReportValue = (...values) => values.find((value) => (
++  value !== undefined && value !== null && String(value).trim() !== ""
++));
++
+ function PeriodTabs({ value, onChange }) {
+   return (
+     <div className="grid grid-cols-2 rounded-2xl border border-white/10 bg-[#151519] p-1">
+@@ -66,7 +70,7 @@
+   );
+ }
+ 
+-function MetricCard({ metric, own, team }) {
++function MetricCard({ metric, own, project }) {
+   const Icon = metric.icon;
+   return (
+     <article className="rounded-2xl border border-white/10 bg-[#1A1A1E] p-4">
+@@ -81,8 +85,8 @@
+       </div>
+       <div className="mt-3 min-h-10 text-sm font-black leading-tight text-white">{metric.label}</div>
+       <div className="mt-2 flex items-center justify-between rounded-xl bg-black/25 px-3 py-2 text-xs">
+-        <span className="font-bold text-zinc-500">Команда</span>
+-        <span className="font-black text-white">{formatted(team, metric)}</span>
++        <span className="font-bold text-zinc-500">Проект</span>
++        <span className="font-black text-white">{formatted(project, metric)}</span>
+       </div>
+     </article>
+   );
+@@ -113,6 +117,10 @@
+   const active = useMemo(() => periodRowForLogin(report?.activation_pumb_metrics, period, login), [period, report, login]);
+   const giving = useMemo(() => periodRowForLogin(report?.activation_pumb_giving, period, login), [period, report, login]);
+   const teamMetrics = useMemo(() => periodSummary(report?.activation_pumb_group_summaries, period, teamKey), [period, report, teamKey]);
++  const projectMetrics = useMemo(() => {
++    const summaries = report?.activation_pumb_group_summaries?.[period];
++    return summaries?.general || summaries?.overall || null;
++  }, [period, report]);
+   const teamGiving = useMemo(() => periodSummary(report?.activation_pumb_giving_group_summaries, period, teamKey), [period, report, teamKey]);
+   const leaderboard = useMemo(() => (Array.isArray(report?.activation_pumb_leaderboard) ? report.activation_pumb_leaderboard : [])
+     .filter((row) => parseReportNumber(row?.projective_rate) !== null)
+@@ -188,7 +196,7 @@
+               key={metric.key}
+               metric={metric}
+               own={active?.[metric.key]}
+-              team={active?.[`${metric.key}_team`] || active?.team_summary?.[metric.key] || teamMetrics?.[metric.key] || active?.[`${metric.key}_overall`]}
++              project={firstReportValue(active?.[`${metric.key}_overall`], projectMetrics?.[metric.key])}
+             />)}
+           </section> : <section className="rounded-2xl border border-white/10 bg-[#1A1A1E] p-5 text-center text-sm font-bold text-zinc-500">Для вибраного періоду особисті показники відсутні.</section>}
+ 
+--- ../vpdk-bonus-v130-deposit-giving-header-fix/frontend/src/pages/Leaderboard.jsx	2026-08-02 12:13:59.000000000 +0000
++++ frontend/src/pages/Leaderboard.jsx	2026-08-04 14:53:16.044434335 +0000
+@@ -1,5 +1,5 @@
+ import { useEffect, useState } from "react";
+-import { Trophy, Coins, Crown, Medal, Award, TrendingUp } from "lucide-react";
++import { Trophy, Coins, Crown, Medal, Award, TrendingUp, UsersRound } from "lucide-react";
+ import { toast } from "sonner";
+ import api, { extractError } from "@/lib/api";
+ import { useApp } from "@/context/AppContext";
+@@ -12,6 +12,8 @@
+   { id: "all", label: "Всього" },
+ ];
+ 
++const ALL_TEAMS = "all";
++
+ const RankBadge = ({ rank }) => {
+   if (rank === 1) return <Crown size={20} strokeWidth={3} color="#FFB800" />;
+   if (rank === 2) return <Medal size={20} strokeWidth={3} color="#C0C7D0" />;
+@@ -23,46 +25,62 @@
+   const score = Number(entry.score || 0);
+   const scoreColor = score < 0 ? "#FF5C5C" : score === 0 ? "#71717A" : "#FFB800";
+   return (
+-  <div
+-    data-testid={`lb-row-${entry.rank}`}
+-    className={`flex min-h-[88px] items-center gap-3 rounded-2xl border-2 px-3 py-2.5 transition-all ${
+-      entry.is_me
+-        ? "border-[#FFB800]/60 bg-[#FFB800]/10"
+-        : dim
+-        ? "border-white/5 bg-[#141416]"
+-        : "border-white/10 bg-[#1A1A1E]"
+-    }`}
+-  >
+-    <div className="flex w-8 shrink-0 items-center justify-center"><RankBadge rank={entry.rank} /></div>
+-    <AvatarFrame
+-      src={entry.avatar_url}
+-      alt={entry.name}
+-      initials={entry.avatar_initials || "?"}
+-      color={entry.avatar_color}
+-      rarity={entry.avatar_rarity}
+-      size="md"
+-    />
+-    <div className="min-w-0 flex-1">
+-      <div className={`truncate text-sm font-black ${entry.is_me ? "text-[#FFB800]" : "text-white"}`}>
+-        {entry.name}{entry.is_me && <span className="ml-2 text-[10px] font-black uppercase tracking-wider text-[#FFB800]">ти</span>}
++    <div
++      data-testid={`lb-row-${entry.rank}`}
++      className={`flex min-h-[88px] items-center gap-3 rounded-2xl border-2 px-3 py-2.5 transition-all ${
++        entry.is_me
++          ? "border-[#FFB800]/60 bg-[#FFB800]/10"
++          : dim
++          ? "border-white/5 bg-[#141416]"
++          : "border-white/10 bg-[#1A1A1E]"
++      }`}
++    >
++      <div className="flex w-8 shrink-0 items-center justify-center"><RankBadge rank={entry.rank} /></div>
++      <AvatarFrame
++        src={entry.avatar_url}
++        alt={entry.name}
++        initials={entry.avatar_initials || "?"}
++        color={entry.avatar_color}
++        rarity={entry.avatar_rarity}
++        size="md"
++      />
++      <div className="min-w-0 flex-1">
++        <div className={`truncate text-sm font-black ${entry.is_me ? "text-[#FFB800]" : "text-white"}`}>
++          {entry.name}{entry.is_me && <span className="ml-2 text-[10px] font-black uppercase tracking-wider text-[#FFB800]">ти</span>}
++        </div>
++        <div className="truncate text-[11px] text-zinc-500">{entry.department || "—"}</div>
++      </div>
++      <div className="flex min-w-[82px] shrink-0 items-center justify-end gap-1.5">
++        <Coins size={14} strokeWidth={3} color={scoreColor} />
++        <span className="font-display text-base" style={{ color: scoreColor }}>{score.toLocaleString("uk-UA")}</span>
+       </div>
+-      <div className="truncate text-[11px] text-zinc-500">{entry.department || "—"}</div>
+-    </div>
+-    <div className="flex min-w-[82px] shrink-0 items-center justify-end gap-1.5">
+-      <Coins size={14} strokeWidth={3} color={scoreColor} />
+-      <span className="font-display text-base" style={{ color: scoreColor }}>{score.toLocaleString("uk-UA")}</span>
+     </div>
+-  </div>
+   );
+ };
+ 
+ export default function Leaderboard() {
+   const { mode } = useApp();
+   const [period, setPeriod] = useState("week");
++  const [teamId, setTeamId] = useState(ALL_TEAMS);
++  const [teams, setTeams] = useState([]);
+   const [data, setData] = useState(null);
+   const [loading, setLoading] = useState(true);
+ 
+-  const load = async (selectedPeriod) => {
++  const loadTeams = async () => {
++    if (mode === "mock") {
++      setTeams([]);
++      return;
++    }
++    try {
++      const response = await api.get("/teams");
++      const rows = Array.isArray(response.data) ? response.data : [];
++      setTeams(rows.filter((team) => team?.id && team?.name));
++    } catch (error) {
++      toast.error(`Не вдалося завантажити групи: ${extractError(error)}`);
++    }
++  };
++
++  const load = async (selectedPeriod, selectedTeamId) => {
+     if (mode === "mock") {
+       setData({ period: selectedPeriod, top: [], my_entry: null });
+       setLoading(false);
+@@ -70,7 +88,9 @@
+     }
+     setLoading(true);
+     try {
+-      const response = await api.get(`/leaderboard?period=${selectedPeriod}`);
++      const params = { period: selectedPeriod };
++      if (selectedTeamId && selectedTeamId !== ALL_TEAMS) params.team_id = selectedTeamId;
++      const response = await api.get("/leaderboard", { params });
+       setData(response.data);
+     } catch (error) {
+       toast.error(extractError(error));
+@@ -79,7 +99,12 @@
+     }
+   };
+ 
+-  useEffect(() => { load(period); /* eslint-disable-next-line */ }, [period, mode]);
++  useEffect(() => { loadTeams(); /* eslint-disable-next-line */ }, [mode]);
++  useEffect(() => { load(period, teamId); /* eslint-disable-next-line */ }, [period, teamId, mode]);
++
++  const selectedTeamName = teamId === ALL_TEAMS
++    ? "Усі групи"
++    : teams.find((team) => team.id === teamId)?.name || "Вибрана група";
+ 
+   return (
+     <div className="space-y-5 px-5 pb-8 pt-2" data-testid="leaderboard-page">
+@@ -90,12 +115,40 @@
+ 
+       <div className="-mx-1 flex gap-2 overflow-x-auto px-1" data-testid="lb-periods">
+         {PERIODS.map((item) => (
+-          <button key={item.id} data-testid={`lb-period-${item.id}`} onClick={() => setPeriod(item.id)} className={`h-11 shrink-0 rounded-full border-2 px-4 text-xs font-black uppercase tracking-wider transition-colors ${period === item.id ? "border-[#FFB800] bg-[#FFB800] text-[#0A0A0A]" : "border-white/10 bg-[#1A1A1E] text-zinc-400"}`}>
++          <button key={item.id} type="button" data-testid={`lb-period-${item.id}`} onClick={() => setPeriod(item.id)} className={`h-11 shrink-0 rounded-full border-2 px-4 text-xs font-black uppercase tracking-wider transition-colors ${period === item.id ? "border-[#FFB800] bg-[#FFB800] text-[#0A0A0A]" : "border-white/10 bg-[#1A1A1E] text-zinc-400"}`}>
+             {item.label}
+           </button>
+         ))}
+       </div>
+-      <div className="-mt-2 px-1 text-[11px] font-bold text-zinc-500">Результат = зароблено Point мінус витрати, крім покупок у магазині.</div>
++
++      <section className="space-y-2" data-testid="lb-team-filter">
++        <div className="flex items-center gap-2 px-1 text-[10px] font-black uppercase tracking-[0.18em] text-zinc-500"><UsersRound size={14} />Група</div>
++        <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
++          <button
++            type="button"
++            data-testid="lb-team-all"
++            aria-pressed={teamId === ALL_TEAMS}
++            onClick={() => setTeamId(ALL_TEAMS)}
++            className={`h-10 shrink-0 rounded-full border px-4 text-xs font-black transition-colors ${teamId === ALL_TEAMS ? "border-[#00F0FF] bg-[#00F0FF]/15 text-[#00F0FF]" : "border-white/10 bg-[#1A1A1E] text-zinc-400"}`}
++          >
++            Усі
++          </button>
++          {teams.map((team) => (
++            <button
++              key={team.id}
++              type="button"
++              data-testid={`lb-team-${team.id}`}
++              aria-pressed={teamId === team.id}
++              onClick={() => setTeamId(team.id)}
++              className={`h-10 shrink-0 rounded-full border px-4 text-xs font-black transition-colors ${teamId === team.id ? "border-[#00F0FF] bg-[#00F0FF]/15 text-[#00F0FF]" : "border-white/10 bg-[#1A1A1E] text-zinc-400"}`}
++            >
++              {team.name}
++            </button>
++          ))}
++        </div>
++      </section>
++
++      <div className="-mt-2 px-1 text-[11px] font-bold text-zinc-500">{selectedTeamName} · результат = зароблено Point мінус витрати, крім покупок у магазині.</div>
+ 
+       {mode === "mock" && <div className="rounded-2xl border border-[#FF5C00]/40 bg-[#FF5C00]/10 p-4 text-sm font-black text-[#FF5C00]">Рейтинг доступний тільки з реальним бекендом.</div>}
+       {loading && <div className="py-8 text-center text-sm text-zinc-500">Завантаження...</div>}
+@@ -104,7 +157,7 @@
+         <div className="rounded-3xl border border-white/10 bg-[#1A1A1E] p-8 text-center">
+           <TrendingUp size={40} strokeWidth={2.5} className="mx-auto mb-3 text-zinc-600" />
+           <div className="text-sm font-black text-white">Ще немає результатів</div>
+-          <div className="mt-1 text-xs text-zinc-500">Заробляй Point і контролюй ігрові витрати, щоб потрапити у топ</div>
++          <div className="mt-1 text-xs text-zinc-500">У вибраній групі поки немає учасників або руху Point за цей період</div>
+         </div>
+       )}
+       {!loading && data && data.top.length > 0 && <div className="space-y-2" data-testid="lb-top">{data.top.map((entry) => <Row key={entry.user_id} entry={entry} />)}</div>}
+--- ../vpdk-bonus-v130-deposit-giving-header-fix/backend/server.py	2026-08-04 07:47:40.000000000 +0000
++++ backend/server.py	2026-08-04 14:52:29.780434855 +0000
+@@ -2903,9 +2903,14 @@
+     period: Literal["day", "week", "month", "all"],
+     current_id: str,
+     limit: int = 10,
++    team_id: Optional[str] = None,
+ ) -> LeaderboardResponse:
++    user_filter: dict = {"role": {"$in": PLAYER_ROLES}}
++    if team_id:
++        user_filter["team_id"] = team_id
++
+     users = await db.users.find(
+-        {"role": {"$in": PLAYER_ROLES}},
++        user_filter,
+         {
+             "_id": 0,
+             "id": 1,
+@@ -2966,11 +2971,14 @@
+ @api.get("/leaderboard", response_model=LeaderboardResponse)
+ async def leaderboard(
+     period: Literal["day", "week", "month", "all"] = "week",
++    team_id: Optional[str] = None,
+     user: dict = Depends(get_current_user),
+ ):
+-    result = await _leaderboard_for_period(period, user["id"])
++    result = await _leaderboard_for_period(period, user["id"], team_id=team_id)
+     own = next((entry for entry in result.top if entry.user_id == user["id"]), None) or result.my_entry
+-    if own:
++    # Rank notifications stay tied to the global leaderboard. Switching the
++    # visible team filter must not generate false "position changed" alerts.
++    if own and not team_id:
+         await _maybe_notify_rank_change(user["id"], period, own.rank, own.score)
+     return result
+ 
+--- ../vpdk-bonus-v130-deposit-giving-header-fix/frontend/src/lib/googleReportsCache.js	2026-08-04 08:29:59.000000000 +0000
++++ frontend/src/lib/googleReportsCache.js	2026-08-04 14:53:25.300434230 +0000
+@@ -1,11 +1,11 @@
+ import { getToken } from "@/lib/api";
+ 
+-const CACHE_PREFIX = "vpdk-google-reports-v129:";
++const CACHE_PREFIX = "vpdk-google-reports-v131:";
+ const LEGACY_CACHE_PREFIX = "tm6-google-reports-v104:";
+ const STALE_CACHE_PREFIXES = ["vpdk-google-reports-v128:", "vpdk-google-reports-v126:", "vpdk-google-reports-v125:", "vpdk-google-reports-v124:", "vpdk-google-reports-v123:", "vpdk-google-reports-v120:", "vpdk-google-reports-v115:", "tm6-google-reports-v106:", LEGACY_CACHE_PREFIX];
+ const VERSION_ENDPOINT = "/.netlify/functions/google-goals-version";
+ const REPORTS_ENDPOINT = "/.netlify/functions/google-goals";
+-const DB_NAME = "vpdk-google-reports-v129";
++const DB_NAME = "vpdk-google-reports-v131";
+ const DB_VERSION = 1;
+ const REPORTS_STORE = "reports";
+ const FALLBACK_PREFIX = `${CACHE_PREFIX}fallback:`;
+--- ../vpdk-bonus-v130-deposit-giving-header-fix/frontend/public/service-worker.js	2026-08-04 08:29:59.000000000 +0000
++++ frontend/public/service-worker.js	2026-08-04 14:53:25.300434230 +0000
+@@ -20,7 +20,7 @@
+  * never be cached as index.html, otherwise browsers can render a giant broken
+  * image element over the board.
+  */
+-const VERSION = "vpdk-v129";
++const VERSION = "vpdk-v131";
+ const STATIC_CACHE = `${VERSION}-static`;
+ const RUNTIME_CACHE = `${VERSION}-runtime`;
+ 

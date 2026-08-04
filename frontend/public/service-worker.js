@@ -1,5 +1,6 @@
 /* VPDK Bonus — Service Worker
- * v128 fixes activation period/team mapping and refreshes the admin/task experience.
+ * v133 adds temporary admin-issued diamond avatars, separate male/female frames, and the permanent diamond challenge.
+ * v129 fixes misspelled activation period boundaries and prevents month/yesterday data mixing.
  * v124 publishes reports for every operator found in TM7/TM10 and auto-fills missing goal rows.
  * v117 adds per-team bank administration and resettable collection cycles.
  * v116 adds private per-team banks for the 15 000 Point group-meeting goal.
@@ -20,7 +21,7 @@
  * never be cached as index.html, otherwise browsers can render a giant broken
  * image element over the board.
  */
-const VERSION = "vpdk-v128";
+const VERSION = "vpdk-v133";
 const STATIC_CACHE = `${VERSION}-static`;
 const RUNTIME_CACHE = `${VERSION}-runtime`;
 

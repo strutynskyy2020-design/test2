@@ -12,7 +12,7 @@ const SCHEDULE_SHEET_NAME = "Schedule";
 const SCHEDULE_TIMEZONE = "Europe/Kyiv";
 const REPORT_CACHE_SHEET_NAME = "_TM6_REPORT_CACHE";
 const REPORT_CACHE_CHUNK_SIZE = 45000;
-const REPORT_CACHE_API_VERSION = "v129-pumb-period-boundary-fix";
+const REPORT_CACHE_API_VERSION = "v130-deposit-giving-optional-columns-fix";
 const TEAM_MESSAGES_SHEET_NAME = "_TM6_TEAM_MESSAGES";
 
 function normalizeKey(value) {
@@ -742,6 +742,8 @@ function findDepositGivingHeader(values, blockRowIndex) {
     web_apps: ["web_apps", "web apps", "webapps"],
     overall: ["загальний підсумок", "загальний", "overall", "total", "summary"],
   };
+  const requiredColumns = ["team", "agent", "overall"];
+  const directionColumns = ["inb", "vse", "web", "web_apps"];
   const searchEnd = Math.min(values.length - 1, blockRowIndex + 6);
   for (let rowIndex = blockRowIndex + 1; rowIndex <= searchEnd; rowIndex += 1) {
     const row = values[rowIndex] || [];
@@ -749,11 +751,23 @@ function findDepositGivingHeader(values, blockRowIndex) {
     Object.keys(aliases).forEach((key) => {
       columns[key] = row.findIndex((value) => headerMatches(value, aliases[key]));
     });
-    if (Object.keys(columns).every((key) => columns[key] !== -1)) {
+
+    // The Deposit sheet does not always contain every sales direction. For
+    // example, the current layout has INB, WEB and WEB APPS but no VSE column.
+    // Team, agent and overall are mandatory; individual direction columns are
+    // optional and missing ones are published as empty values.
+    const hasRequiredColumns = requiredColumns.every((key) => columns[key] !== -1);
+    const hasAtLeastOneDirection = directionColumns.some((key) => columns[key] !== -1);
+    if (hasRequiredColumns && hasAtLeastOneDirection) {
       return { rowIndex, columns };
     }
   }
   return null;
+}
+
+function depositGivingCell(row, columnIndex) {
+  if (!Array.isArray(row) || columnIndex === undefined || columnIndex === null || columnIndex < 0) return "";
+  return String(row[columnIndex] || "").trim();
 }
 
 function getDepositGivingData(sourceValues) {
@@ -791,9 +805,10 @@ function getDepositGivingData(sourceValues) {
       const nextBlock = row.some((value) => Boolean(detectDepositGivingPeriod(value)));
       if (nextBlock) break;
 
-      const rawTeam = String(row[header.columns.team] || "").trim();
-      const rawAgent = String(row[header.columns.agent] || "").trim();
-      const hasValues = ["inb", "vse", "web", "web_apps", "overall"].some((key) => String(row[header.columns[key]] || "").trim() !== "");
+      const rawTeam = depositGivingCell(row, header.columns.team);
+      const rawAgent = depositGivingCell(row, header.columns.agent);
+      const hasValues = ["inb", "vse", "web", "web_apps", "overall"]
+        .some((key) => depositGivingCell(row, header.columns[key]) !== "");
       if (!rawTeam && !rawAgent && !hasValues) {
         if (foundData) {
           emptyRows += 1;
@@ -816,11 +831,11 @@ function getDepositGivingData(sourceValues) {
         period,
         team_key: currentTeamKey,
         team_name: currentTeamName,
-        inb: String(row[header.columns.inb] || "").trim(),
-        vse: String(row[header.columns.vse] || "").trim(),
-        web: String(row[header.columns.web] || "").trim(),
-        web_apps: String(row[header.columns.web_apps] || "").trim(),
-        overall: String(row[header.columns.overall] || "").trim(),
+        inb: depositGivingCell(row, header.columns.inb),
+        vse: depositGivingCell(row, header.columns.vse),
+        web: depositGivingCell(row, header.columns.web),
+        web_apps: depositGivingCell(row, header.columns.web_apps),
+        overall: depositGivingCell(row, header.columns.overall),
         updated_at: updatedAt,
       };
 

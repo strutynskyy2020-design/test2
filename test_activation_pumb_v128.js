@@ -101,5 +101,5 @@ assert.equal(givingMonth.team_overall, "5371");
 assert.equal(giving.group_summaries.month.tm7.overall, "5371");
 assert.equal(giving.rows.some((row) => row.login === "dzhunuso" && row.period === "yesterday"), false);
 
-assert(gasSource.includes('REPORT_CACHE_API_VERSION = "v128-activation-data-tasks-team-filters"'));
-console.log("Activation PUMB exact-period parser v128: PASS");
+assert(gasSource.includes('REPORT_CACHE_API_VERSION = "v129-pumb-period-boundary-fix"'));
+console.log("Activation PUMB exact-period parser v129 compatibility: PASS");

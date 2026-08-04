@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Trophy, Coins, Crown, Medal, Award, TrendingUp } from "lucide-react";
+import { Trophy, Coins, Crown, Medal, Award, TrendingUp, UsersRound } from "lucide-react";
 import { toast } from "sonner";
 import api, { extractError } from "@/lib/api";
 import { useApp } from "@/context/AppContext";
@@ -12,6 +12,8 @@ const PERIODS = [
   { id: "all", label: "Всього" },
 ];
 
+const ALL_TEAMS = "all";
+
 const RankBadge = ({ rank }) => {
   if (rank === 1) return <Crown size={20} strokeWidth={3} color="#FFB800" />;
   if (rank === 2) return <Medal size={20} strokeWidth={3} color="#C0C7D0" />;
@@ -23,46 +25,62 @@ const Row = ({ entry, dim }) => {
   const score = Number(entry.score || 0);
   const scoreColor = score < 0 ? "#FF5C5C" : score === 0 ? "#71717A" : "#FFB800";
   return (
-  <div
-    data-testid={`lb-row-${entry.rank}`}
-    className={`flex min-h-[88px] items-center gap-3 rounded-2xl border-2 px-3 py-2.5 transition-all ${
-      entry.is_me
-        ? "border-[#FFB800]/60 bg-[#FFB800]/10"
-        : dim
-        ? "border-white/5 bg-[#141416]"
-        : "border-white/10 bg-[#1A1A1E]"
-    }`}
-  >
-    <div className="flex w-8 shrink-0 items-center justify-center"><RankBadge rank={entry.rank} /></div>
-    <AvatarFrame
-      src={entry.avatar_url}
-      alt={entry.name}
-      initials={entry.avatar_initials || "?"}
-      color={entry.avatar_color}
-      rarity={entry.avatar_rarity}
-      size="md"
-    />
-    <div className="min-w-0 flex-1">
-      <div className={`truncate text-sm font-black ${entry.is_me ? "text-[#FFB800]" : "text-white"}`}>
-        {entry.name}{entry.is_me && <span className="ml-2 text-[10px] font-black uppercase tracking-wider text-[#FFB800]">ти</span>}
+    <div
+      data-testid={`lb-row-${entry.rank}`}
+      className={`flex min-h-[88px] items-center gap-3 rounded-2xl border-2 px-3 py-2.5 transition-all ${
+        entry.is_me
+          ? "border-[#FFB800]/60 bg-[#FFB800]/10"
+          : dim
+          ? "border-white/5 bg-[#141416]"
+          : "border-white/10 bg-[#1A1A1E]"
+      }`}
+    >
+      <div className="flex w-8 shrink-0 items-center justify-center"><RankBadge rank={entry.rank} /></div>
+      <AvatarFrame
+        src={entry.avatar_url}
+        alt={entry.name}
+        initials={entry.avatar_initials || "?"}
+        color={entry.avatar_color}
+        rarity={entry.avatar_rarity}
+        size="md"
+      />
+      <div className="min-w-0 flex-1">
+        <div className={`truncate text-sm font-black ${entry.is_me ? "text-[#FFB800]" : "text-white"}`}>
+          {entry.name}{entry.is_me && <span className="ml-2 text-[10px] font-black uppercase tracking-wider text-[#FFB800]">ти</span>}
+        </div>
+        <div className="truncate text-[11px] text-zinc-500">{entry.department || "—"}</div>
       </div>
-      <div className="truncate text-[11px] text-zinc-500">{entry.department || "—"}</div>
+      <div className="flex min-w-[82px] shrink-0 items-center justify-end gap-1.5">
+        <Coins size={14} strokeWidth={3} color={scoreColor} />
+        <span className="font-display text-base" style={{ color: scoreColor }}>{score.toLocaleString("uk-UA")}</span>
+      </div>
     </div>
-    <div className="flex min-w-[82px] shrink-0 items-center justify-end gap-1.5">
-      <Coins size={14} strokeWidth={3} color={scoreColor} />
-      <span className="font-display text-base" style={{ color: scoreColor }}>{score.toLocaleString("uk-UA")}</span>
-    </div>
-  </div>
   );
 };
 
 export default function Leaderboard() {
   const { mode } = useApp();
   const [period, setPeriod] = useState("week");
+  const [teamId, setTeamId] = useState(ALL_TEAMS);
+  const [teams, setTeams] = useState([]);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  const load = async (selectedPeriod) => {
+  const loadTeams = async () => {
+    if (mode === "mock") {
+      setTeams([]);
+      return;
+    }
+    try {
+      const response = await api.get("/teams");
+      const rows = Array.isArray(response.data) ? response.data : [];
+      setTeams(rows.filter((team) => team?.id && team?.name));
+    } catch (error) {
+      toast.error(`Не вдалося завантажити групи: ${extractError(error)}`);
+    }
+  };
+
+  const load = async (selectedPeriod, selectedTeamId) => {
     if (mode === "mock") {
       setData({ period: selectedPeriod, top: [], my_entry: null });
       setLoading(false);
@@ -70,7 +88,9 @@ export default function Leaderboard() {
     }
     setLoading(true);
     try {
-      const response = await api.get(`/leaderboard?period=${selectedPeriod}`);
+      const params = { period: selectedPeriod };
+      if (selectedTeamId && selectedTeamId !== ALL_TEAMS) params.team_id = selectedTeamId;
+      const response = await api.get("/leaderboard", { params });
       setData(response.data);
     } catch (error) {
       toast.error(extractError(error));
@@ -79,7 +99,12 @@ export default function Leaderboard() {
     }
   };
 
-  useEffect(() => { load(period); /* eslint-disable-next-line */ }, [period, mode]);
+  useEffect(() => { loadTeams(); /* eslint-disable-next-line */ }, [mode]);
+  useEffect(() => { load(period, teamId); /* eslint-disable-next-line */ }, [period, teamId, mode]);
+
+  const selectedTeamName = teamId === ALL_TEAMS
+    ? "Усі групи"
+    : teams.find((team) => team.id === teamId)?.name || "Вибрана група";
 
   return (
     <div className="space-y-5 px-5 pb-8 pt-2" data-testid="leaderboard-page">
@@ -90,12 +115,40 @@ export default function Leaderboard() {
 
       <div className="-mx-1 flex gap-2 overflow-x-auto px-1" data-testid="lb-periods">
         {PERIODS.map((item) => (
-          <button key={item.id} data-testid={`lb-period-${item.id}`} onClick={() => setPeriod(item.id)} className={`h-11 shrink-0 rounded-full border-2 px-4 text-xs font-black uppercase tracking-wider transition-colors ${period === item.id ? "border-[#FFB800] bg-[#FFB800] text-[#0A0A0A]" : "border-white/10 bg-[#1A1A1E] text-zinc-400"}`}>
+          <button key={item.id} type="button" data-testid={`lb-period-${item.id}`} onClick={() => setPeriod(item.id)} className={`h-11 shrink-0 rounded-full border-2 px-4 text-xs font-black uppercase tracking-wider transition-colors ${period === item.id ? "border-[#FFB800] bg-[#FFB800] text-[#0A0A0A]" : "border-white/10 bg-[#1A1A1E] text-zinc-400"}`}>
             {item.label}
           </button>
         ))}
       </div>
-      <div className="-mt-2 px-1 text-[11px] font-bold text-zinc-500">Результат = зароблено Point мінус витрати, крім покупок у магазині.</div>
+
+      <section className="space-y-2" data-testid="lb-team-filter">
+        <div className="flex items-center gap-2 px-1 text-[10px] font-black uppercase tracking-[0.18em] text-zinc-500"><UsersRound size={14} />Група</div>
+        <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
+          <button
+            type="button"
+            data-testid="lb-team-all"
+            aria-pressed={teamId === ALL_TEAMS}
+            onClick={() => setTeamId(ALL_TEAMS)}
+            className={`h-10 shrink-0 rounded-full border px-4 text-xs font-black transition-colors ${teamId === ALL_TEAMS ? "border-[#00F0FF] bg-[#00F0FF]/15 text-[#00F0FF]" : "border-white/10 bg-[#1A1A1E] text-zinc-400"}`}
+          >
+            Усі
+          </button>
+          {teams.map((team) => (
+            <button
+              key={team.id}
+              type="button"
+              data-testid={`lb-team-${team.id}`}
+              aria-pressed={teamId === team.id}
+              onClick={() => setTeamId(team.id)}
+              className={`h-10 shrink-0 rounded-full border px-4 text-xs font-black transition-colors ${teamId === team.id ? "border-[#00F0FF] bg-[#00F0FF]/15 text-[#00F0FF]" : "border-white/10 bg-[#1A1A1E] text-zinc-400"}`}
+            >
+              {team.name}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <div className="-mt-2 px-1 text-[11px] font-bold text-zinc-500">{selectedTeamName} · результат = зароблено Point мінус витрати, крім покупок у магазині.</div>
 
       {mode === "mock" && <div className="rounded-2xl border border-[#FF5C00]/40 bg-[#FF5C00]/10 p-4 text-sm font-black text-[#FF5C00]">Рейтинг доступний тільки з реальним бекендом.</div>}
       {loading && <div className="py-8 text-center text-sm text-zinc-500">Завантаження...</div>}
@@ -104,7 +157,7 @@ export default function Leaderboard() {
         <div className="rounded-3xl border border-white/10 bg-[#1A1A1E] p-8 text-center">
           <TrendingUp size={40} strokeWidth={2.5} className="mx-auto mb-3 text-zinc-600" />
           <div className="text-sm font-black text-white">Ще немає результатів</div>
-          <div className="mt-1 text-xs text-zinc-500">Заробляй Point і контролюй ігрові витрати, щоб потрапити у топ</div>
+          <div className="mt-1 text-xs text-zinc-500">У вибраній групі поки немає учасників або руху Point за цей період</div>
         </div>
       )}
       {!loading && data && data.top.length > 0 && <div className="space-y-2" data-testid="lb-top">{data.top.map((entry) => <Row key={entry.user_id} entry={entry} />)}</div>}

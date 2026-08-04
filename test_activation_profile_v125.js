@@ -108,7 +108,7 @@ global.fetch = async (url) => {
 
 (async () => {
   const gas = fs.readFileSync("integrations/google-sheets/Code.gs", "utf8");
-  assert(gas.includes('REPORT_CACHE_API_VERSION = "v128-activation-data-tasks-team-filters"'));
+  assert(gas.includes('REPORT_CACHE_API_VERSION = "v129-pumb-period-boundary-fix"'));
   assert(gas.includes('ACTIVATION_PUMB_SHEET_NAME = "Activation Pumb Online"'));
   assert(gas.includes('ACTIVATION_CARDS_SHEET_NAME = "Activation Cards"'));
   assert(gas.includes("segment_a"));

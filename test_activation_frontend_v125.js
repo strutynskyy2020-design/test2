@@ -34,8 +34,8 @@ assert(cards.includes("Card activation giving"), "Card giving block is missing")
 assert(pumb.includes("Pumb Online giving"), "PUMB giving block is missing");
 assert(pumb.includes('data-testid="activation-report-access-denied"'), "PUMB sales-profile route guard is missing");
 assert(cards.includes('data-testid="activation-report-access-denied"'), "Cards sales-profile route guard is missing");
-assert(cache.includes('vpdk-google-reports-v128:'), "Frontend cache version is not v128");
-assert(serviceWorker.includes('const VERSION = "vpdk-v128"'), "Service Worker version is not v128");
+assert(cache.includes('vpdk-google-reports-v129:'), "Frontend cache version is not v129");
+assert(serviceWorker.includes('const VERSION = "vpdk-v129"'), "Service Worker version is not v129");
 assert.strictEqual(rootGateway, duplicateGateway, "Gateway copies are out of sync");
 
 console.log("Activation frontend v128: PASS");

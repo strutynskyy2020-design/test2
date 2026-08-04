@@ -55,6 +55,10 @@ const formatted = (value, metric) => {
   return formatPercent(value);
 };
 
+const firstReportValue = (...values) => values.find((value) => (
+  value !== undefined && value !== null && String(value).trim() !== ""
+));
+
 function PeriodTabs({ value, onChange }) {
   return (
     <div className="grid grid-cols-2 rounded-2xl border border-white/10 bg-[#151519] p-1">
@@ -67,7 +71,7 @@ function PeriodTabs({ value, onChange }) {
   );
 }
 
-function MetricCard({ metric, own, team }) {
+function MetricCard({ metric, own, project }) {
   const Icon = metric.icon;
   return (
     <article className="rounded-2xl border border-white/10 bg-[#1A1A1E] p-4">
@@ -76,7 +80,7 @@ function MetricCard({ metric, own, team }) {
         <div className="text-right"><div className="text-[9px] font-black uppercase tracking-wider text-zinc-600">Мій результат</div><div className="mt-1 text-lg font-black" style={{ color: metric.color }}>{formatted(own, metric)}</div></div>
       </div>
       <div className="mt-3 min-h-10 text-sm font-black leading-tight text-white">{metric.label}</div>
-      <div className="mt-2 flex items-center justify-between rounded-xl bg-black/25 px-3 py-2 text-xs"><span className="font-bold text-zinc-500">Команда</span><span className="font-black text-white">{formatted(team, metric)}</span></div>
+      <div className="mt-2 flex items-center justify-between rounded-xl bg-black/25 px-3 py-2 text-xs"><span className="font-bold text-zinc-500">Проект</span><span className="font-black text-white">{formatted(project, metric)}</span></div>
     </article>
   );
 }
@@ -101,7 +105,10 @@ export default function ActivationCardsGoals() {
 
   const active = useMemo(() => periodRowForLogin(report?.activation_cards_metrics, period, login), [period, report, login]);
   const giving = useMemo(() => periodRowForLogin(report?.activation_cards_giving, period, login), [period, report, login]);
-  const teamMetrics = useMemo(() => periodSummary(report?.activation_cards_transformation_group_summaries, period, teamKey), [period, report, teamKey]);
+  const projectMetrics = useMemo(() => {
+    const summaries = report?.activation_cards_transformation_group_summaries?.[period];
+    return summaries?.general || summaries?.overall || null;
+  }, [period, report]);
   const teamGiving = useMemo(() => periodSummary(report?.activation_cards_giving_group_summaries, period, teamKey), [period, report, teamKey]);
   const projectionRow = useMemo(() => rowForLogin(report?.activation_cards_leaderboard, login), [login, report]);
   const projectionTeam = report?.activation_cards_group_summaries?.[teamKey]
@@ -171,7 +178,11 @@ export default function ActivationCardsGoals() {
           </section>
 
           {active ? <section className="grid grid-cols-2 gap-2.5">
-            {METRICS.map((metric, index) => <div key={metric.key} className={index === METRICS.length - 1 ? "col-span-2" : ""}><MetricCard metric={metric} own={active?.[metric.key]} team={active?.[`${metric.key}_team`] || active?.team_summary?.[metric.key] || teamMetrics?.[metric.key] || active?.[`${metric.key}_overall`]} /></div>)}
+            {METRICS.map((metric, index) => <div key={metric.key} className={index === METRICS.length - 1 ? "col-span-2" : ""}><MetricCard
+              metric={metric}
+              own={active?.[metric.key]}
+              project={firstReportValue(active?.[`${metric.key}_overall`], projectMetrics?.[metric.key])}
+            /></div>)}
           </section> : <section className="rounded-2xl border border-white/10 bg-[#1A1A1E] p-5 text-center text-sm font-bold text-zinc-500">Для вибраного періоду особисті показники відсутні.</section>}
 
           <section className="rounded-3xl border border-[#FFB800]/30 bg-[#1A1A1E] p-5">

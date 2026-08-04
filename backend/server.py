@@ -97,6 +97,112 @@ def kyiv_day_bounds_utc(date_key: str) -> tuple[str, str]:
     end = (day + timedelta(days=1)).astimezone(timezone.utc)
     return start.isoformat(), end.isoformat()
 
+
+DIAMOND_AVATAR_DURATION_DAYS = 3
+DIAMOND_AVATAR_DAILY_BONUS = 100
+DIAMOND_AVATAR_TASK_REPLACEMENTS = 5
+DIAMOND_AVATARS = {
+    "male-diamond-1": {
+        "title": "Алмазний лицар",
+        "image": "/avatars/male-diamond-1.webp",
+        "frame_variant": "male",
+    },
+    "female-diamond-1": {
+        "title": "Алмазна королева",
+        "image": "/avatars/female-diamond-1.webp",
+        "frame_variant": "female",
+    },
+    "female-diamond-2": {
+        "title": "Алмазна володарка",
+        "image": "/avatars/female-diamond-2.webp",
+        "frame_variant": "female",
+    },
+    "female-diamond-3": {
+        "title": "Алмазна імператриця",
+        "image": "/avatars/female-diamond-3.webp",
+        "frame_variant": "female",
+    },
+}
+
+
+def _parse_iso_datetime(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+    except (TypeError, ValueError):
+        return None
+
+
+def _diamond_avatar_is_active(user: dict) -> bool:
+    if not user.get("diamond_avatar_code"):
+        return False
+    expires_at = _parse_iso_datetime(user.get("diamond_avatar_expires_at"))
+    return bool(expires_at and expires_at > datetime.now(timezone.utc))
+
+
+async def _restore_avatar_after_diamond(user: dict, reason: str = "expired") -> dict:
+    restore = user.get("diamond_avatar_restore") or {}
+    updates = {
+        "avatar_url": restore.get("avatar_url"),
+        "active_avatar_prize_id": restore.get("active_avatar_prize_id"),
+        "avatar_rarity": restore.get("avatar_rarity") or "basic",
+        "avatar_daily_bonus": max(0, int(restore.get("avatar_daily_bonus") or 0)),
+        "avatar_task_replacements": max(0, int(restore.get("avatar_task_replacements") or 0)),
+        "diamond_avatar_code": None,
+        "diamond_avatar_expires_at": None,
+        "diamond_avatar_granted_at": None,
+        "diamond_avatar_granted_by": None,
+        "diamond_avatar_granted_by_name": None,
+        "diamond_avatar_revoked_reason": reason,
+        "diamond_avatar_revoked_at": now_iso(),
+    }
+    await db.users.update_one(
+        {"id": user["id"]},
+        {"$set": updates, "$unset": {"diamond_avatar_restore": ""}},
+    )
+    fresh = await db.users.find_one({"id": user["id"]}, {"_id": 0})
+    return fresh or {**user, **updates}
+
+
+async def _expire_diamond_avatar_if_needed(user: dict) -> dict:
+    if not user.get("diamond_avatar_code"):
+        return user
+    if _diamond_avatar_is_active(user):
+        return user
+    return await _restore_avatar_after_diamond(user, reason="expired")
+
+
+_diamond_avatar_cleanup_task: Optional[asyncio.Task] = None
+
+
+async def _cleanup_expired_diamond_avatars_once() -> int:
+    expired_count = 0
+    cursor = db.users.find(
+        {"diamond_avatar_code": {"$nin": [None, ""]}},
+        {"_id": 0},
+    )
+    async for user in cursor:
+        if not _diamond_avatar_is_active(user):
+            await _restore_avatar_after_diamond(user, reason="expired")
+            expired_count += 1
+    return expired_count
+
+
+async def _diamond_avatar_cleanup_loop() -> None:
+    while True:
+        try:
+            await _cleanup_expired_diamond_avatars_once()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.warning("Diamond avatar cleanup failed: %s", exc)
+        await asyncio.sleep(300)
+
+
 async def _touch_daily_streak(user: dict) -> dict:
     """Update a user's consecutive-day streak once per Kyiv calendar day."""
     today = kyiv_today_key()
@@ -202,6 +308,10 @@ class UserPublic(BaseModel):
     avatar_daily_bonus: int = 0
     avatar_task_replacements: int = 0
     avatar_bonus_last_date: Optional[str] = None
+    diamond_avatar_code: Optional[str] = None
+    diamond_avatar_expires_at: Optional[str] = None
+    diamond_avatar_granted_at: Optional[str] = None
+    diamond_avatar_active: bool = False
     created_at: str
 
 
@@ -359,6 +469,15 @@ class UserAdminUpdateBody(BaseModel):
 
 class AvatarUpdateBody(BaseModel):
     avatar_url: str
+
+
+class DiamondAvatarGrantBody(BaseModel):
+    avatar_code: Literal[
+        "male-diamond-1",
+        "female-diamond-1",
+        "female-diamond-2",
+        "female-diamond-3",
+    ]
 
 
 class GoalMetricBody(BaseModel):
@@ -602,6 +721,10 @@ def _sanitize_user(doc: dict) -> UserPublic:
     doc.setdefault("avatar_daily_bonus", 0)
     doc.setdefault("avatar_task_replacements", 0)
     doc.setdefault("avatar_bonus_last_date", None)
+    doc.setdefault("diamond_avatar_code", None)
+    doc.setdefault("diamond_avatar_expires_at", None)
+    doc.setdefault("diamond_avatar_granted_at", None)
+    doc["diamond_avatar_active"] = _diamond_avatar_is_active(doc)
     return UserPublic(**doc)
 
 
@@ -632,6 +755,7 @@ async def get_current_user(
     current_version = int(user.get("auth_version", 0) or 0)
     if token_version != current_version:
         raise HTTPException(status_code=401, detail="Сесію завершено. Увійдіть знову")
+    user = await _expire_diamond_avatar_if_needed(user)
     return user
 
 
@@ -1438,6 +1562,113 @@ async def admin_update_user_report_profile(
     fresh = await db.users.find_one({"id": user_id}, {"_id": 0})
     if not fresh or fresh.get("report_profile") != requested:
         raise HTTPException(status_code=500, detail="Тип звітів не вдалося зберегти")
+    fresh = await _hydrate_user_team(fresh)
+    return _user_with_progress(fresh)
+
+
+@api.post("/admin/users/{user_id}/diamond-avatar", response_model=UserWithProgress)
+async def admin_grant_diamond_avatar(
+    user_id: str,
+    body: DiamondAvatarGrantBody,
+    admin: dict = Depends(get_current_admin),
+):
+    target = await db.users.find_one({"id": user_id}, {"_id": 0})
+    if not target:
+        raise HTTPException(status_code=404, detail="Користувача не знайдено")
+    target = await _expire_diamond_avatar_if_needed(target)
+    avatar = DIAMOND_AVATARS.get(body.avatar_code)
+    if not avatar:
+        raise HTTPException(status_code=400, detail="Невідомий алмазний аватар")
+
+    if _diamond_avatar_is_active(target) and target.get("diamond_avatar_restore"):
+        restore = target.get("diamond_avatar_restore")
+    else:
+        restore = {
+            "avatar_url": target.get("avatar_url"),
+            "active_avatar_prize_id": target.get("active_avatar_prize_id"),
+            "avatar_rarity": target.get("avatar_rarity") or "basic",
+            "avatar_daily_bonus": max(0, int(target.get("avatar_daily_bonus") or 0)),
+            "avatar_task_replacements": max(0, int(target.get("avatar_task_replacements") or 0)),
+        }
+
+    granted_at = datetime.now(timezone.utc)
+    expires_at = granted_at + timedelta(days=DIAMOND_AVATAR_DURATION_DAYS)
+    updates = {
+        "avatar_url": avatar["image"],
+        "active_avatar_prize_id": f"diamond-avatar-{body.avatar_code}",
+        "avatar_rarity": "diamond",
+        "avatar_daily_bonus": DIAMOND_AVATAR_DAILY_BONUS,
+        "avatar_task_replacements": DIAMOND_AVATAR_TASK_REPLACEMENTS,
+        "avatar_bonus_last_date": None,
+        "diamond_avatar_code": body.avatar_code,
+        "diamond_avatar_expires_at": expires_at.isoformat(),
+        "diamond_avatar_granted_at": granted_at.isoformat(),
+        "diamond_avatar_granted_by": admin.get("id"),
+        "diamond_avatar_granted_by_name": admin.get("name", "Адміністратор"),
+        "diamond_avatar_restore": restore,
+        "diamond_avatar_revoked_reason": None,
+        "diamond_avatar_revoked_at": None,
+    }
+    await db.users.update_one({"id": user_id}, {"$set": updates})
+    await db.admin_audit_logs.insert_one({
+        "id": str(uuid.uuid4()),
+        "admin_id": admin["id"],
+        "admin_name": admin.get("name", "Адміністратор"),
+        "action": "diamond_avatar_grant",
+        "target_user_id": user_id,
+        "target_user_name": target.get("name", "Користувач"),
+        "meta": {
+            "avatar_code": body.avatar_code,
+            "duration_days": DIAMOND_AVATAR_DURATION_DAYS,
+            "daily_bonus": DIAMOND_AVATAR_DAILY_BONUS,
+            "task_replacements": DIAMOND_AVATAR_TASK_REPLACEMENTS,
+            "expires_at": expires_at.isoformat(),
+        },
+        "created_at": now_iso(),
+    })
+    await _notify(
+        user_id,
+        "diamond_avatar",
+        "Алмазний аватар активовано 💎",
+        f"На {DIAMOND_AVATAR_DURATION_DAYS} дні: +{DIAMOND_AVATAR_DAILY_BONUS} Point щодня та +{DIAMOND_AVATAR_TASK_REPLACEMENTS} замін завдань.",
+        "/tasks",
+        "gem",
+    )
+    fresh = await db.users.find_one({"id": user_id}, {"_id": 0})
+    fresh = await _hydrate_user_team(fresh)
+    return _user_with_progress(fresh)
+
+
+@api.delete("/admin/users/{user_id}/diamond-avatar", response_model=UserWithProgress)
+async def admin_revoke_diamond_avatar(
+    user_id: str,
+    admin: dict = Depends(get_current_admin),
+):
+    target = await db.users.find_one({"id": user_id}, {"_id": 0})
+    if not target:
+        raise HTTPException(status_code=404, detail="Користувача не знайдено")
+    if not target.get("diamond_avatar_code"):
+        target = await _hydrate_user_team(target)
+        return _user_with_progress(target)
+
+    fresh = await _restore_avatar_after_diamond(target, reason="admin_revoked")
+    await db.admin_audit_logs.insert_one({
+        "id": str(uuid.uuid4()),
+        "admin_id": admin["id"],
+        "admin_name": admin.get("name", "Адміністратор"),
+        "action": "diamond_avatar_revoke",
+        "target_user_id": user_id,
+        "target_user_name": target.get("name", "Користувач"),
+        "created_at": now_iso(),
+    })
+    await _notify(
+        user_id,
+        "diamond_avatar_expired",
+        "Алмазний аватар вимкнено",
+        "Повернено попередній аватар та його бонуси.",
+        "/tasks",
+        "gem",
+    )
     fresh = await _hydrate_user_team(fresh)
     return _user_with_progress(fresh)
 
@@ -2610,6 +2841,12 @@ async def buy_prize(prize_id: str, user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=403, detail="Цей приз доступний лише іншій команді")
 
     is_avatar = prize.get("category") == "avatar"
+    if is_avatar and _diamond_avatar_is_active(user):
+        expires_label = user.get("diamond_avatar_expires_at") or "завершення бонусного періоду"
+        raise HTTPException(
+            status_code=400,
+            detail=f"Алмазний аватар активний до {expires_label}. Звичайний аватар можна змінити після його завершення.",
+        )
     owned = prize_id in (user.get("owned_avatar_ids") or [])
     if not is_avatar and prize.get("stock", 0) <= 0:
         raise HTTPException(status_code=400, detail="Немає в наявності")
@@ -2903,9 +3140,14 @@ async def _leaderboard_for_period(
     period: Literal["day", "week", "month", "all"],
     current_id: str,
     limit: int = 10,
+    team_id: Optional[str] = None,
 ) -> LeaderboardResponse:
+    user_filter: dict = {"role": {"$in": PLAYER_ROLES}}
+    if team_id:
+        user_filter["team_id"] = team_id
+
     users = await db.users.find(
-        {"role": {"$in": PLAYER_ROLES}},
+        user_filter,
         {
             "_id": 0,
             "id": 1,
@@ -2966,11 +3208,14 @@ async def _leaderboard_for_period(
 @api.get("/leaderboard", response_model=LeaderboardResponse)
 async def leaderboard(
     period: Literal["day", "week", "month", "all"] = "week",
+    team_id: Optional[str] = None,
     user: dict = Depends(get_current_user),
 ):
-    result = await _leaderboard_for_period(period, user["id"])
+    result = await _leaderboard_for_period(period, user["id"], team_id=team_id)
     own = next((entry for entry in result.top if entry.user_id == user["id"]), None) or result.my_entry
-    if own:
+    # Rank notifications stay tied to the global leaderboard. Switching the
+    # visible team filter must not generate false "position changed" alerts.
+    if own and not team_id:
         await _maybe_notify_rank_change(user["id"], period, own.rank, own.score)
     return result
 
@@ -6745,10 +6990,13 @@ async def admin_list_users(admin: dict = Depends(get_current_admin_or_editor)):
     if team_ids:
         async for t in db.teams.find({"id": {"$in": team_ids}}, {"_id": 0, "id": 1, "name": 1}):
             teams_map[t["id"]] = t["name"]
+    normalized_docs = []
     for d in docs:
+        d = await _expire_diamond_avatar_if_needed(d)
         if d.get("team_id"):
             d["team_name"] = teams_map.get(d["team_id"])
-    return [_user_with_progress(d) for d in docs]
+        normalized_docs.append(d)
+    return [_user_with_progress(d) for d in normalized_docs]
 
 
 @api.patch("/admin/users/{user_id}/points", response_model=UserWithProgress)
@@ -8681,10 +8929,13 @@ async def admin_pending_users(admin: dict = Depends(get_current_admin)):
     if team_ids:
         async for t in db.teams.find({"id": {"$in": team_ids}}, {"_id": 0, "id": 1, "name": 1}):
             teams_map[t["id"]] = t["name"]
+    normalized_docs = []
     for d in docs:
+        d = await _expire_diamond_avatar_if_needed(d)
         if d.get("team_id"):
             d["team_name"] = teams_map.get(d["team_id"])
-    return [_user_with_progress(d) for d in docs]
+        normalized_docs.append(d)
+    return [_user_with_progress(d) for d in normalized_docs]
 
 
 @api.post("/admin/users/{user_id}/approve", response_model=UserWithProgress)
@@ -9153,15 +9404,26 @@ async def seed_phase2():
 
 @app.on_event("startup")
 async def on_startup():
+    global _diamond_avatar_cleanup_task
     await seed_all()
     await migrate_remove_legacy_demo_teams_v105()
     await migrate_bonus_match_v93_reset()
     await seed_phase2()
     await seed_sudoku_v108()
+    await _cleanup_expired_diamond_avatars_once()
+    _diamond_avatar_cleanup_task = asyncio.create_task(_diamond_avatar_cleanup_loop())
 
 
 @app.on_event("shutdown")
 async def on_shutdown():
+    global _diamond_avatar_cleanup_task
+    if _diamond_avatar_cleanup_task:
+        _diamond_avatar_cleanup_task.cancel()
+        try:
+            await _diamond_avatar_cleanup_task
+        except asyncio.CancelledError:
+            pass
+        _diamond_avatar_cleanup_task = None
     client.close()
 
 

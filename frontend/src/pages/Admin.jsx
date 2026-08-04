@@ -4,11 +4,13 @@ import {
   Users, Swords, Gift, ShoppingBag, BarChart3, Plus, Pencil, Trash2, X, Minus, Check, Coins, Trophy, ChevronRight,
   UserCog, ShieldCheck, Crown, UsersRound, Inbox, UserCheck, ClipboardList, CheckCircle2, XCircle,
   ArrowUp, ArrowDown, FileText, BrainCircuit, Clock3, TrendingUp, Search, CalendarDays, Target, Save, ChevronDown,
-  KeyRound, Award, Medal, Star, Sparkles, Send, Gamepad2, RotateCcw, PiggyBank,
+  KeyRound, Award, Medal, Star, Sparkles, Send, Gamepad2, RotateCcw, PiggyBank, Gem,
 } from "lucide-react";
 import api, { extractError, API_BASE, getToken } from "@/lib/api";
 import { useApp } from "@/context/AppContext";
 import { BONUS_MATCH_OBSTACLE_SPRITES } from "@/lib/bonusMatchAssets";
+import AvatarFrame from "@/components/AvatarFrame";
+import { DIAMOND_AVATARS, DIAMOND_AVATAR_BENEFITS } from "@/data/diamondAvatars";
 
 const TABS = [
   { id: "analytics", label: "Огляд", icon: BarChart3 },
@@ -529,6 +531,7 @@ const UsersView = ({ teamFilter }) => {
               {u.team_name && <span className="text-[#00F0FF] truncate">{u.team_name}</span>}
               {u.goals_login && <span className="text-[#B78CFF] truncate">Цілі: {u.goals_login}</span>}
               <span className={u.report_profile === "activation" ? "text-[#39FF14] truncate" : "text-[#FFB800] truncate"}>{u.report_profile === "activation" ? "Активатор" : "Продажник"}</span>
+              {u.diamond_avatar_active && <span className="inline-flex items-center gap-1 truncate text-[#7DD3FC]"><Gem size={10} /> Алмазний до {formatDiamondExpiry(u.diamond_avatar_expires_at)}</span>}
             </div>
           </div>
           <div className="flex gap-1.5 shrink-0">
@@ -641,6 +644,124 @@ const PasswordResetSheet = ({ user, onClose }) => {
         {busy ? "Змінюємо..." : "Змінити пароль"}
       </button>
     </BottomSheet>
+  );
+};
+
+const formatDiamondExpiry = (value) => {
+  if (!value) return "";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "";
+  return parsed.toLocaleString("uk-UA", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+};
+
+const DiamondAvatarAdminPanel = ({ user, onDone, onClose }) => {
+  const currentCode = DIAMOND_AVATARS.some((avatar) => avatar.code === user.diamond_avatar_code)
+    ? user.diamond_avatar_code
+    : DIAMOND_AVATARS[0].code;
+  const [selectedCode, setSelectedCode] = useState(currentCode);
+  const [busy, setBusy] = useState(false);
+  const active = Boolean(user.diamond_avatar_active && user.diamond_avatar_code);
+
+  const grant = async () => {
+    setBusy(true);
+    try {
+      const { data } = await api.post(`/admin/users/${user.id}/diamond-avatar`, { avatar_code: selectedCode });
+      toast.success("Алмазний аватар видано на 3 дні", {
+        description: `+${DIAMOND_AVATAR_BENEFITS.dailyPoints} Point щодня та +${DIAMOND_AVATAR_BENEFITS.taskReplacements} замін завдань`,
+      });
+      await onDone(data);
+      onClose();
+    } catch (error) {
+      toast.error(extractError(error, "Не вдалося видати алмазний аватар"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const revoke = async () => {
+    if (!window.confirm(`Забрати алмазний аватар у ${user.name} та повернути попередній?`)) return;
+    setBusy(true);
+    try {
+      const { data } = await api.delete(`/admin/users/${user.id}/diamond-avatar`);
+      toast.success("Алмазний аватар вимкнено");
+      await onDone(data);
+      onClose();
+    } catch (error) {
+      toast.error(extractError(error, "Не вдалося вимкнути алмазний аватар"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="rounded-3xl border border-[#60A5FA]/35 bg-[radial-gradient(circle_at_top,_rgba(96,165,250,.16),_transparent_58%),rgba(10,10,10,.55)] p-4" data-testid="diamond-avatar-admin-panel">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2 text-sm font-black text-white"><Gem size={17} className="text-[#7DD3FC]" /> Алмазний аватар</div>
+          <div className="mt-1 text-[10px] font-bold leading-relaxed text-zinc-500">Тільки адміністратор · активний {DIAMOND_AVATAR_BENEFITS.durationDays} дні · потім повертається попередній аватар.</div>
+        </div>
+        {active && (
+          <span className="shrink-0 rounded-full border border-[#39FF14]/30 bg-[#39FF14]/10 px-2 py-1 text-[9px] font-black uppercase text-[#39FF14]">Активний</span>
+        )}
+      </div>
+
+      {active && (
+        <div className="mt-3 rounded-2xl border border-white/10 bg-black/25 px-3 py-2 text-[10px] font-bold text-zinc-400">
+          До {formatDiamondExpiry(user.diamond_avatar_expires_at) || "завершення 3-денного періоду"}
+        </div>
+      )}
+
+      <div className="mt-4 grid grid-cols-4 gap-2">
+        {DIAMOND_AVATARS.map((avatar) => {
+          const selected = selectedCode === avatar.code;
+          return (
+            <button
+              key={avatar.code}
+              type="button"
+              onClick={() => setSelectedCode(avatar.code)}
+              className={`rounded-2xl border p-1.5 transition active:scale-95 ${selected ? "border-[#7DD3FC] bg-[#7DD3FC]/10" : "border-white/10 bg-black/20"}`}
+              title={avatar.label}
+              data-testid={`diamond-avatar-option-${avatar.code}`}
+            >
+              <AvatarFrame src={avatar.image} rarity="diamond" initials="?" size="xs" className="mx-auto" />
+              <div className={`mt-1 truncate text-[8px] font-black ${selected ? "text-[#7DD3FC]" : "text-zinc-500"}`}>{avatar.gender === "male" ? "Чоловічий" : "Жіночий"}</div>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="mt-3 grid grid-cols-2 gap-2 text-center">
+        <div className="rounded-2xl border border-[#39FF14]/20 bg-[#39FF14]/[.06] p-2">
+          <div className="font-display text-lg text-[#39FF14]">+{DIAMOND_AVATAR_BENEFITS.dailyPoints}</div>
+          <div className="text-[8px] font-black uppercase tracking-wider text-zinc-500">Point щодня</div>
+        </div>
+        <div className="rounded-2xl border border-[#B78CFF]/20 bg-[#B78CFF]/[.06] p-2">
+          <div className="font-display text-lg text-[#B78CFF]">+{DIAMOND_AVATAR_BENEFITS.taskReplacements}</div>
+          <div className="text-[8px] font-black uppercase tracking-wider text-zinc-500">заміни завдань</div>
+        </div>
+      </div>
+
+      <button
+        type="button"
+        onClick={grant}
+        disabled={busy}
+        className="mt-3 flex h-11 w-full items-center justify-center gap-2 rounded-2xl border border-[#7DD3FC]/40 bg-[#7DD3FC] text-xs font-black uppercase tracking-wider text-[#071019] disabled:opacity-50"
+        data-testid="diamond-avatar-grant"
+      >
+        <Gem size={15} strokeWidth={3} /> {busy ? "Зберігаю…" : active ? "Змінити та продовжити на 3 дні" : "Видати на 3 дні"}
+      </button>
+      {active && (
+        <button
+          type="button"
+          onClick={revoke}
+          disabled={busy}
+          className="mt-2 h-10 w-full rounded-2xl border border-[#FF3B30]/30 bg-[#FF3B30]/10 text-[10px] font-black uppercase tracking-wider text-[#FF5B63] disabled:opacity-50"
+          data-testid="diamond-avatar-revoke"
+        >
+          Забрати достроково
+        </button>
+      )}
+    </section>
   );
 };
 
@@ -781,6 +902,7 @@ const UserEditSheet = ({ user, teams, onClose, onDone }) => {
             </span>
           </label>
         </div>
+        <DiamondAvatarAdminPanel user={user} onDone={onDone} onClose={onClose} />
       </div>
       <button data-testid="user-edit-save" onClick={save} disabled={busy} className="arcade-btn w-full h-12 mt-4 bg-[#FFB800] border-[#7a5900] text-[#0A0A0A] font-black text-sm uppercase tracking-wider disabled:opacity-60">
         {busy ? "..." : "Зберегти"}

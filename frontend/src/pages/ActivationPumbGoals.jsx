@@ -38,7 +38,7 @@ const METRICS = [
   { key: "processed_tasks", label: "Оброблено клієнтів", icon: Headphones, count: true, color: "#B78CFF" },
   { key: "aht", label: "Середній час AHT", icon: Clock3, duration: true, color: "#00F0FF" },
   { key: "agreement_rate", label: "Рівень згод", icon: BadgeCheck, color: "#FFB800" },
-  { key: "completion_rate", label: "Всього виконано", icon: ListChecks, color: "#FF6B9D" },
+  { key: "completion_rate", label: "Зайшли в додаток після згоди", icon: ListChecks, color: "#FF6B9D" },
   { key: "activation_from_agreements_rate", label: "Активації від згод", icon: CheckCircle2, color: "#39FF14" },
   { key: "activation_online_rate", label: "ПУМБ Online від оброблених", icon: Smartphone, color: "#00F0FF" },
 ];
@@ -48,6 +48,10 @@ const formatted = (value, metric) => {
   if (metric.count) return formatCount(value, "—");
   return formatPercent(value);
 };
+
+const firstReportValue = (...values) => values.find((value) => (
+  value !== undefined && value !== null && String(value).trim() !== ""
+));
 
 function PeriodTabs({ value, onChange }) {
   return (
@@ -66,7 +70,7 @@ function PeriodTabs({ value, onChange }) {
   );
 }
 
-function MetricCard({ metric, own, team }) {
+function MetricCard({ metric, own, project }) {
   const Icon = metric.icon;
   return (
     <article className="rounded-2xl border border-white/10 bg-[#1A1A1E] p-4">
@@ -81,8 +85,8 @@ function MetricCard({ metric, own, team }) {
       </div>
       <div className="mt-3 min-h-10 text-sm font-black leading-tight text-white">{metric.label}</div>
       <div className="mt-2 flex items-center justify-between rounded-xl bg-black/25 px-3 py-2 text-xs">
-        <span className="font-bold text-zinc-500">Команда</span>
-        <span className="font-black text-white">{formatted(team, metric)}</span>
+        <span className="font-bold text-zinc-500">Проект</span>
+        <span className="font-black text-white">{formatted(project, metric)}</span>
       </div>
     </article>
   );
@@ -113,6 +117,10 @@ export default function ActivationPumbGoals() {
   const active = useMemo(() => periodRowForLogin(report?.activation_pumb_metrics, period, login), [period, report, login]);
   const giving = useMemo(() => periodRowForLogin(report?.activation_pumb_giving, period, login), [period, report, login]);
   const teamMetrics = useMemo(() => periodSummary(report?.activation_pumb_group_summaries, period, teamKey), [period, report, teamKey]);
+  const projectMetrics = useMemo(() => {
+    const summaries = report?.activation_pumb_group_summaries?.[period];
+    return summaries?.general || summaries?.overall || null;
+  }, [period, report]);
   const teamGiving = useMemo(() => periodSummary(report?.activation_pumb_giving_group_summaries, period, teamKey), [period, report, teamKey]);
   const leaderboard = useMemo(() => (Array.isArray(report?.activation_pumb_leaderboard) ? report.activation_pumb_leaderboard : [])
     .filter((row) => parseReportNumber(row?.projective_rate) !== null)
@@ -188,7 +196,7 @@ export default function ActivationPumbGoals() {
               key={metric.key}
               metric={metric}
               own={active?.[metric.key]}
-              team={active?.[`${metric.key}_team`] || active?.team_summary?.[metric.key] || teamMetrics?.[metric.key] || active?.[`${metric.key}_overall`]}
+              project={firstReportValue(active?.[`${metric.key}_overall`], projectMetrics?.[metric.key])}
             />)}
           </section> : <section className="rounded-2xl border border-white/10 bg-[#1A1A1E] p-5 text-center text-sm font-bold text-zinc-500">Для вибраного періоду особисті показники відсутні.</section>}
 

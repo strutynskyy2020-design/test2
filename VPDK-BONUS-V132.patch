@@ -1,0 +1,84 @@
+--- /mnt/data/vpdk-bonus-v131-pumb-project-summary-leaderboard-team-filter/frontend/src/pages/ActivationCardsGoals.jsx	2026-08-04 07:28:03.000000000 +0000
++++ /mnt/data/vpdk-bonus-v132-activation-cards-project-summary/frontend/src/pages/ActivationCardsGoals.jsx	2026-08-04 15:22:09.172414821 +0000
+@@ -55,6 +55,10 @@
+   return formatPercent(value);
+ };
+ 
++const firstReportValue = (...values) => values.find((value) => (
++  value !== undefined && value !== null && String(value).trim() !== ""
++));
++
+ function PeriodTabs({ value, onChange }) {
+   return (
+     <div className="grid grid-cols-2 rounded-2xl border border-white/10 bg-[#151519] p-1">
+@@ -67,7 +71,7 @@
+   );
+ }
+ 
+-function MetricCard({ metric, own, team }) {
++function MetricCard({ metric, own, project }) {
+   const Icon = metric.icon;
+   return (
+     <article className="rounded-2xl border border-white/10 bg-[#1A1A1E] p-4">
+@@ -76,7 +80,7 @@
+         <div className="text-right"><div className="text-[9px] font-black uppercase tracking-wider text-zinc-600">Мій результат</div><div className="mt-1 text-lg font-black" style={{ color: metric.color }}>{formatted(own, metric)}</div></div>
+       </div>
+       <div className="mt-3 min-h-10 text-sm font-black leading-tight text-white">{metric.label}</div>
+-      <div className="mt-2 flex items-center justify-between rounded-xl bg-black/25 px-3 py-2 text-xs"><span className="font-bold text-zinc-500">Команда</span><span className="font-black text-white">{formatted(team, metric)}</span></div>
++      <div className="mt-2 flex items-center justify-between rounded-xl bg-black/25 px-3 py-2 text-xs"><span className="font-bold text-zinc-500">Проект</span><span className="font-black text-white">{formatted(project, metric)}</span></div>
+     </article>
+   );
+ }
+@@ -101,7 +105,10 @@
+ 
+   const active = useMemo(() => periodRowForLogin(report?.activation_cards_metrics, period, login), [period, report, login]);
+   const giving = useMemo(() => periodRowForLogin(report?.activation_cards_giving, period, login), [period, report, login]);
+-  const teamMetrics = useMemo(() => periodSummary(report?.activation_cards_transformation_group_summaries, period, teamKey), [period, report, teamKey]);
++  const projectMetrics = useMemo(() => {
++    const summaries = report?.activation_cards_transformation_group_summaries?.[period];
++    return summaries?.general || summaries?.overall || null;
++  }, [period, report]);
+   const teamGiving = useMemo(() => periodSummary(report?.activation_cards_giving_group_summaries, period, teamKey), [period, report, teamKey]);
+   const projectionRow = useMemo(() => rowForLogin(report?.activation_cards_leaderboard, login), [login, report]);
+   const projectionTeam = report?.activation_cards_group_summaries?.[teamKey]
+@@ -171,7 +178,11 @@
+           </section>
+ 
+           {active ? <section className="grid grid-cols-2 gap-2.5">
+-            {METRICS.map((metric, index) => <div key={metric.key} className={index === METRICS.length - 1 ? "col-span-2" : ""}><MetricCard metric={metric} own={active?.[metric.key]} team={active?.[`${metric.key}_team`] || active?.team_summary?.[metric.key] || teamMetrics?.[metric.key] || active?.[`${metric.key}_overall`]} /></div>)}
++            {METRICS.map((metric, index) => <div key={metric.key} className={index === METRICS.length - 1 ? "col-span-2" : ""}><MetricCard
++              metric={metric}
++              own={active?.[metric.key]}
++              project={firstReportValue(active?.[`${metric.key}_overall`], projectMetrics?.[metric.key])}
++            /></div>)}
+           </section> : <section className="rounded-2xl border border-white/10 bg-[#1A1A1E] p-5 text-center text-sm font-bold text-zinc-500">Для вибраного періоду особисті показники відсутні.</section>}
+ 
+           <section className="rounded-3xl border border-[#FFB800]/30 bg-[#1A1A1E] p-5">
+--- /mnt/data/vpdk-bonus-v131-pumb-project-summary-leaderboard-team-filter/frontend/src/lib/googleReportsCache.js	2026-08-04 14:53:25.300434230 +0000
++++ /mnt/data/vpdk-bonus-v132-activation-cards-project-summary/frontend/src/lib/googleReportsCache.js	2026-08-04 15:22:25.364414639 +0000
+@@ -1,11 +1,11 @@
+ import { getToken } from "@/lib/api";
+ 
+-const CACHE_PREFIX = "vpdk-google-reports-v131:";
++const CACHE_PREFIX = "vpdk-google-reports-v132:";
+ const LEGACY_CACHE_PREFIX = "tm6-google-reports-v104:";
+-const STALE_CACHE_PREFIXES = ["vpdk-google-reports-v128:", "vpdk-google-reports-v126:", "vpdk-google-reports-v125:", "vpdk-google-reports-v124:", "vpdk-google-reports-v123:", "vpdk-google-reports-v120:", "vpdk-google-reports-v115:", "tm6-google-reports-v106:", LEGACY_CACHE_PREFIX];
++const STALE_CACHE_PREFIXES = ["vpdk-google-reports-v131:", "vpdk-google-reports-v128:", "vpdk-google-reports-v126:", "vpdk-google-reports-v125:", "vpdk-google-reports-v124:", "vpdk-google-reports-v123:", "vpdk-google-reports-v120:", "vpdk-google-reports-v115:", "tm6-google-reports-v106:", LEGACY_CACHE_PREFIX];
+ const VERSION_ENDPOINT = "/.netlify/functions/google-goals-version";
+ const REPORTS_ENDPOINT = "/.netlify/functions/google-goals";
+-const DB_NAME = "vpdk-google-reports-v131";
++const DB_NAME = "vpdk-google-reports-v132";
+ const DB_VERSION = 1;
+ const REPORTS_STORE = "reports";
+ const FALLBACK_PREFIX = `${CACHE_PREFIX}fallback:`;
+--- /mnt/data/vpdk-bonus-v131-pumb-project-summary-leaderboard-team-filter/frontend/public/service-worker.js	2026-08-04 14:53:25.300434230 +0000
++++ /mnt/data/vpdk-bonus-v132-activation-cards-project-summary/frontend/public/service-worker.js	2026-08-04 15:22:09.172414821 +0000
+@@ -20,7 +20,7 @@
+  * never be cached as index.html, otherwise browsers can render a giant broken
+  * image element over the board.
+  */
+-const VERSION = "vpdk-v131";
++const VERSION = "vpdk-v132";
+ const STATIC_CACHE = `${VERSION}-static`;
+ const RUNTIME_CACHE = `${VERSION}-runtime`;
+ 
