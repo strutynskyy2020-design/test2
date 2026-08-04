@@ -1,4 +1,5 @@
 /* VPDK Bonus — Service Worker
+ * v134 pins the exact floral crystal frame supplied for all female diamond avatars and busts stale frame caches.
  * v133 adds temporary admin-issued diamond avatars, separate male/female frames, and the permanent diamond challenge.
  * v129 fixes misspelled activation period boundaries and prevents month/yesterday data mixing.
  * v124 publishes reports for every operator found in TM7/TM10 and auto-fills missing goal rows.
@@ -21,7 +22,7 @@
  * never be cached as index.html, otherwise browsers can render a giant broken
  * image element over the board.
  */
-const VERSION = "vpdk-v133";
+const VERSION = "vpdk-v134";
 const STATIC_CACHE = `${VERSION}-static`;
 const RUNTIME_CACHE = `${VERSION}-runtime`;
 

@@ -14,7 +14,7 @@ const diamondFrameAsset = (avatarUrl = "") => {
   const source = String(avatarUrl || "").toLowerCase();
   return source.includes("male-diamond-")
     ? "/avatar-frames/diamond-male.png"
-    : "/avatar-frames/diamond-female.webp";
+    : "/avatar-frames/diamond-female-floral-v134.webp";
 };
 
 export const resolveAvatarRarity = (rarity, avatarUrl = "") => {
