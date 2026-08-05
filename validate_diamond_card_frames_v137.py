@@ -16,7 +16,7 @@ with Image.open(asset) as image:
 
 css = (src / "index.css").read_text()
 assert '.diamond-card-auto:has(.avatar-frame--diamond)::before' in css
-assert '/card-frames/diamond-employee-card-v137.png' in css
+assert './assets/card-frames/diamond-employee-card-v137.png' in css
 assert '@keyframes diamond-card-frame-breathe' in css
 assert 'pointer-events: none' in css
 

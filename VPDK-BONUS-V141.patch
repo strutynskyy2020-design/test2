@@ -1,0 +1,28 @@
+--- /mnt/data/work-v141/original-v140/vpdk-bonus-v140-prize-promotions-admin-announcements/frontend/src/index.css	2026-08-05 16:48:46.000000000 +0000
++++ /mnt/data/work-v141/vpdk-bonus-v141-netlify-diamond-frame-build-fix/frontend/src/index.css	2026-08-05 18:36:02.039324869 +0000
+@@ -1258,7 +1258,7 @@
+     border-radius: inherit;
+     pointer-events: none;
+     user-select: none;
+-    background: url("/card-frames/diamond-employee-card-v137.png") center / 100% 100% no-repeat;
++    background: url("./assets/card-frames/diamond-employee-card-v137.png") center / 100% 100% no-repeat;
+     filter:
+       drop-shadow(0 0 4px rgba(92, 205, 255, .50))
+       drop-shadow(0 0 11px rgba(181, 126, 255, .22));
+--- /mnt/data/work-v141/original-v140/vpdk-bonus-v140-prize-promotions-admin-announcements/frontend/public/service-worker.js	2026-08-05 16:41:23.000000000 +0000
++++ /mnt/data/work-v141/vpdk-bonus-v141-netlify-diamond-frame-build-fix/frontend/public/service-worker.js	2026-08-05 18:36:02.039525207 +0000
+@@ -1,4 +1,5 @@
+ /* VPDK Bonus — Service Worker
++ * v141 fixes the production build by bundling the diamond employee-card frame from src assets.
+  * v138 fixes light-theme contrast across custom cards and expands leaderboards to 20 places.
+  * v140 adds limited-quantity prize promotions and one-time administrator announcements.
+  * v139 updates game rewards, AI Trainer first-clear rewards, cube economy, and admin search/quick awards.
+@@ -28,7 +29,7 @@
+  * never be cached as index.html, otherwise browsers can render a giant broken
+  * image element over the board.
+  */
+-const VERSION = "vpdk-v140";
++const VERSION = "vpdk-v141";
+ const STATIC_CACHE = `${VERSION}-static`;
+ const RUNTIME_CACHE = `${VERSION}-runtime`;
+ 

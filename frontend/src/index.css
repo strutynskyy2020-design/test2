@@ -1258,7 +1258,7 @@ html.light .diamond-feed-card {
     border-radius: inherit;
     pointer-events: none;
     user-select: none;
-    background: url("/card-frames/diamond-employee-card-v137.png") center / 100% 100% no-repeat;
+    background: url("./assets/card-frames/diamond-employee-card-v137.png") center / 100% 100% no-repeat;
     filter:
       drop-shadow(0 0 4px rgba(92, 205, 255, .50))
       drop-shadow(0 0 11px rgba(181, 126, 255, .22));
