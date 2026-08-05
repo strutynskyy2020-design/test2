@@ -1,5 +1,5 @@
 /* VPDK Bonus — Service Worker
- * v141 fixes the production build by bundling the diamond employee-card frame from src assets.
+ * v143 adds responsive safe-zone spacing for diamond profile and activity-feed cards.
  * v138 fixes light-theme contrast across custom cards and expands leaderboards to 20 places.
  * v140 adds limited-quantity prize promotions and one-time administrator announcements.
  * v139 updates game rewards, AI Trainer first-clear rewards, cube economy, and admin search/quick awards.
@@ -29,7 +29,7 @@
  * never be cached as index.html, otherwise browsers can render a giant broken
  * image element over the board.
  */
-const VERSION = "vpdk-v141";
+const VERSION = "vpdk-v143";
 const STATIC_CACHE = `${VERSION}-static`;
 const RUNTIME_CACHE = `${VERSION}-runtime`;
 

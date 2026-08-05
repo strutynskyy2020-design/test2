@@ -1,0 +1,89 @@
+--- /tmp/v141orig/index.css	2026-08-05 18:56:07.502637318 +0000
++++ frontend/src/index.css	2026-08-05 18:55:55.187075041 +0000
+@@ -1234,7 +1234,9 @@
+   box-shadow: 0 12px 28px rgba(14,116,144,.12) !important;
+ }
+ 
+-/* v137: a rectangular crystal frame follows every employee who currently wears a diamond avatar. */
++/* v142: diamond employee card frames now sit behind the content and use 9-slice scaling,
++   so the rectangular frame keeps correct proportions across leaderboard rows, reports,
++   the activity feed, and profile cards without covering names, scores, or avatar art. */
+ .diamond-card-auto {
+   position: relative;
+   isolation: isolate;
+@@ -1242,6 +1244,7 @@
+ 
+ @supports selector(.diamond-card-auto:has(.avatar-frame--diamond)) {
+   .diamond-card-auto:has(.avatar-frame--diamond) {
++    overflow: hidden;
+     border-color: rgba(126, 211, 255, .38) !important;
+     box-shadow:
+       0 0 0 1px rgba(218, 197, 255, .07) inset,
+@@ -1249,19 +1252,30 @@
+       0 14px 34px rgba(0, 0, 0, .26);
+   }
+ 
++  .diamond-card-auto:has(.avatar-frame--diamond) > * {
++    position: relative;
++    z-index: 2;
++  }
++
+   .diamond-card-auto:has(.avatar-frame--diamond)::before {
+     content: "";
+     position: absolute;
+-    inset: 0;
+-    z-index: 40;
++    inset: 4px;
++    z-index: 0;
+     display: block;
+-    border-radius: inherit;
+     pointer-events: none;
+     user-select: none;
+-    background: url("./assets/card-frames/diamond-employee-card-v137.png") center / 100% 100% no-repeat;
++    border-style: solid;
++    border-color: transparent;
++    border-width: 18px 20px;
++    border-image-source: url("./assets/card-frames/diamond-employee-card-v137.png");
++    border-image-slice: 155 fill;
++    border-image-width: 18px 20px;
++    border-image-repeat: stretch;
+     filter:
+-      drop-shadow(0 0 4px rgba(92, 205, 255, .50))
+-      drop-shadow(0 0 11px rgba(181, 126, 255, .22));
++      drop-shadow(0 0 4px rgba(92, 205, 255, .48))
++      drop-shadow(0 0 10px rgba(181, 126, 255, .20));
++    opacity: .98;
+     transform: translateZ(0);
+     animation: diamond-card-frame-breathe 3.8s ease-in-out infinite;
+   }
+@@ -1294,6 +1308,12 @@
+     0 10px 28px rgba(74, 93, 145, .12) !important;
+ }
+ 
++html.light .diamond-card-auto:has(.avatar-frame--diamond)::before {
++  filter:
++    drop-shadow(0 0 3px rgba(72, 167, 197, .24))
++    drop-shadow(0 0 8px rgba(167, 120, 230, .16));
++}
++
+ /* ==========================================================================
+    v138 · LIGHT THEME CONTRAST HARDENING
+    Custom dark gradients previously kept their dark background while the global
+--- /tmp/v141orig/service-worker.js	2026-08-05 18:56:07.502928350 +0000
++++ frontend/public/service-worker.js	2026-08-05 18:55:55.187383800 +0000
+@@ -1,5 +1,5 @@
+ /* VPDK Bonus — Service Worker
+- * v141 fixes the production build by bundling the diamond employee-card frame from src assets.
++ * v142 fixes diamond employee card-frame rendering across all surfaces using 9-slice scaling behind the content.
+  * v138 fixes light-theme contrast across custom cards and expands leaderboards to 20 places.
+  * v140 adds limited-quantity prize promotions and one-time administrator announcements.
+  * v139 updates game rewards, AI Trainer first-clear rewards, cube economy, and admin search/quick awards.
+@@ -29,7 +29,7 @@
+  * never be cached as index.html, otherwise browsers can render a giant broken
+  * image element over the board.
+  */
+-const VERSION = "vpdk-v141";
++const VERSION = "vpdk-v142";
+ const STATIC_CACHE = `${VERSION}-static`;
+ const RUNTIME_CACHE = `${VERSION}-runtime`;
+ 

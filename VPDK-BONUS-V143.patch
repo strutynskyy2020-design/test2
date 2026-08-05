@@ -1,0 +1,122 @@
+diff -ruN '--exclude=VPDK-BONUS-V143*' '--exclude=DIAMOND_SPACING_POLISH_V143.md' vpdk-bonus-v142-diamond-frame-render-fix/frontend/public/service-worker.js vpdk-bonus-v143-diamond-spacing-polish/frontend/public/service-worker.js
+--- vpdk-bonus-v142-diamond-frame-render-fix/frontend/public/service-worker.js	2026-08-05 18:56:16.746997650 +0000
++++ vpdk-bonus-v143-diamond-spacing-polish/frontend/public/service-worker.js	2026-08-05 19:05:36.111448673 +0000
+@@ -1,5 +1,5 @@
+ /* VPDK Bonus — Service Worker
+- * v142 fixes diamond employee card-frame rendering across all surfaces using 9-slice scaling behind the content.
++ * v143 adds responsive safe-zone spacing for diamond profile and activity-feed cards.
+  * v138 fixes light-theme contrast across custom cards and expands leaderboards to 20 places.
+  * v140 adds limited-quantity prize promotions and one-time administrator announcements.
+  * v139 updates game rewards, AI Trainer first-clear rewards, cube economy, and admin search/quick awards.
+@@ -29,7 +29,7 @@
+  * never be cached as index.html, otherwise browsers can render a giant broken
+  * image element over the board.
+  */
+-const VERSION = "vpdk-v142";
++const VERSION = "vpdk-v143";
+ const STATIC_CACHE = `${VERSION}-static`;
+ const RUNTIME_CACHE = `${VERSION}-runtime`;
+ 
+diff -ruN '--exclude=VPDK-BONUS-V143*' '--exclude=DIAMOND_SPACING_POLISH_V143.md' vpdk-bonus-v142-diamond-frame-render-fix/frontend/src/components/FeedItem.jsx vpdk-bonus-v143-diamond-spacing-polish/frontend/src/components/FeedItem.jsx
+--- vpdk-bonus-v142-diamond-frame-render-fix/frontend/src/components/FeedItem.jsx	2026-08-05 18:56:16.748537447 +0000
++++ vpdk-bonus-v143-diamond-spacing-polish/frontend/src/components/FeedItem.jsx	2026-08-05 19:05:36.112575346 +0000
+@@ -31,7 +31,7 @@
+   return (
+     <li
+       data-testid={`feed-item-${ev.id}`}
+-      className={`diamond-card-auto relative overflow-hidden rounded-3xl border p-4 transition-transform ${meta.ring} ${isDiamond ? "diamond-feed-card" : "border-white/10 bg-[#1A1A1E]"}`}
++      className={`diamond-card-auto diamond-feed-shell relative overflow-hidden rounded-3xl border p-4 transition-transform ${meta.ring} ${isDiamond ? "diamond-feed-card" : "border-white/10 bg-[#1A1A1E]"}`}
+     >
+       {isDiamond && <div className="diamond-feed-aurora" aria-hidden="true" />}
+       {isDiamond && (
+diff -ruN '--exclude=VPDK-BONUS-V143*' '--exclude=DIAMOND_SPACING_POLISH_V143.md' vpdk-bonus-v142-diamond-frame-render-fix/frontend/src/index.css vpdk-bonus-v143-diamond-spacing-polish/frontend/src/index.css
+--- vpdk-bonus-v142-diamond-frame-render-fix/frontend/src/index.css	2026-08-05 18:56:16.748417939 +0000
++++ vpdk-bonus-v143-diamond-spacing-polish/frontend/src/index.css	2026-08-05 19:05:36.112493004 +0000
+@@ -1314,6 +1314,58 @@
+     drop-shadow(0 0 8px rgba(167, 120, 230, .16));
+ }
+ 
++/* v143: reserve a calm inner safe-zone for the ornate frame on the two densest
++   surfaces. The artwork remains visible, while profile controls and feed text
++   no longer crowd the flowers and crystals on narrow mobile screens. */
++@supports selector(.diamond-card-auto:has(.avatar-frame--diamond)) {
++  .diamond-profile-card:has(.avatar-frame--diamond) {
++    padding: 28px 30px 24px !important;
++  }
++
++  .diamond-profile-card:has(.avatar-frame--diamond) .diamond-profile-theme-toggle {
++    top: 20px !important;
++    right: 20px !important;
++  }
++
++  .diamond-profile-card:has(.avatar-frame--diamond) .diamond-profile-avatar {
++    margin-left: 2px;
++  }
++
++  .diamond-profile-card:has(.avatar-frame--diamond) .diamond-profile-copy {
++    padding-right: 2px;
++  }
++
++  .diamond-profile-card:has(.avatar-frame--diamond) .diamond-profile-progress {
++    margin-left: 2px;
++    margin-right: 2px;
++  }
++
++  .diamond-feed-shell:has(.avatar-frame--diamond) {
++    padding: 22px 24px 20px !important;
++  }
++
++  .diamond-feed-shell:has(.avatar-frame--diamond) > .diamond-feed-aurora {
++    inset: -52% -24%;
++  }
++}
++
++@media (max-width: 380px) {
++  @supports selector(.diamond-card-auto:has(.avatar-frame--diamond)) {
++    .diamond-profile-card:has(.avatar-frame--diamond) {
++      padding: 26px 24px 22px !important;
++    }
++
++    .diamond-profile-card:has(.avatar-frame--diamond) .diamond-profile-theme-toggle {
++      top: 18px !important;
++      right: 18px !important;
++    }
++
++    .diamond-feed-shell:has(.avatar-frame--diamond) {
++      padding: 20px 20px 18px !important;
++    }
++  }
++}
++
+ /* ==========================================================================
+    v138 · LIGHT THEME CONTRAST HARDENING
+    Custom dark gradients previously kept their dark background while the global
+diff -ruN '--exclude=VPDK-BONUS-V143*' '--exclude=DIAMOND_SPACING_POLISH_V143.md' vpdk-bonus-v142-diamond-frame-render-fix/frontend/src/pages/Home.jsx vpdk-bonus-v143-diamond-spacing-polish/frontend/src/pages/Home.jsx
+--- vpdk-bonus-v142-diamond-frame-render-fix/frontend/src/pages/Home.jsx	2026-08-05 18:56:16.747534537 +0000
++++ vpdk-bonus-v143-diamond-spacing-polish/frontend/src/pages/Home.jsx	2026-08-05 19:05:36.111977048 +0000
+@@ -234,10 +234,10 @@
+     {mode === "mock" && <div className="rounded-2xl border border-[#FF5C00]/40 bg-[#FF5C00]/10 px-3 py-2 text-[11px] font-black text-[#FF5C00]">ОФЛАЙН РЕЖИМ • використовуються демо-дані</div>}
+ 
+     {/* 1. Avatar / profile */}
+-    <section className="diamond-card-auto relative rounded-3xl border border-white/10 bg-[#1A1A1E] p-5">
+-      <ThemeToggle className="absolute right-4 top-4 z-10" compact />
++    <section className="diamond-card-auto diamond-profile-card relative rounded-3xl border border-white/10 bg-[#1A1A1E] p-5">
++      <ThemeToggle className="diamond-profile-theme-toggle absolute right-4 top-4 z-10" compact />
+       <div className="flex items-center gap-4 pr-14">
+-        <div className="relative shrink-0">
++        <div className="diamond-profile-avatar relative shrink-0">
+           <button type="button" onClick={() => nav("/store")} className="relative block active:scale-95" aria-label="Відкрити магазин аватарок">
+             <AvatarFrame
+               src={avatarSrc && !avatarImageFailed ? avatarSrc : null}
+@@ -252,9 +252,9 @@
+           </button>
+           <div className="absolute -bottom-1 right-0 rounded-full border-2 border-[#0A0A0A] bg-[#FFB800] px-1.5 py-0.5 text-[9px] font-black text-[#0A0A0A]">LVL {level}</div>
+         </div>
+-        <div className="min-w-0 flex-1 overflow-hidden"><div className="truncate font-display text-[17px] leading-tight text-white">{user.name}</div><div className="truncate text-xs text-zinc-500">{user.position}</div><div className="truncate text-xs text-zinc-600">{user.team_name || user.department || "—"}</div></div>
++        <div className="diamond-profile-copy min-w-0 flex-1 overflow-hidden"><div className="truncate font-display text-[17px] leading-tight text-white">{user.name}</div><div className="truncate text-xs text-zinc-500">{user.position}</div><div className="truncate text-xs text-zinc-600">{user.team_name || user.department || "—"}</div></div>
+       </div>
+-      <div className="mt-5"><div className="mb-2 flex justify-between"><div className="text-[11px] font-black uppercase tracking-widest text-zinc-500">Рівень {level}</div><div className="text-[11px] font-black text-white">{xp} / {xpNext} XP</div></div><div className="h-4 overflow-hidden rounded-full border border-white/5 bg-[#0A0A0A]"><div className="xp-stripes h-full rounded-full" style={{ width: `${xpPct}%`, background: "linear-gradient(90deg,#FF5C00,#FFB800)" }} /></div></div>
++      <div className="diamond-profile-progress mt-5"><div className="mb-2 flex justify-between"><div className="text-[11px] font-black uppercase tracking-widest text-zinc-500">Рівень {level}</div><div className="text-[11px] font-black text-white">{xp} / {xpNext} XP</div></div><div className="h-4 overflow-hidden rounded-full border border-white/5 bg-[#0A0A0A]"><div className="xp-stripes h-full rounded-full" style={{ width: `${xpPct}%`, background: "linear-gradient(90deg,#FF5C00,#FFB800)" }} /></div></div>
+     </section>
+ 
+     {/* 3. Balance */}
