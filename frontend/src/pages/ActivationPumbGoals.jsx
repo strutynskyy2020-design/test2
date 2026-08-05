@@ -220,7 +220,7 @@ export default function ActivationPumbGoals() {
             <div className="mt-4 space-y-2">
               {leaderboard.map((row, index) => {
                 const isMe = normalizeLogin(row?.login || row?.goals_login) === login;
-                return <article key={`${row?.login || row?.name}-${index}`} className={`flex items-center gap-3 rounded-2xl border p-3 ${isMe ? "border-[#39FF14]/45 bg-[#39FF14]/[.07]" : "border-white/10 bg-black/20"}`}>
+                return <article key={`${row?.login || row?.name}-${index}`} className={`diamond-card-auto flex items-center gap-3 rounded-2xl border p-3 ${isMe ? "border-[#39FF14]/45 bg-[#39FF14]/[.07]" : "border-white/10 bg-black/20"}`}>
                   <div className="w-6 text-center text-xs font-black text-zinc-500">{index + 1}</div>
                   <Avatar row={row} />
                   <div className="min-w-0 flex-1"><div className="truncate text-sm font-black text-white">{row?.name || row?.login}</div><div className="truncate text-[10px] font-bold text-zinc-600">{row?.login}{isMe ? " · це ви" : ""}</div></div>

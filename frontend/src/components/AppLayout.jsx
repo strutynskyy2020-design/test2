@@ -5,6 +5,7 @@ import { useApp } from "@/context/AppContext";
 import api from "@/lib/api";
 import InstallPrompt from "@/components/InstallPrompt";
 import NotificationBell from "@/components/NotificationBell";
+import AdminAnnouncementModal from "@/components/AdminAnnouncementModal";
 
 const PAGE_LABELS = {
   "/": "Головна",
@@ -168,6 +169,7 @@ export default function AppLayout() {
         </main>
 
         {!isGameRoute && <InstallPrompt />}
+        {!isGameRoute && <AdminAnnouncementModal user={user} />}
 
         {!isGameRoute && <nav
           data-testid="bottom-nav"

@@ -234,7 +234,7 @@ export default function Home() {
     {mode === "mock" && <div className="rounded-2xl border border-[#FF5C00]/40 bg-[#FF5C00]/10 px-3 py-2 text-[11px] font-black text-[#FF5C00]">ОФЛАЙН РЕЖИМ • використовуються демо-дані</div>}
 
     {/* 1. Avatar / profile */}
-    <section className="relative rounded-3xl border border-white/10 bg-[#1A1A1E] p-5">
+    <section className="diamond-card-auto relative rounded-3xl border border-white/10 bg-[#1A1A1E] p-5">
       <ThemeToggle className="absolute right-4 top-4 z-10" compact />
       <div className="flex items-center gap-4 pr-14">
         <div className="relative shrink-0">
@@ -274,7 +274,7 @@ export default function Home() {
     <section className="grid grid-cols-2 gap-3"><button onClick={() => nav("/tasks")} className="arcade-btn bg-[#39FF14] border-[#1a7a0a] p-4 text-left text-[#0A0A0A]"><Swords size={22}/><div className="mt-2 font-display text-lg">КВЕСТИ</div><div className="mt-1 text-xs font-black opacity-80">3 нові щодня</div></button><button onClick={() => nav("/store")} className="arcade-btn bg-[#00F0FF] border-[#005f66] p-4 text-left text-[#0A0A0A]"><Gift size={22}/><div className="mt-2 font-display text-lg">МАГАЗИН</div><div className="mt-1 text-xs font-black opacity-80">Витрачай Point</div></button></section>
 
     {/* 6. Cube */}
-    <button onClick={() => nav("/fun")} className="arcade-btn flex w-full items-center gap-4 border-[#7a1c00] bg-gradient-to-r from-[#FFB800] to-[#FF5C00] p-4 text-left text-[#0A0A0A]"><div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-black/25"><Dice5 size={28}/></div><div className="min-w-0 flex-1"><div className="text-[10px] font-black uppercase tracking-widest opacity-70">Щоденний бонус</div><div className="mt-1 font-display text-xl">ЩЕДРИЙ КУБ</div><div className="mt-1 text-xs font-black opacity-90">До 1000 балів</div></div><ChevronRight /></button>
+    <button onClick={() => nav("/fun")} className="arcade-btn flex w-full items-center gap-4 border-[#7a1c00] bg-gradient-to-r from-[#FFB800] to-[#FF5C00] p-4 text-left text-[#0A0A0A]"><div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-black/25"><Dice5 size={28}/></div><div className="min-w-0 flex-1"><div className="text-[10px] font-black uppercase tracking-widest opacity-70">Щоденний бонус</div><div className="mt-1 font-display text-xl">ЩЕДРИЙ КУБ</div><div className="mt-1 text-xs font-black opacity-90">До 500 балів</div></div><ChevronRight /></button>
 
     {/* 7. Streak */}
     <section className="flex items-center gap-3 rounded-3xl border border-[#FF5C00]/30 bg-gradient-to-r from-[#FF5C00]/15 to-transparent p-4"><div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#FF5C00]"><Flame size={24} color="#0A0A0A" /></div><div className="flex-1"><div className="font-black text-white">{user.streak} днів поспіль</div><div className="text-xs text-zinc-400">Не втрачай серію</div></div></section>

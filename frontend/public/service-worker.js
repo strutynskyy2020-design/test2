@@ -1,4 +1,9 @@
 /* VPDK Bonus — Service Worker
+ * v138 fixes light-theme contrast across custom cards and expands leaderboards to 20 places.
+ * v140 adds limited-quantity prize promotions and one-time administrator announcements.
+ * v139 updates game rewards, AI Trainer first-clear rewards, cube economy, and admin search/quick awards.
+ * v137 adds the rectangular diamond employee frame to rankings, reports, profiles, and feed cards.
+ * v136 adds premium diamond-avatar grant events to the activity feed.
  * v135 fixes exact male/female diamond-frame detection and renders rarity frames in every employee report avatar.
  * v134 pins the exact floral crystal frame supplied for all female diamond avatars and busts stale frame caches.
  * v133 adds temporary admin-issued diamond avatars, separate male/female frames, and the permanent diamond challenge.
@@ -23,7 +28,7 @@
  * never be cached as index.html, otherwise browsers can render a giant broken
  * image element over the board.
  */
-const VERSION = "vpdk-v135";
+const VERSION = "vpdk-v140";
 const STATIC_CACHE = `${VERSION}-static`;
 const RUNTIME_CACHE = `${VERSION}-runtime`;
 
@@ -32,6 +37,7 @@ const PRECACHE_URLS = [
   "/icon-192.png",
   "/icon-512.png",
   "/apple-touch-icon.png",
+  "/card-frames/diamond-employee-card-v137.png",
   "/bonus-match/v90/cell.png?v=90",
   "/bonus-match/v90/board-frame.png?v=90",
   "/bonus-match/v90/coin.png?v=90",

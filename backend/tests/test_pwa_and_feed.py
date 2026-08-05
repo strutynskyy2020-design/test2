@@ -122,7 +122,7 @@ class TestFeedAPI:
         # Should have some pre-seeded activity for demo employees
         assert len(data["events"]) > 0
         # Validate schema of each event
-        allowed_kinds = {"quest", "purchase", "level_up", "cube", "prize_delivered"}
+        allowed_kinds = {"quest", "purchase", "level_up", "cube", "prize_delivered", "goal", "diamond_avatar"}
         for ev in data["events"]:
             for k in ("id", "kind", "user_id", "user_name",
                       "avatar_initials", "avatar_color", "title", "created_at"):
@@ -192,6 +192,6 @@ class TestFeedAPI:
         """Ensure no unexpected 'kind' values leak out."""
         r = api.get(f"{BASE_URL}/api/feed?limit=100", headers=anna_headers)
         assert r.status_code == 200
-        allowed = {"quest", "purchase", "level_up", "cube", "prize_delivered"}
+        allowed = {"quest", "purchase", "level_up", "cube", "prize_delivered", "goal", "diamond_avatar"}
         kinds = {e["kind"] for e in r.json()["events"]}
         assert kinds.issubset(allowed), f"Unexpected kinds: {kinds - allowed}"

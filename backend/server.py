@@ -27,6 +27,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo import UpdateOne, ReturnDocument
+from pymongo.errors import DuplicateKeyError
 from pydantic import BaseModel, Field, EmailStr, ConfigDict
 
 try:
@@ -174,6 +175,58 @@ async def _expire_diamond_avatar_if_needed(user: dict) -> dict:
     if _diamond_avatar_is_active(user):
         return user
     return await _restore_avatar_after_diamond(user, reason="expired")
+
+
+async def _backfill_active_diamond_feed_events_v136() -> int:
+    """Publish one showcase event for diamond avatars granted before v136.
+
+    The source key keeps startup idempotent. Expired grants cannot be restored
+    because their temporary avatar metadata is intentionally cleared.
+    """
+    created = 0
+    cursor = db.users.find(
+        {
+            "diamond_avatar_code": {"$nin": [None, ""]},
+            "diamond_avatar_granted_at": {"$nin": [None, ""]},
+        },
+        {"_id": 0},
+    )
+    async for target in cursor:
+        if not _diamond_avatar_is_active(target):
+            continue
+        avatar_code = target.get("diamond_avatar_code")
+        avatar = DIAMOND_AVATARS.get(avatar_code)
+        if not avatar:
+            continue
+        granted_at = target.get("diamond_avatar_granted_at")
+        source_key = f"diamond-avatar-grant:{target['id']}:{granted_at}"
+        exists = await db.feed_events.find_one({"source_key": source_key}, {"_id": 0, "id": 1})
+        if exists:
+            continue
+        await db.feed_events.insert_one({
+            "id": f"diamond-avatar-{uuid.uuid4()}",
+            "source_key": source_key,
+            "kind": "diamond_avatar",
+            "user_id": target["id"],
+            "user_name": target.get("name", "Користувач"),
+            "avatar_initials": target.get("avatar_initials", "?"),
+            "avatar_color": target.get("avatar_color", "#7DD3FC"),
+            "avatar_url": avatar["image"],
+            "avatar_rarity": "diamond",
+            "department": target.get("department", ""),
+            "title": "отримав алмазний аватар 💎",
+            "subtitle": f"{avatar['title']} на {DIAMOND_AVATAR_DURATION_DAYS} дні",
+            "duration_days": DIAMOND_AVATAR_DURATION_DAYS,
+            "daily_bonus": DIAMOND_AVATAR_DAILY_BONUS,
+            "task_replacements": DIAMOND_AVATAR_TASK_REPLACEMENTS,
+            "expires_at": target.get("diamond_avatar_expires_at"),
+            "avatar_code": avatar_code,
+            "granted_by": target.get("diamond_avatar_granted_by"),
+            "granted_by_name": target.get("diamond_avatar_granted_by_name", "Адміністратор"),
+            "created_at": granted_at,
+        })
+        created += 1
+    return created
 
 
 _diamond_avatar_cleanup_task: Optional[asyncio.Task] = None
@@ -341,10 +394,12 @@ class AITrainingResultBody(BaseModel):
     client_mood: str = ""
 
 
+# AI Trainer awards Point equal to the rounded verified score from 5 to 10.
+# The difficulty still affects the scenario itself, but not the Point reward.
 AI_TRAINER_REWARD_TABLE = {
-    "easy": ((9.0, 200), (8.0, 150), (7.0, 100), (6.0, 50), (5.0, 25)),
-    "medium": ((9.0, 300), (8.0, 200), (7.0, 150), (6.0, 80), (5.0, 35)),
-    "hard": ((9.0, 500), (8.0, 400), (7.0, 250), (6.0, 125), (5.0, 50)),
+    "easy": ((10.0, 10), (9.0, 9), (8.0, 8), (7.0, 7), (6.0, 6), (5.0, 5)),
+    "medium": ((10.0, 10), (9.0, 9), (8.0, 8), (7.0, 7), (6.0, 6), (5.0, 5)),
+    "hard": ((10.0, 10), (9.0, 9), (8.0, 8), (7.0, 7), (6.0, 6), (5.0, 5)),
 }
 
 AI_SCENARIO_DIFFICULTY = {
@@ -367,13 +422,12 @@ AI_SCENARIO_DIFFICULTY = {
 
 
 def ai_trainer_points_for_score(difficulty: str, average_score: float) -> int:
-    difficulty_key = str(difficulty or "easy").strip().lower()
-    tiers = AI_TRAINER_REWARD_TABLE.get(difficulty_key, AI_TRAINER_REWARD_TABLE["easy"])
+    # Keep the difficulty argument for API compatibility. Rewards now mirror
+    # the verified score: 5 → 5 Point, 6 → 6 Point, ... 10 → 10 Point.
     score = max(0.0, min(10.0, float(average_score or 0)))
-    for minimum_score, reward in tiers:
-        if score >= minimum_score:
-            return reward
-    return 0
+    if score < 5.0:
+        return 0
+    return max(5, min(10, int(score + 0.5)))
 
 class LoginBody(BaseModel):
     email: EmailStr
@@ -577,6 +631,7 @@ class PrizeModel(BaseModel):
     title: str
     description: str = ""
     price: int
+    effective_price: int = 0
     category: Literal["merch", "privilege", "certificate", "avatar"] = "merch"
     image: Optional[str] = None
     icon: str = "gift"
@@ -588,6 +643,11 @@ class PrizeModel(BaseModel):
     avatar_rarity: Optional[str] = None
     daily_bonus: int = 0
     task_replacements: int = 0
+    promotion_id: Optional[str] = None
+    promotion_discount: int = 0
+    promotion_quantity_total: int = 0
+    promotion_quantity_remaining: int = 0
+    promotion_active: bool = False
     created_at: str
 
 
@@ -621,6 +681,53 @@ class PrizeUpdateBody(BaseModel):
     avatar_rarity: Optional[str] = None
     daily_bonus: Optional[int] = None
     task_replacements: Optional[int] = None
+
+
+class PrizePromotionCreateBody(BaseModel):
+    discount_points: int = Field(ge=1, le=1_000_000)
+    quantity: int = Field(ge=1, le=100_000)
+
+
+class PrizePromotionModel(BaseModel):
+    id: str
+    prize_id: str
+    prize_title: str
+    base_price: int
+    discount_points: int
+    effective_price: int
+    quantity_total: int
+    quantity_remaining: int
+    used_count: int = 0
+    active: bool = True
+    team_id: Optional[str] = None
+    team_name: Optional[str] = None
+    created_by: str
+    created_by_name: str
+    created_at: str
+    ended_at: Optional[str] = None
+
+
+class AnnouncementCreateBody(BaseModel):
+    title: str = Field(min_length=2, max_length=120)
+    message: str = Field(min_length=2, max_length=4000)
+
+
+class AnnouncementUpdateBody(BaseModel):
+    title: Optional[str] = Field(default=None, min_length=2, max_length=120)
+    message: Optional[str] = Field(default=None, min_length=2, max_length=4000)
+    active: Optional[bool] = None
+
+
+class AnnouncementModel(BaseModel):
+    id: str
+    title: str
+    message: str
+    active: bool = True
+    created_by: str
+    created_by_name: str
+    created_at: str
+    updated_at: Optional[str] = None
+    dismissed_count: int = 0
 
 
 class TeamBankContributorModel(BaseModel):
@@ -665,6 +772,9 @@ class OrderModel(BaseModel):
     prize_id: str
     prize_title: str
     price: int
+    base_price: Optional[int] = None
+    discount_points: int = 0
+    promotion_id: Optional[str] = None
     status: Literal["processing", "ready", "delivered", "cancelled"]
     team_id: Optional[str] = None
     team_name: Optional[str] = None
@@ -1008,11 +1118,44 @@ def _goals_access_signature(
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:24]
 
 
+async def _active_prize_promotion(prize_id: str) -> Optional[dict]:
+    return await db.prize_promotions.find_one(
+        {
+            "prize_id": prize_id,
+            "active": True,
+            "quantity_remaining": {"$gt": 0},
+        },
+        {"_id": 0},
+        sort=[("created_at", -1)],
+    )
+
+
 async def _prize_with_team(doc: dict) -> dict:
     item = {**doc}
     item.pop("_id", None)
     team_id = item.get("team_id")
     item["team_name"] = await _resolve_team_name(team_id) if team_id else None
+    base_price = max(0, int(item.get("price") or 0))
+    promotion = await _active_prize_promotion(str(item.get("id") or ""))
+    if promotion:
+        discount = max(0, min(base_price, int(promotion.get("discount_points") or 0)))
+        item.update({
+            "effective_price": max(0, base_price - discount),
+            "promotion_id": promotion.get("id"),
+            "promotion_discount": discount,
+            "promotion_quantity_total": max(0, int(promotion.get("quantity_total") or 0)),
+            "promotion_quantity_remaining": max(0, int(promotion.get("quantity_remaining") or 0)),
+            "promotion_active": True,
+        })
+    else:
+        item.update({
+            "effective_price": base_price,
+            "promotion_id": None,
+            "promotion_discount": 0,
+            "promotion_quantity_total": 0,
+            "promotion_quantity_remaining": 0,
+            "promotion_active": False,
+        })
     return item
 
 
@@ -1253,7 +1396,31 @@ async def save_ai_training_result(
         str(body.difficulty or "easy").strip().lower(),
     )
     verified_score = max(0.0, min(10.0, float(body.average_score or 0)))
-    points_reward = ai_trainer_points_for_score(verified_difficulty, verified_score)
+    candidate_points = ai_trainer_points_for_score(verified_difficulty, verified_score) if body.won else 0
+    first_completion = False
+    if body.won:
+        try:
+            previous_completion = await db.ai_training_completions.find_one_and_update(
+                {"user_id": user["id"], "scenario_id": body.scenario_id},
+                {
+                    "$setOnInsert": {
+                        "id": str(uuid.uuid4()),
+                        "user_id": user["id"],
+                        "scenario_id": body.scenario_id,
+                        "scenario_title": body.scenario_title,
+                        "score": verified_score,
+                        "points_awarded": candidate_points,
+                        "completed_at": ts,
+                    }
+                },
+                upsert=True,
+                return_document=ReturnDocument.BEFORE,
+            )
+            first_completion = previous_completion is None
+        except DuplicateKeyError:
+            # A parallel completion already claimed the one-time reward.
+            first_completion = False
+    points_reward = candidate_points if first_completion else 0
     xp_reward = max(0, int(body.xp_earned or 0))
 
     result_payload = body.model_dump()
@@ -1262,6 +1429,7 @@ async def save_ai_training_result(
         "average_score": verified_score,
         "consultation_quality": verified_score,
         "points": points_reward,
+        "first_completion": first_completion,
     })
     doc = {
         "id": str(uuid.uuid4()),
@@ -1272,8 +1440,8 @@ async def save_ai_training_result(
         **result_payload,
         "created_at": ts,
     }
-    # The server calculates the reward from the verified scenario difficulty and
-    # average score. Client-provided points are intentionally ignored.
+    # The server calculates the reward from the verified score and awards it only
+    # for the first successful completion. Client-provided points are ignored.
 
     await db.ai_training_results.insert_one(doc)
 
@@ -1299,6 +1467,7 @@ async def save_ai_training_result(
 
     doc.pop("_id", None)
     doc["reward_applied"] = points_reward
+    doc["first_completion"] = first_completion
     return doc
 
 
@@ -1625,6 +1794,28 @@ async def admin_grant_diamond_avatar(
             "expires_at": expires_at.isoformat(),
         },
         "created_at": now_iso(),
+    })
+    await db.feed_events.insert_one({
+        "id": f"diamond-avatar-{uuid.uuid4()}",
+        "source_key": f"diamond-avatar-grant:{user_id}:{granted_at.isoformat()}",
+        "kind": "diamond_avatar",
+        "user_id": user_id,
+        "user_name": target.get("name", "Користувач"),
+        "avatar_initials": target.get("avatar_initials", "?"),
+        "avatar_color": target.get("avatar_color", "#7DD3FC"),
+        "avatar_url": avatar["image"],
+        "avatar_rarity": "diamond",
+        "department": target.get("department", ""),
+        "title": "отримав алмазний аватар 💎",
+        "subtitle": f"{avatar['title']} на {DIAMOND_AVATAR_DURATION_DAYS} дні",
+        "duration_days": DIAMOND_AVATAR_DURATION_DAYS,
+        "daily_bonus": DIAMOND_AVATAR_DAILY_BONUS,
+        "task_replacements": DIAMOND_AVATAR_TASK_REPLACEMENTS,
+        "expires_at": expires_at.isoformat(),
+        "avatar_code": body.avatar_code,
+        "granted_by": admin.get("id"),
+        "granted_by_name": admin.get("name", "Адміністратор"),
+        "created_at": granted_at.isoformat(),
     })
     await _notify(
         user_id,
@@ -2832,7 +3023,11 @@ async def list_prizes(user: dict = Depends(get_current_user)):
 
 
 @api.post("/prizes/{prize_id}/buy")
-async def buy_prize(prize_id: str, user: dict = Depends(get_current_user)):
+async def buy_prize(
+    prize_id: str,
+    expected_price: Optional[int] = None,
+    user: dict = Depends(get_current_user),
+):
     prize = await db.prizes.find_one({"id": prize_id, "active": True}, {"_id": 0})
     if not prize:
         raise HTTPException(status_code=404, detail="Приз не знайдено")
@@ -2847,45 +3042,156 @@ async def buy_prize(prize_id: str, user: dict = Depends(get_current_user)):
             status_code=400,
             detail=f"Алмазний аватар активний до {expires_label}. Звичайний аватар можна змінити після його завершення.",
         )
+
     owned = prize_id in (user.get("owned_avatar_ids") or [])
-    if not is_avatar and prize.get("stock", 0) <= 0:
+    if not is_avatar and int(prize.get("stock", 0) or 0) <= 0:
         raise HTTPException(status_code=400, detail="Немає в наявності")
-    price = 0 if (is_avatar and owned) else int(prize.get("price", 0))
-    if user.get("balance", 0) < price:
+
+    base_price = 0 if (is_avatar and owned) else max(0, int(prize.get("price", 0) or 0))
+    promotion = await _active_prize_promotion(prize_id) if base_price > 0 else None
+    promotion_discount = 0
+    promotion_id = None
+    price = base_price
+    if promotion:
+        promotion_discount = max(0, min(base_price, int(promotion.get("discount_points") or 0)))
+        promotion_id = promotion.get("id")
+        price = max(0, base_price - promotion_discount)
+
+    if expected_price is not None and int(expected_price) != price:
+        raise HTTPException(
+            status_code=409,
+            detail="Ціна змінилася. Оновіть магазин і підтвердьте покупку ще раз.",
+        )
+    if int(user.get("balance", 0) or 0) < price:
         raise HTTPException(status_code=400, detail="Недостатньо балів")
 
+    reserved_promotion = None
+    stock_reserved = False
+    if promotion_id:
+        reserved_promotion = await db.prize_promotions.find_one_and_update(
+            {"id": promotion_id, "active": True, "quantity_remaining": {"$gt": 0}},
+            {
+                "$inc": {"quantity_remaining": -1, "used_count": 1},
+                "$set": {"updated_at": now_iso(), "last_used_at": now_iso()},
+            },
+            return_document=ReturnDocument.AFTER,
+            projection={"_id": 0},
+        )
+        if not reserved_promotion:
+            # Another employee used the final discounted unit between catalog load and checkout.
+            if expected_price is not None and int(expected_price) != base_price:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Акційні одиниці щойно закінчилися. Оновіть магазин і підтвердьте звичайну ціну.",
+                )
+            promotion_id = None
+            promotion_discount = 0
+            price = base_price
+        elif int(reserved_promotion.get("quantity_remaining") or 0) <= 0:
+            await db.prize_promotions.update_one(
+                {"id": promotion_id, "quantity_remaining": {"$lte": 0}},
+                {"$set": {"active": False, "ended_at": now_iso(), "updated_at": now_iso()}},
+            )
+
+    async def rollback_promotion() -> None:
+        if not promotion_id or not reserved_promotion:
+            return
+        await db.prize_promotions.update_one(
+            {"id": promotion_id},
+            {
+                "$inc": {"quantity_remaining": 1, "used_count": -1},
+                "$set": {"active": True, "updated_at": now_iso()},
+                "$unset": {"ended_at": ""},
+            },
+        )
+
+    if not is_avatar:
+        reserved_prize = await db.prizes.find_one_and_update(
+            {"id": prize_id, "active": True, "stock": {"$gt": 0}},
+            {"$inc": {"stock": -1}},
+            return_document=ReturnDocument.AFTER,
+            projection={"_id": 0},
+        )
+        if not reserved_prize:
+            await rollback_promotion()
+            raise HTTPException(status_code=400, detail="Немає в наявності")
+        stock_reserved = True
+
+    current_time = now_iso()
     if is_avatar:
-        updates = {
-            "avatar_url": prize.get("image"),
-            "active_avatar_prize_id": prize_id,
-            "avatar_rarity": prize.get("avatar_rarity") or "basic",
-            "avatar_daily_bonus": int(prize.get("daily_bonus") or 0),
-            "avatar_task_replacements": int(prize.get("task_replacements") or 0),
+        operation = {
+            "$set": {
+                "avatar_url": prize.get("image"),
+                "active_avatar_prize_id": prize_id,
+                "avatar_rarity": prize.get("avatar_rarity") or "basic",
+                "avatar_daily_bonus": int(prize.get("daily_bonus") or 0),
+                "avatar_task_replacements": int(prize.get("task_replacements") or 0),
+            },
+            "$addToSet": {"owned_avatar_ids": prize_id},
         }
-        operation = {"$set": updates, "$addToSet": {"owned_avatar_ids": prize_id}}
         if price:
             operation["$inc"] = {"balance": -price}
-        await db.users.update_one({"id": user["id"]}, operation)
     else:
-        await db.users.update_one({"id": user["id"]}, {"$inc": {"balance": -price}})
-        await db.prizes.update_one({"id": prize_id}, {"$inc": {"stock": -1}})
+        operation = {"$inc": {"balance": -price}} if price else {"$set": {"updated_at": current_time}}
+
+    user_query = {"id": user["id"]}
+    if price:
+        user_query["balance"] = {"$gte": price}
+    fresh = await db.users.find_one_and_update(
+        user_query,
+        operation,
+        return_document=ReturnDocument.AFTER,
+        projection={"_id": 0},
+    )
+    if not fresh:
+        if stock_reserved:
+            await db.prizes.update_one({"id": prize_id}, {"$inc": {"stock": 1}})
+        await rollback_promotion()
+        raise HTTPException(status_code=400, detail="Недостатньо балів")
 
     order = {
-        "id": str(uuid.uuid4()), "user_id": user["id"], "user_name": user["name"],
-        "prize_id": prize_id, "prize_title": prize["title"], "price": price,
-        "team_id": user.get("team_id"), "team_name": await _resolve_team_name(user.get("team_id")),
-        "status": "delivered" if is_avatar else "processing", "created_at": now_iso(),
+        "id": str(uuid.uuid4()),
+        "user_id": user["id"],
+        "user_name": user["name"],
+        "prize_id": prize_id,
+        "prize_title": prize["title"],
+        "price": price,
+        "base_price": base_price,
+        "discount_points": promotion_discount,
+        "promotion_id": promotion_id,
+        "team_id": user.get("team_id"),
+        "team_name": await _resolve_team_name(user.get("team_id")),
+        "status": "delivered" if is_avatar else "processing",
+        "created_at": current_time,
     }
     await db.orders.insert_one(order)
     if price:
+        promo_label = f" · акція −{promotion_discount} Point" if promotion_discount else ""
         await db.transactions.insert_one({
-            "id": str(uuid.uuid4()), "user_id": user["id"], "kind": "purchase", "amount": -price,
-            "description": f"Купівля: {prize['title']}", "created_at": now_iso(),
-            "meta": {"source": "store", "prize_id": prize_id, "order_id": order["id"]},
+            "id": str(uuid.uuid4()),
+            "user_id": user["id"],
+            "kind": "purchase",
+            "amount": -price,
+            "description": f"Купівля: {prize['title']}{promo_label}",
+            "created_at": current_time,
+            "meta": {
+                "source": "store",
+                "prize_id": prize_id,
+                "order_id": order["id"],
+                "base_price": base_price,
+                "discount_points": promotion_discount,
+                "promotion_id": promotion_id,
+            },
         })
     order.pop("_id", None)
-    fresh = await db.users.find_one({"id": user["id"]}, {"_id": 0})
-    return {"order": OrderModel(**order), "user": _user_with_progress(fresh), "equipped": is_avatar, "already_owned": owned}
+    current_prize = await db.prizes.find_one({"id": prize_id}, {"_id": 0}) or prize
+    return {
+        "order": OrderModel(**order),
+        "user": _user_with_progress(fresh),
+        "equipped": is_avatar,
+        "already_owned": owned,
+        "prize": PrizeModel(**(await _prize_with_team(current_prize))),
+    }
 
 
 @api.get("/team-bank", response_model=TeamBankModel)
@@ -3139,7 +3445,7 @@ async def _store_spending_by_user() -> dict[str, int]:
 async def _leaderboard_for_period(
     period: Literal["day", "week", "month", "all"],
     current_id: str,
-    limit: int = 10,
+    limit: int = 20,
     team_id: Optional[str] = None,
 ) -> LeaderboardResponse:
     user_filter: dict = {"role": {"$in": PLAYER_ROLES}}
@@ -3317,15 +3623,15 @@ PREDICTIONS_UK = [
 ]
 
 # Cube faces: (face, weight %, min reward, max reward, tier)
-# The first spin each Kyiv day is free. Every next spin costs 50 Point.
-CUBE_SPIN_COST = 50
+# The first spin each Kyiv day is free. Every next spin costs 20 Point.
+CUBE_SPIN_COST = 20
 CUBE_TABLE = [
-    (1, 37, 0, 15, "one"),
-    (2, 28, 16, 35, "two"),
-    (3, 20, 36, 70, "three"),
-    (4, 10, 71, 105, "four"),
-    (5, 4, 106, 175, "five"),
-    (6, 1, 176, 1000, "six"),
+    (1, 37, 1, 10, "one"),
+    (2, 28, 11, 20, "two"),
+    (3, 20, 21, 30, "three"),
+    (4, 10, 31, 50, "four"),
+    (5, 4, 51, 100, "five"),
+    (6, 1, 101, 500, "six"),
 ]
 
 
@@ -3556,7 +3862,7 @@ BONUS_MATCH_LIFE_PRICE = 10
 BONUS_MATCH_DAILY_POINT_CAP = None  # No daily Point cap for Bonus Match
 BONUS_MATCH_SYMBOLS = ["coin", "star", "gift", "cube", "zap", "trophy"]
 BONUS_MATCH_SPECIALS = {"rocket_row", "rocket_col", "bomb", "color_bomb"}
-BONUS_MATCH_FIRST_CLEAR_POINTS = 5
+BONUS_MATCH_FIRST_CLEAR_POINTS = 2
 BONUS_MATCH_FIRST_CLEAR_XP = 10
 BONUS_MATCH_REPLAY_XP = 5
 BONUS_MATCH_BOSS_LEVELS = {25: 2, 40: 2, 50: 3, 60: 2, 70: 2, 80: 2, 90: 2, 100: 3, 110: 3, 120: 3, 130: 3, 140: 3, 150: 4}
@@ -5136,7 +5442,7 @@ async def _bonus_match_reward_win(
 ) -> dict:
     """Award deterministic Bonus Match rewards.
 
-    First clear of a level: +5 Point and +10 XP.
+    First clear of a level: +2 Point and +10 XP.
     Every replay clear: +0 Point and +5 XP.
     There is intentionally no daily Point cap.
     """
@@ -5230,7 +5536,7 @@ async def _bonus_match_reward_win(
             "stars": stars,
             "xp": xp_awarded,
             "first_completion": first_completion,
-            "reward_policy": "v107_first_5_points_10_xp_replay_5_xp",
+            "reward_policy": "v139_first_2_points_10_xp_replay_5_xp",
         },
     })
     if points_awarded:
@@ -6677,7 +6983,7 @@ async def bonus_match_move(
 # ────────────────────────────────────────────────────────────────────────
 class FeedEvent(BaseModel):
     id: str
-    kind: Literal["quest", "purchase", "level_up", "cube", "prize_delivered", "goal"]
+    kind: Literal["quest", "purchase", "level_up", "cube", "prize_delivered", "goal", "diamond_avatar"]
     user_id: str
     user_name: str
     avatar_initials: str
@@ -6693,6 +6999,11 @@ class FeedEvent(BaseModel):
     reactions: dict = {}
     my_reaction: Optional[str] = None
     comment_count: int = 0
+    duration_days: Optional[int] = None
+    daily_bonus: Optional[int] = None
+    task_replacements: Optional[int] = None
+    expires_at: Optional[str] = None
+    avatar_code: Optional[str] = None
 
 
 class FeedResponse(BaseModel):
@@ -6728,11 +7039,13 @@ async def get_feed(limit: int = 40, user: dict = Depends(get_current_user)):
     """Aggregated activity feed: quest completions, purchases, cube spins, level-ups, delivered orders.
     Sorted by created_at desc. Level-ups derived from cumulative XP crossings.
     """
-    # 1) Load recent transactions across all employees
+    # 1) Load recent transactions and explicit showcase events across all employees.
     txs = await db.transactions.find({}, {"_id": 0}).sort("created_at", -1).to_list(limit * 3)
+    showcase_events = await db.feed_events.find({}, {"_id": 0}).sort("created_at", -1).to_list(limit * 2)
 
-    # Fetch user info for participants
-    user_ids = list({t["user_id"] for t in txs})
+    # Fetch user info for participants. Explicit showcase events carry a frozen
+    # avatar snapshot, but their owners are included for department/name fallback.
+    user_ids = list({t["user_id"] for t in txs} | {e["user_id"] for e in showcase_events if e.get("user_id")})
     users_map = {}
     async for u in db.users.find(
         {"id": {"$in": user_ids}, "role": {"$in": PLAYER_ROLES}},
@@ -6808,7 +7121,31 @@ async def get_feed(limit: int = 40, user: dict = Depends(get_current_user)):
             created_at=t["created_at"],
         ))
 
-    # 4) Delivered orders
+    # 4) Explicit showcase events. These use a frozen avatar snapshot so the
+    # diamond frame remains visible in the historical feed after the 3-day perk expires.
+    for item in showcase_events:
+        owner = users_map.get(item.get("user_id"), {})
+        events.append(FeedEvent(
+            id=item["id"],
+            kind=item.get("kind", "diamond_avatar"),
+            user_id=item["user_id"],
+            user_name=item.get("user_name") or owner.get("name", "Користувач"),
+            avatar_initials=item.get("avatar_initials") or owner.get("avatar_initials", "?"),
+            avatar_color=item.get("avatar_color") or owner.get("avatar_color", "#7DD3FC"),
+            avatar_url=item.get("avatar_url") or owner.get("avatar_url"),
+            avatar_rarity=item.get("avatar_rarity") or owner.get("avatar_rarity", "diamond"),
+            department=item.get("department") or owner.get("department", ""),
+            title=item.get("title", "отримав алмазний аватар 💎"),
+            subtitle=item.get("subtitle", "Особлива нагорода адміністратора"),
+            created_at=item["created_at"],
+            duration_days=item.get("duration_days"),
+            daily_bonus=item.get("daily_bonus"),
+            task_replacements=item.get("task_replacements"),
+            expires_at=item.get("expires_at"),
+            avatar_code=item.get("avatar_code"),
+        ))
+
+    # 5) Delivered orders
     delivered = await db.orders.find({"status": "delivered"}, {"_id": 0}).sort("created_at", -1).to_list(limit)
     for o in delivered:
         u = users_map.get(o["user_id"])
@@ -6903,6 +7240,9 @@ async def _feed_event_owner(event_id: str) -> Optional[str]:
         oid = event_id[len("delivered-"):]
         o = await db.orders.find_one({"id": oid}, {"_id": 0, "user_id": 1})
         return o["user_id"] if o else None
+    explicit = await db.feed_events.find_one({"id": event_id}, {"_id": 0, "user_id": 1})
+    if explicit:
+        return explicit.get("user_id")
     tx = await db.transactions.find_one({"id": event_id}, {"_id": 0, "user_id": 1})
     return tx["user_id"] if tx else None
 
@@ -7097,6 +7437,7 @@ async def admin_delete_user(user_id: str, admin: dict = Depends(get_current_admi
         db.bonus_match_sessions,
         db.bonus_match_completions,
         db.bonus_match_daily,
+        db.announcement_reads,
     )
     for collection in user_collections:
         await collection.delete_many({"user_id": user_id})
@@ -7184,11 +7525,92 @@ async def admin_update_prize(prize_id: str, body: PrizeUpdateBody, admin: dict =
     return PrizeModel(**(await _prize_with_team(doc)))
 
 
+@api.get("/admin/prize-promotions", response_model=List[PrizePromotionModel])
+async def admin_list_prize_promotions(admin: dict = Depends(get_current_admin)):
+    docs = await db.prize_promotions.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    result = []
+    for doc in docs:
+        if not doc.get("team_name") and doc.get("team_id"):
+            doc["team_name"] = await _resolve_team_name(doc.get("team_id"))
+        result.append(PrizePromotionModel(**doc))
+    return result
+
+
+@api.post("/admin/prizes/{prize_id}/promotion", response_model=PrizePromotionModel, status_code=201)
+async def admin_create_prize_promotion(
+    prize_id: str,
+    body: PrizePromotionCreateBody,
+    admin: dict = Depends(get_current_admin),
+):
+    prize = await db.prizes.find_one({"id": prize_id}, {"_id": 0})
+    if not prize:
+        raise HTTPException(status_code=404, detail="Приз не знайдено")
+    base_price = max(0, int(prize.get("price") or 0))
+    discount = int(body.discount_points)
+    quantity = int(body.quantity)
+    if base_price <= 0:
+        raise HTTPException(status_code=400, detail="Для безкоштовного призу акція не потрібна")
+    if discount > base_price:
+        raise HTTPException(status_code=400, detail="Знижка не може перевищувати базову ціну призу")
+    if prize.get("category") != "avatar" and int(prize.get("stock") or 0) < quantity:
+        raise HTTPException(status_code=400, detail="Кількість акційних одиниць перевищує залишок призу")
+
+    current_time = now_iso()
+    await db.prize_promotions.update_many(
+        {"prize_id": prize_id, "active": True},
+        {"$set": {"active": False, "ended_at": current_time, "updated_at": current_time, "end_reason": "replaced"}},
+    )
+    team_id = prize.get("team_id")
+    doc = {
+        "id": str(uuid.uuid4()),
+        "prize_id": prize_id,
+        "prize_title": prize.get("title") or "Приз",
+        "base_price": base_price,
+        "discount_points": discount,
+        "effective_price": max(0, base_price - discount),
+        "quantity_total": quantity,
+        "quantity_remaining": quantity,
+        "used_count": 0,
+        "active": True,
+        "team_id": team_id,
+        "team_name": await _resolve_team_name(team_id) if team_id else None,
+        "created_by": admin["id"],
+        "created_by_name": admin.get("name", "Адміністратор"),
+        "created_at": current_time,
+        "updated_at": current_time,
+        "ended_at": None,
+    }
+    await db.prize_promotions.insert_one(doc)
+
+    notify_title = "Акція в магазині"
+    notify_body = f"{doc['prize_title']}: −{discount} Point на наступні {quantity} шт."
+    if team_id:
+        await _notify_team(team_id, "prize_promotion", notify_title, notify_body, "/store", "gift", "prizes", {"prize_id": prize_id, "promotion_id": doc["id"]})
+    else:
+        await _notify_all_employees("prize_promotion", notify_title, notify_body, "/store", "gift", "prizes", {"prize_id": prize_id, "promotion_id": doc["id"]})
+
+    doc.pop("_id", None)
+    return PrizePromotionModel(**doc)
+
+
+@api.delete("/admin/prizes/{prize_id}/promotion")
+async def admin_cancel_prize_promotion(prize_id: str, admin: dict = Depends(get_current_admin)):
+    current_time = now_iso()
+    result = await db.prize_promotions.update_many(
+        {"prize_id": prize_id, "active": True},
+        {"$set": {"active": False, "ended_at": current_time, "updated_at": current_time, "end_reason": "cancelled"}},
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Активну акцію для цього призу не знайдено")
+    return {"ok": True, "prize_id": prize_id}
+
+
 @api.delete("/admin/prizes/{prize_id}", status_code=204)
 async def admin_delete_prize(prize_id: str, admin: dict = Depends(get_current_admin)):
     r = await db.prizes.delete_one({"id": prize_id})
     if r.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Приз не знайдено")
+    await db.prize_promotions.delete_many({"prize_id": prize_id})
     return None
 
 
@@ -7411,7 +7833,7 @@ async def bot_user_quests(telegram_id: str):
 
 
 @bot_router.get("/leaderboard")
-async def bot_leaderboard(limit: int = 10):
+async def bot_leaderboard(limit: int = 20):
     docs = await db.users.find(
         {"role": {"$in": PLAYER_ROLES}}, {"_id": 0, "id": 1, "name": 1, "total_earned": 1, "avatar_initials": 1}
     ).sort("total_earned", -1).limit(limit).to_list(limit)
@@ -7443,6 +7865,108 @@ async def bot_adjust(body: BotAdjustBody):
     )
     fresh = await db.users.find_one({"id": user["id"]}, {"_id": 0})
     return _user_with_progress(fresh)
+
+
+# ────────────────────────────────────────────────────────────────────────
+# Admin announcements — one-time modal messages for employees
+# ────────────────────────────────────────────────────────────────────────
+async def _announcement_with_stats(doc: dict) -> dict:
+    item = {**doc}
+    item.pop("_id", None)
+    item["dismissed_count"] = await db.announcement_reads.count_documents({"announcement_id": item["id"]})
+    return item
+
+
+@api.get("/announcements/pending", response_model=Optional[AnnouncementModel])
+async def pending_announcement(user: dict = Depends(get_current_user)):
+    if user.get("role") == "admin":
+        return None
+    seen_ids = await db.announcement_reads.distinct("announcement_id", {"user_id": user["id"]})
+    query = {"active": True}
+    if seen_ids:
+        query["id"] = {"$nin": seen_ids}
+    doc = await db.announcements.find_one(query, {"_id": 0}, sort=[("created_at", 1)])
+    if not doc:
+        return None
+    doc["dismissed_count"] = 0
+    return AnnouncementModel(**doc)
+
+
+@api.post("/announcements/{announcement_id}/dismiss")
+async def dismiss_announcement(announcement_id: str, user: dict = Depends(get_current_user)):
+    exists = await db.announcements.find_one({"id": announcement_id}, {"_id": 0, "id": 1})
+    if not exists:
+        raise HTTPException(status_code=404, detail="Повідомлення не знайдено")
+    await db.announcement_reads.update_one(
+        {"announcement_id": announcement_id, "user_id": user["id"]},
+        {
+            "$setOnInsert": {
+                "id": str(uuid.uuid4()),
+                "announcement_id": announcement_id,
+                "user_id": user["id"],
+                "user_name": user.get("name", "Працівник"),
+                "dismissed_at": now_iso(),
+            }
+        },
+        upsert=True,
+    )
+    return {"ok": True, "announcement_id": announcement_id}
+
+
+@api.get("/admin/announcements", response_model=List[AnnouncementModel])
+async def admin_list_announcements(admin: dict = Depends(get_current_admin)):
+    docs = await db.announcements.find({}, {"_id": 0}).sort("created_at", -1).to_list(200)
+    return [AnnouncementModel(**(await _announcement_with_stats(doc))) for doc in docs]
+
+
+@api.post("/admin/announcements", response_model=AnnouncementModel, status_code=201)
+async def admin_create_announcement(body: AnnouncementCreateBody, admin: dict = Depends(get_current_admin)):
+    current_time = now_iso()
+    doc = {
+        "id": str(uuid.uuid4()),
+        "title": body.title.strip(),
+        "message": body.message.strip(),
+        "active": True,
+        "created_by": admin["id"],
+        "created_by_name": admin.get("name", "Адміністратор"),
+        "created_at": current_time,
+        "updated_at": current_time,
+        "dismissed_count": 0,
+    }
+    await db.announcements.insert_one(doc)
+    doc.pop("_id", None)
+    return AnnouncementModel(**doc)
+
+
+@api.patch("/admin/announcements/{announcement_id}", response_model=AnnouncementModel)
+async def admin_update_announcement(
+    announcement_id: str,
+    body: AnnouncementUpdateBody,
+    admin: dict = Depends(get_current_admin),
+):
+    supplied = body.model_fields_set
+    updates = {key: value for key, value in body.model_dump().items() if key in supplied}
+    if "title" in updates and updates["title"] is not None:
+        updates["title"] = updates["title"].strip()
+    if "message" in updates and updates["message"] is not None:
+        updates["message"] = updates["message"].strip()
+    if not updates:
+        raise HTTPException(status_code=400, detail="Немає полів для оновлення")
+    updates["updated_at"] = now_iso()
+    result = await db.announcements.update_one({"id": announcement_id}, {"$set": updates})
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Повідомлення не знайдено")
+    doc = await db.announcements.find_one({"id": announcement_id}, {"_id": 0})
+    return AnnouncementModel(**(await _announcement_with_stats(doc)))
+
+
+@api.delete("/admin/announcements/{announcement_id}", status_code=204)
+async def admin_delete_announcement(announcement_id: str, admin: dict = Depends(get_current_admin)):
+    result = await db.announcements.delete_one({"id": announcement_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Повідомлення не знайдено")
+    await db.announcement_reads.delete_many({"announcement_id": announcement_id})
+    return None
 
 
 # ────────────────────────────────────────────────────────────────────────
@@ -7600,6 +8124,11 @@ async def seed_all():
     await db.team_bank_contributions.create_index([("team_id", 1), ("cycle_number", 1), ("created_at", -1)])
     await db.team_bank_cycles.create_index([("team_id", 1), ("cycle_number", -1)], unique=True)
     await db.prizes.create_index("team_id", sparse=True)
+    await db.prize_promotions.create_index([("prize_id", 1), ("active", 1), ("created_at", -1)])
+    await db.prize_promotions.create_index("created_at")
+    await db.announcements.create_index([("active", 1), ("created_at", 1)])
+    await db.announcement_reads.create_index([("announcement_id", 1), ("user_id", 1)], unique=True)
+    await db.announcement_reads.create_index([("user_id", 1), ("dismissed_at", -1)])
 
     # Teams — only administrator-created teams are used in production.
     team_key_to_id = {}
@@ -8968,7 +9497,7 @@ async def admin_approve_user(user_id: str, admin: dict = Depends(get_current_adm
 # VPDK Sudoku — 50-level logic campaign
 # ────────────────────────────────────────────────────────────────────────
 SUDOKU_LEVELS_PATH = ROOT_DIR / "sudoku_levels.json"
-SUDOKU_FIRST_CLEAR_POINTS = 5
+SUDOKU_FIRST_CLEAR_POINTS = 2
 SUDOKU_FIRST_CLEAR_XP = 10
 SUDOKU_REPLAY_XP = 5
 SUDOKU_MAX_LEVEL = 50
@@ -9306,7 +9835,7 @@ async def sudoku_complete(body: SudokuCompleteBody, user: dict = Depends(get_cur
             "hints_used": int(body.hints_used),
             "first_completion": first_completion,
             "xp": xp_awarded,
-            "reward_policy": "v108_first_5_points_10_xp_replay_5_xp",
+            "reward_policy": "v139_first_2_points_10_xp_replay_5_xp",
         },
     })
 
@@ -9380,6 +9909,47 @@ SEED_TASKS = [
 ]
 
 
+async def backfill_ai_training_completions_v139() -> int:
+    """Mark historical successful AI cases as completed without re-awarding Point."""
+    created = 0
+    cursor = db.ai_training_results.find(
+        {"won": True, "scenario_id": {"$nin": [None, ""]}},
+        {
+            "_id": 0,
+            "user_id": 1,
+            "scenario_id": 1,
+            "scenario_title": 1,
+            "average_score": 1,
+            "points": 1,
+            "created_at": 1,
+        },
+    ).sort("created_at", 1)
+    async for item in cursor:
+        user_id = str(item.get("user_id") or "").strip()
+        scenario_id = str(item.get("scenario_id") or "").strip()
+        if not user_id or not scenario_id:
+            continue
+        result = await db.ai_training_completions.update_one(
+            {"user_id": user_id, "scenario_id": scenario_id},
+            {
+                "$setOnInsert": {
+                    "id": str(uuid.uuid4()),
+                    "user_id": user_id,
+                    "scenario_id": scenario_id,
+                    "scenario_title": item.get("scenario_title") or scenario_id,
+                    "score": float(item.get("average_score") or 0),
+                    "points_awarded": int(item.get("points") or 0),
+                    "completed_at": item.get("created_at") or now_iso(),
+                    "backfilled_v139": True,
+                }
+            },
+            upsert=True,
+        )
+        if result.upserted_id is not None:
+            created += 1
+    return created
+
+
 async def seed_phase2():
     await db.tasks.create_index("created_at")
     await db.applications.create_index([("user_id", 1), ("updated_at", -1)])
@@ -9390,11 +9960,18 @@ async def seed_phase2():
     await db.notification_preferences.create_index("user_id", unique=True)
     await db.scheduled_push_runs.create_index("id", unique=True)
     await db.report_publications.create_index("snapshot_version", unique=True)
+    await db.ai_training_completions.create_index([("user_id", 1), ("scenario_id", 1)], unique=True)
+    ai_backfilled = await backfill_ai_training_completions_v139()
+    if ai_backfilled:
+        logger.info("Backfilled %d AI Trainer completions for v139", ai_backfilled)
     await db.report_metric_snapshots.create_index([("snapshot_version", 1), ("team_key", 1)], unique=True)
     await db.report_metric_snapshots.create_index([("team_id", 1), ("created_at", 1)])
     await db.leaderboard_positions.create_index("id", unique=True)
     await db.reactions.create_index([("target_id", 1), ("user_id", 1)], unique=True)
     await db.comments.create_index([("target_id", 1), ("created_at", 1)])
+    await db.feed_events.create_index("id", unique=True)
+    await db.feed_events.create_index("source_key", unique=True, sparse=True)
+    await db.feed_events.create_index("created_at")
     if await db.tasks.count_documents({}) == 0:
         for t in SEED_TASKS:
             await db.tasks.insert_one({"id": str(uuid.uuid4()), **t, "active": True, "created_at": now_iso()})
@@ -9411,6 +9988,9 @@ async def on_startup():
     await seed_phase2()
     await seed_sudoku_v108()
     await _cleanup_expired_diamond_avatars_once()
+    backfilled = await _backfill_active_diamond_feed_events_v136()
+    if backfilled:
+        logger.info("Backfilled %d active diamond-avatar feed events", backfilled)
     _diamond_avatar_cleanup_task = asyncio.create_task(_diamond_avatar_cleanup_loop())
 
 

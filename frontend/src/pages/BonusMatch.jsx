@@ -516,7 +516,7 @@ const runMockMove = (game, from, to) => {
     animation: { swapped_board: swapped, steps, reshuffled, reason: reshuffled ? "no_moves" : null },
     result: status === "active" ? null : {
       stars,
-      points_awarded: won ? 5 : 0,
+      points_awarded: won ? 2 : 0,
       xp_awarded: won ? 10 : 0,
       first_win_bonus: 0,
       lives: won ? 5 : 4,
@@ -3127,7 +3127,7 @@ function BonusMatchScreen() {
             {(status?.top_today || []).length ? (
               <div className="space-y-2">
                 {status.top_today.map((player) => (
-                  <div key={player.user_id || player.rank} className="flex items-center gap-3 rounded-2xl border border-white/[.07] bg-black/20 p-2.5">
+                  <div key={player.user_id || player.rank} className="diamond-card-auto flex items-center gap-3 rounded-2xl border border-white/[.07] bg-black/20 p-2.5">
                     <div className="w-5 text-center text-xs font-black text-[#FFB800]">{player.rank}</div>
                     <AvatarFrame src={player.avatar_url} initials={player.avatar_initials} color={player.avatar_color} rarity={player.avatar_rarity} size="xs" />
                     <div className="min-w-0 flex-1"><div className="truncate text-xs font-black text-white">{player.name}</div><div className="text-[9px] font-bold text-zinc-600">Рівень {player.level}</div></div>

@@ -33,6 +33,7 @@ export default function Feed() {
     { key: "level_up", label: "Рівні", color: "#FF5C00", foreground: "#0A0A0A" },
     { key: "purchase", label: "Покупки", color: "#00F0FF", foreground: "#0A0A0A" },
     { key: "cube", label: "Куб", color: "#FFB800", foreground: "#0A0A0A" },
+    { key: "diamond_avatar", label: "Алмазні", color: "#7DD3FC", foreground: "#07111C" },
   ];
 
   const filtered = filter === "all" ? events : events.filter((e) => e.kind === filter);

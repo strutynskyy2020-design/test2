@@ -1,0 +1,1658 @@
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' '--exclude=VPDK-BONUS-V140.patch' a/PRIZE_PROMOTIONS_ADMIN_ANNOUNCEMENTS_V140.md b/PRIZE_PROMOTIONS_ADMIN_ANNOUNCEMENTS_V140.md
+--- a/PRIZE_PROMOTIONS_ADMIN_ANNOUNCEMENTS_V140.md	1970-01-01 00:00:00.000000000 +0000
++++ b/PRIZE_PROMOTIONS_ADMIN_ANNOUNCEMENTS_V140.md	2026-08-05 16:53:40.408240430 +0000
+@@ -0,0 +1,82 @@
++# VPDK Bonus v140 — акції на призи та повідомлення адміністратора
++
++## 1. Акції з обмеженою кількістю покупок
++
++Для кожного призу адміністратор може створити одну активну акцію з двома параметрами:
++
++- `discount_points` — знижка в Point;
++- `quantity_total` — кількість наступних успішних покупок.
++
++Поточний залишок зберігається у `quantity_remaining`. Магазин повертає одночасно базову та фактичну ціну:
++
++```text
++price                 базова ціна
++effective_price       ціна з активною знижкою
++promotion_discount    розмір знижки
++promotion_quantity_remaining
++promotion_active
++```
++
++### Захист від одночасних покупок
++
++Акційна одиниця резервується атомарним `find_one_and_update` із перевіркою `quantity_remaining > 0`. Завдяки цьому останню знижку не можуть одночасно використати двоє працівників.
++
++Frontend передає `expected_price`. Якщо поки користувач підтверджував покупку остання акційна одиниця закінчилася, backend повертає `409`, магазин оновлює каталог і просить підтвердити нову ціну. Баланс, склад і лічильник акції мають rollback у разі невдалої покупки.
++
++В історії замовлення зберігаються:
++
++- фактично списана ціна;
++- базова ціна;
++- розмір знижки;
++- ідентифікатор акції.
++
++Для командного призу повідомлення про акцію отримує лише відповідна команда. Для загального призу повідомлення отримують усі працівники.
++
++## 2. Разові повідомлення адміністратора
++
++Адміністратор створює повідомлення з заголовком і текстом. Воно зберігається в `announcements` та відображається глобальним компонентом `AdminAnnouncementModal` поверх будь-якої звичайної сторінки застосунку.
++
++Після закриття backend записує у `announcement_reads` пару:
++
++```text
++announcement_id + user_id
++```
++
++На цю пару створено унікальний індекс. Тому повідомлення закривається окремо для кожного працівника і не може випадково продублюватися. Локальна позначка використовується лише як резерв на випадок короткої недоступності backend та також розділена за `user_id`.
++
++Адміністратор не бачить працівницьке модальне вікно. В адмін-панелі відображається кількість працівників, які вже закрили кожне повідомлення.
++
++## 3. Адмін-панель
++
++### Вкладка «Призи»
++
++- кнопка акції біля кожного призу;
++- форма знижки й кількості;
++- фактична акційна ціна;
++- залишок акційних одиниць;
++- ручне завершення або заміна акції;
++- в замовленнях видно базову ціну, акційну ціну та знижку.
++
++### Вкладка «Повідомлення»
++
++- створення й попередній перегляд;
++- активний/вимкнений статус;
++- редагування;
++- видалення;
++- лічильник закриттів.
++
++## 4. Магазин
++
++- картки призів та аватарів показують бейдж акції;
++- стара ціна перекреслюється;
++- сортування виконується за фактичною ціною;
++- у підтвердженні показано знижку та залишок;
++- після покупки локальний каталог отримує актуальний залишок без очікування повного перезавантаження.
++
++## 5. Сумісність
++
++- v140 базується на v139;
++- Google Apps Script залишається `VPDK-Code-v130.gs`;
++- існуючі призи, замовлення та повідомлення не потребують ручної міграції;
++- старі замовлення сумісні через необов’язкові поля `base_price`, `discount_points` і `promotion_id`;
++- світла та темна теми мають окремі контрастні стилі для нових панелей і модального повідомлення.
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' '--exclude=VPDK-BONUS-V140.patch' a/VPDK-BONUS-V140-INSTALL.md b/VPDK-BONUS-V140-INSTALL.md
+--- a/VPDK-BONUS-V140-INSTALL.md	1970-01-01 00:00:00.000000000 +0000
++++ b/VPDK-BONUS-V140-INSTALL.md	2026-08-05 16:53:40.404240430 +0000
+@@ -0,0 +1,58 @@
++# VPDK Bonus v140 — встановлення
++
++Версія v140 додає обмежені за кількістю акції на призи та разові повідомлення адміністратора для працівників. Вона побудована поверх v139 і зберігає всі зміни економіки ігор, AI-тренажера, Щедрого куба та адмін-інструментів.
++
++## Що потрібно оновити
++
++1. **Backend** з каталогу `backend`.
++2. **Frontend і Netlify Functions** з каталогів `frontend` та `netlify`.
++3. Google Apps Script змінювати не потрібно. Залишається `VPDK-Code-v130.gs`.
++
++Нові MongoDB-колекції та індекси створюються автоматично під час запуску backend:
++
++- `prize_promotions`;
++- `announcements`;
++- `announcement_reads`.
++
++Додаткові змінні середовища не потрібні.
++
++## Порядок розгортання
++
++1. Розгорніть backend v140.
++2. Переконайтеся, що endpoint `/api/health` відповідає без помилки.
++3. Розгорніть frontend/Netlify v140.
++4. Повністю закрийте PWA та відкрийте знову або виконайте `Ctrl + Shift + R`.
++5. У Service Worker має використовуватися кеш `vpdk-v140`.
++
++## Як запустити акцію на приз
++
++1. Відкрийте **Адмін-панель → Призи**.
++2. Біля потрібного призу натисніть кнопку з відсотком.
++3. Вкажіть:
++   - знижку в Point;
++   - кількість наступних покупок, для яких діє знижка.
++4. Натисніть **«Запустити акцію»**.
++
++Приклад: для призу «Довга перерва +30 хв» вказати знижку `200` і кількість `2`. Наступні дві успішні покупки отримають ціну на 200 Point нижчу. Після другої покупки магазин автоматично поверне базову ціну.
++
++Нова акція для того самого призу замінює попередню. Акцію можна завершити вручну з того самого вікна.
++
++## Як опублікувати повідомлення
++
++1. Відкрийте **Адмін-панель → Повідомлення**.
++2. Натисніть **«Написати повідомлення»**.
++3. Заповніть заголовок і текст.
++4. Натисніть **«Опублікувати для всіх»**.
++
++Кожен працівник побачить повідомлення під час першого входу після публікації. Після натискання **«Зрозуміло»** саме це повідомлення для нього більше не з’являється.
++
++Якщо активних непрочитаних повідомлень декілька, вони показуються по одному. Адміністратор може вимкнути повідомлення, відредагувати його або видалити. Редагування не скидає позначки працівників, які вже його закрили. Для повторного показу всім потрібно створити нове повідомлення.
++
++## Перевірки перед передачею
++
++- `python3 -m py_compile backend/server.py`;
++- синтаксична JSX-перевірка п’яти змінених frontend-файлів через TypeScript;
++- `python3 validate_vpdk_v140.py`;
++- `pytest -q tests` — 20 тестів пройдено.
++
++Повну production-збірку npm у контейнері не запускали, оскільки локальні `node_modules` відсутні.
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' '--exclude=VPDK-BONUS-V140.patch' a/backend/server.py b/backend/server.py
+--- a/backend/server.py	2026-08-05 15:38:18.000000000 +0000
++++ b/backend/server.py	2026-08-05 16:44:07.391565292 +0000
+@@ -631,6 +631,7 @@
+     title: str
+     description: str = ""
+     price: int
++    effective_price: int = 0
+     category: Literal["merch", "privilege", "certificate", "avatar"] = "merch"
+     image: Optional[str] = None
+     icon: str = "gift"
+@@ -642,6 +643,11 @@
+     avatar_rarity: Optional[str] = None
+     daily_bonus: int = 0
+     task_replacements: int = 0
++    promotion_id: Optional[str] = None
++    promotion_discount: int = 0
++    promotion_quantity_total: int = 0
++    promotion_quantity_remaining: int = 0
++    promotion_active: bool = False
+     created_at: str
+ 
+ 
+@@ -677,6 +683,53 @@
+     task_replacements: Optional[int] = None
+ 
+ 
++class PrizePromotionCreateBody(BaseModel):
++    discount_points: int = Field(ge=1, le=1_000_000)
++    quantity: int = Field(ge=1, le=100_000)
++
++
++class PrizePromotionModel(BaseModel):
++    id: str
++    prize_id: str
++    prize_title: str
++    base_price: int
++    discount_points: int
++    effective_price: int
++    quantity_total: int
++    quantity_remaining: int
++    used_count: int = 0
++    active: bool = True
++    team_id: Optional[str] = None
++    team_name: Optional[str] = None
++    created_by: str
++    created_by_name: str
++    created_at: str
++    ended_at: Optional[str] = None
++
++
++class AnnouncementCreateBody(BaseModel):
++    title: str = Field(min_length=2, max_length=120)
++    message: str = Field(min_length=2, max_length=4000)
++
++
++class AnnouncementUpdateBody(BaseModel):
++    title: Optional[str] = Field(default=None, min_length=2, max_length=120)
++    message: Optional[str] = Field(default=None, min_length=2, max_length=4000)
++    active: Optional[bool] = None
++
++
++class AnnouncementModel(BaseModel):
++    id: str
++    title: str
++    message: str
++    active: bool = True
++    created_by: str
++    created_by_name: str
++    created_at: str
++    updated_at: Optional[str] = None
++    dismissed_count: int = 0
++
++
+ class TeamBankContributorModel(BaseModel):
+     user_id: str
+     user_name: str
+@@ -719,6 +772,9 @@
+     prize_id: str
+     prize_title: str
+     price: int
++    base_price: Optional[int] = None
++    discount_points: int = 0
++    promotion_id: Optional[str] = None
+     status: Literal["processing", "ready", "delivered", "cancelled"]
+     team_id: Optional[str] = None
+     team_name: Optional[str] = None
+@@ -1062,11 +1118,44 @@
+     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:24]
+ 
+ 
++async def _active_prize_promotion(prize_id: str) -> Optional[dict]:
++    return await db.prize_promotions.find_one(
++        {
++            "prize_id": prize_id,
++            "active": True,
++            "quantity_remaining": {"$gt": 0},
++        },
++        {"_id": 0},
++        sort=[("created_at", -1)],
++    )
++
++
+ async def _prize_with_team(doc: dict) -> dict:
+     item = {**doc}
+     item.pop("_id", None)
+     team_id = item.get("team_id")
+     item["team_name"] = await _resolve_team_name(team_id) if team_id else None
++    base_price = max(0, int(item.get("price") or 0))
++    promotion = await _active_prize_promotion(str(item.get("id") or ""))
++    if promotion:
++        discount = max(0, min(base_price, int(promotion.get("discount_points") or 0)))
++        item.update({
++            "effective_price": max(0, base_price - discount),
++            "promotion_id": promotion.get("id"),
++            "promotion_discount": discount,
++            "promotion_quantity_total": max(0, int(promotion.get("quantity_total") or 0)),
++            "promotion_quantity_remaining": max(0, int(promotion.get("quantity_remaining") or 0)),
++            "promotion_active": True,
++        })
++    else:
++        item.update({
++            "effective_price": base_price,
++            "promotion_id": None,
++            "promotion_discount": 0,
++            "promotion_quantity_total": 0,
++            "promotion_quantity_remaining": 0,
++            "promotion_active": False,
++        })
+     return item
+ 
+ 
+@@ -2934,7 +3023,11 @@
+ 
+ 
+ @api.post("/prizes/{prize_id}/buy")
+-async def buy_prize(prize_id: str, user: dict = Depends(get_current_user)):
++async def buy_prize(
++    prize_id: str,
++    expected_price: Optional[int] = None,
++    user: dict = Depends(get_current_user),
++):
+     prize = await db.prizes.find_one({"id": prize_id, "active": True}, {"_id": 0})
+     if not prize:
+         raise HTTPException(status_code=404, detail="Приз не знайдено")
+@@ -2949,45 +3042,156 @@
+             status_code=400,
+             detail=f"Алмазний аватар активний до {expires_label}. Звичайний аватар можна змінити після його завершення.",
+         )
++
+     owned = prize_id in (user.get("owned_avatar_ids") or [])
+-    if not is_avatar and prize.get("stock", 0) <= 0:
++    if not is_avatar and int(prize.get("stock", 0) or 0) <= 0:
+         raise HTTPException(status_code=400, detail="Немає в наявності")
+-    price = 0 if (is_avatar and owned) else int(prize.get("price", 0))
+-    if user.get("balance", 0) < price:
++
++    base_price = 0 if (is_avatar and owned) else max(0, int(prize.get("price", 0) or 0))
++    promotion = await _active_prize_promotion(prize_id) if base_price > 0 else None
++    promotion_discount = 0
++    promotion_id = None
++    price = base_price
++    if promotion:
++        promotion_discount = max(0, min(base_price, int(promotion.get("discount_points") or 0)))
++        promotion_id = promotion.get("id")
++        price = max(0, base_price - promotion_discount)
++
++    if expected_price is not None and int(expected_price) != price:
++        raise HTTPException(
++            status_code=409,
++            detail="Ціна змінилася. Оновіть магазин і підтвердьте покупку ще раз.",
++        )
++    if int(user.get("balance", 0) or 0) < price:
+         raise HTTPException(status_code=400, detail="Недостатньо балів")
+ 
++    reserved_promotion = None
++    stock_reserved = False
++    if promotion_id:
++        reserved_promotion = await db.prize_promotions.find_one_and_update(
++            {"id": promotion_id, "active": True, "quantity_remaining": {"$gt": 0}},
++            {
++                "$inc": {"quantity_remaining": -1, "used_count": 1},
++                "$set": {"updated_at": now_iso(), "last_used_at": now_iso()},
++            },
++            return_document=ReturnDocument.AFTER,
++            projection={"_id": 0},
++        )
++        if not reserved_promotion:
++            # Another employee used the final discounted unit between catalog load and checkout.
++            if expected_price is not None and int(expected_price) != base_price:
++                raise HTTPException(
++                    status_code=409,
++                    detail="Акційні одиниці щойно закінчилися. Оновіть магазин і підтвердьте звичайну ціну.",
++                )
++            promotion_id = None
++            promotion_discount = 0
++            price = base_price
++        elif int(reserved_promotion.get("quantity_remaining") or 0) <= 0:
++            await db.prize_promotions.update_one(
++                {"id": promotion_id, "quantity_remaining": {"$lte": 0}},
++                {"$set": {"active": False, "ended_at": now_iso(), "updated_at": now_iso()}},
++            )
++
++    async def rollback_promotion() -> None:
++        if not promotion_id or not reserved_promotion:
++            return
++        await db.prize_promotions.update_one(
++            {"id": promotion_id},
++            {
++                "$inc": {"quantity_remaining": 1, "used_count": -1},
++                "$set": {"active": True, "updated_at": now_iso()},
++                "$unset": {"ended_at": ""},
++            },
++        )
++
++    if not is_avatar:
++        reserved_prize = await db.prizes.find_one_and_update(
++            {"id": prize_id, "active": True, "stock": {"$gt": 0}},
++            {"$inc": {"stock": -1}},
++            return_document=ReturnDocument.AFTER,
++            projection={"_id": 0},
++        )
++        if not reserved_prize:
++            await rollback_promotion()
++            raise HTTPException(status_code=400, detail="Немає в наявності")
++        stock_reserved = True
++
++    current_time = now_iso()
+     if is_avatar:
+-        updates = {
+-            "avatar_url": prize.get("image"),
+-            "active_avatar_prize_id": prize_id,
+-            "avatar_rarity": prize.get("avatar_rarity") or "basic",
+-            "avatar_daily_bonus": int(prize.get("daily_bonus") or 0),
+-            "avatar_task_replacements": int(prize.get("task_replacements") or 0),
++        operation = {
++            "$set": {
++                "avatar_url": prize.get("image"),
++                "active_avatar_prize_id": prize_id,
++                "avatar_rarity": prize.get("avatar_rarity") or "basic",
++                "avatar_daily_bonus": int(prize.get("daily_bonus") or 0),
++                "avatar_task_replacements": int(prize.get("task_replacements") or 0),
++            },
++            "$addToSet": {"owned_avatar_ids": prize_id},
+         }
+-        operation = {"$set": updates, "$addToSet": {"owned_avatar_ids": prize_id}}
+         if price:
+             operation["$inc"] = {"balance": -price}
+-        await db.users.update_one({"id": user["id"]}, operation)
+     else:
+-        await db.users.update_one({"id": user["id"]}, {"$inc": {"balance": -price}})
+-        await db.prizes.update_one({"id": prize_id}, {"$inc": {"stock": -1}})
++        operation = {"$inc": {"balance": -price}} if price else {"$set": {"updated_at": current_time}}
++
++    user_query = {"id": user["id"]}
++    if price:
++        user_query["balance"] = {"$gte": price}
++    fresh = await db.users.find_one_and_update(
++        user_query,
++        operation,
++        return_document=ReturnDocument.AFTER,
++        projection={"_id": 0},
++    )
++    if not fresh:
++        if stock_reserved:
++            await db.prizes.update_one({"id": prize_id}, {"$inc": {"stock": 1}})
++        await rollback_promotion()
++        raise HTTPException(status_code=400, detail="Недостатньо балів")
+ 
+     order = {
+-        "id": str(uuid.uuid4()), "user_id": user["id"], "user_name": user["name"],
+-        "prize_id": prize_id, "prize_title": prize["title"], "price": price,
+-        "team_id": user.get("team_id"), "team_name": await _resolve_team_name(user.get("team_id")),
+-        "status": "delivered" if is_avatar else "processing", "created_at": now_iso(),
++        "id": str(uuid.uuid4()),
++        "user_id": user["id"],
++        "user_name": user["name"],
++        "prize_id": prize_id,
++        "prize_title": prize["title"],
++        "price": price,
++        "base_price": base_price,
++        "discount_points": promotion_discount,
++        "promotion_id": promotion_id,
++        "team_id": user.get("team_id"),
++        "team_name": await _resolve_team_name(user.get("team_id")),
++        "status": "delivered" if is_avatar else "processing",
++        "created_at": current_time,
+     }
+     await db.orders.insert_one(order)
+     if price:
++        promo_label = f" · акція −{promotion_discount} Point" if promotion_discount else ""
+         await db.transactions.insert_one({
+-            "id": str(uuid.uuid4()), "user_id": user["id"], "kind": "purchase", "amount": -price,
+-            "description": f"Купівля: {prize['title']}", "created_at": now_iso(),
+-            "meta": {"source": "store", "prize_id": prize_id, "order_id": order["id"]},
++            "id": str(uuid.uuid4()),
++            "user_id": user["id"],
++            "kind": "purchase",
++            "amount": -price,
++            "description": f"Купівля: {prize['title']}{promo_label}",
++            "created_at": current_time,
++            "meta": {
++                "source": "store",
++                "prize_id": prize_id,
++                "order_id": order["id"],
++                "base_price": base_price,
++                "discount_points": promotion_discount,
++                "promotion_id": promotion_id,
++            },
+         })
+     order.pop("_id", None)
+-    fresh = await db.users.find_one({"id": user["id"]}, {"_id": 0})
+-    return {"order": OrderModel(**order), "user": _user_with_progress(fresh), "equipped": is_avatar, "already_owned": owned}
++    current_prize = await db.prizes.find_one({"id": prize_id}, {"_id": 0}) or prize
++    return {
++        "order": OrderModel(**order),
++        "user": _user_with_progress(fresh),
++        "equipped": is_avatar,
++        "already_owned": owned,
++        "prize": PrizeModel(**(await _prize_with_team(current_prize))),
++    }
+ 
+ 
+ @api.get("/team-bank", response_model=TeamBankModel)
+@@ -7233,6 +7437,7 @@
+         db.bonus_match_sessions,
+         db.bonus_match_completions,
+         db.bonus_match_daily,
++        db.announcement_reads,
+     )
+     for collection in user_collections:
+         await collection.delete_many({"user_id": user_id})
+@@ -7320,11 +7525,92 @@
+     return PrizeModel(**(await _prize_with_team(doc)))
+ 
+ 
++@api.get("/admin/prize-promotions", response_model=List[PrizePromotionModel])
++async def admin_list_prize_promotions(admin: dict = Depends(get_current_admin)):
++    docs = await db.prize_promotions.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
++    result = []
++    for doc in docs:
++        if not doc.get("team_name") and doc.get("team_id"):
++            doc["team_name"] = await _resolve_team_name(doc.get("team_id"))
++        result.append(PrizePromotionModel(**doc))
++    return result
++
++
++@api.post("/admin/prizes/{prize_id}/promotion", response_model=PrizePromotionModel, status_code=201)
++async def admin_create_prize_promotion(
++    prize_id: str,
++    body: PrizePromotionCreateBody,
++    admin: dict = Depends(get_current_admin),
++):
++    prize = await db.prizes.find_one({"id": prize_id}, {"_id": 0})
++    if not prize:
++        raise HTTPException(status_code=404, detail="Приз не знайдено")
++    base_price = max(0, int(prize.get("price") or 0))
++    discount = int(body.discount_points)
++    quantity = int(body.quantity)
++    if base_price <= 0:
++        raise HTTPException(status_code=400, detail="Для безкоштовного призу акція не потрібна")
++    if discount > base_price:
++        raise HTTPException(status_code=400, detail="Знижка не може перевищувати базову ціну призу")
++    if prize.get("category") != "avatar" and int(prize.get("stock") or 0) < quantity:
++        raise HTTPException(status_code=400, detail="Кількість акційних одиниць перевищує залишок призу")
++
++    current_time = now_iso()
++    await db.prize_promotions.update_many(
++        {"prize_id": prize_id, "active": True},
++        {"$set": {"active": False, "ended_at": current_time, "updated_at": current_time, "end_reason": "replaced"}},
++    )
++    team_id = prize.get("team_id")
++    doc = {
++        "id": str(uuid.uuid4()),
++        "prize_id": prize_id,
++        "prize_title": prize.get("title") or "Приз",
++        "base_price": base_price,
++        "discount_points": discount,
++        "effective_price": max(0, base_price - discount),
++        "quantity_total": quantity,
++        "quantity_remaining": quantity,
++        "used_count": 0,
++        "active": True,
++        "team_id": team_id,
++        "team_name": await _resolve_team_name(team_id) if team_id else None,
++        "created_by": admin["id"],
++        "created_by_name": admin.get("name", "Адміністратор"),
++        "created_at": current_time,
++        "updated_at": current_time,
++        "ended_at": None,
++    }
++    await db.prize_promotions.insert_one(doc)
++
++    notify_title = "Акція в магазині"
++    notify_body = f"{doc['prize_title']}: −{discount} Point на наступні {quantity} шт."
++    if team_id:
++        await _notify_team(team_id, "prize_promotion", notify_title, notify_body, "/store", "gift", "prizes", {"prize_id": prize_id, "promotion_id": doc["id"]})
++    else:
++        await _notify_all_employees("prize_promotion", notify_title, notify_body, "/store", "gift", "prizes", {"prize_id": prize_id, "promotion_id": doc["id"]})
++
++    doc.pop("_id", None)
++    return PrizePromotionModel(**doc)
++
++
++@api.delete("/admin/prizes/{prize_id}/promotion")
++async def admin_cancel_prize_promotion(prize_id: str, admin: dict = Depends(get_current_admin)):
++    current_time = now_iso()
++    result = await db.prize_promotions.update_many(
++        {"prize_id": prize_id, "active": True},
++        {"$set": {"active": False, "ended_at": current_time, "updated_at": current_time, "end_reason": "cancelled"}},
++    )
++    if result.matched_count == 0:
++        raise HTTPException(status_code=404, detail="Активну акцію для цього призу не знайдено")
++    return {"ok": True, "prize_id": prize_id}
++
++
+ @api.delete("/admin/prizes/{prize_id}", status_code=204)
+ async def admin_delete_prize(prize_id: str, admin: dict = Depends(get_current_admin)):
+     r = await db.prizes.delete_one({"id": prize_id})
+     if r.deleted_count == 0:
+         raise HTTPException(status_code=404, detail="Приз не знайдено")
++    await db.prize_promotions.delete_many({"prize_id": prize_id})
+     return None
+ 
+ 
+@@ -7582,6 +7868,108 @@
+ 
+ 
+ # ────────────────────────────────────────────────────────────────────────
++# Admin announcements — one-time modal messages for employees
++# ────────────────────────────────────────────────────────────────────────
++async def _announcement_with_stats(doc: dict) -> dict:
++    item = {**doc}
++    item.pop("_id", None)
++    item["dismissed_count"] = await db.announcement_reads.count_documents({"announcement_id": item["id"]})
++    return item
++
++
++@api.get("/announcements/pending", response_model=Optional[AnnouncementModel])
++async def pending_announcement(user: dict = Depends(get_current_user)):
++    if user.get("role") == "admin":
++        return None
++    seen_ids = await db.announcement_reads.distinct("announcement_id", {"user_id": user["id"]})
++    query = {"active": True}
++    if seen_ids:
++        query["id"] = {"$nin": seen_ids}
++    doc = await db.announcements.find_one(query, {"_id": 0}, sort=[("created_at", 1)])
++    if not doc:
++        return None
++    doc["dismissed_count"] = 0
++    return AnnouncementModel(**doc)
++
++
++@api.post("/announcements/{announcement_id}/dismiss")
++async def dismiss_announcement(announcement_id: str, user: dict = Depends(get_current_user)):
++    exists = await db.announcements.find_one({"id": announcement_id}, {"_id": 0, "id": 1})
++    if not exists:
++        raise HTTPException(status_code=404, detail="Повідомлення не знайдено")
++    await db.announcement_reads.update_one(
++        {"announcement_id": announcement_id, "user_id": user["id"]},
++        {
++            "$setOnInsert": {
++                "id": str(uuid.uuid4()),
++                "announcement_id": announcement_id,
++                "user_id": user["id"],
++                "user_name": user.get("name", "Працівник"),
++                "dismissed_at": now_iso(),
++            }
++        },
++        upsert=True,
++    )
++    return {"ok": True, "announcement_id": announcement_id}
++
++
++@api.get("/admin/announcements", response_model=List[AnnouncementModel])
++async def admin_list_announcements(admin: dict = Depends(get_current_admin)):
++    docs = await db.announcements.find({}, {"_id": 0}).sort("created_at", -1).to_list(200)
++    return [AnnouncementModel(**(await _announcement_with_stats(doc))) for doc in docs]
++
++
++@api.post("/admin/announcements", response_model=AnnouncementModel, status_code=201)
++async def admin_create_announcement(body: AnnouncementCreateBody, admin: dict = Depends(get_current_admin)):
++    current_time = now_iso()
++    doc = {
++        "id": str(uuid.uuid4()),
++        "title": body.title.strip(),
++        "message": body.message.strip(),
++        "active": True,
++        "created_by": admin["id"],
++        "created_by_name": admin.get("name", "Адміністратор"),
++        "created_at": current_time,
++        "updated_at": current_time,
++        "dismissed_count": 0,
++    }
++    await db.announcements.insert_one(doc)
++    doc.pop("_id", None)
++    return AnnouncementModel(**doc)
++
++
++@api.patch("/admin/announcements/{announcement_id}", response_model=AnnouncementModel)
++async def admin_update_announcement(
++    announcement_id: str,
++    body: AnnouncementUpdateBody,
++    admin: dict = Depends(get_current_admin),
++):
++    supplied = body.model_fields_set
++    updates = {key: value for key, value in body.model_dump().items() if key in supplied}
++    if "title" in updates and updates["title"] is not None:
++        updates["title"] = updates["title"].strip()
++    if "message" in updates and updates["message"] is not None:
++        updates["message"] = updates["message"].strip()
++    if not updates:
++        raise HTTPException(status_code=400, detail="Немає полів для оновлення")
++    updates["updated_at"] = now_iso()
++    result = await db.announcements.update_one({"id": announcement_id}, {"$set": updates})
++    if result.matched_count == 0:
++        raise HTTPException(status_code=404, detail="Повідомлення не знайдено")
++    doc = await db.announcements.find_one({"id": announcement_id}, {"_id": 0})
++    return AnnouncementModel(**(await _announcement_with_stats(doc)))
++
++
++@api.delete("/admin/announcements/{announcement_id}", status_code=204)
++async def admin_delete_announcement(announcement_id: str, admin: dict = Depends(get_current_admin)):
++    result = await db.announcements.delete_one({"id": announcement_id})
++    if result.deleted_count == 0:
++        raise HTTPException(status_code=404, detail="Повідомлення не знайдено")
++    await db.announcement_reads.delete_many({"announcement_id": announcement_id})
++    return None
++
++
++# ────────────────────────────────────────────────────────────────────────
+ # Startup: seed admin, demo users, quests, prizes
+ # ────────────────────────────────────────────────────────────────────────
+ SEED_QUESTS = [
+@@ -7736,6 +8124,11 @@
+     await db.team_bank_contributions.create_index([("team_id", 1), ("cycle_number", 1), ("created_at", -1)])
+     await db.team_bank_cycles.create_index([("team_id", 1), ("cycle_number", -1)], unique=True)
+     await db.prizes.create_index("team_id", sparse=True)
++    await db.prize_promotions.create_index([("prize_id", 1), ("active", 1), ("created_at", -1)])
++    await db.prize_promotions.create_index("created_at")
++    await db.announcements.create_index([("active", 1), ("created_at", 1)])
++    await db.announcement_reads.create_index([("announcement_id", 1), ("user_id", 1)], unique=True)
++    await db.announcement_reads.create_index([("user_id", 1), ("dismissed_at", -1)])
+ 
+     # Teams — only administrator-created teams are used in production.
+     team_key_to_id = {}
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' '--exclude=VPDK-BONUS-V140.patch' a/frontend/public/service-worker.js b/frontend/public/service-worker.js
+--- a/frontend/public/service-worker.js	2026-08-05 15:30:00.000000000 +0000
++++ b/frontend/public/service-worker.js	2026-08-05 16:41:23.030311201 +0000
+@@ -1,5 +1,6 @@
+ /* VPDK Bonus — Service Worker
+  * v138 fixes light-theme contrast across custom cards and expands leaderboards to 20 places.
++ * v140 adds limited-quantity prize promotions and one-time administrator announcements.
+  * v139 updates game rewards, AI Trainer first-clear rewards, cube economy, and admin search/quick awards.
+  * v137 adds the rectangular diamond employee frame to rankings, reports, profiles, and feed cards.
+  * v136 adds premium diamond-avatar grant events to the activity feed.
+@@ -27,7 +28,7 @@
+  * never be cached as index.html, otherwise browsers can render a giant broken
+  * image element over the board.
+  */
+-const VERSION = "vpdk-v139";
++const VERSION = "vpdk-v140";
+ const STATIC_CACHE = `${VERSION}-static`;
+ const RUNTIME_CACHE = `${VERSION}-runtime`;
+ 
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' '--exclude=VPDK-BONUS-V140.patch' a/frontend/src/components/AdminAnnouncementModal.jsx b/frontend/src/components/AdminAnnouncementModal.jsx
+--- a/frontend/src/components/AdminAnnouncementModal.jsx	1970-01-01 00:00:00.000000000 +0000
++++ b/frontend/src/components/AdminAnnouncementModal.jsx	2026-08-05 16:52:04.084972522 +0000
+@@ -0,0 +1,159 @@
++import { useCallback, useEffect, useState } from "react";
++import { CheckCircle2, Megaphone, Sparkles, X } from "lucide-react";
++import api from "@/lib/api";
++
++const localDismissedKey = (userId) => `vpdk_dismissed_admin_announcements_v140:${String(userId || "guest")}`;
++
++const readLocalDismissed = (userId) => {
++  if (typeof window === "undefined") return new Set();
++  try {
++    const value = JSON.parse(window.localStorage.getItem(localDismissedKey(userId)) || "[]");
++    return new Set(Array.isArray(value) ? value.map(String) : []);
++  } catch (_) {
++    return new Set();
++  }
++};
++
++const writeLocalDismissed = (userId, ids) => {
++  if (typeof window === "undefined") return;
++  try {
++    window.localStorage.setItem(localDismissedKey(userId), JSON.stringify([...ids].slice(-100)));
++  } catch (_) {
++    // Private browsing or restricted storage must not block the app.
++  }
++};
++
++export default function AdminAnnouncementModal({ user }) {
++  const [announcement, setAnnouncement] = useState(null);
++  const [closing, setClosing] = useState(false);
++
++  const loadPending = useCallback(async () => {
++    if (!user?.id || user.role === "admin") {
++      setAnnouncement(null);
++      return;
++    }
++    try {
++      // Local storage is only a fallback for a temporarily unavailable backend.
++      // Reconcile locally dismissed ids first, then ask for the next unread item.
++      for (let attempt = 0; attempt < 6; attempt += 1) {
++        const { data } = await api.get("/announcements/pending", {
++          params: { _: Date.now() + attempt },
++          headers: { "Cache-Control": "no-cache" },
++        });
++        if (!data?.id) {
++          setAnnouncement(null);
++          return;
++        }
++        const dismissed = readLocalDismissed(user.id);
++        if (!dismissed.has(String(data.id))) {
++          setAnnouncement(data);
++          return;
++        }
++        try {
++          await api.post(`/announcements/${data.id}/dismiss`);
++        } catch (_) {
++          setAnnouncement(null);
++          return;
++        }
++      }
++      setAnnouncement(null);
++    } catch (_) {
++      // Announcements are helpful, but never allowed to block app startup.
++    }
++  }, [user?.id, user?.role]);
++
++  useEffect(() => {
++    loadPending();
++    const onFocus = () => loadPending();
++    const onVisibility = () => {
++      if (document.visibilityState === "visible") loadPending();
++    };
++    window.addEventListener("focus", onFocus);
++    document.addEventListener("visibilitychange", onVisibility);
++    return () => {
++      window.removeEventListener("focus", onFocus);
++      document.removeEventListener("visibilitychange", onVisibility);
++    };
++  }, [loadPending]);
++
++  const dismiss = async () => {
++    if (!announcement?.id || closing) return;
++    setClosing(true);
++    const dismissed = readLocalDismissed(user.id);
++    dismissed.add(String(announcement.id));
++    writeLocalDismissed(user.id, dismissed);
++    try {
++      await api.post(`/announcements/${announcement.id}/dismiss`);
++    } catch (_) {
++      // The local marker prevents the same message from flashing again on this device.
++    }
++    setAnnouncement(null);
++    setClosing(false);
++    window.setTimeout(loadPending, 250);
++  };
++
++  if (!announcement) return null;
++
++  return (
++    <div className="admin-announcement-overlay fixed inset-0 z-[90] flex items-center justify-center px-5 py-8" role="presentation">
++      <button
++        type="button"
++        aria-label="Закрити повідомлення"
++        className="absolute inset-0 cursor-default bg-black/75 backdrop-blur-md"
++        onClick={dismiss}
++      />
++      <section
++        role="dialog"
++        aria-modal="true"
++        aria-labelledby="admin-announcement-title"
++        className="admin-announcement-card relative z-10 w-full max-w-[430px] overflow-hidden rounded-[30px] border border-[#7DD3FC]/45 p-5 shadow-2xl"
++        data-testid="admin-announcement-modal"
++      >
++        <div className="admin-announcement-orbit" aria-hidden="true" />
++        <div className="relative z-10">
++          <div className="flex items-start justify-between gap-4">
++            <div className="flex min-w-0 items-center gap-3">
++              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-[#7DD3FC]/35 bg-[#7DD3FC]/10 text-[#7DD3FC]">
++                <Megaphone size={22} strokeWidth={2.8} />
++              </div>
++              <div className="min-w-0">
++                <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-[0.22em] text-[#7DD3FC]">
++                  <Sparkles size={12} strokeWidth={3} /> Повідомлення адміністратора
++                </div>
++                <h2 id="admin-announcement-title" className="mt-1 font-display text-2xl leading-tight text-white">
++                  {announcement.title}
++                </h2>
++              </div>
++            </div>
++            <button
++              type="button"
++              onClick={dismiss}
++              disabled={closing}
++              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-black/25 text-zinc-400 active:scale-95 disabled:opacity-50"
++              aria-label="Закрити"
++            >
++              <X size={17} strokeWidth={3} />
++            </button>
++          </div>
++
++          <div className="mt-5 whitespace-pre-wrap rounded-2xl border border-white/10 bg-black/20 px-4 py-4 text-sm font-bold leading-relaxed text-zinc-200">
++            {announcement.message}
++          </div>
++
++          <button
++            type="button"
++            onClick={dismiss}
++            disabled={closing}
++            className="mt-5 flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-[#7a5900] bg-[#FFB800] px-4 text-sm font-black uppercase tracking-wider text-[#0A0A0A] active:scale-[.99] disabled:opacity-60"
++            data-testid="dismiss-admin-announcement"
++          >
++            <CheckCircle2 size={18} strokeWidth={3} /> {closing ? "Закриваємо…" : "Зрозуміло"}
++          </button>
++          <p className="mt-3 text-center text-[10px] font-bold text-zinc-500">
++            Після закриття це повідомлення більше не зʼявиться у вашому профілі.
++          </p>
++        </div>
++      </section>
++    </div>
++  );
++}
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' '--exclude=VPDK-BONUS-V140.patch' a/frontend/src/components/AppLayout.jsx b/frontend/src/components/AppLayout.jsx
+--- a/frontend/src/components/AppLayout.jsx	2026-08-03 11:06:50.000000000 +0000
++++ b/frontend/src/components/AppLayout.jsx	2026-08-05 16:38:16.585447348 +0000
+@@ -5,6 +5,7 @@
+ import api from "@/lib/api";
+ import InstallPrompt from "@/components/InstallPrompt";
+ import NotificationBell from "@/components/NotificationBell";
++import AdminAnnouncementModal from "@/components/AdminAnnouncementModal";
+ 
+ const PAGE_LABELS = {
+   "/": "Головна",
+@@ -168,6 +169,7 @@
+         </main>
+ 
+         {!isGameRoute && <InstallPrompt />}
++        {!isGameRoute && <AdminAnnouncementModal user={user} />}
+ 
+         {!isGameRoute && <nav
+           data-testid="bottom-nav"
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' '--exclude=VPDK-BONUS-V140.patch' a/frontend/src/context/AppContext.jsx b/frontend/src/context/AppContext.jsx
+--- a/frontend/src/context/AppContext.jsx	2026-08-03 17:35:20.000000000 +0000
++++ b/frontend/src/context/AppContext.jsx	2026-08-05 16:38:29.973105101 +0000
+@@ -205,21 +205,23 @@
+ 
+   const claimQuest = async () => ({ ok: false, error: "Стара система квестів вимкнена" });
+ 
+-  const buyPrize = async (prizeId) => {
++  const buyPrize = async (prizeId, expectedPrice = null) => {
+     try {
+-      const { data } = await api.post(`/prizes/${prizeId}/buy`);
++      const params = Number.isFinite(Number(expectedPrice))
++        ? { expected_price: Number(expectedPrice) }
++        : undefined;
++      const { data } = await api.post(`/prizes/${prizeId}/buy`, null, { params });
+       setState((current) => ({
+         ...current,
+         user: data.user,
+         orders: [data.order, ...current.orders],
+         prizes: current.prizes.map((prize) =>
+-          prize.id === prizeId && prize.category !== "avatar"
+-            ? { ...prize, stock: Math.max(0, prize.stock - 1) }
+-            : prize
++          prize.id === prizeId && data.prize ? data.prize : prize
+         ),
+       }));
+-      return { ok: true };
++      return { ok: true, data };
+     } catch (error) {
++      if (error?.response?.status === 409) loadPrizes().catch(() => {});
+       return { ok: false, error: extractError(error, "Не вдалося обміняти Point") };
+     }
+   };
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' '--exclude=VPDK-BONUS-V140.patch' a/frontend/src/index.css b/frontend/src/index.css
+--- a/frontend/src/index.css	2026-08-04 20:40:35.000000000 +0000
++++ b/frontend/src/index.css	2026-08-05 16:48:46.004240430 +0000
+@@ -1409,3 +1409,80 @@
+   color: #20242E !important;
+   background: #FFFFFF !important;
+ }
++
++/* ======================================================================
++   v140 · ONE-TIME ADMIN ANNOUNCEMENTS + LIMITED PRIZE PROMOTIONS
++   ====================================================================== */
++.admin-announcement-card {
++  background:
++    radial-gradient(circle at 12% 0%, rgba(125,211,252,.20), transparent 40%),
++    radial-gradient(circle at 94% 100%, rgba(168,85,247,.17), transparent 45%),
++    linear-gradient(155deg, rgba(8,21,36,.99), rgba(24,18,38,.99));
++  box-shadow:
++    0 0 0 1px rgba(255,255,255,.04) inset,
++    0 0 38px rgba(56,189,248,.18),
++    0 24px 70px rgba(0,0,0,.52);
++}
++.admin-announcement-orbit {
++  position: absolute;
++  inset: -50%;
++  pointer-events: none;
++  background: conic-gradient(from 30deg, transparent 0 22%, rgba(125,211,252,.13) 30%, transparent 40% 65%, rgba(192,132,252,.14) 74%, transparent 84% 100%);
++  animation: admin-announcement-orbit 12s linear infinite;
++}
++.admin-announcement-card::after {
++  content: "";
++  position: absolute;
++  inset: 0;
++  pointer-events: none;
++  background: linear-gradient(115deg, transparent 0 34%, rgba(255,255,255,.08) 47%, transparent 60% 100%);
++  transform: translateX(-130%);
++  animation: admin-announcement-shine 5.5s ease-in-out infinite;
++}
++@keyframes admin-announcement-orbit { to { transform: rotate(360deg); } }
++@keyframes admin-announcement-shine {
++  0%, 60% { transform: translateX(-130%); }
++  82%, 100% { transform: translateX(130%); }
++}
++@media (prefers-reduced-motion: reduce) {
++  .admin-announcement-orbit,
++  .admin-announcement-card::after { animation: none; }
++}
++html.light .admin-announcement-card {
++  background:
++    radial-gradient(circle at 10% 0%, rgba(14,165,233,.14), transparent 42%),
++    radial-gradient(circle at 94% 100%, rgba(139,92,246,.10), transparent 45%),
++    linear-gradient(155deg, #F7FCFF, #F8F4FF) !important;
++  border-color: rgba(2,132,199,.38) !important;
++  box-shadow: 0 22px 60px rgba(48,67,104,.18) !important;
++}
++html.light .admin-announcement-card .text-white { color: #171A22 !important; }
++html.light .admin-announcement-card .text-zinc-200,
++html.light .admin-announcement-card .text-zinc-300,
++html.light .admin-announcement-card .text-zinc-400 { color: #454B58 !important; }
++html.light .admin-announcement-card .text-zinc-500 { color: #687181 !important; }
++html.light .admin-announcement-card .bg-black\/20,
++html.light .admin-announcement-card .bg-black\/25 {
++  background-color: rgba(255,255,255,.72) !important;
++  border-color: rgba(62,83,120,.12) !important;
++}
++
++/* v140 admin surfaces in the complete light theme. */
++html.light .admin-promotion-info {
++  background: linear-gradient(145deg, #FFF4F8, #FFFFFF) !important;
++  border-color: rgba(190,24,93,.22) !important;
++}
++html.light .admin-announcement-info {
++  background: linear-gradient(145deg, #ECFAFF, #FFFFFF) !important;
++  border-color: rgba(3,105,161,.22) !important;
++}
++html.light .admin-promotion-prize-card,
++html.light .admin-announcement-list-card {
++  background: #FFFFFF !important;
++  border-color: #D9D5E2 !important;
++  box-shadow: 0 9px 24px rgba(52,43,72,.06);
++}
++html.light .admin-promotion-info .bg-black\/20,
++html.light .admin-announcement-info .bg-black\/20 {
++  background-color: rgba(255,255,255,.74) !important;
++}
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' '--exclude=VPDK-BONUS-V140.patch' a/frontend/src/pages/Admin.jsx b/frontend/src/pages/Admin.jsx
+--- a/frontend/src/pages/Admin.jsx	2026-08-05 15:31:38.000000000 +0000
++++ b/frontend/src/pages/Admin.jsx	2026-08-05 16:48:24.971210358 +0000
+@@ -4,7 +4,7 @@
+   Users, Swords, Gift, ShoppingBag, BarChart3, Plus, Pencil, Trash2, X, Minus, Check, Coins, Trophy, ChevronRight,
+   UserCog, ShieldCheck, Crown, UsersRound, Inbox, UserCheck, ClipboardList, CheckCircle2, XCircle,
+   ArrowUp, ArrowDown, FileText, BrainCircuit, Clock3, TrendingUp, Search, CalendarDays, Target, Save, ChevronDown,
+-  KeyRound, Award, Medal, Star, Sparkles, Send, Gamepad2, RotateCcw, PiggyBank, Gem,
++  KeyRound, Award, Medal, Star, Sparkles, Send, Gamepad2, RotateCcw, PiggyBank, Gem, BadgePercent, Megaphone, MessageSquareText,
+ } from "lucide-react";
+ import api, { extractError, API_BASE, getToken } from "@/lib/api";
+ import { useApp } from "@/context/AppContext";
+@@ -24,6 +24,7 @@
+   { id: "teams", label: "Команди", icon: UsersRound },
+   { id: "achievements", label: "Досягнення", icon: Award },
+   { id: "bonus-match", label: "Bonus Match", icon: Gamepad2 },
++  { id: "announcements", label: "Повідомлення", icon: Megaphone },
+   { id: "prizes", label: "Призи", icon: Gift },
+   { id: "team-banks", label: "Банка Команди", icon: PiggyBank },
+   { id: "orders", label: "Замовлення", icon: ShoppingBag },
+@@ -1535,6 +1536,7 @@
+   const [prizes, setPrizes] = useState([]);
+   const [teams, setTeams] = useState([]);
+   const [editing, setEditing] = useState(null);
++  const [promotionEditing, setPromotionEditing] = useState(null);
+ 
+   const load = async () => {
+     try {
+@@ -1557,8 +1559,22 @@
+     } catch (e) { toast.error(extractError(e)); }
+   };
+ 
++  const visiblePrizes = prizes.filter((p) => !teamFilter || !p.team_id || String(p.team_id) === teamFilter);
++
+   return (
+     <div className="space-y-3" data-testid="prizes-view">
++      <div className="admin-promotion-info rounded-3xl border border-[#FF5C7A]/25 bg-[#FF5C7A]/10 p-4">
++        <div className="flex items-start gap-3">
++          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-[#FF5C7A]/30 bg-black/20 text-[#FF8EB2]">
++            <BadgePercent size={21} strokeWidth={2.8} />
++          </div>
++          <div>
++            <div className="text-sm font-black uppercase tracking-wider text-white">Акції на обмежену кількість призів</div>
++            <div className="mt-1 text-xs leading-relaxed text-zinc-400">Оберіть приз, вкажіть знижку в Point і кількість наступних покупок. Після використання останньої акційної одиниці звичайна ціна повернеться автоматично.</div>
++          </div>
++        </div>
++      </div>
++
+       <button
+         data-testid="btn-create-prize"
+         onClick={() => setEditing({})}
+@@ -1566,32 +1582,111 @@
+       >
+         <Plus size={16} strokeWidth={3} /> Новий приз
+       </button>
+-      {prizes.filter((p) => !teamFilter || !p.team_id || String(p.team_id) === teamFilter).map((p) => (
+-        <div key={p.id} data-testid={`admin-prize-${p.id}`} className={`bg-[#1A1A1E] border rounded-2xl p-3 flex items-center gap-3 ${p.active ? "border-white/10" : "border-white/5 opacity-50"}`}>
+-          <div className="flex-1 min-w-0">
+-            <div className="flex items-center gap-2">
+-              <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-[#FFB800] text-[#0A0A0A]">{p.category}</span>
+-              <span className="text-[#FFB800] font-black text-xs">{p.price} балів</span>
+-              <span className="text-zinc-500 text-[10px]">• {p.stock} шт</span>
+-              <span className={`rounded-full px-2 py-0.5 text-[9px] font-black ${p.team_id ? "bg-[#00F0FF]/10 text-[#00F0FF]" : "bg-white/5 text-zinc-400"}`}>
+-                {p.team_name || "Загальний"}
+-              </span>
++
++      {visiblePrizes.map((p) => {
++        const promoActive = Boolean(p.promotion_active && Number(p.promotion_quantity_remaining || 0) > 0);
++        return (
++          <div key={p.id} data-testid={`admin-prize-${p.id}`} className={`admin-promotion-prize-card bg-[#1A1A1E] border rounded-2xl p-3 ${p.active ? "border-white/10" : "border-white/5 opacity-50"}`}>
++            <div className="flex items-start gap-3">
++              <div className="flex-1 min-w-0">
++                <div className="flex flex-wrap items-center gap-2">
++                  <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-[#FFB800] text-[#0A0A0A]">{p.category}</span>
++                  {promoActive ? (
++                    <>
++                      <span className="text-zinc-600 font-black text-[10px] line-through">{p.price} Point</span>
++                      <span className="text-[#FF8EB2] font-black text-xs">{p.effective_price} Point</span>
++                      <span className="rounded-full border border-[#FF5C7A]/30 bg-[#FF5C7A]/10 px-2 py-0.5 text-[9px] font-black text-[#FF9BBB]">−{p.promotion_discount} · ще {p.promotion_quantity_remaining}/{p.promotion_quantity_total}</span>
++                    </>
++                  ) : (
++                    <span className="text-[#FFB800] font-black text-xs">{p.price} балів</span>
++                  )}
++                  <span className="text-zinc-500 text-[10px]">• {p.stock} шт</span>
++                  <span className={`rounded-full px-2 py-0.5 text-[9px] font-black ${p.team_id ? "bg-[#00F0FF]/10 text-[#00F0FF]" : "bg-white/5 text-zinc-400"}`}>
++                    {p.team_name || "Загальний"}
++                  </span>
++                </div>
++                <div className="text-white font-black text-sm truncate mt-1">{p.title}</div>
++              </div>
++              <div className="flex gap-1.5 shrink-0">
++                <button title="Налаштувати акцію" data-testid={`promotion-prize-${p.id}`} onClick={() => setPromotionEditing(p)} className={`w-9 h-9 rounded-xl border flex items-center justify-center active:scale-95 ${promoActive ? "border-[#FF5C7A]/45 bg-[#FF5C7A]/15 text-[#FF8EB2]" : "border-white/10 bg-[#0A0A0A] text-zinc-300"}`}><BadgePercent size={15} strokeWidth={3} /></button>
++                <button data-testid={`edit-prize-${p.id}`} onClick={() => setEditing(p)} className="w-9 h-9 rounded-xl bg-[#0A0A0A] border border-white/10 text-white flex items-center justify-center active:scale-95"><Pencil size={14} strokeWidth={3} /></button>
++                <button data-testid={`delete-prize-${p.id}`} onClick={() => del(p)} className="w-9 h-9 rounded-xl bg-[#0A0A0A] border border-[#FF3B30]/40 text-[#FF3B30] flex items-center justify-center active:scale-95"><Trash2 size={14} strokeWidth={3} /></button>
++              </div>
+             </div>
+-            <div className="text-white font-black text-sm truncate mt-1">{p.title}</div>
+-          </div>
+-          <div className="flex gap-1.5 shrink-0">
+-            <button data-testid={`edit-prize-${p.id}`} onClick={() => setEditing(p)} className="w-9 h-9 rounded-xl bg-[#0A0A0A] border border-white/10 text-white flex items-center justify-center active:scale-95"><Pencil size={14} strokeWidth={3} /></button>
+-            <button data-testid={`delete-prize-${p.id}`} onClick={() => del(p)} className="w-9 h-9 rounded-xl bg-[#0A0A0A] border border-[#FF3B30]/40 text-[#FF3B30] flex items-center justify-center active:scale-95"><Trash2 size={14} strokeWidth={3} /></button>
+           </div>
+-        </div>
+-      ))}
++        );
++      })}
++      {!visiblePrizes.length && <div className="py-8 text-center text-sm font-black text-zinc-500">У вибраній команді призів немає</div>}
+       {editing !== null && (
+         <PrizeEditor prize={editing} teams={teams} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />
+       )}
++      {promotionEditing && (
++        <PromotionEditor prize={promotionEditing} onClose={() => setPromotionEditing(null)} onSaved={() => { setPromotionEditing(null); load(); }} />
++      )}
+     </div>
+   );
+ };
+ 
++const PromotionEditor = ({ prize, onClose, onSaved }) => {
++  const hasPromotion = Boolean(prize.promotion_active && Number(prize.promotion_quantity_remaining || 0) > 0);
++  const [discount, setDiscount] = useState(hasPromotion ? Number(prize.promotion_discount || 0) : Math.min(200, Number(prize.price || 0)));
++  const [quantity, setQuantity] = useState(hasPromotion ? Number(prize.promotion_quantity_remaining || 1) : 2);
++  const [busy, setBusy] = useState(false);
++  const effective = Math.max(0, Number(prize.price || 0) - Number(discount || 0));
++
++  const save = async () => {
++    if (Number(discount) <= 0) return toast.error("Вкажіть знижку більше 0");
++    if (Number(discount) > Number(prize.price || 0)) return toast.error("Знижка не може перевищувати ціну призу");
++    if (Number(quantity) <= 0) return toast.error("Вкажіть кількість акційних призів");
++    setBusy(true);
++    try {
++      await api.post(`/admin/prizes/${prize.id}/promotion`, { discount_points: Number(discount), quantity: Number(quantity) });
++      toast.success("Акцію запущено", { description: `${prize.title}: −${discount} Point на ${quantity} шт.` });
++      onSaved();
++    } catch (error) {
++      toast.error(extractError(error, "Не вдалося створити акцію"));
++    } finally { setBusy(false); }
++  };
++
++  const cancel = async () => {
++    if (!hasPromotion || !window.confirm(`Завершити акцію на «${prize.title}»?`)) return;
++    setBusy(true);
++    try {
++      await api.delete(`/admin/prizes/${prize.id}/promotion`);
++      toast.success("Акцію завершено");
++      onSaved();
++    } catch (error) {
++      toast.error(extractError(error, "Не вдалося завершити акцію"));
++    } finally { setBusy(false); }
++  };
++
++  return (
++    <BottomSheet onClose={onClose} title="Акція на приз">
++      <div className="rounded-2xl border border-[#FF5C7A]/25 bg-[#FF5C7A]/10 p-4">
++        <div className="text-[10px] font-black uppercase tracking-wider text-[#FF9BBB]">{prize.title}</div>
++        <div className="mt-2 flex items-end gap-2">
++          <span className="font-display text-3xl text-[#FFB800]">{effective.toLocaleString("uk-UA")}</span>
++          <span className="pb-1 text-xs font-black text-zinc-600 line-through">{Number(prize.price || 0).toLocaleString("uk-UA")} Point</span>
++        </div>
++        {hasPromotion && <div className="mt-2 text-xs font-bold text-zinc-400">Зараз залишилось {prize.promotion_quantity_remaining} з {prize.promotion_quantity_total} акційних одиниць.</div>}
++      </div>
++      <div className="mt-4 grid grid-cols-2 gap-3">
++        <label>
++          <span className="mb-1 block text-[10px] font-black uppercase tracking-wider text-zinc-500">Знижка, Point</span>
++          <input type="number" min="1" max={prize.price} value={discount} onChange={(e) => setDiscount(parseInt(e.target.value) || 0)} className="h-12 w-full rounded-xl border-2 border-white/10 bg-[#0A0A0A] px-3 font-black text-white outline-none focus:border-[#FF5C7A]" data-testid="promotion-discount" />
++        </label>
++        <label>
++          <span className="mb-1 block text-[10px] font-black uppercase tracking-wider text-zinc-500">Наступні, шт</span>
++          <input type="number" min="1" value={quantity} onChange={(e) => setQuantity(parseInt(e.target.value) || 0)} className="h-12 w-full rounded-xl border-2 border-white/10 bg-[#0A0A0A] px-3 font-black text-white outline-none focus:border-[#FF5C7A]" data-testid="promotion-quantity" />
++        </label>
++      </div>
++      <p className="mt-3 text-xs leading-relaxed text-zinc-500">Нова акція замінить попередню. Кожна успішна покупка зменшує лічильник на 1. Коли він дійде до нуля, магазин автоматично поверне базову ціну.</p>
++      <button onClick={save} disabled={busy} className="mt-5 flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-[#8A173E] bg-[#FF5C7A] text-sm font-black uppercase tracking-wider text-white disabled:opacity-60"><BadgePercent size={17} strokeWidth={3} /> {busy ? "Зберігаємо…" : hasPromotion ? "Замінити акцію" : "Запустити акцію"}</button>
++      {hasPromotion && <button onClick={cancel} disabled={busy} className="mt-2 h-11 w-full rounded-2xl border border-white/10 bg-[#27272A] text-xs font-black uppercase tracking-wider text-zinc-300 disabled:opacity-60">Завершити поточну акцію</button>}
++    </BottomSheet>
++  );
++};
++
+ const TeamBanksAdminView = ({ teamFilter }) => {
+   const [banks, setBanks] = useState([]);
+   const [loading, setLoading] = useState(true);
+@@ -1810,6 +1905,124 @@
+   );
+ };
+ 
++// ─────────────── One-time employee announcements ───────────────
++const AnnouncementsView = () => {
++  const [items, setItems] = useState([]);
++  const [editing, setEditing] = useState(null);
++  const [loading, setLoading] = useState(true);
++
++  const load = async () => {
++    setLoading(true);
++    try {
++      const { data } = await api.get("/admin/announcements");
++      setItems(Array.isArray(data) ? data : []);
++    } catch (error) {
++      toast.error(extractError(error, "Не вдалося завантажити повідомлення"));
++    } finally { setLoading(false); }
++  };
++  useEffect(() => { load(); }, []);
++
++  const toggle = async (item) => {
++    try {
++      await api.patch(`/admin/announcements/${item.id}`, { active: !item.active });
++      toast.success(item.active ? "Повідомлення вимкнено" : "Повідомлення знову активне");
++      load();
++    } catch (error) { toast.error(extractError(error)); }
++  };
++
++  const remove = async (item) => {
++    if (!window.confirm(`Видалити повідомлення «${item.title}»?`)) return;
++    try {
++      await api.delete(`/admin/announcements/${item.id}`);
++      toast.success("Повідомлення видалено");
++      load();
++    } catch (error) { toast.error(extractError(error)); }
++  };
++
++  return (
++    <div className="space-y-4" data-testid="announcements-view">
++      <section className="admin-announcement-info rounded-3xl border border-[#7DD3FC]/25 bg-[#7DD3FC]/10 p-4">
++        <div className="flex items-start gap-3">
++          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-[#7DD3FC]/30 bg-black/20 text-[#7DD3FC]"><Megaphone size={22} strokeWidth={2.8} /></div>
++          <div>
++            <div className="text-sm font-black uppercase tracking-wider text-white">Разове повідомлення всім працівникам</div>
++            <div className="mt-1 text-xs leading-relaxed text-zinc-400">Після публікації працівник побачить модальне вікно під час першого входу. Натиснувши «Зрозуміло», він більше не побачить саме це повідомлення.</div>
++          </div>
++        </div>
++      </section>
++
++      <button onClick={() => setEditing({})} className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-[#0E7490] bg-[#00F0FF] text-sm font-black uppercase tracking-wider text-[#071317]" data-testid="create-announcement"><Send size={17} strokeWidth={3} /> Написати повідомлення</button>
++
++      {loading && <div className="py-8 text-center text-sm font-black text-zinc-500">Завантаження…</div>}
++      {!loading && !items.length && <div className="rounded-3xl border border-dashed border-white/10 bg-[#1A1A1E] p-8 text-center text-sm font-black text-zinc-500">Повідомлень ще немає</div>}
++      {items.map((item) => (
++        <article key={item.id} className={`admin-announcement-list-card rounded-3xl border bg-[#1A1A1E] p-4 ${item.active ? "border-[#7DD3FC]/30" : "border-white/10 opacity-65"}`}>
++          <div className="flex items-start justify-between gap-3">
++            <div className="min-w-0 flex-1">
++              <div className="flex flex-wrap items-center gap-2">
++                <span className={`rounded-full px-2 py-1 text-[9px] font-black uppercase tracking-wider ${item.active ? "bg-[#39FF14]/10 text-[#39FF14]" : "bg-white/5 text-zinc-500"}`}>{item.active ? "Активне" : "Вимкнене"}</span>
++                <span className="text-[10px] font-bold text-zinc-600">Закрили: {Number(item.dismissed_count || 0)}</span>
++              </div>
++              <h3 className="mt-2 text-base font-black text-white">{item.title}</h3>
++              <p className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-zinc-400">{item.message}</p>
++              <div className="mt-2 text-[10px] text-zinc-600">{item.created_by_name} · {item.created_at ? new Date(item.created_at).toLocaleString("uk-UA") : "—"}</div>
++            </div>
++            <div className="flex shrink-0 gap-1.5">
++              <button title={item.active ? "Вимкнути" : "Увімкнути"} onClick={() => toggle(item)} className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-[#0A0A0A] text-[#7DD3FC]"><CheckCircle2 size={15} strokeWidth={3} /></button>
++              <button title="Редагувати" onClick={() => setEditing(item)} className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-[#0A0A0A] text-white"><Pencil size={14} strokeWidth={3} /></button>
++              <button title="Видалити" onClick={() => remove(item)} className="flex h-9 w-9 items-center justify-center rounded-xl border border-[#FF3B30]/35 bg-[#0A0A0A] text-[#FF3B30]"><Trash2 size={14} strokeWidth={3} /></button>
++            </div>
++          </div>
++        </article>
++      ))}
++
++      {editing !== null && <AnnouncementEditor item={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />}
++    </div>
++  );
++};
++
++const AnnouncementEditor = ({ item, onClose, onSaved }) => {
++  const isNew = !item.id;
++  const [title, setTitle] = useState(item.title || "");
++  const [message, setMessage] = useState(item.message || "");
++  const [busy, setBusy] = useState(false);
++
++  const save = async () => {
++    if (title.trim().length < 2) return toast.error("Вкажіть заголовок");
++    if (message.trim().length < 2) return toast.error("Напишіть текст повідомлення");
++    setBusy(true);
++    try {
++      if (isNew) await api.post("/admin/announcements", { title: title.trim(), message: message.trim() });
++      else await api.patch(`/admin/announcements/${item.id}`, { title: title.trim(), message: message.trim() });
++      toast.success(isNew ? "Повідомлення опубліковано" : "Повідомлення оновлено");
++      onSaved();
++    } catch (error) {
++      toast.error(extractError(error, "Не вдалося зберегти повідомлення"));
++    } finally { setBusy(false); }
++  };
++
++  return (
++    <BottomSheet onClose={onClose} title={isNew ? "Нове повідомлення" : "Редагування повідомлення"}>
++      <div className="space-y-3">
++        <label>
++          <span className="mb-1 block text-[10px] font-black uppercase tracking-wider text-zinc-500">Заголовок</span>
++          <input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={120} className="h-12 w-full rounded-xl border-2 border-white/10 bg-[#0A0A0A] px-3 font-black text-white outline-none focus:border-[#00F0FF]" placeholder="Що змінилося у VPDK Bonus?" data-testid="announcement-title" />
++        </label>
++        <label>
++          <span className="mb-1 block text-[10px] font-black uppercase tracking-wider text-zinc-500">Повідомлення</span>
++          <textarea value={message} onChange={(e) => setMessage(e.target.value)} maxLength={4000} rows={8} className="w-full resize-none rounded-xl border-2 border-white/10 bg-[#0A0A0A] px-3 py-3 text-sm font-bold leading-relaxed text-white outline-none focus:border-[#00F0FF]" placeholder="Поясніть працівникам оновлення, нові правила або важливу новину…" data-testid="announcement-message" />
++        </label>
++        <div className="rounded-2xl border border-[#7DD3FC]/20 bg-[#7DD3FC]/10 p-4">
++          <div className="flex items-center gap-2 text-[9px] font-black uppercase tracking-wider text-[#7DD3FC]"><MessageSquareText size={14} strokeWidth={3} /> Попередній перегляд</div>
++          <div className="mt-2 text-lg font-black text-white">{title || "Заголовок повідомлення"}</div>
++          <div className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-zinc-400">{message || "Тут працівник побачить ваш текст."}</div>
++        </div>
++      </div>
++      <button onClick={save} disabled={busy} className="mt-5 flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-[#0E7490] bg-[#00F0FF] text-sm font-black uppercase tracking-wider text-[#071317] disabled:opacity-60"><Send size={17} strokeWidth={3} /> {busy ? "Публікуємо…" : isNew ? "Опублікувати для всіх" : "Зберегти"}</button>
++    </BottomSheet>
++  );
++};
++
+ // ─────────────── Orders admin ───────────────
+ const OrdersView = ({ teamFilter }) => {
+   const [orders, setOrders] = useState([]);
+@@ -1848,6 +2061,17 @@
+                 <div className="text-white font-black text-sm truncate">{o.prize_title}</div>
+                 <div className="text-zinc-500 text-xs truncate">{o.user_name} • {new Date(o.created_at).toLocaleString("uk-UA")}</div>
+                 {o.team_name && <div className="mt-0.5 text-[10px] font-black text-[#00F0FF]">{o.team_name}</div>}
++                <div className="mt-1 flex flex-wrap items-center gap-2 text-[10px] font-black">
++                  {Number(o.discount_points || 0) > 0 && Number(o.base_price || 0) > Number(o.price || 0) ? (
++                    <>
++                      <span className="text-zinc-600 line-through">{Number(o.base_price || 0).toLocaleString("uk-UA")} Point</span>
++                      <span className="text-[#FF8EB2]">{Number(o.price || 0).toLocaleString("uk-UA")} Point</span>
++                      <span className="rounded-full border border-[#FF5C7A]/25 bg-[#FF5C7A]/10 px-2 py-0.5 text-[#FF8EB2]">акція −{Number(o.discount_points || 0)}</span>
++                    </>
++                  ) : (
++                    <span className="text-[#FFB800]">{Number(o.price || 0).toLocaleString("uk-UA")} Point</span>
++                  )}
++                </div>
+               </div>
+               <div className="text-[10px] font-black uppercase px-2 py-1 rounded-full" style={{ backgroundColor: st.color + "22", color: st.color }}>
+                 {st.label}
+@@ -2908,7 +3132,7 @@
+     );
+   }
+ 
+-  const V = { analytics: AnalyticsView, "ai-team": AITeamDashboard, "daily-tasks": DailyTasksManager, points: PointsManager, goals: GoalsManager, moderation: ModerationView, applications: ApplicationsView, users: UsersView, teams: TeamsView, achievements: AchievementsView, "bonus-match": BonusMatchLevelsView, prizes: PrizesView, "team-banks": TeamBanksAdminView, orders: OrdersView }[tab];
++  const V = { analytics: AnalyticsView, "ai-team": AITeamDashboard, "daily-tasks": DailyTasksManager, points: PointsManager, goals: GoalsManager, moderation: ModerationView, applications: ApplicationsView, users: UsersView, teams: TeamsView, achievements: AchievementsView, "bonus-match": BonusMatchLevelsView, announcements: AnnouncementsView, prizes: PrizesView, "team-banks": TeamBanksAdminView, orders: OrdersView }[tab];
+ 
+   return (
+     <div className="px-5 pt-2 pb-8 lg:px-7 lg:pt-6" data-testid="admin-page">
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' '--exclude=VPDK-BONUS-V140.patch' a/frontend/src/pages/Store.jsx b/frontend/src/pages/Store.jsx
+--- a/frontend/src/pages/Store.jsx	2026-08-04 20:39:37.000000000 +0000
++++ b/frontend/src/pages/Store.jsx	2026-08-05 16:48:24.961210736 +0000
+@@ -47,13 +47,19 @@
+   return (parts[1] || parts[0]).trim().replace(/^аватар\s*/i, "") || "Аватар";
+ };
+ 
++const prizePrice = (prize, owned = false) => (
++  owned ? 0 : Number(prize?.effective_price ?? prize?.price ?? 0)
++);
++
+ const canBuyPrize = (prize, balance, owned) => {
+-  const effectivePrice = owned ? 0 : Number(prize.price || 0);
++  const effectivePrice = prizePrice(prize, owned);
+   return Number(balance || 0) >= effectivePrice && (prize.category === "avatar" || Number(prize.stock || 0) > 0);
+ };
+ 
+ const PrizeCard = ({ prize, balance, onBuy }) => {
+   const affordable = canBuyPrize(prize, balance, false);
++  const effectivePrice = prizePrice(prize);
++  const hasPromotion = Boolean(prize.promotion_active && Number(prize.promotion_quantity_remaining || 0) > 0);
+   const IconFallback = ICONS[prize.icon] || Gift;
+ 
+   return (
+@@ -73,6 +79,11 @@
+         <div className="absolute left-2 top-2 rounded-full border border-white/10 bg-black/50 px-2 py-1 text-[9px] font-black uppercase tracking-widest text-white backdrop-blur-sm">
+           {Number(prize.stock || 0) > 0 ? `${prize.stock} шт` : "Немає"}
+         </div>
++        {hasPromotion && (
++          <div className="absolute right-2 top-2 rounded-full border border-[#FF5C7A]/45 bg-[#5A102C]/85 px-2 py-1 text-[9px] font-black uppercase tracking-wider text-[#FFD5E2] backdrop-blur-sm">
++            Акція −{Number(prize.promotion_discount || 0)} · ще {prize.promotion_quantity_remaining}
++          </div>
++        )}
+       </div>
+ 
+       <div className="flex min-h-[154px] flex-col p-4">
+@@ -84,9 +95,14 @@
+         )}
+         <div className="mt-1 line-clamp-2 text-xs leading-relaxed text-zinc-500">{prize.description}</div>
+         <div className="mt-auto flex items-center justify-between gap-2 pt-3">
+-          <div className="flex min-w-0 items-center gap-1.5">
+-            <Coins size={16} strokeWidth={3} className="shrink-0 text-[#FFB800]" />
+-            <span className="truncate font-display text-base text-[#FFB800]">{Number(prize.price || 0).toLocaleString("uk-UA")}</span>
++          <div className="min-w-0">
++            {hasPromotion && (
++              <div className="text-[9px] font-black text-zinc-500 line-through">{Number(prize.price || 0).toLocaleString("uk-UA")} Point</div>
++            )}
++            <div className="flex min-w-0 items-center gap-1.5">
++              <Coins size={16} strokeWidth={3} className="shrink-0 text-[#FFB800]" />
++              <span className="truncate font-display text-base text-[#FFB800]">{effectivePrice.toLocaleString("uk-UA")}</span>
++            </div>
+           </div>
+           <button
+             data-testid={`buy-${prize.id}`}
+@@ -107,8 +123,9 @@
+ };
+ 
+ const AvatarPrizeCard = ({ prize, balance, onBuy, owned, active, rarityColor }) => {
+-  const effectivePrice = owned ? 0 : Number(prize.price || 0);
++  const effectivePrice = prizePrice(prize, owned);
+   const affordable = canBuyPrize(prize, balance, owned);
++  const hasPromotion = !owned && Boolean(prize.promotion_active && Number(prize.promotion_quantity_remaining || 0) > 0);
+   const buttonLabel = active ? "Обрано" : owned ? "Обрати" : affordable ? "Купити" : "Мало Point";
+ 
+   return (
+@@ -143,9 +160,15 @@
+         )}
+       </div>
+ 
+-      <div className="mt-2 flex items-center justify-center gap-1 text-[#FFB800]">
+-        <Coins size={12} strokeWidth={3} />
+-        <span className="font-display text-xs">{effectivePrice.toLocaleString("uk-UA")}</span>
++      <div className="mt-2 min-h-[30px]">
++        {hasPromotion && (
++          <div className="text-[8px] font-black text-[#FF6B9D]">−{prize.promotion_discount} · ще {prize.promotion_quantity_remaining}</div>
++        )}
++        <div className="flex items-center justify-center gap-1 text-[#FFB800]">
++          <Coins size={12} strokeWidth={3} />
++          <span className="font-display text-xs">{effectivePrice.toLocaleString("uk-UA")}</span>
++          {hasPromotion && <span className="text-[8px] font-black text-zinc-600 line-through">{Number(prize.price || 0).toLocaleString("uk-UA")}</span>}
++        </div>
+       </div>
+ 
+       <button
+@@ -376,7 +399,8 @@
+ 
+ const ConfirmSheet = ({ prize, balance, onConfirm, onClose, submitting, owned }) => {
+   if (!prize) return null;
+-  const effectivePrice = owned ? 0 : Number(prize.price || 0);
++  const effectivePrice = prizePrice(prize, owned);
++  const hasPromotion = !owned && Boolean(prize.promotion_active && Number(prize.promotion_quantity_remaining || 0) > 0);
+   const after = Number(balance || 0) - effectivePrice;
+   return (
+     <div className="fixed inset-0 z-50 flex items-end justify-center">
+@@ -396,8 +420,17 @@
+         <div className="mt-5 space-y-3 rounded-2xl border border-white/5 bg-[#0A0A0A] p-4">
+           <div className="flex items-center justify-between">
+             <span className="text-xs font-black uppercase tracking-widest text-zinc-500">Ціна</span>
+-            <div className="flex items-center gap-1.5 text-[#FFB800]"><Coins size={16} strokeWidth={3} /><span className="font-display text-lg">{effectivePrice.toLocaleString("uk-UA")}</span></div>
++            <div className="text-right">
++              {hasPromotion && <div className="text-[10px] font-black text-zinc-600 line-through">{Number(prize.price || 0).toLocaleString("uk-UA")}</div>}
++              <div className="flex items-center gap-1.5 text-[#FFB800]"><Coins size={16} strokeWidth={3} /><span className="font-display text-lg">{effectivePrice.toLocaleString("uk-UA")}</span></div>
++            </div>
+           </div>
++          {hasPromotion && (
++            <div className="flex items-center justify-between rounded-xl border border-[#FF5C7A]/25 bg-[#FF5C7A]/10 px-3 py-2">
++              <span className="text-[10px] font-black uppercase tracking-wider text-[#FF9BBB]">Акційна знижка</span>
++              <span className="text-sm font-black text-[#FF9BBB]">−{Number(prize.promotion_discount || 0)} Point · ще {prize.promotion_quantity_remaining} шт</span>
++            </div>
++          )}
+           <div className="flex items-center justify-between"><span className="text-xs font-black uppercase tracking-widest text-zinc-500">Баланс зараз</span><span className="font-black text-white">{Number(balance || 0).toLocaleString("uk-UA")}</span></div>
+           <div className="flex items-center justify-between border-t border-white/5 pt-3"><span className="text-xs font-black uppercase tracking-widest text-zinc-500">Залишиться</span><span className="font-black text-[#39FF14]">{after.toLocaleString("uk-UA")}</span></div>
+         </div>
+@@ -431,14 +464,14 @@
+   const generalPrizes = useMemo(() => {
+     const nonAvatars = storefrontPrizes.filter((prize) => prize.category !== "avatar");
+     const filtered = cat === "privilege" ? nonAvatars.filter((prize) => prize.category === "privilege") : nonAvatars;
+-    return [...filtered].sort((a, b) => Number(a.price || 0) - Number(b.price || 0));
++    return [...filtered].sort((a, b) => prizePrice(a, false) - prizePrice(b, false));
+   }, [cat, storefrontPrizes]);
+ 
+   const avatarGroups = useMemo(() => {
+     const groups = Object.fromEntries(AVATAR_RARITIES.map((rarity) => [rarity.id, []]));
+     storefrontPrizes
+       .filter((prize) => prize.category === "avatar")
+-      .sort((a, b) => Number(a.price || 0) - Number(b.price || 0) || String(a.title || "").localeCompare(String(b.title || ""), "uk"))
++      .sort((a, b) => prizePrice(a, false) - prizePrice(b, false) || String(a.title || "").localeCompare(String(b.title || ""), "uk"))
+       .forEach((prize) => {
+         const key = groups[prize.avatar_rarity] ? prize.avatar_rarity : "basic";
+         groups[key].push(prize);
+@@ -475,7 +508,8 @@
+   const doBuy = async () => {
+     if (!pending) return;
+     setSubmitting(true);
+-    const res = await buyPrize(pending.id);
++    const expectedPrice = prizePrice(pending, Boolean((user.owned_avatar_ids || []).includes(pending.id)));
++    const res = await buyPrize(pending.id, expectedPrice);
+     setSubmitting(false);
+     if (!res.ok) {
+       toast.error(res.error);
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' '--exclude=VPDK-BONUS-V140.patch' a/tests/test_v140_promotions_announcements.py b/tests/test_v140_promotions_announcements.py
+--- a/tests/test_v140_promotions_announcements.py	1970-01-01 00:00:00.000000000 +0000
++++ b/tests/test_v140_promotions_announcements.py	2026-08-05 16:52:41.452240430 +0000
+@@ -0,0 +1,34 @@
++from pathlib import Path
++
++ROOT = Path(__file__).resolve().parents[1]
++SERVER = (ROOT / "backend/server.py").read_text(encoding="utf-8")
++ADMIN = (ROOT / "frontend/src/pages/Admin.jsx").read_text(encoding="utf-8")
++STORE = (ROOT / "frontend/src/pages/Store.jsx").read_text(encoding="utf-8")
++MODAL = (ROOT / "frontend/src/components/AdminAnnouncementModal.jsx").read_text(encoding="utf-8")
++
++
++def test_promotion_stock_is_reserved_atomically():
++    assert "db.prize_promotions.find_one_and_update" in SERVER
++    assert '"quantity_remaining": {"$gt": 0}' in SERVER
++    assert '"$inc": {"quantity_remaining": -1, "used_count": 1}' in SERVER
++    assert "expected_price: Optional[int] = None" in SERVER
++
++
++def test_store_uses_effective_price_and_refreshes_after_conflict():
++    assert "prize?.effective_price ?? prize?.price" in STORE
++    assert "promotion_quantity_remaining" in STORE
++    assert "buyPrize(pending.id, expectedPrice)" in STORE
++
++
++def test_announcements_are_one_time_per_employee():
++    assert 'db.announcement_reads.update_one' in SERVER
++    assert 'unique=True' in SERVER
++    assert 'localDismissedKey = (userId)' in MODAL
++    assert 'api.post(`/announcements/${announcement.id}/dismiss`)' in MODAL
++
++
++def test_admin_has_both_management_surfaces():
++    assert "const PromotionEditor" in ADMIN
++    assert "Наступні, шт" in ADMIN
++    assert "const AnnouncementsView" in ADMIN
++    assert "Опублікувати для всіх" in ADMIN
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' '--exclude=VPDK-BONUS-V140.patch' a/validate_vpdk_v140.py b/validate_vpdk_v140.py
+--- a/validate_vpdk_v140.py	1970-01-01 00:00:00.000000000 +0000
++++ b/validate_vpdk_v140.py	2026-08-05 16:51:27.408368510 +0000
+@@ -0,0 +1,132 @@
++from __future__ import annotations
++
++import ast
++from pathlib import Path
++
++ROOT = Path(__file__).resolve().parent
++SERVER = ROOT / "backend" / "server.py"
++ADMIN = ROOT / "frontend" / "src" / "pages" / "Admin.jsx"
++STORE = ROOT / "frontend" / "src" / "pages" / "Store.jsx"
++CONTEXT = ROOT / "frontend" / "src" / "context" / "AppContext.jsx"
++LAYOUT = ROOT / "frontend" / "src" / "components" / "AppLayout.jsx"
++MODAL = ROOT / "frontend" / "src" / "components" / "AdminAnnouncementModal.jsx"
++CSS = ROOT / "frontend" / "src" / "index.css"
++SW = ROOT / "frontend" / "public" / "service-worker.js"
++
++server = SERVER.read_text(encoding="utf-8")
++admin = ADMIN.read_text(encoding="utf-8")
++store = STORE.read_text(encoding="utf-8")
++context = CONTEXT.read_text(encoding="utf-8")
++layout = LAYOUT.read_text(encoding="utf-8")
++modal = MODAL.read_text(encoding="utf-8")
++css = CSS.read_text(encoding="utf-8")
++sw = SW.read_text(encoding="utf-8")
++
++# Python syntax and models.
++ast.parse(server)
++for token in (
++    "class PrizePromotionCreateBody",
++    "class PrizePromotionModel",
++    "class AnnouncementCreateBody",
++    "class AnnouncementUpdateBody",
++    "class AnnouncementModel",
++    "effective_price: int = 0",
++    "promotion_quantity_remaining: int = 0",
++    "base_price: Optional[int] = None",
++    "discount_points: int = 0",
++):
++    assert token in server, token
++
++# Quantity-limited discounts are calculated server-side and consumed atomically.
++for token in (
++    "async def _active_prize_promotion",
++    '@api.post("/admin/prizes/{prize_id}/promotion"',
++    '@api.delete("/admin/prizes/{prize_id}/promotion"',
++    'db.prize_promotions.find_one_and_update',
++    '"quantity_remaining": {"$gt": 0}',
++    '"$inc": {"quantity_remaining": -1, "used_count": 1}',
++    "expected_price: Optional[int] = None",
++    "Ціна змінилася. Оновіть магазин",
++    '"base_price": base_price',
++    '"discount_points": promotion_discount',
++    '"promotion_id": promotion_id',
++    'await db.prize_promotions.create_index',
++):
++    assert token in server, token
++
++# One-time announcements: admin CRUD, employee pending endpoint and unique read receipt.
++for token in (
++    '@api.get("/announcements/pending"',
++    '@api.post("/announcements/{announcement_id}/dismiss"',
++    '@api.get("/admin/announcements"',
++    '@api.post("/admin/announcements"',
++    '@api.patch("/admin/announcements/{announcement_id}"',
++    '@api.delete("/admin/announcements/{announcement_id}"',
++    'if user.get("role") == "admin":',
++    'db.announcement_reads.update_one',
++    'await db.announcement_reads.create_index([("announcement_id", 1), ("user_id", 1)], unique=True)',
++):
++    assert token in server, token
++
++# Store always renders and confirms the current effective price.
++for token in (
++    "const prizePrice =",
++    "prize?.effective_price ?? prize?.price",
++    "Акція −",
++    "promotion_quantity_remaining",
++    "expectedPrice",
++    "buyPrize(pending.id, expectedPrice)",
++    "prizePrice(a, false) - prizePrice(b, false)",
++):
++    assert token in store or token in context, token
++assert "expected_price" in context
++assert "data.prize" in context
++
++# Admin controls.
++for token in (
++    '{ id: "announcements", label: "Повідомлення", icon: Megaphone }',
++    "const PromotionEditor",
++    "Знижка, Point",
++    "Наступні, шт",
++    "const AnnouncementsView",
++    "const AnnouncementEditor",
++    "Опублікувати для всіх",
++    "Закрили:",
++    "акція −",
++):
++    assert token in admin, token
++
++# Global one-time modal.
++for token in (
++    'import AdminAnnouncementModal from "@/components/AdminAnnouncementModal"',
++    "<AdminAnnouncementModal user={user} />",
++):
++    assert token in layout, token
++for token in (
++    'api.get("/announcements/pending"',
++    'api.post(`/announcements/${announcement.id}/dismiss`)',
++    "Повідомлення адміністратора",
++    "Зрозуміло",
++    "localStorage",
++):
++    assert token in modal, token
++
++# Theme and cache version.
++for token in (
++    ".admin-announcement-card",
++    "html.light .admin-announcement-card",
++    "html.light .admin-promotion-info",
++    "html.light .admin-announcement-list-card",
++):
++    assert token in css, token
++assert 'const VERSION = "vpdk-v140";' in sw
++
++# Previous v139 economy remains intact.
++for token in (
++    "BONUS_MATCH_FIRST_CLEAR_POINTS = 2",
++    "SUDOKU_FIRST_CLEAR_POINTS = 2",
++    "CUBE_SPIN_COST = 20",
++):
++    assert token in server, token
++
++print("v140 prize promotions and one-time announcements validation passed")

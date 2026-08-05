@@ -1,0 +1,1019 @@
+diff --git a/v139/GAME_REWARDS_ADMIN_TOOLS_V139.md b/v139/GAME_REWARDS_ADMIN_TOOLS_V139.md
+new file mode 100644
+index 0000000..06e0d86
+--- /dev/null
++++ b/v139/GAME_REWARDS_ADMIN_TOOLS_V139.md
+@@ -0,0 +1,84 @@
++# Game rewards and admin tools v139
++
++## 1. Bonus Match
++
++```text
++Перше проходження рівня: +2 Point, +10 XP
++Повторне проходження:     +0 Point, +5 XP
++```
++
++Нагорода зберігається на рівні backend і дублюється у frontend-fallback для офлайн/помилкового сценарію.
++
++## 2. VPDK Sudoku
++
++```text
++Перше проходження рівня: +2 Point, +10 XP
++Повторне проходження:     +0 Point, +5 XP
++```
++
++Логіка ідемпотентності сесії та відкриття наступних рівнів не змінювалася.
++
++## 3. AI-тренажер
++
++Point-нагорода більше не залежить від складності кейсу. Використовується перевірена середня оцінка:
++
++```text
++менше 5 → 0 Point
++5        → 5 Point
++6        → 6 Point
++7        → 7 Point
++8        → 8 Point
++9        → 9 Point
++10       → 10 Point
++```
++
++Дробова середня оцінка округлюється до найближчого цілого в межах 5–10.
++
++Нагорода видається лише за перше успішне проходження конкретного `scenario_id`. Повторні спроби зберігаються у статистиці та можуть давати XP, але Point дорівнюють нулю.
++
++Для захисту від подвійного нарахування використовується окрема колекція `ai_training_completions` з унікальним ключем:
++
++```text
++user_id + scenario_id
++```
++
++Історичні успішні результати автоматично позначаються як завершені без додаткового нарахування.
++
++## 4. Щедрий куб
++
++Перший кидок за київську добу залишається безкоштовним. Кожен наступний коштує `20 Point`.
++
++| Грань | Діапазон виграшу |
++|---|---:|
++| 1 | 1–10 Point |
++| 2 | 11–20 Point |
++| 3 | 21–30 Point |
++| 4 | 31–50 Point |
++| 5 | 51–100 Point |
++| 6 | 101–500 Point |
++
++Ймовірності граней не змінювалися.
++
++## 5. Адмін-панель
++
++### Юзери
++
++Пошук фільтрує за:
++
++- ім’ям;
++- email;
++- посадою та відділом;
++- командою;
++- логіном Google-цілей.
++
++Командний фільтр і пошук працюють одночасно.
++
++### Бали та баланс
++
++Додано такий самий пошук співробітників і швидкі нарахування:
++
++```text
+++10  +20  +30  +40  +50
++```
++
++Кнопки використовують чинний endpoint ручного нарахування, тому транзакція потрапляє в історію балансу та сповіщення.
+diff --git a/v139/VPDK-BONUS-V139-INSTALL.md b/v139/VPDK-BONUS-V139-INSTALL.md
+new file mode 100644
+index 0000000..8db197e
+--- /dev/null
++++ b/v139/VPDK-BONUS-V139-INSTALL.md
+@@ -0,0 +1,40 @@
++# VPDK Bonus v139
++
++Версія v139 створена на базі v138. Зміни стосуються економіки ігор, AI-тренажера та інструментів адміністратора.
++
++## Що змінилося
++
++- Bonus Match: перше проходження рівня дає `2 Point` замість `5 Point`.
++- VPDK Sudoku: перше проходження рівня дає `2 Point` замість `5 Point`.
++- Повторні проходження Bonus Match і Sudoku не дають Point, але чинні XP-нагороди залишені.
++- AI-тренажер: за перше успішне проходження кейсу оцінка `5–10` дає відповідно `5–10 Point`.
++- Повторне проходження вже закритого AI-кейсу дозволене, але Point повторно не нараховуються.
++- Щедрий куб: платний кидок коштує `20 Point`, максимальний виграш зменшено до `500 Point`.
++- В адмін-панелі у вкладках «Юзери» і «Бали та баланс» додано пошук співробітників.
++- У керуванні балансом додано швидкі кнопки `+10`, `+20`, `+30`, `+40`, `+50`.
++- Service Worker оновлено до `vpdk-v139`.
++
++## Встановлення
++
++1. Розгорніть повну папку `backend` із v139.
++2. Розгорніть `frontend` і Netlify Functions із v139.
++3. Google Apps Script не змінюйте. Залишається `VPDK-Code-v130.gs`.
++4. Після деплою повністю закрийте PWA та відкрийте знову або виконайте `Ctrl + Shift + R`.
++
++## Автоматична міграція AI-тренажера
++
++Під час першого запуску backend:
++
++- створюється унікальний індекс завершених AI-кейсів;
++- попередні успішні проходження переносяться до реєстру завершень;
++- старі кейси не отримають повторну Point-нагороду після оновлення.
++
++## Перевірка
++
++```bash
++python -m py_compile backend/server.py
++python tests/test_bonus_match_v107_levels.py
++python tests/test_sudoku_v108.py
++python validate_bonus_match_rewards_v93.py
++python validate_vpdk_v139.py
++```
+diff --git a/v138/backend/server.py b/v139/backend/server.py
+index 1cdafdd..10002a1 100644
+--- a/v138/backend/server.py
++++ b/v139/backend/server.py
+@@ -27,6 +27,7 @@ from fastapi.staticfiles import StaticFiles
+ from starlette.middleware.cors import CORSMiddleware
+ from motor.motor_asyncio import AsyncIOMotorClient
+ from pymongo import UpdateOne, ReturnDocument
++from pymongo.errors import DuplicateKeyError
+ from pydantic import BaseModel, Field, EmailStr, ConfigDict
+ 
+ try:
+@@ -393,10 +394,12 @@ class AITrainingResultBody(BaseModel):
+     client_mood: str = ""
+ 
+ 
++# AI Trainer awards Point equal to the rounded verified score from 5 to 10.
++# The difficulty still affects the scenario itself, but not the Point reward.
+ AI_TRAINER_REWARD_TABLE = {
+-    "easy": ((9.0, 200), (8.0, 150), (7.0, 100), (6.0, 50), (5.0, 25)),
+-    "medium": ((9.0, 300), (8.0, 200), (7.0, 150), (6.0, 80), (5.0, 35)),
+-    "hard": ((9.0, 500), (8.0, 400), (7.0, 250), (6.0, 125), (5.0, 50)),
++    "easy": ((10.0, 10), (9.0, 9), (8.0, 8), (7.0, 7), (6.0, 6), (5.0, 5)),
++    "medium": ((10.0, 10), (9.0, 9), (8.0, 8), (7.0, 7), (6.0, 6), (5.0, 5)),
++    "hard": ((10.0, 10), (9.0, 9), (8.0, 8), (7.0, 7), (6.0, 6), (5.0, 5)),
+ }
+ 
+ AI_SCENARIO_DIFFICULTY = {
+@@ -419,13 +422,12 @@ AI_SCENARIO_DIFFICULTY = {
+ 
+ 
+ def ai_trainer_points_for_score(difficulty: str, average_score: float) -> int:
+-    difficulty_key = str(difficulty or "easy").strip().lower()
+-    tiers = AI_TRAINER_REWARD_TABLE.get(difficulty_key, AI_TRAINER_REWARD_TABLE["easy"])
++    # Keep the difficulty argument for API compatibility. Rewards now mirror
++    # the verified score: 5 → 5 Point, 6 → 6 Point, ... 10 → 10 Point.
+     score = max(0.0, min(10.0, float(average_score or 0)))
+-    for minimum_score, reward in tiers:
+-        if score >= minimum_score:
+-            return reward
+-    return 0
++    if score < 5.0:
++        return 0
++    return max(5, min(10, int(score + 0.5)))
+ 
+ class LoginBody(BaseModel):
+     email: EmailStr
+@@ -1305,7 +1307,31 @@ async def save_ai_training_result(
+         str(body.difficulty or "easy").strip().lower(),
+     )
+     verified_score = max(0.0, min(10.0, float(body.average_score or 0)))
+-    points_reward = ai_trainer_points_for_score(verified_difficulty, verified_score)
++    candidate_points = ai_trainer_points_for_score(verified_difficulty, verified_score) if body.won else 0
++    first_completion = False
++    if body.won:
++        try:
++            previous_completion = await db.ai_training_completions.find_one_and_update(
++                {"user_id": user["id"], "scenario_id": body.scenario_id},
++                {
++                    "$setOnInsert": {
++                        "id": str(uuid.uuid4()),
++                        "user_id": user["id"],
++                        "scenario_id": body.scenario_id,
++                        "scenario_title": body.scenario_title,
++                        "score": verified_score,
++                        "points_awarded": candidate_points,
++                        "completed_at": ts,
++                    }
++                },
++                upsert=True,
++                return_document=ReturnDocument.BEFORE,
++            )
++            first_completion = previous_completion is None
++        except DuplicateKeyError:
++            # A parallel completion already claimed the one-time reward.
++            first_completion = False
++    points_reward = candidate_points if first_completion else 0
+     xp_reward = max(0, int(body.xp_earned or 0))
+ 
+     result_payload = body.model_dump()
+@@ -1314,6 +1340,7 @@ async def save_ai_training_result(
+         "average_score": verified_score,
+         "consultation_quality": verified_score,
+         "points": points_reward,
++        "first_completion": first_completion,
+     })
+     doc = {
+         "id": str(uuid.uuid4()),
+@@ -1324,8 +1351,8 @@ async def save_ai_training_result(
+         **result_payload,
+         "created_at": ts,
+     }
+-    # The server calculates the reward from the verified scenario difficulty and
+-    # average score. Client-provided points are intentionally ignored.
++    # The server calculates the reward from the verified score and awards it only
++    # for the first successful completion. Client-provided points are ignored.
+ 
+     await db.ai_training_results.insert_one(doc)
+ 
+@@ -1351,6 +1378,7 @@ async def save_ai_training_result(
+ 
+     doc.pop("_id", None)
+     doc["reward_applied"] = points_reward
++    doc["first_completion"] = first_completion
+     return doc
+ 
+ 
+@@ -3391,15 +3419,15 @@ PREDICTIONS_UK = [
+ ]
+ 
+ # Cube faces: (face, weight %, min reward, max reward, tier)
+-# The first spin each Kyiv day is free. Every next spin costs 50 Point.
+-CUBE_SPIN_COST = 50
++# The first spin each Kyiv day is free. Every next spin costs 20 Point.
++CUBE_SPIN_COST = 20
+ CUBE_TABLE = [
+-    (1, 37, 0, 15, "one"),
+-    (2, 28, 16, 35, "two"),
+-    (3, 20, 36, 70, "three"),
+-    (4, 10, 71, 105, "four"),
+-    (5, 4, 106, 175, "five"),
+-    (6, 1, 176, 1000, "six"),
++    (1, 37, 1, 10, "one"),
++    (2, 28, 11, 20, "two"),
++    (3, 20, 21, 30, "three"),
++    (4, 10, 31, 50, "four"),
++    (5, 4, 51, 100, "five"),
++    (6, 1, 101, 500, "six"),
+ ]
+ 
+ 
+@@ -3630,7 +3658,7 @@ BONUS_MATCH_LIFE_PRICE = 10
+ BONUS_MATCH_DAILY_POINT_CAP = None  # No daily Point cap for Bonus Match
+ BONUS_MATCH_SYMBOLS = ["coin", "star", "gift", "cube", "zap", "trophy"]
+ BONUS_MATCH_SPECIALS = {"rocket_row", "rocket_col", "bomb", "color_bomb"}
+-BONUS_MATCH_FIRST_CLEAR_POINTS = 5
++BONUS_MATCH_FIRST_CLEAR_POINTS = 2
+ BONUS_MATCH_FIRST_CLEAR_XP = 10
+ BONUS_MATCH_REPLAY_XP = 5
+ BONUS_MATCH_BOSS_LEVELS = {25: 2, 40: 2, 50: 3, 60: 2, 70: 2, 80: 2, 90: 2, 100: 3, 110: 3, 120: 3, 130: 3, 140: 3, 150: 4}
+@@ -5210,7 +5238,7 @@ async def _bonus_match_reward_win(
+ ) -> dict:
+     """Award deterministic Bonus Match rewards.
+ 
+-    First clear of a level: +5 Point and +10 XP.
++    First clear of a level: +2 Point and +10 XP.
+     Every replay clear: +0 Point and +5 XP.
+     There is intentionally no daily Point cap.
+     """
+@@ -5304,7 +5332,7 @@ async def _bonus_match_reward_win(
+             "stars": stars,
+             "xp": xp_awarded,
+             "first_completion": first_completion,
+-            "reward_policy": "v107_first_5_points_10_xp_replay_5_xp",
++            "reward_policy": "v139_first_2_points_10_xp_replay_5_xp",
+         },
+     })
+     if points_awarded:
+@@ -9076,7 +9104,7 @@ async def admin_approve_user(user_id: str, admin: dict = Depends(get_current_adm
+ # VPDK Sudoku — 50-level logic campaign
+ # ────────────────────────────────────────────────────────────────────────
+ SUDOKU_LEVELS_PATH = ROOT_DIR / "sudoku_levels.json"
+-SUDOKU_FIRST_CLEAR_POINTS = 5
++SUDOKU_FIRST_CLEAR_POINTS = 2
+ SUDOKU_FIRST_CLEAR_XP = 10
+ SUDOKU_REPLAY_XP = 5
+ SUDOKU_MAX_LEVEL = 50
+@@ -9414,7 +9442,7 @@ async def sudoku_complete(body: SudokuCompleteBody, user: dict = Depends(get_cur
+             "hints_used": int(body.hints_used),
+             "first_completion": first_completion,
+             "xp": xp_awarded,
+-            "reward_policy": "v108_first_5_points_10_xp_replay_5_xp",
++            "reward_policy": "v139_first_2_points_10_xp_replay_5_xp",
+         },
+     })
+ 
+@@ -9488,6 +9516,47 @@ SEED_TASKS = [
+ ]
+ 
+ 
++async def backfill_ai_training_completions_v139() -> int:
++    """Mark historical successful AI cases as completed without re-awarding Point."""
++    created = 0
++    cursor = db.ai_training_results.find(
++        {"won": True, "scenario_id": {"$nin": [None, ""]}},
++        {
++            "_id": 0,
++            "user_id": 1,
++            "scenario_id": 1,
++            "scenario_title": 1,
++            "average_score": 1,
++            "points": 1,
++            "created_at": 1,
++        },
++    ).sort("created_at", 1)
++    async for item in cursor:
++        user_id = str(item.get("user_id") or "").strip()
++        scenario_id = str(item.get("scenario_id") or "").strip()
++        if not user_id or not scenario_id:
++            continue
++        result = await db.ai_training_completions.update_one(
++            {"user_id": user_id, "scenario_id": scenario_id},
++            {
++                "$setOnInsert": {
++                    "id": str(uuid.uuid4()),
++                    "user_id": user_id,
++                    "scenario_id": scenario_id,
++                    "scenario_title": item.get("scenario_title") or scenario_id,
++                    "score": float(item.get("average_score") or 0),
++                    "points_awarded": int(item.get("points") or 0),
++                    "completed_at": item.get("created_at") or now_iso(),
++                    "backfilled_v139": True,
++                }
++            },
++            upsert=True,
++        )
++        if result.upserted_id is not None:
++            created += 1
++    return created
++
++
+ async def seed_phase2():
+     await db.tasks.create_index("created_at")
+     await db.applications.create_index([("user_id", 1), ("updated_at", -1)])
+@@ -9498,6 +9567,10 @@ async def seed_phase2():
+     await db.notification_preferences.create_index("user_id", unique=True)
+     await db.scheduled_push_runs.create_index("id", unique=True)
+     await db.report_publications.create_index("snapshot_version", unique=True)
++    await db.ai_training_completions.create_index([("user_id", 1), ("scenario_id", 1)], unique=True)
++    ai_backfilled = await backfill_ai_training_completions_v139()
++    if ai_backfilled:
++        logger.info("Backfilled %d AI Trainer completions for v139", ai_backfilled)
+     await db.report_metric_snapshots.create_index([("snapshot_version", 1), ("team_key", 1)], unique=True)
+     await db.report_metric_snapshots.create_index([("team_id", 1), ("created_at", 1)])
+     await db.leaderboard_positions.create_index("id", unique=True)
+diff --git a/v138/backend/tests/test_phase3.py b/v139/backend/tests/test_phase3.py
+index 3ecf301..8afc2c0 100644
+--- a/v138/backend/tests/test_phase3.py
++++ b/v139/backend/tests/test_phase3.py
+@@ -151,16 +151,16 @@ class TestGames:
+             assert body["face"] in {1, 2, 3, 4, 5, 6}
+             assert body["tier"] in {"one", "two", "three", "four", "five", "six"}
+             reward_ranges = {
+-                1: (0, 15),
+-                2: (16, 35),
+-                3: (36, 70),
+-                4: (71, 105),
+-                5: (106, 175),
+-                6: (176, 1000),
++                1: (1, 10),
++                2: (11, 20),
++                3: (21, 30),
++                4: (31, 50),
++                5: (51, 100),
++                6: (101, 500),
+             }
+             reward_min, reward_max = reward_ranges[body["face"]]
+             assert reward_min <= body["reward"] <= reward_max
+-            expected_cost = 0 if int(status.get("cube_spin_count", 0)) == 0 else 50
++            expected_cost = 0 if int(status.get("cube_spin_count", 0)) == 0 else 20
+             assert body["cost"] == expected_cost
+             assert body["new_balance"] == me_before["balance"] + body["reward"] - expected_cost
+             assert body["total_xp"] == me_before["total_xp"] + body["reward"] // 3
+@@ -169,7 +169,7 @@ class TestGames:
+             assert s["cube_spun"] is True
+             assert s["cube_spin_count"] == body["spin_count"]
+             assert s["cube_face"] == body["face"]
+-            assert s["next_spin_cost"] == 50
++            assert s["next_spin_cost"] == 20
+ 
+     def test_cube_requires_auth(self, api):
+         r = api.post(f"{BASE_URL}/api/games/cube/spin")
+diff --git a/v138/frontend/public/service-worker.js b/v139/frontend/public/service-worker.js
+index a8f69b5..17455c9 100644
+--- a/v138/frontend/public/service-worker.js
++++ b/v139/frontend/public/service-worker.js
+@@ -1,5 +1,6 @@
+ /* VPDK Bonus — Service Worker
+  * v138 fixes light-theme contrast across custom cards and expands leaderboards to 20 places.
++ * v139 updates game rewards, AI Trainer first-clear rewards, cube economy, and admin search/quick awards.
+  * v137 adds the rectangular diamond employee frame to rankings, reports, profiles, and feed cards.
+  * v136 adds premium diamond-avatar grant events to the activity feed.
+  * v135 fixes exact male/female diamond-frame detection and renders rarity frames in every employee report avatar.
+@@ -26,7 +27,7 @@
+  * never be cached as index.html, otherwise browsers can render a giant broken
+  * image element over the board.
+  */
+-const VERSION = "vpdk-v138";
++const VERSION = "vpdk-v139";
+ const STATIC_CACHE = `${VERSION}-static`;
+ const RUNTIME_CACHE = `${VERSION}-runtime`;
+ 
+diff --git a/v138/frontend/src/data/aiTrainerScenarios.js b/v139/frontend/src/data/aiTrainerScenarios.js
+index 876c472..3c64451 100644
+--- a/v138/frontend/src/data/aiTrainerScenarios.js
++++ b/v139/frontend/src/data/aiTrainerScenarios.js
+@@ -7,39 +7,20 @@ export const PRODUCT_CATEGORIES = {
+ };
+ 
+ export const AI_TRAINER_REWARD_TABLE = {
+-  easy: [
+-    { min: 9, points: 200 },
+-    { min: 8, points: 150 },
+-    { min: 7, points: 100 },
+-    { min: 6, points: 50 },
+-    { min: 5, points: 25 },
+-  ],
+-  medium: [
+-    { min: 9, points: 300 },
+-    { min: 8, points: 200 },
+-    { min: 7, points: 150 },
+-    { min: 6, points: 80 },
+-    { min: 5, points: 35 },
+-  ],
+-  hard: [
+-    { min: 9, points: 500 },
+-    { min: 8, points: 400 },
+-    { min: 7, points: 250 },
+-    { min: 6, points: 125 },
+-    { min: 5, points: 50 },
+-  ],
++  easy: [10, 9, 8, 7, 6, 5].map((score) => ({ min: score, points: score })),
++  medium: [10, 9, 8, 7, 6, 5].map((score) => ({ min: score, points: score })),
++  hard: [10, 9, 8, 7, 6, 5].map((score) => ({ min: score, points: score })),
+ };
+ 
+-export const calculateAITrainerPoints = (difficultyKey, averageScore) => {
++export const calculateAITrainerPoints = (_difficultyKey, averageScore) => {
+   const score = Math.max(0, Math.min(10, Number(averageScore) || 0));
+-  const tiers = AI_TRAINER_REWARD_TABLE[difficultyKey] || AI_TRAINER_REWARD_TABLE.easy;
+-  return tiers.find((tier) => score >= tier.min)?.points || 0;
++  return score < 5 ? 0 : Math.max(5, Math.min(10, Math.round(score)));
+ };
+ 
+ const difficulty = {
+-  easy: { label: "ЛЕГКИЙ", points: 200, patience: 90, target: 70, color: "#39FF14" },
+-  medium: { label: "СЕРЕДНІЙ", points: 300, patience: 72, target: 80, color: "#FFB800" },
+-  hard: { label: "ВАЖКИЙ", points: 500, patience: 52, target: 90, color: "#FF5C00" },
++  easy: { label: "ЛЕГКИЙ", points: 10, patience: 90, target: 70, color: "#39FF14" },
++  medium: { label: "СЕРЕДНІЙ", points: 10, patience: 72, target: 80, color: "#FFB800" },
++  hard: { label: "ВАЖКИЙ", points: 10, patience: 52, target: 90, color: "#FF5C00" },
+ };
+ 
+ const make = (id, category, difficultyKey, name, age, emoji, title, objection, persona, goal) => ({
+diff --git a/v138/frontend/src/pages/AITrainer.jsx b/v139/frontend/src/pages/AITrainer.jsx
+index bc919b3..bd7c29c 100644
+--- a/v138/frontend/src/pages/AITrainer.jsx
++++ b/v139/frontend/src/pages/AITrainer.jsx
+@@ -109,7 +109,7 @@ function ClientPicker({ onPick, profile, setProfile }) {
+     <div className="flex items-start justify-between gap-3"><div><div className="inline-flex items-center gap-2 rounded-full border border-[#00F0FF]/25 bg-[#00F0FF]/10 px-3 py-1 text-[10px] font-black tracking-[0.18em] text-[#00F0FF]"><Sparkles size={13}/>30 AI СЦЕНАРІЇВ</div><h1 className="font-display text-3xl text-white mt-4">ТРЕНАЖЕР <span className="text-[#FFB800]">ПРОДАЖІВ</span></h1><p className="text-zinc-400 text-sm mt-2">ПУМБ-продукти, універсальні кейси, XP, досягнення та рейтинг.</p></div><button onClick={()=>setShowStats(!showStats)} className="w-11 h-11 rounded-2xl bg-[#1A1A1E] border border-white/10 flex items-center justify-center text-[#00F0FF]"><BarChart3 size={20}/></button></div>
+     <ProfileStrip profile={profile}/>{showStats && <><Dashboard profile={profile}/><button onClick={resetProgress} className="mt-3 text-[10px] text-zinc-700 underline">Скинути прогрес</button></>}
+     <div className="flex gap-2 overflow-x-auto no-scrollbar py-4">{Object.entries(PRODUCT_CATEGORIES).map(([key,item])=><button key={key} onClick={()=>setCategory(key)} className={`shrink-0 rounded-2xl border px-3 py-2 text-left ${category===key ? "bg-white/10 border-white/25" : "bg-[#151519] border-white/5"}`}><div className="text-lg">{item.icon}</div><div className="text-[10px] font-black text-white whitespace-nowrap">{item.label}</div><div className="text-[8px] text-zinc-600">{SCENARIOS.filter(s=>s.category===key).length} кейсів</div></button>)}</div>
+-    <div className="grid gap-3 md:grid-cols-2">{list.map((scenario,index)=><motion.button key={scenario.id} initial={{opacity:0,y:10}} animate={{opacity:1,y:0}} transition={{delay:index*.035}} onClick={()=>onPick(scenario.id)} className="w-full text-left rounded-3xl bg-[#1A1A1E] border border-white/10 p-4 active:scale-[.985] relative overflow-hidden"><div className="absolute left-0 inset-y-0 w-1" style={{background:scenario.color}}/><div className="flex gap-3"><div className="w-14 h-14 rounded-2xl bg-black/35 flex items-center justify-center text-2xl">{scenario.emoji}</div><div className="flex-1 min-w-0"><div className="flex justify-between gap-2"><div><div className="font-display text-sm text-white">{scenario.name}, {scenario.age}</div><div className="text-xs text-zinc-400 mt-1">{scenario.title}</div></div><div className="text-right"><div className="text-[8px] font-black" style={{color:scenario.color}}>{scenario.label}</div><div className="text-[10px] text-[#FFB800] font-black">до +{scenario.points} балів</div></div></div><p className="text-[11px] text-zinc-600 mt-2 line-clamp-2">«{scenario.objection}»</p></div></div>{profile.completed?.[scenario.id] && <div className="absolute top-2 right-2 text-xs">✅</div>}</motion.button>)}</div>
++    <div className="grid gap-3 md:grid-cols-2">{list.map((scenario,index)=><motion.button key={scenario.id} initial={{opacity:0,y:10}} animate={{opacity:1,y:0}} transition={{delay:index*.035}} onClick={()=>onPick(scenario.id)} className="w-full text-left rounded-3xl bg-[#1A1A1E] border border-white/10 p-4 active:scale-[.985] relative overflow-hidden"><div className="absolute left-0 inset-y-0 w-1" style={{background:scenario.color}}/><div className="flex gap-3"><div className="w-14 h-14 rounded-2xl bg-black/35 flex items-center justify-center text-2xl">{scenario.emoji}</div><div className="flex-1 min-w-0"><div className="flex justify-between gap-2"><div><div className="font-display text-sm text-white">{scenario.name}, {scenario.age}</div><div className="text-xs text-zinc-400 mt-1">{scenario.title}</div></div><div className="text-right"><div className="text-[8px] font-black" style={{color:scenario.color}}>{scenario.label}</div><div className="text-[10px] text-[#FFB800] font-black">до +{scenario.points} Point • перше успішне проходження</div></div></div><p className="text-[11px] text-zinc-600 mt-2 line-clamp-2">«{scenario.objection}»</p></div></div>{profile.completed?.[scenario.id] && <div className="absolute top-2 right-2 text-xs">✅</div>}</motion.button>)}</div>
+     <Dashboard profile={profile}/>
+   </div>;
+ }
+@@ -236,14 +236,45 @@ export default function AITrainer() {
+   const callTrainer=async(payload)=>{const response=await fetch("/.netlify/functions/ai-trainer",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(payload)});const data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(data.error||"AI-сервіс недоступний");return data};
+   const start=async(id)=>{const chosen=SCENARIOS.find(s=>s.id===id);setScenarioId(id);setPatience(chosen.patience);setConversion(0);setScores([]);setStreak(0);setBestStreak(0);setMessages([]);setFinished(null);setMood("нейтральний");setSessionTechniques(blankTechniques());setLoading(true);try{const result=await callTrainer({action:"start",scenarioId:id});setMessages([{role:"client",text:result.client_reply}]);setMood(result.client_mood||"нейтральний")}catch(e){toast.error(e.message);setScenarioId(null)}finally{setLoading(false)}};
+   const reset=()=>{stopListening();setScenarioId(null);setMessages([]);setInput("");setFinished(null);setLoading(false)};
+-  const finishGame=(win,text,nextBest,nextScores,techniqueData,conversation=[])=>{const avg=nextScores.length?Number((nextScores.reduce((a,b)=>a+b,0)/nextScores.length).toFixed(1)):0;const points=calculateAITrainerPoints(scenario.difficulty,avg);const xpEarned=Math.round(nextScores.reduce((sum,s)=>sum+(s>=9?25:s>=7?18:s>=5?10:s>=3?5:0),0)+(win?50:10));const unlocked=[];if(mode==="live"){api.post("/ai-training/results",{scenario_id:scenario.id,scenario_title:scenario.title,category:scenario.category,difficulty:scenario.difficulty,average_score:avg,consultation_quality:avg,sale_probability:conversion,won:win,points,xp_earned:xpEarned,best_streak:nextBest,techniques:techniqueData,conversation,outcome_text:text,client_mood:mood}).then(()=>refreshMe?.()).catch(()=>{toast.error("Результат збережено локально, але нагороду не вдалося зарахувати на баланс")});}setProfile(prev=>{const techniques={...prev.techniques};Object.entries(techniqueData).forEach(([key,val])=>{const old=techniques[key]||{uses:0,total:0};techniques[key]={uses:old.uses+val.uses,total:old.total+val.total}});const achievements=new Set(prev.achievements||[]);if(win)achievements.add("Перша угода");if(nextBest>=5)achievements.add("Стрік 5");if(avg>=9)achievements.add("Влучність 9+");if(scenario.category==="credit"&&win)achievements.add("Кредитний консультант");if(Object.keys(prev.completed||{}).length+(!prev.completed?.[scenario.id]&&win?1:0)>=10)achievements.add("10 кейсів");[...achievements].filter(a=>!(prev.achievements||[]).includes(a)).forEach(a=>unlocked.push(a));return {...prev,xp:prev.xp+xpEarned,points:prev.points+points,wins:prev.wins+(win?1:0),attempts:prev.attempts+1,bestStreak:Math.max(prev.bestStreak,nextBest),completed:{...prev.completed,...(win?{[scenario.id]:true}:{})},achievements:[...achievements],techniques,results:[...prev.results,{date:Date.now(),title:scenario.title,difficulty:scenario.label,average:avg,points,win}].slice(-50)}});setFinished({win,text,points,xpEarned,unlocked,avg,saleProbability:conversion})};
+-  const send=async()=>{const text=input.trim();if(!text||loading||finished)return;stopListening();const operator={role:"operator",text};const nextMessages=[...messages,operator];setMessages(nextMessages);setInput("");setLoading(true);try{const result=await callTrainer({action:"turn",scenarioId,patience,conversion,history:nextMessages.slice(-18),operatorText:text,turnNumber:scores.length+1,previous_feedback:messages.filter((item)=>item.role==="feedback").slice(-3).map((item)=>item.text)});const score=clamp(result.score);const nextPatience=clamp(patience+Number(result.patience_delta||0));const nextConversion=clamp(conversion+Number(result.trust_delta||0));const nextStreak=score>=7?streak+1:0;const nextBest=Math.max(bestStreak,nextStreak);const nextScores=[...scores,score];const techniqueNames=Array.isArray(result.techniques)?result.techniques:[result.technique||""];const updated={...sessionTechniques};techniqueNames.forEach((name)=>{const key=normalizeTechnique(name);const old=updated[key]||{uses:0,total:0};updated[key]={uses:old.uses+1,total:old.total+Math.round(score*10)}});setSessionTechniques(updated);setScores(nextScores);setPatience(nextPatience);setConversion(nextConversion);setStreak(nextStreak);setBestStreak(nextBest);setMood(result.client_mood||"нейтральний");const responseMessages=[{role:"feedback",score,technique:techniqueNames.join(" • "),text:result.feedback,strongResponse:result.strong_response,whyBetter:Array.isArray(result.why_better)?result.why_better:[],exampleContext:result.example_context||""},{role:"client",text:result.client_reply}];const fullConversation=[...nextMessages,...responseMessages];setMessages(prev=>[...prev,...responseMessages]);const target=scenario.target||80;if(result.outcome==="deal")finishGame(true,"Клієнт погодився на доречний наступний крок.",nextBest,nextScores,updated,fullConversation);else if(result.terminal||result.outcome==="complaint"||result.outcome==="declined")finishGame(false,result.outcome==="complaint"?"Розмову завершено зі скаргою через порушення стандартів спілкування.":"Клієнт логічно завершив розмову без оформлення.",nextBest,nextScores,updated,fullConversation);else if(nextPatience<=0)finishGame(false,"Клієнт завершив розмову через тон або зміст відповідей.",nextBest,nextScores,updated,fullConversation);else if(nextConversion>=target&&(result.deal_ready||score>=8))finishGame(true,"Клієнт погодився на доречний наступний крок.",nextBest,nextScores,updated,fullConversation)}catch(e){toast.error(e.message)}finally{setLoading(false)}};
++  const finishGame=async(win,text,nextBest,nextScores,techniqueData,conversation=[])=>{
++    const avg=nextScores.length?Number((nextScores.reduce((a,b)=>a+b,0)/nextScores.length).toFixed(1)):0;
++    let firstCompletion=Boolean(win&&!profile.completed?.[scenario.id]);
++    let points=firstCompletion?calculateAITrainerPoints(scenario.difficulty,avg):0;
++    const xpEarned=Math.round(nextScores.reduce((sum,s)=>sum+(s>=9?25:s>=7?18:s>=5?10:s>=3?5:0),0)+(win?50:10));
++    const unlocked=[];
++    if(mode==="live"){
++      try{
++        const {data}=await api.post("/ai-training/results",{scenario_id:scenario.id,scenario_title:scenario.title,category:scenario.category,difficulty:scenario.difficulty,average_score:avg,consultation_quality:avg,sale_probability:conversion,won:win,points,xp_earned:xpEarned,best_streak:nextBest,techniques:techniqueData,conversation,outcome_text:text,client_mood:mood});
++        points=Number(data?.reward_applied??points);
++        firstCompletion=Boolean(data?.first_completion);
++        await refreshMe?.();
++      }catch{
++        points=0;
++        firstCompletion=false;
++        toast.error("Результат збережено локально, але нагороду не вдалося зарахувати на баланс");
++      }
++    }
++    setProfile(prev=>{
++      const techniques={...prev.techniques};
++      Object.entries(techniqueData).forEach(([key,val])=>{const old=techniques[key]||{uses:0,total:0};techniques[key]={uses:old.uses+val.uses,total:old.total+val.total}});
++      const achievements=new Set(prev.achievements||[]);
++      if(win)achievements.add("Перша угода");
++      if(nextBest>=5)achievements.add("Стрік 5");
++      if(avg>=9)achievements.add("Влучність 9+");
++      if(scenario.category==="credit"&&win)achievements.add("Кредитний консультант");
++      if(Object.keys(prev.completed||{}).length+(!prev.completed?.[scenario.id]&&win?1:0)>=10)achievements.add("10 кейсів");
++      [...achievements].filter(a=>!(prev.achievements||[]).includes(a)).forEach(a=>unlocked.push(a));
++      return {...prev,xp:prev.xp+xpEarned,points:prev.points+points,wins:prev.wins+(win?1:0),attempts:prev.attempts+1,bestStreak:Math.max(prev.bestStreak,nextBest),completed:{...prev.completed,...(win?{[scenario.id]:true}:{})},achievements:[...achievements],techniques,results:[...prev.results,{date:Date.now(),title:scenario.title,difficulty:scenario.label,average:avg,points,win}].slice(-50)};
++    });
++    setFinished({win,text,points,xpEarned,unlocked,avg,saleProbability:conversion,firstCompletion});
++  };
++  const send=async()=>{const text=input.trim();if(!text||loading||finished)return;stopListening();const operator={role:"operator",text};const nextMessages=[...messages,operator];setMessages(nextMessages);setInput("");setLoading(true);try{const result=await callTrainer({action:"turn",scenarioId,patience,conversion,history:nextMessages.slice(-18),operatorText:text,turnNumber:scores.length+1,previous_feedback:messages.filter((item)=>item.role==="feedback").slice(-3).map((item)=>item.text)});const score=clamp(result.score);const nextPatience=clamp(patience+Number(result.patience_delta||0));const nextConversion=clamp(conversion+Number(result.trust_delta||0));const nextStreak=score>=7?streak+1:0;const nextBest=Math.max(bestStreak,nextStreak);const nextScores=[...scores,score];const techniqueNames=Array.isArray(result.techniques)?result.techniques:[result.technique||""];const updated={...sessionTechniques};techniqueNames.forEach((name)=>{const key=normalizeTechnique(name);const old=updated[key]||{uses:0,total:0};updated[key]={uses:old.uses+1,total:old.total+Math.round(score*10)}});setSessionTechniques(updated);setScores(nextScores);setPatience(nextPatience);setConversion(nextConversion);setStreak(nextStreak);setBestStreak(nextBest);setMood(result.client_mood||"нейтральний");const responseMessages=[{role:"feedback",score,technique:techniqueNames.join(" • "),text:result.feedback,strongResponse:result.strong_response,whyBetter:Array.isArray(result.why_better)?result.why_better:[],exampleContext:result.example_context||""},{role:"client",text:result.client_reply}];const fullConversation=[...nextMessages,...responseMessages];setMessages(prev=>[...prev,...responseMessages]);const target=scenario.target||80;if(result.outcome==="deal")await finishGame(true,"Клієнт погодився на доречний наступний крок.",nextBest,nextScores,updated,fullConversation);else if(result.terminal||result.outcome==="complaint"||result.outcome==="declined")await finishGame(false,result.outcome==="complaint"?"Розмову завершено зі скаргою через порушення стандартів спілкування.":"Клієнт логічно завершив розмову без оформлення.",nextBest,nextScores,updated,fullConversation);else if(nextPatience<=0)await finishGame(false,"Клієнт завершив розмову через тон або зміст відповідей.",nextBest,nextScores,updated,fullConversation);else if(nextConversion>=target&&(result.deal_ready||score>=8))await finishGame(true,"Клієнт погодився на доречний наступний крок.",nextBest,nextScores,updated,fullConversation)}catch(e){toast.error(e.message)}finally{setLoading(false)}};
+ 
+   if(!scenario)return <ClientPicker onPick={start} profile={profile} setProfile={setProfile}/>;
+   const level=currentLevel(profile.xp);
+   return <div className="mx-auto w-full max-w-4xl h-[calc(100dvh-174px)] min-h-[520px] md:h-[calc(100dvh-120px)] flex flex-col overflow-hidden bg-[#0A0A0A]">
+     <header className="shrink-0 px-3 sm:px-5 pt-3 pb-3 border-b border-white/5 bg-[#0A0A0A]/95 backdrop-blur-md">
+-      <div className="flex items-center gap-3"><button onClick={reset} className="w-10 h-10 rounded-2xl border border-white/10 bg-[#1A1A1E] flex items-center justify-center text-zinc-400"><ChevronLeft size={20}/></button><div className="w-11 h-11 rounded-2xl bg-[#1A1A1E] flex items-center justify-center text-2xl">{scenario.emoji}</div><div className="min-w-0 flex-1"><div className="font-display text-sm text-white">{scenario.name}, {scenario.age}</div><div className="text-[9px] font-black uppercase" style={{color:scenario.color}}>{scenario.label} • {mood} • до +{scenario.points}</div></div><div className="text-right"><div className="text-lg">{level.icon}</div><div className="text-[8px] text-zinc-500">{profile.xp} XP</div></div></div>
++      <div className="flex items-center gap-3"><button onClick={reset} className="w-10 h-10 rounded-2xl border border-white/10 bg-[#1A1A1E] flex items-center justify-center text-zinc-400"><ChevronLeft size={20}/></button><div className="w-11 h-11 rounded-2xl bg-[#1A1A1E] flex items-center justify-center text-2xl">{scenario.emoji}</div><div className="min-w-0 flex-1"><div className="font-display text-sm text-white">{scenario.name}, {scenario.age}</div><div className="text-[9px] font-black uppercase" style={{color:scenario.color}}>{scenario.label} • {mood} • до +{scenario.points} Point • лише вперше</div></div><div className="text-right"><div className="text-lg">{level.icon}</div><div className="text-[8px] text-zinc-500">{profile.xp} XP</div></div></div>
+       <div className="grid grid-cols-2 gap-2 mt-3"><Meter label="Лояльність" value={patience} color={patience<30?"#FF3B30":scenario.color} icon={Zap}/><Meter label="Ймовірність угоди" value={conversion} color="#00F0FF" icon={Target}/></div>
+       <div className="flex items-center justify-between mt-2 gap-2"><div className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[9px] font-black text-zinc-300 truncate">ЕТАП: {stage}</div><div className="text-[9px] uppercase font-black text-zinc-600 whitespace-nowrap">Хід {scores.length+1} • середній {average}</div><div className="text-[#FF5C00] text-[9px] font-black flex gap-1 whitespace-nowrap"><Flame size={12}/> {streak}/{bestStreak}</div></div>
+     </header>
+@@ -258,7 +289,7 @@ export default function AITrainer() {
+         </div>
+       </motion.div>)}</AnimatePresence>
+       {loading&&<div className="flex items-end gap-2"><div className="w-8 h-8 rounded-xl bg-[#1A1A1E] border border-white/10 flex items-center justify-center text-base">{scenario.emoji}</div><div className="rounded-[22px] rounded-bl-md bg-[#1A1A1E] border border-white/10 px-4 py-3"><div className="flex gap-1.5 items-center" aria-label="Клієнт друкує"><span className="w-1.5 h-1.5 rounded-full bg-zinc-500 animate-bounce"/><span className="w-1.5 h-1.5 rounded-full bg-zinc-500 animate-bounce [animation-delay:120ms]"/><span className="w-1.5 h-1.5 rounded-full bg-zinc-500 animate-bounce [animation-delay:240ms]"/></div></div></div>}
+-      {finished&&<motion.div initial={{opacity:0,scale:.94}} animate={{opacity:1,scale:1}} className={`rounded-3xl border-2 p-5 text-center ${finished.win?"border-[#39FF14]/60 bg-[#39FF14]/10":"border-[#FF3B30]/60 bg-[#FF3B30]/10"}`}><div className="text-4xl">{finished.win?"🏆":"💥"}</div><div className="font-display text-lg text-white mt-2">{finished.win?"КЕЙС ПРОЙДЕНО":"КЕЙС НЕ ПРОЙДЕНО"}</div><p className="text-xs text-zinc-400 mt-2">{finished.text}</p><div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-4"><div className="rounded-xl bg-black/30 p-3"><div className="text-[9px] text-zinc-500">Бали</div><div className="font-display text-[#39FF14]">+{finished.points}</div></div><div className="rounded-xl bg-black/30 p-3"><div className="text-[9px] text-zinc-500">XP</div><div className="font-display text-[#FFB800]">+{finished.xpEarned}</div></div><div className="rounded-xl bg-black/30 p-3"><div className="text-[9px] text-zinc-500">Якість консультації</div><div className="font-display text-[#00F0FF]">{finished.avg}/10</div></div><div className="rounded-xl bg-black/30 p-3"><div className="text-[9px] text-zinc-500">Ймовірність продажу</div><div className="font-display text-[#B56CFF]">{conversion}%</div></div></div>{finished.unlocked?.length>0&&<div className="mt-3 rounded-xl bg-[#B56CFF]/10 border border-[#B56CFF]/30 p-3"><div className="text-[9px] uppercase font-black text-[#B56CFF]">Нове досягнення</div><div className="text-sm text-white mt-1">🏅 {finished.unlocked.join(" • ")}</div></div>}<button onClick={()=>start(scenarioId)} className="arcade-btn mt-4 w-full bg-white text-black py-3 font-black flex justify-center gap-2"><RotateCcw size={17}/>ЩЕ РАЗ</button></motion.div>}
++      {finished&&<motion.div initial={{opacity:0,scale:.94}} animate={{opacity:1,scale:1}} className={`rounded-3xl border-2 p-5 text-center ${finished.win?"border-[#39FF14]/60 bg-[#39FF14]/10":"border-[#FF3B30]/60 bg-[#FF3B30]/10"}`}><div className="text-4xl">{finished.win?"🏆":"💥"}</div><div className="font-display text-lg text-white mt-2">{finished.win?"КЕЙС ПРОЙДЕНО":"КЕЙС НЕ ПРОЙДЕНО"}</div><p className="text-xs text-zinc-400 mt-2">{finished.text}</p><div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-4"><div className="rounded-xl bg-black/30 p-3"><div className="text-[9px] text-zinc-500">{finished.firstCompletion ? "Бали" : "Повтор"}</div><div className="font-display text-[#39FF14]">{finished.points > 0 ? `+${finished.points}` : "0 Point"}</div></div><div className="rounded-xl bg-black/30 p-3"><div className="text-[9px] text-zinc-500">XP</div><div className="font-display text-[#FFB800]">+{finished.xpEarned}</div></div><div className="rounded-xl bg-black/30 p-3"><div className="text-[9px] text-zinc-500">Якість консультації</div><div className="font-display text-[#00F0FF]">{finished.avg}/10</div></div><div className="rounded-xl bg-black/30 p-3"><div className="text-[9px] text-zinc-500">Ймовірність продажу</div><div className="font-display text-[#B56CFF]">{conversion}%</div></div></div>{finished.unlocked?.length>0&&<div className="mt-3 rounded-xl bg-[#B56CFF]/10 border border-[#B56CFF]/30 p-3"><div className="text-[9px] uppercase font-black text-[#B56CFF]">Нове досягнення</div><div className="text-sm text-white mt-1">🏅 {finished.unlocked.join(" • ")}</div></div>}<button onClick={()=>start(scenarioId)} className="arcade-btn mt-4 w-full bg-white text-black py-3 font-black flex justify-center gap-2"><RotateCcw size={17}/>ЩЕ РАЗ</button></motion.div>}
+       <div ref={endRef}/>
+     </main>
+ 
+diff --git a/v138/frontend/src/pages/Admin.jsx b/v139/frontend/src/pages/Admin.jsx
+index 77ae060..ab3e5e8 100644
+--- a/v138/frontend/src/pages/Admin.jsx
++++ b/v139/frontend/src/pages/Admin.jsx
+@@ -479,6 +479,7 @@ const UsersView = ({ teamFilter }) => {
+   const [editFor, setEditFor] = useState(null);
+   const [passwordFor, setPasswordFor] = useState(null);
+   const [showCreate, setShowCreate] = useState(false);
++  const [query, setQuery] = useState("");
+ 
+   const load = async () => {
+     setLoading(true);
+@@ -501,6 +502,14 @@ const UsersView = ({ teamFilter }) => {
+     } catch (e) { toast.error(extractError(e)); }
+   };
+ 
++  const normalizedQuery = query.trim().toLocaleLowerCase("uk-UA");
++  const visibleUsers = filterRowsByTeam(users, teamFilter).filter((u) => {
++    if (!normalizedQuery) return true;
++    return [u.name, u.email, u.position, u.department, u.team_name, u.goals_login]
++      .filter(Boolean)
++      .some((value) => String(value).toLocaleLowerCase("uk-UA").includes(normalizedQuery));
++  });
++
+   return (
+     <div className="space-y-3" data-testid="users-view">
+       <button
+@@ -511,9 +520,22 @@ const UsersView = ({ teamFilter }) => {
+         <Plus size={16} strokeWidth={3} /> Новий юзер
+       </button>
+ 
++      <label className="relative block">
++        <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
++        <input
++          data-testid="users-search"
++          value={query}
++          onChange={(event) => setQuery(event.target.value)}
++          placeholder="Пошук за ім’ям, email, командою або логіном цілей"
++          className="h-11 w-full rounded-2xl border border-white/10 bg-[#1A1A1E] pl-10 pr-4 text-sm font-bold text-white outline-none placeholder:text-zinc-600 focus:border-[#00F0FF]/60"
++        />
++      </label>
++
+       {loading && <div className="text-zinc-500 text-sm py-4 text-center">Завантаження...</div>}
+ 
+-      {filterRowsByTeam(users, teamFilter).map((u) => (
++      {!loading && visibleUsers.length === 0 && <div className="rounded-2xl border border-white/10 bg-[#1A1A1E] py-8 text-center text-sm font-black text-zinc-500">Співробітників не знайдено</div>}
++
++      {visibleUsers.map((u) => (
+         <div key={u.id} data-testid={`user-row-${u.id}`} className="bg-[#1A1A1E] border border-white/10 rounded-2xl p-3 flex items-center gap-3">
+           <div
+             className="w-11 h-11 rounded-xl flex items-center justify-center font-display text-sm text-[#0A0A0A] shrink-0"
+@@ -1210,6 +1232,21 @@ const AdjustPointsSheet = ({ user, onClose, onDone }) => {
+     setBusy(false);
+   };
+ 
++  const quickAdd = async (value) => {
++    setBusy(true);
++    try {
++      await api.patch(`/admin/users/${user.id}/points`, {
++        amount: value,
++        mode: "delta",
++        description: `Швидке нарахування +${value} Point`,
++      });
++      toast.success(`+${value} Point`);
++      onDone();
++      onClose();
++    } catch (e) { toast.error(extractError(e)); }
++    setBusy(false);
++  };
++
+   const preview = validAmount ? {
+     add: currentBalance + parsedAmount,
+     subtract: currentBalance - parsedAmount,
+@@ -1222,6 +1259,24 @@ const AdjustPointsSheet = ({ user, onClose, onDone }) => {
+       <h3 className="font-display text-xl text-white mt-1">{user.name}</h3>
+       <div className="text-zinc-400 text-xs mt-1">Поточний баланс: <b className="text-[#FFB800]">{currentBalance.toLocaleString("uk-UA")} Point</b></div>
+ 
++      <div className="mt-4">
++        <div className="mb-2 text-[10px] font-black uppercase tracking-widest text-zinc-500">Швидке нарахування</div>
++        <div className="grid grid-cols-5 gap-2">
++          {[10, 20, 30, 40, 50].map((value) => (
++            <button
++              key={value}
++              type="button"
++              data-testid={`quick-add-${value}`}
++              onClick={() => quickAdd(value)}
++              disabled={busy}
++              className="h-10 rounded-xl border border-[#39FF14]/35 bg-[#39FF14]/10 text-[11px] font-black text-[#39FF14] active:scale-95 disabled:opacity-50"
++            >
++              +{value}
++            </button>
++          ))}
++        </div>
++      </div>
++
+       <label className="block text-[11px] font-black uppercase text-zinc-500 mt-4 mb-1">Кількість або новий баланс</label>
+       <input
+         data-testid="adjust-amount"
+@@ -2480,6 +2535,7 @@ const PointsManager = ({ teamFilter }) => {
+   const [users, setUsers] = useState([]);
+   const [loading, setLoading] = useState(true);
+   const [adjustFor, setAdjustFor] = useState(null);
++  const [query, setQuery] = useState("");
+   const load = async () => {
+     setLoading(true);
+     try { setUsers((await api.get("/admin/users")).data); }
+@@ -2487,9 +2543,27 @@ const PointsManager = ({ teamFilter }) => {
+     finally { setLoading(false); }
+   };
+   useEffect(() => { load(); }, []);
++  const normalizedQuery = query.trim().toLocaleLowerCase("uk-UA");
++  const visibleUsers = filterRowsByTeam(users, teamFilter).filter((u) => {
++    if (!normalizedQuery) return true;
++    return [u.name, u.email, u.position, u.department, u.team_name, u.goals_login]
++      .filter(Boolean)
++      .some((value) => String(value).toLocaleLowerCase("uk-UA").includes(normalizedQuery));
++  });
+   return <div className="space-y-3">
++    <label className="relative block">
++      <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
++      <input
++        data-testid="points-search"
++        value={query}
++        onChange={(event) => setQuery(event.target.value)}
++        placeholder="Пошук співробітника"
++        className="h-11 w-full rounded-2xl border border-white/10 bg-[#1A1A1E] pl-10 pr-4 text-sm font-bold text-white outline-none placeholder:text-zinc-600 focus:border-[#FFB800]/60"
++      />
++    </label>
+     {loading && <div className="py-8 text-center text-sm text-zinc-500">Завантаження...</div>}
+-    {filterRowsByTeam(users, teamFilter).map((u) => <div key={u.id} className="flex items-center gap-3 rounded-2xl border border-white/10 bg-[#1A1A1E] p-3">
++    {!loading && visibleUsers.length === 0 && <div className="rounded-2xl border border-white/10 bg-[#1A1A1E] py-8 text-center text-sm font-black text-zinc-500">Співробітників не знайдено</div>}
++    {visibleUsers.map((u) => <div key={u.id} className="flex items-center gap-3 rounded-2xl border border-white/10 bg-[#1A1A1E] p-3">
+       <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl font-display text-sm text-black" style={{backgroundColor:u.avatar_color||"#FFB800"}}>{u.avatar_initials||"?"}</div>
+       <div className="min-w-0 flex-1"><div className="truncate text-sm font-black text-white">{u.name}</div><div className="text-xs text-zinc-500">Баланс: {u.balance.toLocaleString("uk-UA")} Point</div></div>
+       <button type="button" onClick={() => setAdjustFor(u)} className="flex h-10 w-10 items-center justify-center rounded-xl border border-[#FFB800]/40 bg-black/30 text-[#FFB800]" aria-label="Керувати балами та балансом"><Coins size={16}/></button>
+diff --git a/v138/frontend/src/pages/BonusMatch.jsx b/v139/frontend/src/pages/BonusMatch.jsx
+index 295a431..3757b84 100644
+--- a/v138/frontend/src/pages/BonusMatch.jsx
++++ b/v139/frontend/src/pages/BonusMatch.jsx
+@@ -516,7 +516,7 @@ const runMockMove = (game, from, to) => {
+     animation: { swapped_board: swapped, steps, reshuffled, reason: reshuffled ? "no_moves" : null },
+     result: status === "active" ? null : {
+       stars,
+-      points_awarded: won ? 5 : 0,
++      points_awarded: won ? 2 : 0,
+       xp_awarded: won ? 10 : 0,
+       first_win_bonus: 0,
+       lives: won ? 5 : 4,
+diff --git a/v138/frontend/src/pages/Fun.jsx b/v139/frontend/src/pages/Fun.jsx
+index 57c5e4b..8e507be 100644
+--- a/v138/frontend/src/pages/Fun.jsx
++++ b/v139/frontend/src/pages/Fun.jsx
+@@ -293,15 +293,15 @@ export default function Fun() {
+             <span className="generous-cube-header-icon"><Dice5 size={18} strokeWidth={3} /></span>
+             <div>
+               <div className="text-[10px] font-black uppercase tracking-[0.22em] text-[#39FF14]">Щедрий куб</div>
+-              <div className="mt-0.5 text-xs font-bold text-zinc-500">Кидай і забирай до 1000 Point</div>
++              <div className="mt-0.5 text-xs font-bold text-zinc-500">Кидай і забирай до 500 Point</div>
+             </div>
+           </div>
+           <details className="generous-cube-info">
+             <summary><Info size={14} /> Як працює?</summary>
+             <div className="generous-cube-prizes">
+               {[
+-                [1, "0–15"], [2, "16–35"], [3, "36–70"],
+-                [4, "71–105"], [5, "106–175"], [6, "176–1000"],
++                [1, "1–10"], [2, "11–20"], [3, "21–30"],
++                [4, "31–50"], [5, "51–100"], [6, "101–500"],
+               ].map(([value, range]) => (
+                 <div key={value}><span>{faceGlyph(value)}</span><b>{value}</b><em>{range} Point</em></div>
+               ))}
+@@ -360,7 +360,7 @@ export default function Fun() {
+         <button
+           data-testid="spin-cube"
+           onClick={spin}
+-          disabled={rolling || loadingStatus || (Number(status?.cube_spin_count || 0) > 0 && Number(user?.balance || 0) < 50)}
++          disabled={rolling || loadingStatus || (Number(status?.cube_spin_count || 0) > 0 && Number(user?.balance || 0) < Number(status?.next_spin_cost || 20))}
+           className="generous-cube-button"
+         >
+           <Zap size={20} strokeWidth={3} />
+@@ -368,10 +368,10 @@ export default function Fun() {
+             ? "КУБ НАБИРАЄ ЕНЕРГІЮ..."
+             : Number(status?.cube_spin_count || 0) === 0
+               ? "КИНУТИ БЕЗКОШТОВНО"
+-              : "КИНУТИ ЗА 50 POINT"}
++              : `КИНУТИ ЗА ${status?.next_spin_cost || 20} POINT`}
+         </button>
+ 
+-        {Number(status?.cube_spin_count || 0) > 0 && Number(user?.balance || 0) < 50 && (
++        {Number(status?.cube_spin_count || 0) > 0 && Number(user?.balance || 0) < Number(status?.next_spin_cost || 20) && (
+           <div className="mt-3 text-center text-xs font-black text-[#FF5C00]">Недостатньо Point для наступної спроби</div>
+         )}
+         <div className="generous-cube-attempts">Спроб сьогодні: <b>{Number(status?.cube_spin_count || 0)}</b></div>
+@@ -379,7 +379,7 @@ export default function Fun() {
+ 
+       <div className="text-[11px] text-zinc-500 text-center font-black">
+         <Coins size={12} strokeWidth={3} className="inline -mt-0.5 mr-1" />
+-        Передбачення безкоштовне раз на добу. Перший кидок куба безкоштовний, наступні — по 50 Point.
++        Передбачення безкоштовне раз на добу. Перший кидок куба безкоштовний, наступні — по 20 Point.
+       </div>
+     </div>
+   );
+diff --git a/v138/frontend/src/pages/Home.jsx b/v139/frontend/src/pages/Home.jsx
+index cc9c0ae..2c5e0da 100644
+--- a/v138/frontend/src/pages/Home.jsx
++++ b/v139/frontend/src/pages/Home.jsx
+@@ -274,7 +274,7 @@ export default function Home() {
+     <section className="grid grid-cols-2 gap-3"><button onClick={() => nav("/tasks")} className="arcade-btn bg-[#39FF14] border-[#1a7a0a] p-4 text-left text-[#0A0A0A]"><Swords size={22}/><div className="mt-2 font-display text-lg">КВЕСТИ</div><div className="mt-1 text-xs font-black opacity-80">3 нові щодня</div></button><button onClick={() => nav("/store")} className="arcade-btn bg-[#00F0FF] border-[#005f66] p-4 text-left text-[#0A0A0A]"><Gift size={22}/><div className="mt-2 font-display text-lg">МАГАЗИН</div><div className="mt-1 text-xs font-black opacity-80">Витрачай Point</div></button></section>
+ 
+     {/* 6. Cube */}
+-    <button onClick={() => nav("/fun")} className="arcade-btn flex w-full items-center gap-4 border-[#7a1c00] bg-gradient-to-r from-[#FFB800] to-[#FF5C00] p-4 text-left text-[#0A0A0A]"><div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-black/25"><Dice5 size={28}/></div><div className="min-w-0 flex-1"><div className="text-[10px] font-black uppercase tracking-widest opacity-70">Щоденний бонус</div><div className="mt-1 font-display text-xl">ЩЕДРИЙ КУБ</div><div className="mt-1 text-xs font-black opacity-90">До 1000 балів</div></div><ChevronRight /></button>
++    <button onClick={() => nav("/fun")} className="arcade-btn flex w-full items-center gap-4 border-[#7a1c00] bg-gradient-to-r from-[#FFB800] to-[#FF5C00] p-4 text-left text-[#0A0A0A]"><div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-black/25"><Dice5 size={28}/></div><div className="min-w-0 flex-1"><div className="text-[10px] font-black uppercase tracking-widest opacity-70">Щоденний бонус</div><div className="mt-1 font-display text-xl">ЩЕДРИЙ КУБ</div><div className="mt-1 text-xs font-black opacity-90">До 500 балів</div></div><ChevronRight /></button>
+ 
+     {/* 7. Streak */}
+     <section className="flex items-center gap-3 rounded-3xl border border-[#FF5C00]/30 bg-gradient-to-r from-[#FF5C00]/15 to-transparent p-4"><div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#FF5C00]"><Flame size={24} color="#0A0A0A" /></div><div className="flex-1"><div className="font-black text-white">{user.streak} днів поспіль</div><div className="text-xs text-zinc-400">Не втрачай серію</div></div></section>
+diff --git a/v138/frontend/src/pages/Sudoku.jsx b/v139/frontend/src/pages/Sudoku.jsx
+index 11846ee..7bfc51f 100644
+--- a/v138/frontend/src/pages/Sudoku.jsx
++++ b/v139/frontend/src/pages/Sudoku.jsx
+@@ -268,7 +268,7 @@ export default function Sudoku() {
+     const stars = session.errors === 0 && session.hints_used === 0 && (session.mode === "zen" || session.elapsed <= threshold)
+       ? 3 : session.errors <= 2 && session.hints_used <= 1 ? 2 : 1;
+     const run = async () => {
+-      let reward = { first_completion: !completions[currentLevel.id], points_awarded: !completions[currentLevel.id] ? 5 : 0, xp_awarded: !completions[currentLevel.id] ? 10 : 5 };
++      let reward = { first_completion: !completions[currentLevel.id], points_awarded: !completions[currentLevel.id] ? 2 : 0, xp_awarded: !completions[currentLevel.id] ? 10 : 5 };
+       try {
+         const { data } = await api.post("/games/sudoku/complete", {
+           session_id: session.id, level: currentLevel.id, cells: session.cells, elapsed: session.elapsed,
+diff --git a/v138/tests/test_bonus_match_v107_levels.py b/v139/tests/test_bonus_match_v107_levels.py
+index 927d551..c4ce6ba 100644
+--- a/v138/tests/test_bonus_match_v107_levels.py
++++ b/v139/tests/test_bonus_match_v107_levels.py
+@@ -41,18 +41,18 @@ def test_new_levels_are_materially_harder() -> None:
+     assert levels[-1]["is_boss"] is True
+ 
+ 
+-def test_first_clear_reward_is_five_points() -> None:
+-    assert _assignment("BONUS_MATCH_FIRST_CLEAR_POINTS") == 5
++def test_first_clear_reward_is_two_points() -> None:
++    assert _assignment("BONUS_MATCH_FIRST_CLEAR_POINTS") == 2
+     source = SERVER.read_text(encoding="utf-8")
+-    assert "First clear of a level: +5 Point and +10 XP." in source
+-    assert '"reward_policy": "v107_first_5_points_10_xp_replay_5_xp"' in source
++    assert "First clear of a level: +2 Point and +10 XP." in source
++    assert '"reward_policy": "v139_first_2_points_10_xp_replay_5_xp"' in source
+     frontend = FRONTEND_GAME.read_text(encoding="utf-8")
+-    assert "points_awarded: won ? 5 : 0" in frontend
++    assert "points_awarded: won ? 2 : 0" in frontend
+     assert "length: 150" in frontend
+ 
+ 
+ if __name__ == "__main__":
+     test_catalog_has_150_levels_in_both_runtimes()
+     test_new_levels_are_materially_harder()
+-    test_first_clear_reward_is_five_points()
+-    print("Bonus Match v107 checks passed")
++    test_first_clear_reward_is_two_points()
++    print("Bonus Match v139 reward checks passed")
+diff --git a/v138/tests/test_sudoku_v108.py b/v139/tests/test_sudoku_v108.py
+index a6a25a7..41e96b7 100644
+--- a/v138/tests/test_sudoku_v108.py
++++ b/v139/tests/test_sudoku_v108.py
+@@ -120,5 +120,5 @@ def test_route_home_card_and_reward_policy_are_wired():
+     server = (ROOT / "backend" / "server.py").read_text(encoding="utf-8")
+     assert 'path="/games/sudoku"' in app
+     assert 'nav("/games/sudoku")' in home
+-    assert 'SUDOKU_FIRST_CLEAR_POINTS = 5' in server
++    assert 'SUDOKU_FIRST_CLEAR_POINTS = 2' in server
+     assert '@api.post("/games/sudoku/complete")' in server
+diff --git a/v139/tests/test_v139_reward_economy.py b/v139/tests/test_v139_reward_economy.py
+new file mode 100644
+index 0000000..8c39d06
+--- /dev/null
++++ b/v139/tests/test_v139_reward_economy.py
+@@ -0,0 +1,61 @@
++from __future__ import annotations
++
++import ast
++from pathlib import Path
++
++ROOT = Path(__file__).resolve().parents[1]
++SERVER = ROOT / "backend" / "server.py"
++
++
++def assignment(name: str):
++    tree = ast.parse(SERVER.read_text(encoding="utf-8"))
++    for node in tree.body:
++        if isinstance(node, ast.Assign):
++            for target in node.targets:
++                if isinstance(target, ast.Name) and target.id == name:
++                    return ast.literal_eval(node.value)
++    raise AssertionError(name)
++
++
++def function(name: str):
++    tree = ast.parse(SERVER.read_text(encoding="utf-8"))
++    node = next(item for item in tree.body if isinstance(item, ast.FunctionDef) and item.name == name)
++    namespace: dict[str, object] = {}
++    exec(compile(ast.Module(body=[node], type_ignores=[]), str(SERVER), "exec"), namespace)
++    return namespace[name]
++
++
++def test_game_rewards_are_reduced() -> None:
++    assert assignment("BONUS_MATCH_FIRST_CLEAR_POINTS") == 2
++    assert assignment("SUDOKU_FIRST_CLEAR_POINTS") == 2
++
++
++def test_cube_economy_v139() -> None:
++    assert assignment("CUBE_SPIN_COST") == 20
++    assert assignment("CUBE_TABLE") == [
++        (1, 37, 1, 10, "one"),
++        (2, 28, 11, 20, "two"),
++        (3, 20, 21, 30, "three"),
++        (4, 10, 31, 50, "four"),
++        (5, 4, 51, 100, "five"),
++        (6, 1, 101, 500, "six"),
++    ]
++
++
++def test_ai_score_maps_to_same_point_value() -> None:
++    reward = function("ai_trainer_points_for_score")
++    assert reward("easy", 4.9) == 0
++    assert reward("easy", 5.0) == 5
++    assert reward("medium", 6.0) == 6
++    assert reward("hard", 7.0) == 7
++    assert reward("hard", 8.0) == 8
++    assert reward("hard", 9.0) == 9
++    assert reward("hard", 10.0) == 10
++
++
++def test_ai_repeat_protection_is_wired() -> None:
++    source = SERVER.read_text(encoding="utf-8")
++    assert "ai_training_completions.find_one_and_update" in source
++    assert "return_document=ReturnDocument.BEFORE" in source
++    assert "except DuplicateKeyError" in source
++    assert "backfill_ai_training_completions_v139" in source
+diff --git a/v138/validate_bonus_match_rewards_v93.py b/v139/validate_bonus_match_rewards_v93.py
+index 1e49207..df45bc7 100644
+--- a/v138/validate_bonus_match_rewards_v93.py
++++ b/v139/validate_bonus_match_rewards_v93.py
+@@ -3,7 +3,7 @@ from pathlib import Path
+ server = Path('backend/server.py').read_text()
+ frontend = Path('frontend/src/pages/BonusMatch.jsx').read_text()
+ 
+-assert 'BONUS_MATCH_FIRST_CLEAR_POINTS = 5' in server
++assert 'BONUS_MATCH_FIRST_CLEAR_POINTS = 2' in server
+ assert 'BONUS_MATCH_FIRST_CLEAR_XP = 10' in server
+ assert 'BONUS_MATCH_REPLAY_XP = 5' in server
+ assert 'BONUS_MATCH_DAILY_POINT_CAP = None' in server
+@@ -14,5 +14,5 @@ assert 'await migrate_bonus_match_v93_reset()' in server
+ assert '"current_level": 1' in server
+ assert 'completions: []' in frontend
+ assert 'Без ліміту' in frontend
+-assert 'v107_first_5_points_10_xp_replay_5_xp' in server
+-print('Validated Bonus Match V107 reward policy and the existing one-time level reset')
++assert 'v139_first_2_points_10_xp_replay_5_xp' in server
++print('Validated Bonus Match v139 reward policy and the existing one-time level reset')
+diff --git a/v139/validate_vpdk_v139.py b/v139/validate_vpdk_v139.py
+new file mode 100644
+index 0000000..d04ebd5
+--- /dev/null
++++ b/v139/validate_vpdk_v139.py
+@@ -0,0 +1,105 @@
++from __future__ import annotations
++
++import ast
++from pathlib import Path
++
++ROOT = Path(__file__).resolve().parent
++SERVER = ROOT / "backend" / "server.py"
++FUN = ROOT / "frontend" / "src" / "pages" / "Fun.jsx"
++ADMIN = ROOT / "frontend" / "src" / "pages" / "Admin.jsx"
++AI_PAGE = ROOT / "frontend" / "src" / "pages" / "AITrainer.jsx"
++AI_DATA = ROOT / "frontend" / "src" / "data" / "aiTrainerScenarios.js"
++BONUS = ROOT / "frontend" / "src" / "pages" / "BonusMatch.jsx"
++SUDOKU = ROOT / "frontend" / "src" / "pages" / "Sudoku.jsx"
++HOME = ROOT / "frontend" / "src" / "pages" / "Home.jsx"
++SW = ROOT / "frontend" / "public" / "service-worker.js"
++
++
++def assignments() -> dict[str, object]:
++    tree = ast.parse(SERVER.read_text(encoding="utf-8"))
++    result: dict[str, object] = {}
++    for node in tree.body:
++        if not isinstance(node, ast.Assign):
++            continue
++        for target in node.targets:
++            if isinstance(target, ast.Name):
++                try:
++                    result[target.id] = ast.literal_eval(node.value)
++                except Exception:
++                    pass
++    return result
++
++
++def function_node(name: str) -> ast.FunctionDef:
++    tree = ast.parse(SERVER.read_text(encoding="utf-8"))
++    for node in tree.body:
++        if isinstance(node, ast.FunctionDef) and node.name == name:
++            return node
++    raise AssertionError(f"Missing function: {name}")
++
++
++values = assignments()
++server = SERVER.read_text(encoding="utf-8")
++fun = FUN.read_text(encoding="utf-8")
++admin = ADMIN.read_text(encoding="utf-8")
++ai_page = AI_PAGE.read_text(encoding="utf-8")
++ai_data = AI_DATA.read_text(encoding="utf-8")
++bonus = BONUS.read_text(encoding="utf-8")
++sudoku = SUDOKU.read_text(encoding="utf-8")
++home = HOME.read_text(encoding="utf-8")
++sw = SW.read_text(encoding="utf-8")
++
++assert values["BONUS_MATCH_FIRST_CLEAR_POINTS"] == 2
++assert values["SUDOKU_FIRST_CLEAR_POINTS"] == 2
++assert values["CUBE_SPIN_COST"] == 20
++assert values["CUBE_TABLE"] == [
++    (1, 37, 1, 10, "one"),
++    (2, 28, 11, 20, "two"),
++    (3, 20, 21, 30, "three"),
++    (4, 10, 31, 50, "four"),
++    (5, 4, 51, 100, "five"),
++    (6, 1, 101, 500, "six"),
++]
++
++reward_namespace: dict[str, object] = {}
++exec(compile(ast.Module(body=[function_node("ai_trainer_points_for_score")], type_ignores=[]), str(SERVER), "exec"), reward_namespace)
++reward_fn = reward_namespace["ai_trainer_points_for_score"]
++assert reward_fn("easy", 4.9) == 0
++assert reward_fn("easy", 5.0) == 5
++assert reward_fn("medium", 5.4) == 5
++assert reward_fn("hard", 5.5) == 6
++assert reward_fn("hard", 9.5) == 10
++assert reward_fn("hard", 10.0) == 10
++
++assert "v139_first_2_points_10_xp_replay_5_xp" in server
++assert "points_awarded: won ? 2 : 0" in bonus
++assert "points_awarded: !completions[currentLevel.id] ? 2 : 0" in sudoku
++
++assert "return score < 5 ? 0 : Math.max(5, Math.min(10, Math.round(score)))" in ai_data
++for score in range(5, 11):
++    assert f"({score}.0, {score})" in server
++assert "ai_training_completions.find_one_and_update" in server
++assert "return_document=ReturnDocument.BEFORE" in server
++assert "except DuplicateKeyError" in server
++assert "async def backfill_ai_training_completions_v139" in server
++assert "backfilled_v139" in server
++assert 'await db.ai_training_completions.create_index([("user_id", 1), ("scenario_id", 1)], unique=True)' in server
++assert "points=Number(data?.reward_applied??points)" in ai_page
++assert "firstCompletion=Boolean(data?.first_completion)" in ai_page
++assert "лише вперше" in ai_page
++
++for label in ("1–10", "11–20", "21–30", "31–50", "51–100", "101–500"):
++    assert label in fun
++assert "наступні — по 20 Point" in fun
++assert "Кидай і забирай до 500 Point" in fun
++assert "До 500 балів" in home
++
++assert 'data-testid="users-search"' in admin
++assert 'data-testid="points-search"' in admin
++assert "[10, 20, 30, 40, 50].map" in admin
++assert "quick-add-${value}" in admin
++assert "Швидке нарахування" in admin
++
++assert 'const VERSION = "vpdk-v139";' in sw
++
++print("v139 reward economy and admin tools validation passed")

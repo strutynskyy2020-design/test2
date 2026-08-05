@@ -1187,3 +1187,302 @@ html.light .app-theme-shell:not(.game-only-app-shell) .bg-\[\#B56CFF\].text-\[\#
 html.light .app-theme-shell:not(.game-only-app-shell) .bg-\[\#7C3AED\].text-\[\#0A0A0A\] {
   color: #FFFFFF !important;
 }
+
+/* v136: premium spotlight for administrator-granted diamond avatars in the activity feed. */
+.diamond-feed-card {
+  border-color: rgba(125, 211, 252, .72);
+  background:
+    radial-gradient(circle at 12% 0%, rgba(125, 211, 252, .20), transparent 42%),
+    radial-gradient(circle at 92% 100%, rgba(168, 85, 247, .16), transparent 46%),
+    linear-gradient(145deg, rgba(9, 25, 43, .98), rgba(20, 19, 38, .98));
+  box-shadow:
+    0 0 0 1px rgba(255,255,255,.04) inset,
+    0 0 30px rgba(56, 189, 248, .14),
+    0 16px 34px rgba(0,0,0,.30);
+}
+.diamond-feed-aurora {
+  position: absolute;
+  inset: -45% -20%;
+  pointer-events: none;
+  opacity: .55;
+  background: conic-gradient(from 0deg, transparent 0 18%, rgba(125,211,252,.20) 26%, transparent 36% 58%, rgba(192,132,252,.18) 68%, transparent 78% 100%);
+  animation: diamond-feed-orbit 8s linear infinite;
+}
+.diamond-feed-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(115deg, transparent 0 34%, rgba(255,255,255,.10) 46%, transparent 58% 100%);
+  transform: translateX(-120%);
+  animation: diamond-feed-shine 4.8s ease-in-out infinite;
+}
+@keyframes diamond-feed-orbit { to { transform: rotate(360deg); } }
+@keyframes diamond-feed-shine {
+  0%, 58% { transform: translateX(-120%); }
+  78%, 100% { transform: translateX(120%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .diamond-feed-aurora,
+  .diamond-feed-card::after { animation: none; }
+}
+html.light .diamond-feed-card {
+  background:
+    radial-gradient(circle at 10% 0%, rgba(14,165,233,.14), transparent 40%),
+    linear-gradient(145deg, #F5FBFF, #F7F2FF) !important;
+  border-color: rgba(2,132,199,.45) !important;
+  box-shadow: 0 12px 28px rgba(14,116,144,.12) !important;
+}
+
+/* v137: a rectangular crystal frame follows every employee who currently wears a diamond avatar. */
+.diamond-card-auto {
+  position: relative;
+  isolation: isolate;
+}
+
+@supports selector(.diamond-card-auto:has(.avatar-frame--diamond)) {
+  .diamond-card-auto:has(.avatar-frame--diamond) {
+    border-color: rgba(126, 211, 255, .38) !important;
+    box-shadow:
+      0 0 0 1px rgba(218, 197, 255, .07) inset,
+      0 0 24px rgba(68, 190, 255, .13),
+      0 14px 34px rgba(0, 0, 0, .26);
+  }
+
+  .diamond-card-auto:has(.avatar-frame--diamond)::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 40;
+    display: block;
+    border-radius: inherit;
+    pointer-events: none;
+    user-select: none;
+    background: url("/card-frames/diamond-employee-card-v137.png") center / 100% 100% no-repeat;
+    filter:
+      drop-shadow(0 0 4px rgba(92, 205, 255, .50))
+      drop-shadow(0 0 11px rgba(181, 126, 255, .22));
+    transform: translateZ(0);
+    animation: diamond-card-frame-breathe 3.8s ease-in-out infinite;
+  }
+}
+
+@keyframes diamond-card-frame-breathe {
+  0%, 100% {
+    opacity: .91;
+    filter:
+      drop-shadow(0 0 4px rgba(92, 205, 255, .44))
+      drop-shadow(0 0 9px rgba(181, 126, 255, .18));
+  }
+  50% {
+    opacity: 1;
+    filter:
+      drop-shadow(0 0 7px rgba(123, 222, 255, .68))
+      drop-shadow(0 0 15px rgba(201, 144, 255, .35));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .diamond-card-auto:has(.avatar-frame--diamond)::before {
+    animation: none;
+  }
+}
+
+html.light .diamond-card-auto:has(.avatar-frame--diamond) {
+  box-shadow:
+    0 0 0 1px rgba(39, 139, 180, .10) inset,
+    0 10px 28px rgba(74, 93, 145, .12) !important;
+}
+
+/* ==========================================================================
+   v138 · LIGHT THEME CONTRAST HARDENING
+   Custom dark gradients previously kept their dark background while the global
+   light-theme remap changed white labels to dark text. These semantic surfaces
+   now receive native light variants, and native selects remain readable.
+   ========================================================================== */
+
+/* A frequently used legacy neutral surface was not covered by the original
+   light-mode utility map. Without this rule preset buttons stayed nearly black
+   while their labels were remapped to dark text. */
+html.light .app-theme-shell:not(.game-only-app-shell) .bg-\[\#111114\] {
+  background-color: #F4F2F8 !important;
+  border-color: #D9D5E2 !important;
+}
+
+/* Permanent diamond challenge on the quests page. */
+html.light .diamond-challenge-card {
+  background:
+    radial-gradient(circle at 10% 0%, rgba(14,165,233,.13), transparent 44%),
+    radial-gradient(circle at 92% 100%, rgba(168,85,247,.10), transparent 46%),
+    linear-gradient(160deg, #F5FBFF, #F7F3FF 70%) !important;
+  border-color: rgba(2,132,199,.38) !important;
+  box-shadow: 0 18px 46px rgba(44,82,130,.11) !important;
+}
+html.light .diamond-challenge-card .text-\[\#BAE6FD\] { color: #075985 !important; }
+html.light .diamond-challenge-card .bg-black\/25 {
+  background-color: rgba(255,255,255,.78) !important;
+  border-color: rgba(80,60,120,.12) !important;
+}
+
+/* Team Bank hero. Keep the premium lavender identity but use a light surface
+   and deep text colours instead of a dark panel with dark remapped labels. */
+html.light .team-bank-hero-card {
+  background:
+    radial-gradient(circle at top left, rgba(139,92,246,.13), transparent 46%),
+    linear-gradient(180deg, #FAF7FF, #F3F0F8) !important;
+  border-color: rgba(109,61,245,.24) !important;
+  box-shadow: 0 16px 38px rgba(70,53,108,.10) !important;
+}
+html.light .team-bank-hero-card .bg-black\/25 {
+  background-color: rgba(255,255,255,.76) !important;
+  border-color: rgba(80,60,120,.13) !important;
+}
+html.light .team-bank-hero-card .text-\[\#E9D8FF\] { color: #5B21B6 !important; }
+html.light .team-bank-hero-card .bg-\[\#B78CFF\]\/10 {
+  background-color: rgba(109,61,245,.09) !important;
+}
+
+/* Diamond-avatar controls inside the admin user sheet. */
+html.light .admin-diamond-avatar-panel {
+  background:
+    radial-gradient(circle at top, rgba(96,165,250,.13), transparent 58%),
+    #F7FAFF !important;
+  border-color: rgba(37,99,235,.24) !important;
+}
+
+/* Native select menus use browser-owned popups. Explicit colours prevent the
+   white-on-white/blank option list seen in Chrome on the admin overview. */
+.admin-team-filter-select {
+  color-scheme: dark;
+}
+.admin-team-filter-select option {
+  color: #F5F5F5;
+  background: #121318;
+}
+html.light .admin-team-filter-select {
+  color-scheme: light;
+  color: #20242E !important;
+  background: #FFFFFF !important;
+  border-color: #CFC9DA !important;
+  box-shadow: inset 0 1px 2px rgba(44,44,60,.04);
+}
+html.light .admin-team-filter-select option {
+  color: #20242E !important;
+  background: #FFFFFF !important;
+}
+
+/* Final safety net for the three semantic premium surfaces. It only scopes to
+   their own content and therefore does not alter saturated buttons globally. */
+html.light .diamond-challenge-card .text-white,
+html.light .team-bank-hero-card .text-white,
+html.light .admin-diamond-avatar-panel .text-white {
+  color: var(--light-text-strong) !important;
+}
+html.light .diamond-challenge-card .text-zinc-300,
+html.light .diamond-challenge-card .text-zinc-400,
+html.light .team-bank-hero-card .text-zinc-300,
+html.light .team-bank-hero-card .text-zinc-400,
+html.light .admin-diamond-avatar-panel .text-zinc-300,
+html.light .admin-diamond-avatar-panel .text-zinc-400 {
+  color: var(--light-text-body) !important;
+}
+html.light .diamond-challenge-card .text-zinc-500,
+html.light .team-bank-hero-card .text-zinc-500,
+html.light .admin-diamond-avatar-panel .text-zinc-500 {
+  color: var(--light-text-muted) !important;
+}
+
+/* Pale accent labels need deeper ink on white surfaces. */
+html.light .app-theme-shell:not(.game-only-app-shell) [class*="text-[#7DD3FC]"],
+html.light .app-theme-shell:not(.game-only-app-shell) [class*="text-[#BAE6FD]"] {
+  color: #0369A1 !important;
+}
+html.light .app-theme-shell:not(.game-only-app-shell) [class*="text-[#E9D8FF]"] {
+  color: #5B21B6 !important;
+}
+
+/* Apply readable option colours to every native select, not just the global
+   team filter, because Chrome renders the expanded menu outside Tailwind's
+   normal surface styling. */
+html.light .app-theme-shell select option,
+html.light .app-theme-shell select optgroup {
+  color: #20242E !important;
+  background: #FFFFFF !important;
+}
+
+/* ======================================================================
+   v140 · ONE-TIME ADMIN ANNOUNCEMENTS + LIMITED PRIZE PROMOTIONS
+   ====================================================================== */
+.admin-announcement-card {
+  background:
+    radial-gradient(circle at 12% 0%, rgba(125,211,252,.20), transparent 40%),
+    radial-gradient(circle at 94% 100%, rgba(168,85,247,.17), transparent 45%),
+    linear-gradient(155deg, rgba(8,21,36,.99), rgba(24,18,38,.99));
+  box-shadow:
+    0 0 0 1px rgba(255,255,255,.04) inset,
+    0 0 38px rgba(56,189,248,.18),
+    0 24px 70px rgba(0,0,0,.52);
+}
+.admin-announcement-orbit {
+  position: absolute;
+  inset: -50%;
+  pointer-events: none;
+  background: conic-gradient(from 30deg, transparent 0 22%, rgba(125,211,252,.13) 30%, transparent 40% 65%, rgba(192,132,252,.14) 74%, transparent 84% 100%);
+  animation: admin-announcement-orbit 12s linear infinite;
+}
+.admin-announcement-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(115deg, transparent 0 34%, rgba(255,255,255,.08) 47%, transparent 60% 100%);
+  transform: translateX(-130%);
+  animation: admin-announcement-shine 5.5s ease-in-out infinite;
+}
+@keyframes admin-announcement-orbit { to { transform: rotate(360deg); } }
+@keyframes admin-announcement-shine {
+  0%, 60% { transform: translateX(-130%); }
+  82%, 100% { transform: translateX(130%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .admin-announcement-orbit,
+  .admin-announcement-card::after { animation: none; }
+}
+html.light .admin-announcement-card {
+  background:
+    radial-gradient(circle at 10% 0%, rgba(14,165,233,.14), transparent 42%),
+    radial-gradient(circle at 94% 100%, rgba(139,92,246,.10), transparent 45%),
+    linear-gradient(155deg, #F7FCFF, #F8F4FF) !important;
+  border-color: rgba(2,132,199,.38) !important;
+  box-shadow: 0 22px 60px rgba(48,67,104,.18) !important;
+}
+html.light .admin-announcement-card .text-white { color: #171A22 !important; }
+html.light .admin-announcement-card .text-zinc-200,
+html.light .admin-announcement-card .text-zinc-300,
+html.light .admin-announcement-card .text-zinc-400 { color: #454B58 !important; }
+html.light .admin-announcement-card .text-zinc-500 { color: #687181 !important; }
+html.light .admin-announcement-card .bg-black\/20,
+html.light .admin-announcement-card .bg-black\/25 {
+  background-color: rgba(255,255,255,.72) !important;
+  border-color: rgba(62,83,120,.12) !important;
+}
+
+/* v140 admin surfaces in the complete light theme. */
+html.light .admin-promotion-info {
+  background: linear-gradient(145deg, #FFF4F8, #FFFFFF) !important;
+  border-color: rgba(190,24,93,.22) !important;
+}
+html.light .admin-announcement-info {
+  background: linear-gradient(145deg, #ECFAFF, #FFFFFF) !important;
+  border-color: rgba(3,105,161,.22) !important;
+}
+html.light .admin-promotion-prize-card,
+html.light .admin-announcement-list-card {
+  background: #FFFFFF !important;
+  border-color: #D9D5E2 !important;
+  box-shadow: 0 9px 24px rgba(52,43,72,.06);
+}
+html.light .admin-promotion-info .bg-black\/20,
+html.light .admin-announcement-info .bg-black\/20 {
+  background-color: rgba(255,255,255,.74) !important;
+}

@@ -151,16 +151,16 @@ class TestGames:
             assert body["face"] in {1, 2, 3, 4, 5, 6}
             assert body["tier"] in {"one", "two", "three", "four", "five", "six"}
             reward_ranges = {
-                1: (0, 15),
-                2: (16, 35),
-                3: (36, 70),
-                4: (71, 105),
-                5: (106, 175),
-                6: (176, 1000),
+                1: (1, 10),
+                2: (11, 20),
+                3: (21, 30),
+                4: (31, 50),
+                5: (51, 100),
+                6: (101, 500),
             }
             reward_min, reward_max = reward_ranges[body["face"]]
             assert reward_min <= body["reward"] <= reward_max
-            expected_cost = 0 if int(status.get("cube_spin_count", 0)) == 0 else 50
+            expected_cost = 0 if int(status.get("cube_spin_count", 0)) == 0 else 20
             assert body["cost"] == expected_cost
             assert body["new_balance"] == me_before["balance"] + body["reward"] - expected_cost
             assert body["total_xp"] == me_before["total_xp"] + body["reward"] // 3
@@ -169,7 +169,7 @@ class TestGames:
             assert s["cube_spun"] is True
             assert s["cube_spin_count"] == body["spin_count"]
             assert s["cube_face"] == body["face"]
-            assert s["next_spin_cost"] == 50
+            assert s["next_spin_cost"] == 20
 
     def test_cube_requires_auth(self, api):
         r = api.post(f"{BASE_URL}/api/games/cube/spin")

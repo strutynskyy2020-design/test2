@@ -4,7 +4,7 @@ import {
   Users, Swords, Gift, ShoppingBag, BarChart3, Plus, Pencil, Trash2, X, Minus, Check, Coins, Trophy, ChevronRight,
   UserCog, ShieldCheck, Crown, UsersRound, Inbox, UserCheck, ClipboardList, CheckCircle2, XCircle,
   ArrowUp, ArrowDown, FileText, BrainCircuit, Clock3, TrendingUp, Search, CalendarDays, Target, Save, ChevronDown,
-  KeyRound, Award, Medal, Star, Sparkles, Send, Gamepad2, RotateCcw, PiggyBank, Gem,
+  KeyRound, Award, Medal, Star, Sparkles, Send, Gamepad2, RotateCcw, PiggyBank, Gem, BadgePercent, Megaphone, MessageSquareText,
 } from "lucide-react";
 import api, { extractError, API_BASE, getToken } from "@/lib/api";
 import { useApp } from "@/context/AppContext";
@@ -24,6 +24,7 @@ const TABS = [
   { id: "teams", label: "Команди", icon: UsersRound },
   { id: "achievements", label: "Досягнення", icon: Award },
   { id: "bonus-match", label: "Bonus Match", icon: Gamepad2 },
+  { id: "announcements", label: "Повідомлення", icon: Megaphone },
   { id: "prizes", label: "Призи", icon: Gift },
   { id: "team-banks", label: "Банка Команди", icon: PiggyBank },
   { id: "orders", label: "Замовлення", icon: ShoppingBag },
@@ -368,7 +369,7 @@ const DailyTasksManager = ({ teamFilter }) => {
       {/* Mobile and tablet: native VPDK Bonus cards */}
       <div className="admin-mobile-task-list space-y-4">
         {operators.map((operator) => (
-          <section key={operator.id} className="overflow-hidden rounded-3xl border border-white/10 bg-[#1A1A1E]">
+          <section key={operator.id} className="diamond-card-auto overflow-hidden rounded-3xl border border-white/10 bg-[#1A1A1E]">
             <div className="flex items-center gap-3 border-b border-white/10 p-4">
               <AvatarFrame
                 src={operator.avatar_url}
@@ -421,7 +422,7 @@ const DailyTasksManager = ({ teamFilter }) => {
         </div>
         <div className="divide-y divide-white/5">
           {operators.map((operator) => (
-            <div key={operator.id} className="grid grid-cols-[230px_repeat(3,minmax(210px,1fr))_190px] items-stretch px-5 transition-colors hover:bg-white/[0.02]">
+            <div key={operator.id} className="diamond-card-auto grid grid-cols-[230px_repeat(3,minmax(210px,1fr))_190px] items-stretch px-5 transition-colors hover:bg-white/[0.02]">
               <div className="flex items-center gap-3 border-r border-white/5 py-5 pr-4">
                 <AvatarFrame
                   src={operator.avatar_url}
@@ -479,6 +480,7 @@ const UsersView = ({ teamFilter }) => {
   const [editFor, setEditFor] = useState(null);
   const [passwordFor, setPasswordFor] = useState(null);
   const [showCreate, setShowCreate] = useState(false);
+  const [query, setQuery] = useState("");
 
   const load = async () => {
     setLoading(true);
@@ -501,6 +503,14 @@ const UsersView = ({ teamFilter }) => {
     } catch (e) { toast.error(extractError(e)); }
   };
 
+  const normalizedQuery = query.trim().toLocaleLowerCase("uk-UA");
+  const visibleUsers = filterRowsByTeam(users, teamFilter).filter((u) => {
+    if (!normalizedQuery) return true;
+    return [u.name, u.email, u.position, u.department, u.team_name, u.goals_login]
+      .filter(Boolean)
+      .some((value) => String(value).toLocaleLowerCase("uk-UA").includes(normalizedQuery));
+  });
+
   return (
     <div className="space-y-3" data-testid="users-view">
       <button
@@ -511,9 +521,22 @@ const UsersView = ({ teamFilter }) => {
         <Plus size={16} strokeWidth={3} /> Новий юзер
       </button>
 
+      <label className="relative block">
+        <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
+        <input
+          data-testid="users-search"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Пошук за ім’ям, email, командою або логіном цілей"
+          className="h-11 w-full rounded-2xl border border-white/10 bg-[#1A1A1E] pl-10 pr-4 text-sm font-bold text-white outline-none placeholder:text-zinc-600 focus:border-[#00F0FF]/60"
+        />
+      </label>
+
       {loading && <div className="text-zinc-500 text-sm py-4 text-center">Завантаження...</div>}
 
-      {filterRowsByTeam(users, teamFilter).map((u) => (
+      {!loading && visibleUsers.length === 0 && <div className="rounded-2xl border border-white/10 bg-[#1A1A1E] py-8 text-center text-sm font-black text-zinc-500">Співробітників не знайдено</div>}
+
+      {visibleUsers.map((u) => (
         <div key={u.id} data-testid={`user-row-${u.id}`} className="bg-[#1A1A1E] border border-white/10 rounded-2xl p-3 flex items-center gap-3">
           <div
             className="w-11 h-11 rounded-xl flex items-center justify-center font-display text-sm text-[#0A0A0A] shrink-0"
@@ -697,7 +720,7 @@ const DiamondAvatarAdminPanel = ({ user, onDone, onClose }) => {
   };
 
   return (
-    <section className="rounded-3xl border border-[#60A5FA]/35 bg-[radial-gradient(circle_at_top,_rgba(96,165,250,.16),_transparent_58%),rgba(10,10,10,.55)] p-4" data-testid="diamond-avatar-admin-panel">
+    <section className="admin-diamond-avatar-panel rounded-3xl border border-[#60A5FA]/35 bg-[radial-gradient(circle_at_top,_rgba(96,165,250,.16),_transparent_58%),rgba(10,10,10,.55)] p-4" data-testid="diamond-avatar-admin-panel">
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="flex items-center gap-2 text-sm font-black text-white"><Gem size={17} className="text-[#7DD3FC]" /> Алмазний аватар</div>
@@ -1210,6 +1233,21 @@ const AdjustPointsSheet = ({ user, onClose, onDone }) => {
     setBusy(false);
   };
 
+  const quickAdd = async (value) => {
+    setBusy(true);
+    try {
+      await api.patch(`/admin/users/${user.id}/points`, {
+        amount: value,
+        mode: "delta",
+        description: `Швидке нарахування +${value} Point`,
+      });
+      toast.success(`+${value} Point`);
+      onDone();
+      onClose();
+    } catch (e) { toast.error(extractError(e)); }
+    setBusy(false);
+  };
+
   const preview = validAmount ? {
     add: currentBalance + parsedAmount,
     subtract: currentBalance - parsedAmount,
@@ -1221,6 +1259,24 @@ const AdjustPointsSheet = ({ user, onClose, onDone }) => {
       <div className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Бали та баланс</div>
       <h3 className="font-display text-xl text-white mt-1">{user.name}</h3>
       <div className="text-zinc-400 text-xs mt-1">Поточний баланс: <b className="text-[#FFB800]">{currentBalance.toLocaleString("uk-UA")} Point</b></div>
+
+      <div className="mt-4">
+        <div className="mb-2 text-[10px] font-black uppercase tracking-widest text-zinc-500">Швидке нарахування</div>
+        <div className="grid grid-cols-5 gap-2">
+          {[10, 20, 30, 40, 50].map((value) => (
+            <button
+              key={value}
+              type="button"
+              data-testid={`quick-add-${value}`}
+              onClick={() => quickAdd(value)}
+              disabled={busy}
+              className="h-10 rounded-xl border border-[#39FF14]/35 bg-[#39FF14]/10 text-[11px] font-black text-[#39FF14] active:scale-95 disabled:opacity-50"
+            >
+              +{value}
+            </button>
+          ))}
+        </div>
+      </div>
 
       <label className="block text-[11px] font-black uppercase text-zinc-500 mt-4 mb-1">Кількість або новий баланс</label>
       <input
@@ -1480,6 +1536,7 @@ const PrizesView = ({ teamFilter }) => {
   const [prizes, setPrizes] = useState([]);
   const [teams, setTeams] = useState([]);
   const [editing, setEditing] = useState(null);
+  const [promotionEditing, setPromotionEditing] = useState(null);
 
   const load = async () => {
     try {
@@ -1502,8 +1559,22 @@ const PrizesView = ({ teamFilter }) => {
     } catch (e) { toast.error(extractError(e)); }
   };
 
+  const visiblePrizes = prizes.filter((p) => !teamFilter || !p.team_id || String(p.team_id) === teamFilter);
+
   return (
     <div className="space-y-3" data-testid="prizes-view">
+      <div className="admin-promotion-info rounded-3xl border border-[#FF5C7A]/25 bg-[#FF5C7A]/10 p-4">
+        <div className="flex items-start gap-3">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-[#FF5C7A]/30 bg-black/20 text-[#FF8EB2]">
+            <BadgePercent size={21} strokeWidth={2.8} />
+          </div>
+          <div>
+            <div className="text-sm font-black uppercase tracking-wider text-white">Акції на обмежену кількість призів</div>
+            <div className="mt-1 text-xs leading-relaxed text-zinc-400">Оберіть приз, вкажіть знижку в Point і кількість наступних покупок. Після використання останньої акційної одиниці звичайна ціна повернеться автоматично.</div>
+          </div>
+        </div>
+      </div>
+
       <button
         data-testid="btn-create-prize"
         onClick={() => setEditing({})}
@@ -1511,29 +1582,108 @@ const PrizesView = ({ teamFilter }) => {
       >
         <Plus size={16} strokeWidth={3} /> Новий приз
       </button>
-      {prizes.filter((p) => !teamFilter || !p.team_id || String(p.team_id) === teamFilter).map((p) => (
-        <div key={p.id} data-testid={`admin-prize-${p.id}`} className={`bg-[#1A1A1E] border rounded-2xl p-3 flex items-center gap-3 ${p.active ? "border-white/10" : "border-white/5 opacity-50"}`}>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-[#FFB800] text-[#0A0A0A]">{p.category}</span>
-              <span className="text-[#FFB800] font-black text-xs">{p.price} балів</span>
-              <span className="text-zinc-500 text-[10px]">• {p.stock} шт</span>
-              <span className={`rounded-full px-2 py-0.5 text-[9px] font-black ${p.team_id ? "bg-[#00F0FF]/10 text-[#00F0FF]" : "bg-white/5 text-zinc-400"}`}>
-                {p.team_name || "Загальний"}
-              </span>
+
+      {visiblePrizes.map((p) => {
+        const promoActive = Boolean(p.promotion_active && Number(p.promotion_quantity_remaining || 0) > 0);
+        return (
+          <div key={p.id} data-testid={`admin-prize-${p.id}`} className={`admin-promotion-prize-card bg-[#1A1A1E] border rounded-2xl p-3 ${p.active ? "border-white/10" : "border-white/5 opacity-50"}`}>
+            <div className="flex items-start gap-3">
+              <div className="flex-1 min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-[#FFB800] text-[#0A0A0A]">{p.category}</span>
+                  {promoActive ? (
+                    <>
+                      <span className="text-zinc-600 font-black text-[10px] line-through">{p.price} Point</span>
+                      <span className="text-[#FF8EB2] font-black text-xs">{p.effective_price} Point</span>
+                      <span className="rounded-full border border-[#FF5C7A]/30 bg-[#FF5C7A]/10 px-2 py-0.5 text-[9px] font-black text-[#FF9BBB]">−{p.promotion_discount} · ще {p.promotion_quantity_remaining}/{p.promotion_quantity_total}</span>
+                    </>
+                  ) : (
+                    <span className="text-[#FFB800] font-black text-xs">{p.price} балів</span>
+                  )}
+                  <span className="text-zinc-500 text-[10px]">• {p.stock} шт</span>
+                  <span className={`rounded-full px-2 py-0.5 text-[9px] font-black ${p.team_id ? "bg-[#00F0FF]/10 text-[#00F0FF]" : "bg-white/5 text-zinc-400"}`}>
+                    {p.team_name || "Загальний"}
+                  </span>
+                </div>
+                <div className="text-white font-black text-sm truncate mt-1">{p.title}</div>
+              </div>
+              <div className="flex gap-1.5 shrink-0">
+                <button title="Налаштувати акцію" data-testid={`promotion-prize-${p.id}`} onClick={() => setPromotionEditing(p)} className={`w-9 h-9 rounded-xl border flex items-center justify-center active:scale-95 ${promoActive ? "border-[#FF5C7A]/45 bg-[#FF5C7A]/15 text-[#FF8EB2]" : "border-white/10 bg-[#0A0A0A] text-zinc-300"}`}><BadgePercent size={15} strokeWidth={3} /></button>
+                <button data-testid={`edit-prize-${p.id}`} onClick={() => setEditing(p)} className="w-9 h-9 rounded-xl bg-[#0A0A0A] border border-white/10 text-white flex items-center justify-center active:scale-95"><Pencil size={14} strokeWidth={3} /></button>
+                <button data-testid={`delete-prize-${p.id}`} onClick={() => del(p)} className="w-9 h-9 rounded-xl bg-[#0A0A0A] border border-[#FF3B30]/40 text-[#FF3B30] flex items-center justify-center active:scale-95"><Trash2 size={14} strokeWidth={3} /></button>
+              </div>
             </div>
-            <div className="text-white font-black text-sm truncate mt-1">{p.title}</div>
           </div>
-          <div className="flex gap-1.5 shrink-0">
-            <button data-testid={`edit-prize-${p.id}`} onClick={() => setEditing(p)} className="w-9 h-9 rounded-xl bg-[#0A0A0A] border border-white/10 text-white flex items-center justify-center active:scale-95"><Pencil size={14} strokeWidth={3} /></button>
-            <button data-testid={`delete-prize-${p.id}`} onClick={() => del(p)} className="w-9 h-9 rounded-xl bg-[#0A0A0A] border border-[#FF3B30]/40 text-[#FF3B30] flex items-center justify-center active:scale-95"><Trash2 size={14} strokeWidth={3} /></button>
-          </div>
-        </div>
-      ))}
+        );
+      })}
+      {!visiblePrizes.length && <div className="py-8 text-center text-sm font-black text-zinc-500">У вибраній команді призів немає</div>}
       {editing !== null && (
         <PrizeEditor prize={editing} teams={teams} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />
       )}
+      {promotionEditing && (
+        <PromotionEditor prize={promotionEditing} onClose={() => setPromotionEditing(null)} onSaved={() => { setPromotionEditing(null); load(); }} />
+      )}
     </div>
+  );
+};
+
+const PromotionEditor = ({ prize, onClose, onSaved }) => {
+  const hasPromotion = Boolean(prize.promotion_active && Number(prize.promotion_quantity_remaining || 0) > 0);
+  const [discount, setDiscount] = useState(hasPromotion ? Number(prize.promotion_discount || 0) : Math.min(200, Number(prize.price || 0)));
+  const [quantity, setQuantity] = useState(hasPromotion ? Number(prize.promotion_quantity_remaining || 1) : 2);
+  const [busy, setBusy] = useState(false);
+  const effective = Math.max(0, Number(prize.price || 0) - Number(discount || 0));
+
+  const save = async () => {
+    if (Number(discount) <= 0) return toast.error("Вкажіть знижку більше 0");
+    if (Number(discount) > Number(prize.price || 0)) return toast.error("Знижка не може перевищувати ціну призу");
+    if (Number(quantity) <= 0) return toast.error("Вкажіть кількість акційних призів");
+    setBusy(true);
+    try {
+      await api.post(`/admin/prizes/${prize.id}/promotion`, { discount_points: Number(discount), quantity: Number(quantity) });
+      toast.success("Акцію запущено", { description: `${prize.title}: −${discount} Point на ${quantity} шт.` });
+      onSaved();
+    } catch (error) {
+      toast.error(extractError(error, "Не вдалося створити акцію"));
+    } finally { setBusy(false); }
+  };
+
+  const cancel = async () => {
+    if (!hasPromotion || !window.confirm(`Завершити акцію на «${prize.title}»?`)) return;
+    setBusy(true);
+    try {
+      await api.delete(`/admin/prizes/${prize.id}/promotion`);
+      toast.success("Акцію завершено");
+      onSaved();
+    } catch (error) {
+      toast.error(extractError(error, "Не вдалося завершити акцію"));
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <BottomSheet onClose={onClose} title="Акція на приз">
+      <div className="rounded-2xl border border-[#FF5C7A]/25 bg-[#FF5C7A]/10 p-4">
+        <div className="text-[10px] font-black uppercase tracking-wider text-[#FF9BBB]">{prize.title}</div>
+        <div className="mt-2 flex items-end gap-2">
+          <span className="font-display text-3xl text-[#FFB800]">{effective.toLocaleString("uk-UA")}</span>
+          <span className="pb-1 text-xs font-black text-zinc-600 line-through">{Number(prize.price || 0).toLocaleString("uk-UA")} Point</span>
+        </div>
+        {hasPromotion && <div className="mt-2 text-xs font-bold text-zinc-400">Зараз залишилось {prize.promotion_quantity_remaining} з {prize.promotion_quantity_total} акційних одиниць.</div>}
+      </div>
+      <div className="mt-4 grid grid-cols-2 gap-3">
+        <label>
+          <span className="mb-1 block text-[10px] font-black uppercase tracking-wider text-zinc-500">Знижка, Point</span>
+          <input type="number" min="1" max={prize.price} value={discount} onChange={(e) => setDiscount(parseInt(e.target.value) || 0)} className="h-12 w-full rounded-xl border-2 border-white/10 bg-[#0A0A0A] px-3 font-black text-white outline-none focus:border-[#FF5C7A]" data-testid="promotion-discount" />
+        </label>
+        <label>
+          <span className="mb-1 block text-[10px] font-black uppercase tracking-wider text-zinc-500">Наступні, шт</span>
+          <input type="number" min="1" value={quantity} onChange={(e) => setQuantity(parseInt(e.target.value) || 0)} className="h-12 w-full rounded-xl border-2 border-white/10 bg-[#0A0A0A] px-3 font-black text-white outline-none focus:border-[#FF5C7A]" data-testid="promotion-quantity" />
+        </label>
+      </div>
+      <p className="mt-3 text-xs leading-relaxed text-zinc-500">Нова акція замінить попередню. Кожна успішна покупка зменшує лічильник на 1. Коли він дійде до нуля, магазин автоматично поверне базову ціну.</p>
+      <button onClick={save} disabled={busy} className="mt-5 flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-[#8A173E] bg-[#FF5C7A] text-sm font-black uppercase tracking-wider text-white disabled:opacity-60"><BadgePercent size={17} strokeWidth={3} /> {busy ? "Зберігаємо…" : hasPromotion ? "Замінити акцію" : "Запустити акцію"}</button>
+      {hasPromotion && <button onClick={cancel} disabled={busy} className="mt-2 h-11 w-full rounded-2xl border border-white/10 bg-[#27272A] text-xs font-black uppercase tracking-wider text-zinc-300 disabled:opacity-60">Завершити поточну акцію</button>}
+    </BottomSheet>
   );
 };
 
@@ -1755,6 +1905,124 @@ const PrizeEditor = ({ prize, teams, onClose, onSaved }) => {
   );
 };
 
+// ─────────────── One-time employee announcements ───────────────
+const AnnouncementsView = () => {
+  const [items, setItems] = useState([]);
+  const [editing, setEditing] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const { data } = await api.get("/admin/announcements");
+      setItems(Array.isArray(data) ? data : []);
+    } catch (error) {
+      toast.error(extractError(error, "Не вдалося завантажити повідомлення"));
+    } finally { setLoading(false); }
+  };
+  useEffect(() => { load(); }, []);
+
+  const toggle = async (item) => {
+    try {
+      await api.patch(`/admin/announcements/${item.id}`, { active: !item.active });
+      toast.success(item.active ? "Повідомлення вимкнено" : "Повідомлення знову активне");
+      load();
+    } catch (error) { toast.error(extractError(error)); }
+  };
+
+  const remove = async (item) => {
+    if (!window.confirm(`Видалити повідомлення «${item.title}»?`)) return;
+    try {
+      await api.delete(`/admin/announcements/${item.id}`);
+      toast.success("Повідомлення видалено");
+      load();
+    } catch (error) { toast.error(extractError(error)); }
+  };
+
+  return (
+    <div className="space-y-4" data-testid="announcements-view">
+      <section className="admin-announcement-info rounded-3xl border border-[#7DD3FC]/25 bg-[#7DD3FC]/10 p-4">
+        <div className="flex items-start gap-3">
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-[#7DD3FC]/30 bg-black/20 text-[#7DD3FC]"><Megaphone size={22} strokeWidth={2.8} /></div>
+          <div>
+            <div className="text-sm font-black uppercase tracking-wider text-white">Разове повідомлення всім працівникам</div>
+            <div className="mt-1 text-xs leading-relaxed text-zinc-400">Після публікації працівник побачить модальне вікно під час першого входу. Натиснувши «Зрозуміло», він більше не побачить саме це повідомлення.</div>
+          </div>
+        </div>
+      </section>
+
+      <button onClick={() => setEditing({})} className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-[#0E7490] bg-[#00F0FF] text-sm font-black uppercase tracking-wider text-[#071317]" data-testid="create-announcement"><Send size={17} strokeWidth={3} /> Написати повідомлення</button>
+
+      {loading && <div className="py-8 text-center text-sm font-black text-zinc-500">Завантаження…</div>}
+      {!loading && !items.length && <div className="rounded-3xl border border-dashed border-white/10 bg-[#1A1A1E] p-8 text-center text-sm font-black text-zinc-500">Повідомлень ще немає</div>}
+      {items.map((item) => (
+        <article key={item.id} className={`admin-announcement-list-card rounded-3xl border bg-[#1A1A1E] p-4 ${item.active ? "border-[#7DD3FC]/30" : "border-white/10 opacity-65"}`}>
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className={`rounded-full px-2 py-1 text-[9px] font-black uppercase tracking-wider ${item.active ? "bg-[#39FF14]/10 text-[#39FF14]" : "bg-white/5 text-zinc-500"}`}>{item.active ? "Активне" : "Вимкнене"}</span>
+                <span className="text-[10px] font-bold text-zinc-600">Закрили: {Number(item.dismissed_count || 0)}</span>
+              </div>
+              <h3 className="mt-2 text-base font-black text-white">{item.title}</h3>
+              <p className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-zinc-400">{item.message}</p>
+              <div className="mt-2 text-[10px] text-zinc-600">{item.created_by_name} · {item.created_at ? new Date(item.created_at).toLocaleString("uk-UA") : "—"}</div>
+            </div>
+            <div className="flex shrink-0 gap-1.5">
+              <button title={item.active ? "Вимкнути" : "Увімкнути"} onClick={() => toggle(item)} className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-[#0A0A0A] text-[#7DD3FC]"><CheckCircle2 size={15} strokeWidth={3} /></button>
+              <button title="Редагувати" onClick={() => setEditing(item)} className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-[#0A0A0A] text-white"><Pencil size={14} strokeWidth={3} /></button>
+              <button title="Видалити" onClick={() => remove(item)} className="flex h-9 w-9 items-center justify-center rounded-xl border border-[#FF3B30]/35 bg-[#0A0A0A] text-[#FF3B30]"><Trash2 size={14} strokeWidth={3} /></button>
+            </div>
+          </div>
+        </article>
+      ))}
+
+      {editing !== null && <AnnouncementEditor item={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />}
+    </div>
+  );
+};
+
+const AnnouncementEditor = ({ item, onClose, onSaved }) => {
+  const isNew = !item.id;
+  const [title, setTitle] = useState(item.title || "");
+  const [message, setMessage] = useState(item.message || "");
+  const [busy, setBusy] = useState(false);
+
+  const save = async () => {
+    if (title.trim().length < 2) return toast.error("Вкажіть заголовок");
+    if (message.trim().length < 2) return toast.error("Напишіть текст повідомлення");
+    setBusy(true);
+    try {
+      if (isNew) await api.post("/admin/announcements", { title: title.trim(), message: message.trim() });
+      else await api.patch(`/admin/announcements/${item.id}`, { title: title.trim(), message: message.trim() });
+      toast.success(isNew ? "Повідомлення опубліковано" : "Повідомлення оновлено");
+      onSaved();
+    } catch (error) {
+      toast.error(extractError(error, "Не вдалося зберегти повідомлення"));
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <BottomSheet onClose={onClose} title={isNew ? "Нове повідомлення" : "Редагування повідомлення"}>
+      <div className="space-y-3">
+        <label>
+          <span className="mb-1 block text-[10px] font-black uppercase tracking-wider text-zinc-500">Заголовок</span>
+          <input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={120} className="h-12 w-full rounded-xl border-2 border-white/10 bg-[#0A0A0A] px-3 font-black text-white outline-none focus:border-[#00F0FF]" placeholder="Що змінилося у VPDK Bonus?" data-testid="announcement-title" />
+        </label>
+        <label>
+          <span className="mb-1 block text-[10px] font-black uppercase tracking-wider text-zinc-500">Повідомлення</span>
+          <textarea value={message} onChange={(e) => setMessage(e.target.value)} maxLength={4000} rows={8} className="w-full resize-none rounded-xl border-2 border-white/10 bg-[#0A0A0A] px-3 py-3 text-sm font-bold leading-relaxed text-white outline-none focus:border-[#00F0FF]" placeholder="Поясніть працівникам оновлення, нові правила або важливу новину…" data-testid="announcement-message" />
+        </label>
+        <div className="rounded-2xl border border-[#7DD3FC]/20 bg-[#7DD3FC]/10 p-4">
+          <div className="flex items-center gap-2 text-[9px] font-black uppercase tracking-wider text-[#7DD3FC]"><MessageSquareText size={14} strokeWidth={3} /> Попередній перегляд</div>
+          <div className="mt-2 text-lg font-black text-white">{title || "Заголовок повідомлення"}</div>
+          <div className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-zinc-400">{message || "Тут працівник побачить ваш текст."}</div>
+        </div>
+      </div>
+      <button onClick={save} disabled={busy} className="mt-5 flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-[#0E7490] bg-[#00F0FF] text-sm font-black uppercase tracking-wider text-[#071317] disabled:opacity-60"><Send size={17} strokeWidth={3} /> {busy ? "Публікуємо…" : isNew ? "Опублікувати для всіх" : "Зберегти"}</button>
+    </BottomSheet>
+  );
+};
+
 // ─────────────── Orders admin ───────────────
 const OrdersView = ({ teamFilter }) => {
   const [orders, setOrders] = useState([]);
@@ -1793,6 +2061,17 @@ const OrdersView = ({ teamFilter }) => {
                 <div className="text-white font-black text-sm truncate">{o.prize_title}</div>
                 <div className="text-zinc-500 text-xs truncate">{o.user_name} • {new Date(o.created_at).toLocaleString("uk-UA")}</div>
                 {o.team_name && <div className="mt-0.5 text-[10px] font-black text-[#00F0FF]">{o.team_name}</div>}
+                <div className="mt-1 flex flex-wrap items-center gap-2 text-[10px] font-black">
+                  {Number(o.discount_points || 0) > 0 && Number(o.base_price || 0) > Number(o.price || 0) ? (
+                    <>
+                      <span className="text-zinc-600 line-through">{Number(o.base_price || 0).toLocaleString("uk-UA")} Point</span>
+                      <span className="text-[#FF8EB2]">{Number(o.price || 0).toLocaleString("uk-UA")} Point</span>
+                      <span className="rounded-full border border-[#FF5C7A]/25 bg-[#FF5C7A]/10 px-2 py-0.5 text-[#FF8EB2]">акція −{Number(o.discount_points || 0)}</span>
+                    </>
+                  ) : (
+                    <span className="text-[#FFB800]">{Number(o.price || 0).toLocaleString("uk-UA")} Point</span>
+                  )}
+                </div>
               </div>
               <div className="text-[10px] font-black uppercase px-2 py-1 rounded-full" style={{ backgroundColor: st.color + "22", color: st.color }}>
                 {st.label}
@@ -2451,7 +2730,7 @@ const GoalsManager = ({ teamFilter }) => {
     <div className="space-y-4">
       {visible.map((u) => {
         const f = forms[u.id] || normalizeGoalForm();
-        return <section key={u.id} className="rounded-3xl border border-white/10 bg-[#1A1A1E] p-4 lg:p-5">
+        return <section key={u.id} className="diamond-card-auto rounded-3xl border border-white/10 bg-[#1A1A1E] p-4 lg:p-5">
           <div className="mb-4 flex items-center gap-3">
             <AvatarFrame src={u.avatar_url} alt={u.name} initials={u.avatar_initials || "?"} color={u.avatar_color || "#FFB800"} rarity={u.avatar_rarity} size="compact" />
             <div className="min-w-0 flex-1"><div className="truncate font-black text-white">{u.name}</div><div className="truncate text-xs text-zinc-500">{u.position || u.department || "Оператор"}</div><div className={`mt-1 text-[9px] font-black uppercase ${u.google_synced ? "text-[#39FF14]" : "text-zinc-600"}`}>{u.goals_login ? (u.google_synced ? `Google: ${u.goals_login}` : `Ключ: ${u.goals_login} • рядок не знайдено`) : "Google-ключ не задано"}</div></div>
@@ -2480,6 +2759,7 @@ const PointsManager = ({ teamFilter }) => {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [adjustFor, setAdjustFor] = useState(null);
+  const [query, setQuery] = useState("");
   const load = async () => {
     setLoading(true);
     try { setUsers((await api.get("/admin/users")).data); }
@@ -2487,9 +2767,27 @@ const PointsManager = ({ teamFilter }) => {
     finally { setLoading(false); }
   };
   useEffect(() => { load(); }, []);
+  const normalizedQuery = query.trim().toLocaleLowerCase("uk-UA");
+  const visibleUsers = filterRowsByTeam(users, teamFilter).filter((u) => {
+    if (!normalizedQuery) return true;
+    return [u.name, u.email, u.position, u.department, u.team_name, u.goals_login]
+      .filter(Boolean)
+      .some((value) => String(value).toLocaleLowerCase("uk-UA").includes(normalizedQuery));
+  });
   return <div className="space-y-3">
+    <label className="relative block">
+      <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
+      <input
+        data-testid="points-search"
+        value={query}
+        onChange={(event) => setQuery(event.target.value)}
+        placeholder="Пошук співробітника"
+        className="h-11 w-full rounded-2xl border border-white/10 bg-[#1A1A1E] pl-10 pr-4 text-sm font-bold text-white outline-none placeholder:text-zinc-600 focus:border-[#FFB800]/60"
+      />
+    </label>
     {loading && <div className="py-8 text-center text-sm text-zinc-500">Завантаження...</div>}
-    {filterRowsByTeam(users, teamFilter).map((u) => <div key={u.id} className="flex items-center gap-3 rounded-2xl border border-white/10 bg-[#1A1A1E] p-3">
+    {!loading && visibleUsers.length === 0 && <div className="rounded-2xl border border-white/10 bg-[#1A1A1E] py-8 text-center text-sm font-black text-zinc-500">Співробітників не знайдено</div>}
+    {visibleUsers.map((u) => <div key={u.id} className="flex items-center gap-3 rounded-2xl border border-white/10 bg-[#1A1A1E] p-3">
       <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl font-display text-sm text-black" style={{backgroundColor:u.avatar_color||"#FFB800"}}>{u.avatar_initials||"?"}</div>
       <div className="min-w-0 flex-1"><div className="truncate text-sm font-black text-white">{u.name}</div><div className="text-xs text-zinc-500">Баланс: {u.balance.toLocaleString("uk-UA")} Point</div></div>
       <button type="button" onClick={() => setAdjustFor(u)} className="flex h-10 w-10 items-center justify-center rounded-xl border border-[#FFB800]/40 bg-black/30 text-[#FFB800]" aria-label="Керувати балами та балансом"><Coins size={16}/></button>
@@ -2834,7 +3132,7 @@ export default function Admin() {
     );
   }
 
-  const V = { analytics: AnalyticsView, "ai-team": AITeamDashboard, "daily-tasks": DailyTasksManager, points: PointsManager, goals: GoalsManager, moderation: ModerationView, applications: ApplicationsView, users: UsersView, teams: TeamsView, achievements: AchievementsView, "bonus-match": BonusMatchLevelsView, prizes: PrizesView, "team-banks": TeamBanksAdminView, orders: OrdersView }[tab];
+  const V = { analytics: AnalyticsView, "ai-team": AITeamDashboard, "daily-tasks": DailyTasksManager, points: PointsManager, goals: GoalsManager, moderation: ModerationView, applications: ApplicationsView, users: UsersView, teams: TeamsView, achievements: AchievementsView, "bonus-match": BonusMatchLevelsView, announcements: AnnouncementsView, prizes: PrizesView, "team-banks": TeamBanksAdminView, orders: OrdersView }[tab];
 
   return (
     <div className="px-5 pt-2 pb-8 lg:px-7 lg:pt-6" data-testid="admin-page">
@@ -2880,7 +3178,7 @@ export default function Admin() {
                 <select
                   value={teamFilter}
                   onChange={(event) => setTeamFilter(event.target.value)}
-                  className="h-11 w-full rounded-xl border border-white/10 bg-[#121318] px-3 text-sm font-black text-white outline-none focus:border-[#00F0FF]"
+                  className="admin-team-filter-select h-11 w-full rounded-xl border border-white/10 bg-[#121318] px-3 text-sm font-black text-white outline-none focus:border-[#00F0FF]"
                   data-testid="admin-global-team-filter"
                 >
                   <option value="">Усі команди</option>

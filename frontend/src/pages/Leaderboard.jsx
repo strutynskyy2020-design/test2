@@ -27,7 +27,7 @@ const Row = ({ entry, dim }) => {
   return (
     <div
       data-testid={`lb-row-${entry.rank}`}
-      className={`flex min-h-[88px] items-center gap-3 rounded-2xl border-2 px-3 py-2.5 transition-all ${
+      className={`diamond-card-auto flex min-h-[88px] items-center gap-3 rounded-2xl border-2 px-3 py-2.5 transition-all ${
         entry.is_me
           ? "border-[#FFB800]/60 bg-[#FFB800]/10"
           : dim

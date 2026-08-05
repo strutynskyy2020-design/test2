@@ -106,7 +106,7 @@ const DiamondChallengeCard = ({ user }) => {
     : null;
 
   return (
-    <section className="relative overflow-hidden rounded-[28px] border-2 border-[#7DD3FC]/40 bg-[radial-gradient(circle_at_top,_rgba(96,165,250,.18),_transparent_48%),linear-gradient(160deg,_#111827,_#111116_68%)] p-5 shadow-[0_18px_50px_rgba(59,130,246,.12)]" data-testid="diamond-daily-challenge">
+    <section className="diamond-challenge-card relative overflow-hidden rounded-[28px] border-2 border-[#7DD3FC]/40 bg-[radial-gradient(circle_at_top,_rgba(96,165,250,.18),_transparent_48%),linear-gradient(160deg,_#111827,_#111116_68%)] p-5 shadow-[0_18px_50px_rgba(59,130,246,.12)]" data-testid="diamond-daily-challenge">
       <div className="absolute -right-12 -top-12 h-36 w-36 rounded-full bg-[#B78CFF]/10 blur-3xl" />
       <div className="relative">
         <div className="flex items-start justify-between gap-3">

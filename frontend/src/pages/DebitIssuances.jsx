@@ -160,7 +160,7 @@ export default function DebitIssuances() {
         </section>
       ) : (
         <>
-          <section className="rounded-3xl border border-[#00F0FF]/30 bg-gradient-to-br from-[#00F0FF]/12 to-[#1A1A1E] p-5">
+          <section className="diamond-card-auto rounded-3xl border border-[#00F0FF]/30 bg-gradient-to-br from-[#00F0FF]/12 to-[#1A1A1E] p-5">
             <div className="flex items-center gap-3">
               <AvatarFrame
                 src={user?.avatar_url}

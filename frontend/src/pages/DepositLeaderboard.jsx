@@ -205,7 +205,7 @@ export default function DepositLeaderboard() {
               return (
                 <article
                   key={`${row.login}-${index}`}
-                  className={`border-t border-white/[.07] px-4 py-3 ${current ? "bg-[#39FF14]/[.05]" : ""}`}
+                  className={`diamond-card-auto border-t border-white/[.07] px-4 py-3 ${current ? "bg-[#39FF14]/[.05]" : ""}`}
                 >
                   <div className="flex items-center gap-3">
                     <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border text-xs font-black ${index < 3 ? "border-[#FFB800]/30 bg-[#FFB800]/10 text-[#FFB800]" : "border-white/10 bg-black/25 text-zinc-400"}`}>

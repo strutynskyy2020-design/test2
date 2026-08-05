@@ -41,18 +41,18 @@ def test_new_levels_are_materially_harder() -> None:
     assert levels[-1]["is_boss"] is True
 
 
-def test_first_clear_reward_is_five_points() -> None:
-    assert _assignment("BONUS_MATCH_FIRST_CLEAR_POINTS") == 5
+def test_first_clear_reward_is_two_points() -> None:
+    assert _assignment("BONUS_MATCH_FIRST_CLEAR_POINTS") == 2
     source = SERVER.read_text(encoding="utf-8")
-    assert "First clear of a level: +5 Point and +10 XP." in source
-    assert '"reward_policy": "v107_first_5_points_10_xp_replay_5_xp"' in source
+    assert "First clear of a level: +2 Point and +10 XP." in source
+    assert '"reward_policy": "v139_first_2_points_10_xp_replay_5_xp"' in source
     frontend = FRONTEND_GAME.read_text(encoding="utf-8")
-    assert "points_awarded: won ? 5 : 0" in frontend
+    assert "points_awarded: won ? 2 : 0" in frontend
     assert "length: 150" in frontend
 
 
 if __name__ == "__main__":
     test_catalog_has_150_levels_in_both_runtimes()
     test_new_levels_are_materially_harder()
-    test_first_clear_reward_is_five_points()
-    print("Bonus Match v107 checks passed")
+    test_first_clear_reward_is_two_points()
+    print("Bonus Match v139 reward checks passed")

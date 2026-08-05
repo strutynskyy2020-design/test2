@@ -47,13 +47,19 @@ const shortAvatarTitle = (title) => {
   return (parts[1] || parts[0]).trim().replace(/^аватар\s*/i, "") || "Аватар";
 };
 
+const prizePrice = (prize, owned = false) => (
+  owned ? 0 : Number(prize?.effective_price ?? prize?.price ?? 0)
+);
+
 const canBuyPrize = (prize, balance, owned) => {
-  const effectivePrice = owned ? 0 : Number(prize.price || 0);
+  const effectivePrice = prizePrice(prize, owned);
   return Number(balance || 0) >= effectivePrice && (prize.category === "avatar" || Number(prize.stock || 0) > 0);
 };
 
 const PrizeCard = ({ prize, balance, onBuy }) => {
   const affordable = canBuyPrize(prize, balance, false);
+  const effectivePrice = prizePrice(prize);
+  const hasPromotion = Boolean(prize.promotion_active && Number(prize.promotion_quantity_remaining || 0) > 0);
   const IconFallback = ICONS[prize.icon] || Gift;
 
   return (
@@ -73,6 +79,11 @@ const PrizeCard = ({ prize, balance, onBuy }) => {
         <div className="absolute left-2 top-2 rounded-full border border-white/10 bg-black/50 px-2 py-1 text-[9px] font-black uppercase tracking-widest text-white backdrop-blur-sm">
           {Number(prize.stock || 0) > 0 ? `${prize.stock} шт` : "Немає"}
         </div>
+        {hasPromotion && (
+          <div className="absolute right-2 top-2 rounded-full border border-[#FF5C7A]/45 bg-[#5A102C]/85 px-2 py-1 text-[9px] font-black uppercase tracking-wider text-[#FFD5E2] backdrop-blur-sm">
+            Акція −{Number(prize.promotion_discount || 0)} · ще {prize.promotion_quantity_remaining}
+          </div>
+        )}
       </div>
 
       <div className="flex min-h-[154px] flex-col p-4">
@@ -84,9 +95,14 @@ const PrizeCard = ({ prize, balance, onBuy }) => {
         )}
         <div className="mt-1 line-clamp-2 text-xs leading-relaxed text-zinc-500">{prize.description}</div>
         <div className="mt-auto flex items-center justify-between gap-2 pt-3">
-          <div className="flex min-w-0 items-center gap-1.5">
-            <Coins size={16} strokeWidth={3} className="shrink-0 text-[#FFB800]" />
-            <span className="truncate font-display text-base text-[#FFB800]">{Number(prize.price || 0).toLocaleString("uk-UA")}</span>
+          <div className="min-w-0">
+            {hasPromotion && (
+              <div className="text-[9px] font-black text-zinc-500 line-through">{Number(prize.price || 0).toLocaleString("uk-UA")} Point</div>
+            )}
+            <div className="flex min-w-0 items-center gap-1.5">
+              <Coins size={16} strokeWidth={3} className="shrink-0 text-[#FFB800]" />
+              <span className="truncate font-display text-base text-[#FFB800]">{effectivePrice.toLocaleString("uk-UA")}</span>
+            </div>
           </div>
           <button
             data-testid={`buy-${prize.id}`}
@@ -107,8 +123,9 @@ const PrizeCard = ({ prize, balance, onBuy }) => {
 };
 
 const AvatarPrizeCard = ({ prize, balance, onBuy, owned, active, rarityColor }) => {
-  const effectivePrice = owned ? 0 : Number(prize.price || 0);
+  const effectivePrice = prizePrice(prize, owned);
   const affordable = canBuyPrize(prize, balance, owned);
+  const hasPromotion = !owned && Boolean(prize.promotion_active && Number(prize.promotion_quantity_remaining || 0) > 0);
   const buttonLabel = active ? "Обрано" : owned ? "Обрати" : affordable ? "Купити" : "Мало Point";
 
   return (
@@ -143,9 +160,15 @@ const AvatarPrizeCard = ({ prize, balance, onBuy, owned, active, rarityColor }) 
         )}
       </div>
 
-      <div className="mt-2 flex items-center justify-center gap-1 text-[#FFB800]">
-        <Coins size={12} strokeWidth={3} />
-        <span className="font-display text-xs">{effectivePrice.toLocaleString("uk-UA")}</span>
+      <div className="mt-2 min-h-[30px]">
+        {hasPromotion && (
+          <div className="text-[8px] font-black text-[#FF6B9D]">−{prize.promotion_discount} · ще {prize.promotion_quantity_remaining}</div>
+        )}
+        <div className="flex items-center justify-center gap-1 text-[#FFB800]">
+          <Coins size={12} strokeWidth={3} />
+          <span className="font-display text-xs">{effectivePrice.toLocaleString("uk-UA")}</span>
+          {hasPromotion && <span className="text-[8px] font-black text-zinc-600 line-through">{Number(prize.price || 0).toLocaleString("uk-UA")}</span>}
+        </div>
       </div>
 
       <button
@@ -246,7 +269,7 @@ const TeamBankPanel = ({ teamBank, user, selectedAmount, onSelectAmount, onContr
 
   return (
     <div className="space-y-4" data-testid="team-bank-panel">
-      <section className="overflow-hidden rounded-[28px] border border-[#B78CFF]/25 bg-[radial-gradient(circle_at_top_left,_rgba(183,140,255,0.18),_transparent_45%),linear-gradient(180deg,_rgba(26,26,30,1),_rgba(12,12,14,1))] p-5">
+      <section className="team-bank-hero-card overflow-hidden rounded-[28px] border border-[#B78CFF]/25 bg-[radial-gradient(circle_at_top_left,_rgba(183,140,255,0.18),_transparent_45%),linear-gradient(180deg,_rgba(26,26,30,1),_rgba(12,12,14,1))] p-5">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
             <div className="text-[10px] font-black uppercase tracking-[0.24em] text-[#B78CFF]">Окремо для кожної групи</div>
@@ -376,7 +399,8 @@ const TeamBankPanel = ({ teamBank, user, selectedAmount, onSelectAmount, onContr
 
 const ConfirmSheet = ({ prize, balance, onConfirm, onClose, submitting, owned }) => {
   if (!prize) return null;
-  const effectivePrice = owned ? 0 : Number(prize.price || 0);
+  const effectivePrice = prizePrice(prize, owned);
+  const hasPromotion = !owned && Boolean(prize.promotion_active && Number(prize.promotion_quantity_remaining || 0) > 0);
   const after = Number(balance || 0) - effectivePrice;
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center">
@@ -396,8 +420,17 @@ const ConfirmSheet = ({ prize, balance, onConfirm, onClose, submitting, owned })
         <div className="mt-5 space-y-3 rounded-2xl border border-white/5 bg-[#0A0A0A] p-4">
           <div className="flex items-center justify-between">
             <span className="text-xs font-black uppercase tracking-widest text-zinc-500">Ціна</span>
-            <div className="flex items-center gap-1.5 text-[#FFB800]"><Coins size={16} strokeWidth={3} /><span className="font-display text-lg">{effectivePrice.toLocaleString("uk-UA")}</span></div>
+            <div className="text-right">
+              {hasPromotion && <div className="text-[10px] font-black text-zinc-600 line-through">{Number(prize.price || 0).toLocaleString("uk-UA")}</div>}
+              <div className="flex items-center gap-1.5 text-[#FFB800]"><Coins size={16} strokeWidth={3} /><span className="font-display text-lg">{effectivePrice.toLocaleString("uk-UA")}</span></div>
+            </div>
           </div>
+          {hasPromotion && (
+            <div className="flex items-center justify-between rounded-xl border border-[#FF5C7A]/25 bg-[#FF5C7A]/10 px-3 py-2">
+              <span className="text-[10px] font-black uppercase tracking-wider text-[#FF9BBB]">Акційна знижка</span>
+              <span className="text-sm font-black text-[#FF9BBB]">−{Number(prize.promotion_discount || 0)} Point · ще {prize.promotion_quantity_remaining} шт</span>
+            </div>
+          )}
           <div className="flex items-center justify-between"><span className="text-xs font-black uppercase tracking-widest text-zinc-500">Баланс зараз</span><span className="font-black text-white">{Number(balance || 0).toLocaleString("uk-UA")}</span></div>
           <div className="flex items-center justify-between border-t border-white/5 pt-3"><span className="text-xs font-black uppercase tracking-widest text-zinc-500">Залишиться</span><span className="font-black text-[#39FF14]">{after.toLocaleString("uk-UA")}</span></div>
         </div>
@@ -431,14 +464,14 @@ export default function Store() {
   const generalPrizes = useMemo(() => {
     const nonAvatars = storefrontPrizes.filter((prize) => prize.category !== "avatar");
     const filtered = cat === "privilege" ? nonAvatars.filter((prize) => prize.category === "privilege") : nonAvatars;
-    return [...filtered].sort((a, b) => Number(a.price || 0) - Number(b.price || 0));
+    return [...filtered].sort((a, b) => prizePrice(a, false) - prizePrice(b, false));
   }, [cat, storefrontPrizes]);
 
   const avatarGroups = useMemo(() => {
     const groups = Object.fromEntries(AVATAR_RARITIES.map((rarity) => [rarity.id, []]));
     storefrontPrizes
       .filter((prize) => prize.category === "avatar")
-      .sort((a, b) => Number(a.price || 0) - Number(b.price || 0) || String(a.title || "").localeCompare(String(b.title || ""), "uk"))
+      .sort((a, b) => prizePrice(a, false) - prizePrice(b, false) || String(a.title || "").localeCompare(String(b.title || ""), "uk"))
       .forEach((prize) => {
         const key = groups[prize.avatar_rarity] ? prize.avatar_rarity : "basic";
         groups[key].push(prize);
@@ -475,7 +508,8 @@ export default function Store() {
   const doBuy = async () => {
     if (!pending) return;
     setSubmitting(true);
-    const res = await buyPrize(pending.id);
+    const expectedPrice = prizePrice(pending, Boolean((user.owned_avatar_ids || []).includes(pending.id)));
+    const res = await buyPrize(pending.id, expectedPrice);
     setSubmitting(false);
     if (!res.ok) {
       toast.error(res.error);

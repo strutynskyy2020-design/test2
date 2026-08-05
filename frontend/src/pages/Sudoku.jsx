@@ -268,7 +268,7 @@ export default function Sudoku() {
     const stars = session.errors === 0 && session.hints_used === 0 && (session.mode === "zen" || session.elapsed <= threshold)
       ? 3 : session.errors <= 2 && session.hints_used <= 1 ? 2 : 1;
     const run = async () => {
-      let reward = { first_completion: !completions[currentLevel.id], points_awarded: !completions[currentLevel.id] ? 5 : 0, xp_awarded: !completions[currentLevel.id] ? 10 : 5 };
+      let reward = { first_completion: !completions[currentLevel.id], points_awarded: !completions[currentLevel.id] ? 2 : 0, xp_awarded: !completions[currentLevel.id] ? 10 : 5 };
       try {
         const { data } = await api.post("/games/sudoku/complete", {
           session_id: session.id, level: currentLevel.id, cells: session.cells, elapsed: session.elapsed,

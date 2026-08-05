@@ -1,0 +1,332 @@
+diff -ruN '--exclude=VPDK-BONUS-V138.patch' /mnt/data/orig-v137/vpdk-bonus-v137-diamond-card-frame-all-surfaces/LIGHT_THEME_LEADERBOARD_V138.md /mnt/data/work-v138/vpdk-bonus-v137-diamond-card-frame-all-surfaces/LIGHT_THEME_LEADERBOARD_V138.md
+--- /mnt/data/orig-v137/vpdk-bonus-v137-diamond-card-frame-all-surfaces/LIGHT_THEME_LEADERBOARD_V138.md	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/work-v138/vpdk-bonus-v137-diamond-card-frame-all-surfaces/LIGHT_THEME_LEADERBOARD_V138.md	2026-08-04 20:41:33.575846577 +0000
+@@ -0,0 +1,30 @@
++# Light theme and LeaderBoard fix v138
++
++## Причина проблеми зі світлою темою
++
++Глобальна тема коректно переводила `text-white` у темний текст, але кілька компонентів використовували власні темні CSS-градієнти. Ці градієнти не перетворювалися на світлі поверхні. У результаті темний текст опинявся на темному фоні.
++
++Проблемні поверхні:
++
++- постійна картка «Алмазний виклик»;
++- верхня картка «Банка Команди»;
++- блок алмазного аватара в адмін-панелі;
++- кнопки внеску з фоном `#111114`;
++- розкриті браузером списки `select`.
++
++## Реалізація
++
++Компонентам додано семантичні класи:
++
++- `diamond-challenge-card`;
++- `team-bank-hero-card`;
++- `admin-diamond-avatar-panel`;
++- `admin-team-filter-select`.
++
++У світлій темі вони отримують окремі світлі фони, темні читабельні написи та контрастні рамки. Темна тема не змінена.
++
++## LeaderBoard
++
++Значення `limit` у `_leaderboard_for_period()` змінено з `10` на `20`. Оператор, який перебуває нижче двадцятого місця, як і раніше окремо отримує `my_entry`.
++
++Для узгодженості Telegram endpoint також використовує стандартне значення 20.
+diff -ruN '--exclude=VPDK-BONUS-V138.patch' /mnt/data/orig-v137/vpdk-bonus-v137-diamond-card-frame-all-surfaces/VPDK-BONUS-V138-INSTALL.md /mnt/data/work-v138/vpdk-bonus-v137-diamond-card-frame-all-surfaces/VPDK-BONUS-V138-INSTALL.md
+--- /mnt/data/orig-v137/vpdk-bonus-v137-diamond-card-frame-all-surfaces/VPDK-BONUS-V138-INSTALL.md	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/work-v138/vpdk-bonus-v137-diamond-card-frame-all-surfaces/VPDK-BONUS-V138-INSTALL.md	2026-08-04 20:41:33.574809953 +0000
+@@ -0,0 +1,23 @@
++# VPDK Bonus v138
++
++## Що змінено
++
++- виправлено контраст у світлій темі для постійного «Алмазного виклику»;
++- виправлено контраст головної картки «Банка Команди» та кнопок внесків;
++- виправлено світлу тему блоку видачі алмазного аватара в адмін-панелі;
++- виправлено кольори пунктів у нативних списках `select`, включно з глобальним фільтром команд;
++- додано глибші відтінки для блакитних і лавандових підписів на світлому фоні;
++- LeaderBoard тепер повертає та показує до 20 місць замість 10;
++- Service Worker оновлено до `vpdk-v138`.
++
++## Встановлення
++
++1. Оновіть backend повною папкою `backend` із v138.
++2. Розгорніть frontend/Netlify з папки `frontend` із v138.
++3. Google Apps Script не змінюйте. Залишається поточна версія `VPDK-Code-v130.gs`.
++4. Після деплою повністю закрийте PWA і відкрийте знову або виконайте `Ctrl + Shift + R`.
++5. Перевірте світлу тему на сторінках «Квести», «Магазин» і «Адмін-панель».
++
++## Важливо
++
++Збільшення LeaderBoard до 20 виконується backend-ом. Якщо оновити лише frontend, список і далі міститиме максимум 10 користувачів.
+diff -ruN '--exclude=VPDK-BONUS-V138.patch' /mnt/data/orig-v137/vpdk-bonus-v137-diamond-card-frame-all-surfaces/backend/server.py /mnt/data/work-v138/vpdk-bonus-v137-diamond-card-frame-all-surfaces/backend/server.py
+--- /mnt/data/orig-v137/vpdk-bonus-v137-diamond-card-frame-all-surfaces/backend/server.py	2026-08-04 17:26:55.000000000 +0000
++++ /mnt/data/work-v138/vpdk-bonus-v137-diamond-card-frame-all-surfaces/backend/server.py	2026-08-04 20:39:37.020766723 +0000
+@@ -3213,7 +3213,7 @@
+ async def _leaderboard_for_period(
+     period: Literal["day", "week", "month", "all"],
+     current_id: str,
+-    limit: int = 10,
++    limit: int = 20,
+     team_id: Optional[str] = None,
+ ) -> LeaderboardResponse:
+     user_filter: dict = {"role": {"$in": PLAYER_ROLES}}
+@@ -7519,7 +7519,7 @@
+ 
+ 
+ @bot_router.get("/leaderboard")
+-async def bot_leaderboard(limit: int = 10):
++async def bot_leaderboard(limit: int = 20):
+     docs = await db.users.find(
+         {"role": {"$in": PLAYER_ROLES}}, {"_id": 0, "id": 1, "name": 1, "total_earned": 1, "avatar_initials": 1}
+     ).sort("total_earned", -1).limit(limit).to_list(limit)
+diff -ruN '--exclude=VPDK-BONUS-V138.patch' /mnt/data/orig-v137/vpdk-bonus-v137-diamond-card-frame-all-surfaces/frontend/public/service-worker.js /mnt/data/work-v138/vpdk-bonus-v137-diamond-card-frame-all-surfaces/frontend/public/service-worker.js
+--- /mnt/data/orig-v137/vpdk-bonus-v137-diamond-card-frame-all-surfaces/frontend/public/service-worker.js	2026-08-04 20:24:09.000000000 +0000
++++ /mnt/data/work-v138/vpdk-bonus-v137-diamond-card-frame-all-surfaces/frontend/public/service-worker.js	2026-08-04 20:39:37.021336650 +0000
+@@ -1,4 +1,5 @@
+ /* VPDK Bonus — Service Worker
++ * v138 fixes light-theme contrast across custom cards and expands leaderboards to 20 places.
+  * v137 adds the rectangular diamond employee frame to rankings, reports, profiles, and feed cards.
+  * v136 adds premium diamond-avatar grant events to the activity feed.
+  * v135 fixes exact male/female diamond-frame detection and renders rarity frames in every employee report avatar.
+@@ -25,7 +26,7 @@
+  * never be cached as index.html, otherwise browsers can render a giant broken
+  * image element over the board.
+  */
+-const VERSION = "vpdk-v137";
++const VERSION = "vpdk-v138";
+ const STATIC_CACHE = `${VERSION}-static`;
+ const RUNTIME_CACHE = `${VERSION}-runtime`;
+ 
+diff -ruN '--exclude=VPDK-BONUS-V138.patch' /mnt/data/orig-v137/vpdk-bonus-v137-diamond-card-frame-all-surfaces/frontend/src/index.css /mnt/data/work-v138/vpdk-bonus-v137-diamond-card-frame-all-surfaces/frontend/src/index.css
+--- /mnt/data/orig-v137/vpdk-bonus-v137-diamond-card-frame-all-surfaces/frontend/src/index.css	2026-08-04 20:24:08.000000000 +0000
++++ /mnt/data/work-v138/vpdk-bonus-v137-diamond-card-frame-all-surfaces/frontend/src/index.css	2026-08-04 20:40:35.364928575 +0000
+@@ -1293,3 +1293,119 @@
+     0 0 0 1px rgba(39, 139, 180, .10) inset,
+     0 10px 28px rgba(74, 93, 145, .12) !important;
+ }
++
++/* ==========================================================================
++   v138 · LIGHT THEME CONTRAST HARDENING
++   Custom dark gradients previously kept their dark background while the global
++   light-theme remap changed white labels to dark text. These semantic surfaces
++   now receive native light variants, and native selects remain readable.
++   ========================================================================== */
++
++/* A frequently used legacy neutral surface was not covered by the original
++   light-mode utility map. Without this rule preset buttons stayed nearly black
++   while their labels were remapped to dark text. */
++html.light .app-theme-shell:not(.game-only-app-shell) .bg-\[\#111114\] {
++  background-color: #F4F2F8 !important;
++  border-color: #D9D5E2 !important;
++}
++
++/* Permanent diamond challenge on the quests page. */
++html.light .diamond-challenge-card {
++  background:
++    radial-gradient(circle at 10% 0%, rgba(14,165,233,.13), transparent 44%),
++    radial-gradient(circle at 92% 100%, rgba(168,85,247,.10), transparent 46%),
++    linear-gradient(160deg, #F5FBFF, #F7F3FF 70%) !important;
++  border-color: rgba(2,132,199,.38) !important;
++  box-shadow: 0 18px 46px rgba(44,82,130,.11) !important;
++}
++html.light .diamond-challenge-card .text-\[\#BAE6FD\] { color: #075985 !important; }
++html.light .diamond-challenge-card .bg-black\/25 {
++  background-color: rgba(255,255,255,.78) !important;
++  border-color: rgba(80,60,120,.12) !important;
++}
++
++/* Team Bank hero. Keep the premium lavender identity but use a light surface
++   and deep text colours instead of a dark panel with dark remapped labels. */
++html.light .team-bank-hero-card {
++  background:
++    radial-gradient(circle at top left, rgba(139,92,246,.13), transparent 46%),
++    linear-gradient(180deg, #FAF7FF, #F3F0F8) !important;
++  border-color: rgba(109,61,245,.24) !important;
++  box-shadow: 0 16px 38px rgba(70,53,108,.10) !important;
++}
++html.light .team-bank-hero-card .bg-black\/25 {
++  background-color: rgba(255,255,255,.76) !important;
++  border-color: rgba(80,60,120,.13) !important;
++}
++html.light .team-bank-hero-card .text-\[\#E9D8FF\] { color: #5B21B6 !important; }
++html.light .team-bank-hero-card .bg-\[\#B78CFF\]\/10 {
++  background-color: rgba(109,61,245,.09) !important;
++}
++
++/* Diamond-avatar controls inside the admin user sheet. */
++html.light .admin-diamond-avatar-panel {
++  background:
++    radial-gradient(circle at top, rgba(96,165,250,.13), transparent 58%),
++    #F7FAFF !important;
++  border-color: rgba(37,99,235,.24) !important;
++}
++
++/* Native select menus use browser-owned popups. Explicit colours prevent the
++   white-on-white/blank option list seen in Chrome on the admin overview. */
++.admin-team-filter-select {
++  color-scheme: dark;
++}
++.admin-team-filter-select option {
++  color: #F5F5F5;
++  background: #121318;
++}
++html.light .admin-team-filter-select {
++  color-scheme: light;
++  color: #20242E !important;
++  background: #FFFFFF !important;
++  border-color: #CFC9DA !important;
++  box-shadow: inset 0 1px 2px rgba(44,44,60,.04);
++}
++html.light .admin-team-filter-select option {
++  color: #20242E !important;
++  background: #FFFFFF !important;
++}
++
++/* Final safety net for the three semantic premium surfaces. It only scopes to
++   their own content and therefore does not alter saturated buttons globally. */
++html.light .diamond-challenge-card .text-white,
++html.light .team-bank-hero-card .text-white,
++html.light .admin-diamond-avatar-panel .text-white {
++  color: var(--light-text-strong) !important;
++}
++html.light .diamond-challenge-card .text-zinc-300,
++html.light .diamond-challenge-card .text-zinc-400,
++html.light .team-bank-hero-card .text-zinc-300,
++html.light .team-bank-hero-card .text-zinc-400,
++html.light .admin-diamond-avatar-panel .text-zinc-300,
++html.light .admin-diamond-avatar-panel .text-zinc-400 {
++  color: var(--light-text-body) !important;
++}
++html.light .diamond-challenge-card .text-zinc-500,
++html.light .team-bank-hero-card .text-zinc-500,
++html.light .admin-diamond-avatar-panel .text-zinc-500 {
++  color: var(--light-text-muted) !important;
++}
++
++/* Pale accent labels need deeper ink on white surfaces. */
++html.light .app-theme-shell:not(.game-only-app-shell) [class*="text-[#7DD3FC]"],
++html.light .app-theme-shell:not(.game-only-app-shell) [class*="text-[#BAE6FD]"] {
++  color: #0369A1 !important;
++}
++html.light .app-theme-shell:not(.game-only-app-shell) [class*="text-[#E9D8FF]"] {
++  color: #5B21B6 !important;
++}
++
++/* Apply readable option colours to every native select, not just the global
++   team filter, because Chrome renders the expanded menu outside Tailwind's
++   normal surface styling. */
++html.light .app-theme-shell select option,
++html.light .app-theme-shell select optgroup {
++  color: #20242E !important;
++  background: #FFFFFF !important;
++}
+diff -ruN '--exclude=VPDK-BONUS-V138.patch' /mnt/data/orig-v137/vpdk-bonus-v137-diamond-card-frame-all-surfaces/frontend/src/lib/pwa.js /mnt/data/work-v138/vpdk-bonus-v137-diamond-card-frame-all-surfaces/frontend/src/lib/pwa.js
+--- /mnt/data/orig-v137/vpdk-bonus-v137-diamond-card-frame-all-surfaces/frontend/src/lib/pwa.js	2026-08-04 20:25:08.000000000 +0000
++++ /mnt/data/work-v138/vpdk-bonus-v137-diamond-card-frame-all-surfaces/frontend/src/lib/pwa.js	2026-08-04 20:39:37.021443814 +0000
+@@ -10,7 +10,7 @@
+   window.addEventListener("load", async () => {
+     try {
+       const registration = await navigator.serviceWorker.register(
+-        "/service-worker.js?v=137",
++        "/service-worker.js?v=138",
+         { scope: "/", updateViaCache: "none" }
+       );
+ 
+diff -ruN '--exclude=VPDK-BONUS-V138.patch' /mnt/data/orig-v137/vpdk-bonus-v137-diamond-card-frame-all-surfaces/frontend/src/pages/Admin.jsx /mnt/data/work-v138/vpdk-bonus-v137-diamond-card-frame-all-surfaces/frontend/src/pages/Admin.jsx
+--- /mnt/data/orig-v137/vpdk-bonus-v137-diamond-card-frame-all-surfaces/frontend/src/pages/Admin.jsx	2026-08-04 20:23:10.000000000 +0000
++++ /mnt/data/work-v138/vpdk-bonus-v137-diamond-card-frame-all-surfaces/frontend/src/pages/Admin.jsx	2026-08-04 20:39:37.014298078 +0000
+@@ -697,7 +697,7 @@
+   };
+ 
+   return (
+-    <section className="rounded-3xl border border-[#60A5FA]/35 bg-[radial-gradient(circle_at_top,_rgba(96,165,250,.16),_transparent_58%),rgba(10,10,10,.55)] p-4" data-testid="diamond-avatar-admin-panel">
++    <section className="admin-diamond-avatar-panel rounded-3xl border border-[#60A5FA]/35 bg-[radial-gradient(circle_at_top,_rgba(96,165,250,.16),_transparent_58%),rgba(10,10,10,.55)] p-4" data-testid="diamond-avatar-admin-panel">
+       <div className="flex items-start justify-between gap-3">
+         <div>
+           <div className="flex items-center gap-2 text-sm font-black text-white"><Gem size={17} className="text-[#7DD3FC]" /> Алмазний аватар</div>
+@@ -2880,7 +2880,7 @@
+                 <select
+                   value={teamFilter}
+                   onChange={(event) => setTeamFilter(event.target.value)}
+-                  className="h-11 w-full rounded-xl border border-white/10 bg-[#121318] px-3 text-sm font-black text-white outline-none focus:border-[#00F0FF]"
++                  className="admin-team-filter-select h-11 w-full rounded-xl border border-white/10 bg-[#121318] px-3 text-sm font-black text-white outline-none focus:border-[#00F0FF]"
+                   data-testid="admin-global-team-filter"
+                 >
+                   <option value="">Усі команди</option>
+diff -ruN '--exclude=VPDK-BONUS-V138.patch' /mnt/data/orig-v137/vpdk-bonus-v137-diamond-card-frame-all-surfaces/frontend/src/pages/Store.jsx /mnt/data/work-v138/vpdk-bonus-v137-diamond-card-frame-all-surfaces/frontend/src/pages/Store.jsx
+--- /mnt/data/orig-v137/vpdk-bonus-v137-diamond-card-frame-all-surfaces/frontend/src/pages/Store.jsx	2026-08-03 12:04:24.000000000 +0000
++++ /mnt/data/work-v138/vpdk-bonus-v137-diamond-card-frame-all-surfaces/frontend/src/pages/Store.jsx	2026-08-04 20:39:37.010653212 +0000
+@@ -246,7 +246,7 @@
+ 
+   return (
+     <div className="space-y-4" data-testid="team-bank-panel">
+-      <section className="overflow-hidden rounded-[28px] border border-[#B78CFF]/25 bg-[radial-gradient(circle_at_top_left,_rgba(183,140,255,0.18),_transparent_45%),linear-gradient(180deg,_rgba(26,26,30,1),_rgba(12,12,14,1))] p-5">
++      <section className="team-bank-hero-card overflow-hidden rounded-[28px] border border-[#B78CFF]/25 bg-[radial-gradient(circle_at_top_left,_rgba(183,140,255,0.18),_transparent_45%),linear-gradient(180deg,_rgba(26,26,30,1),_rgba(12,12,14,1))] p-5">
+         <div className="flex items-start justify-between gap-4">
+           <div className="min-w-0">
+             <div className="text-[10px] font-black uppercase tracking-[0.24em] text-[#B78CFF]">Окремо для кожної групи</div>
+diff -ruN '--exclude=VPDK-BONUS-V138.patch' /mnt/data/orig-v137/vpdk-bonus-v137-diamond-card-frame-all-surfaces/frontend/src/pages/Tasks.jsx /mnt/data/work-v138/vpdk-bonus-v137-diamond-card-frame-all-surfaces/frontend/src/pages/Tasks.jsx
+--- /mnt/data/orig-v137/vpdk-bonus-v137-diamond-card-frame-all-surfaces/frontend/src/pages/Tasks.jsx	2026-08-04 16:29:59.000000000 +0000
++++ /mnt/data/work-v138/vpdk-bonus-v137-diamond-card-frame-all-surfaces/frontend/src/pages/Tasks.jsx	2026-08-04 20:39:37.010208656 +0000
+@@ -106,7 +106,7 @@
+     : null;
+ 
+   return (
+-    <section className="relative overflow-hidden rounded-[28px] border-2 border-[#7DD3FC]/40 bg-[radial-gradient(circle_at_top,_rgba(96,165,250,.18),_transparent_48%),linear-gradient(160deg,_#111827,_#111116_68%)] p-5 shadow-[0_18px_50px_rgba(59,130,246,.12)]" data-testid="diamond-daily-challenge">
++    <section className="diamond-challenge-card relative overflow-hidden rounded-[28px] border-2 border-[#7DD3FC]/40 bg-[radial-gradient(circle_at_top,_rgba(96,165,250,.18),_transparent_48%),linear-gradient(160deg,_#111827,_#111116_68%)] p-5 shadow-[0_18px_50px_rgba(59,130,246,.12)]" data-testid="diamond-daily-challenge">
+       <div className="absolute -right-12 -top-12 h-36 w-36 rounded-full bg-[#B78CFF]/10 blur-3xl" />
+       <div className="relative">
+         <div className="flex items-start justify-between gap-3">
+diff -ruN '--exclude=VPDK-BONUS-V138.patch' /mnt/data/orig-v137/vpdk-bonus-v137-diamond-card-frame-all-surfaces/validate_vpdk_v138.py /mnt/data/work-v138/vpdk-bonus-v137-diamond-card-frame-all-surfaces/validate_vpdk_v138.py
+--- /mnt/data/orig-v137/vpdk-bonus-v137-diamond-card-frame-all-surfaces/validate_vpdk_v138.py	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/work-v138/vpdk-bonus-v137-diamond-card-frame-all-surfaces/validate_vpdk_v138.py	2026-08-04 20:41:33.577074351 +0000
+@@ -0,0 +1,48 @@
++from pathlib import Path
++import ast
++
++ROOT = Path(__file__).resolve().parent
++SRC = ROOT / "frontend" / "src"
++
++css = (SRC / "index.css").read_text()
++for token in (
++    "v138 · LIGHT THEME CONTRAST HARDENING",
++    "html.light .diamond-challenge-card",
++    "html.light .team-bank-hero-card",
++    "html.light .admin-diamond-avatar-panel",
++    "html.light .admin-team-filter-select",
++    '.bg-\\[\\#111114\\]',
++    'select option',
++):
++    assert token in css, token
++
++assert "diamond-challenge-card" in (SRC / "pages" / "Tasks.jsx").read_text()
++assert "team-bank-hero-card" in (SRC / "pages" / "Store.jsx").read_text()
++admin = (SRC / "pages" / "Admin.jsx").read_text()
++assert "admin-diamond-avatar-panel" in admin
++assert "admin-team-filter-select" in admin
++
++server_path = ROOT / "backend" / "server.py"
++server_text = server_path.read_text()
++server_ast = ast.parse(server_text)
++
++def default_for(name: str, argument: str):
++    for node in ast.walk(server_ast):
++        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name:
++            args = node.args.args
++            defaults = node.args.defaults
++            start = len(args) - len(defaults)
++            mapping = {args[start + i].arg: defaults[i] for i in range(len(defaults))}
++            value = mapping.get(argument)
++            return value.value if isinstance(value, ast.Constant) else None
++    raise AssertionError(f"function not found: {name}")
++
++assert default_for("_leaderboard_for_period", "limit") == 20
++assert default_for("bot_leaderboard", "limit") == 20
++
++sw = (ROOT / "frontend" / "public" / "service-worker.js").read_text()
++pwa = (SRC / "lib" / "pwa.js").read_text()
++assert 'const VERSION = "vpdk-v138";' in sw
++assert '/service-worker.js?v=138' in pwa
++
++print("v138 light-theme and top-20 LeaderBoard validation passed")

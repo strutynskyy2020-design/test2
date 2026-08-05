@@ -179,7 +179,7 @@ function GroupDirectionValue({ label, value }) {
 
 function BestDirectionCard({ label, result }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-black/25 p-3 text-center">
+    <div className="diamond-card-auto rounded-2xl border border-white/10 bg-black/25 p-3 text-center">
       <div className="flex items-center justify-center gap-1.5 text-[8px] font-black uppercase tracking-wider text-[#00F0FF]">
         <Trophy size={11} strokeWidth={2.8} />
         {label}
@@ -207,7 +207,7 @@ function OperatorRow({ operator, rank, isCurrent }) {
   const overallTheme = getStatus(operator.overall);
   return (
     <article
-      className={`debit-operator-row border-t px-3 py-3 ${isCurrent ? "is-current" : ""}`}
+      className={`diamond-card-auto debit-operator-row border-t px-3 py-3 ${isCurrent ? "is-current" : ""}`}
       style={{ borderColor: "var(--operator-divider, rgba(255,255,255,.075))" }}
     >
       <div className="flex items-center gap-2.5">

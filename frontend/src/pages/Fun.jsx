@@ -293,15 +293,15 @@ export default function Fun() {
             <span className="generous-cube-header-icon"><Dice5 size={18} strokeWidth={3} /></span>
             <div>
               <div className="text-[10px] font-black uppercase tracking-[0.22em] text-[#39FF14]">Щедрий куб</div>
-              <div className="mt-0.5 text-xs font-bold text-zinc-500">Кидай і забирай до 1000 Point</div>
+              <div className="mt-0.5 text-xs font-bold text-zinc-500">Кидай і забирай до 500 Point</div>
             </div>
           </div>
           <details className="generous-cube-info">
             <summary><Info size={14} /> Як працює?</summary>
             <div className="generous-cube-prizes">
               {[
-                [1, "0–15"], [2, "16–35"], [3, "36–70"],
-                [4, "71–105"], [5, "106–175"], [6, "176–1000"],
+                [1, "1–10"], [2, "11–20"], [3, "21–30"],
+                [4, "31–50"], [5, "51–100"], [6, "101–500"],
               ].map(([value, range]) => (
                 <div key={value}><span>{faceGlyph(value)}</span><b>{value}</b><em>{range} Point</em></div>
               ))}
@@ -360,7 +360,7 @@ export default function Fun() {
         <button
           data-testid="spin-cube"
           onClick={spin}
-          disabled={rolling || loadingStatus || (Number(status?.cube_spin_count || 0) > 0 && Number(user?.balance || 0) < 50)}
+          disabled={rolling || loadingStatus || (Number(status?.cube_spin_count || 0) > 0 && Number(user?.balance || 0) < Number(status?.next_spin_cost || 20))}
           className="generous-cube-button"
         >
           <Zap size={20} strokeWidth={3} />
@@ -368,10 +368,10 @@ export default function Fun() {
             ? "КУБ НАБИРАЄ ЕНЕРГІЮ..."
             : Number(status?.cube_spin_count || 0) === 0
               ? "КИНУТИ БЕЗКОШТОВНО"
-              : "КИНУТИ ЗА 50 POINT"}
+              : `КИНУТИ ЗА ${status?.next_spin_cost || 20} POINT`}
         </button>
 
-        {Number(status?.cube_spin_count || 0) > 0 && Number(user?.balance || 0) < 50 && (
+        {Number(status?.cube_spin_count || 0) > 0 && Number(user?.balance || 0) < Number(status?.next_spin_cost || 20) && (
           <div className="mt-3 text-center text-xs font-black text-[#FF5C00]">Недостатньо Point для наступної спроби</div>
         )}
         <div className="generous-cube-attempts">Спроб сьогодні: <b>{Number(status?.cube_spin_count || 0)}</b></div>
@@ -379,7 +379,7 @@ export default function Fun() {
 
       <div className="text-[11px] text-zinc-500 text-center font-black">
         <Coins size={12} strokeWidth={3} className="inline -mt-0.5 mr-1" />
-        Передбачення безкоштовне раз на добу. Перший кидок куба безкоштовний, наступні — по 50 Point.
+        Передбачення безкоштовне раз на добу. Перший кидок куба безкоштовний, наступні — по 20 Point.
       </div>
     </div>
   );

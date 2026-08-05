@@ -120,5 +120,5 @@ def test_route_home_card_and_reward_policy_are_wired():
     server = (ROOT / "backend" / "server.py").read_text(encoding="utf-8")
     assert 'path="/games/sudoku"' in app
     assert 'nav("/games/sudoku")' in home
-    assert 'SUDOKU_FIRST_CLEAR_POINTS = 5' in server
+    assert 'SUDOKU_FIRST_CLEAR_POINTS = 2' in server
     assert '@api.post("/games/sudoku/complete")' in server

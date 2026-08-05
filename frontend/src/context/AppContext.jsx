@@ -205,21 +205,23 @@ export const AppProvider = ({ children }) => {
 
   const claimQuest = async () => ({ ok: false, error: "Стара система квестів вимкнена" });
 
-  const buyPrize = async (prizeId) => {
+  const buyPrize = async (prizeId, expectedPrice = null) => {
     try {
-      const { data } = await api.post(`/prizes/${prizeId}/buy`);
+      const params = Number.isFinite(Number(expectedPrice))
+        ? { expected_price: Number(expectedPrice) }
+        : undefined;
+      const { data } = await api.post(`/prizes/${prizeId}/buy`, null, { params });
       setState((current) => ({
         ...current,
         user: data.user,
         orders: [data.order, ...current.orders],
         prizes: current.prizes.map((prize) =>
-          prize.id === prizeId && prize.category !== "avatar"
-            ? { ...prize, stock: Math.max(0, prize.stock - 1) }
-            : prize
+          prize.id === prizeId && data.prize ? data.prize : prize
         ),
       }));
-      return { ok: true };
+      return { ok: true, data };
     } catch (error) {
+      if (error?.response?.status === 409) loadPrizes().catch(() => {});
       return { ok: false, error: extractError(error, "Не вдалося обміняти Point") };
     }
   };
