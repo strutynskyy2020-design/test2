@@ -15,6 +15,7 @@ import logging
 import asyncio
 import shutil
 import re
+import math
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 from typing import List, Optional, Literal
@@ -472,6 +473,24 @@ class AdminPasswordResetBody(BaseModel):
 
 class GoalsSettingsUpdateBody(BaseModel):
     allow_cross_team_reports: bool = False
+
+
+class CubeRewardRangeBody(BaseModel):
+    face: int = Field(ge=1, le=6)
+    min_reward: int = Field(ge=0, le=100000)
+    max_reward: int = Field(ge=0, le=100000)
+
+
+class CubeFaceProbabilityBody(BaseModel):
+    face: int = Field(ge=1, le=6)
+    probability_percent: float = Field(ge=0, le=100)
+
+
+class CubeSettingsUpdateBody(BaseModel):
+    paid_spin_cost: int = Field(ge=0, le=100000)
+    rewards: List[CubeRewardRangeBody] = Field(min_length=6, max_length=6)
+    # Optional keeps rolling backend/frontend deployments compatible with v145.
+    probabilities: Optional[List[CubeFaceProbabilityBody]] = Field(default=None, min_length=6, max_length=6)
 
 
 class TeamGoalMessageBody(BaseModel):
@@ -3619,11 +3638,40 @@ PREDICTIONS_UK = [
     "Твоя команда виграє тоді, коли ти виграєш. І навпаки.",
     "Не всі бали видно одразу. Гарна карма повертається.",
     "Найкраще натхнення — це виконаний квест.",
-    "Сьогодні є 1% шанс на джекпот у Щедрому Кубі. Спробуй.",
+    "Сьогодні у Щедрому Кубі може чекати джекпот. Спробуй.",
 ]
 
-# Cube faces: (face, weight %, min reward, max reward, tier)
-# The first spin each Kyiv day is free. Every next spin costs 20 Point.
+# Administrators can edit the reward range and probability of every face,
+# plus the price of each repeat spin. The first spin of each Kyiv day always
+# remains free. Default probabilities preserve the original 37/28/20/10/4/1
+# economy and add up to exactly 100%.
+DEFAULT_CUBE_SPIN_COST = 20
+CUBE_FACE_META = [
+    (1, 37, "one"),
+    (2, 28, "two"),
+    (3, 20, "three"),
+    (4, 10, "four"),
+    (5, 4, "five"),
+    (6, 1, "six"),
+]
+DEFAULT_CUBE_FACE_PROBABILITIES = [
+    {"face": 1, "probability_percent": 37.0},
+    {"face": 2, "probability_percent": 28.0},
+    {"face": 3, "probability_percent": 20.0},
+    {"face": 4, "probability_percent": 10.0},
+    {"face": 5, "probability_percent": 4.0},
+    {"face": 6, "probability_percent": 1.0},
+]
+DEFAULT_CUBE_REWARD_RANGES = [
+    {"face": 1, "min_reward": 1, "max_reward": 10},
+    {"face": 2, "min_reward": 11, "max_reward": 20},
+    {"face": 3, "min_reward": 21, "max_reward": 30},
+    {"face": 4, "min_reward": 31, "max_reward": 50},
+    {"face": 5, "min_reward": 51, "max_reward": 100},
+    {"face": 6, "min_reward": 101, "max_reward": 500},
+]
+# Legacy constants remain for compatibility with older validators and tests.
+# Runtime spins use the editable settings returned by _cube_settings().
 CUBE_SPIN_COST = 20
 CUBE_TABLE = [
     (1, 37, 1, 10, "one"),
@@ -3633,6 +3681,78 @@ CUBE_TABLE = [
     (5, 4, 51, 100, "five"),
     (6, 1, 101, 500, "six"),
 ]
+
+
+def _normalize_cube_reward_ranges(raw_ranges) -> List[dict]:
+    defaults = {item["face"]: dict(item) for item in DEFAULT_CUBE_REWARD_RANGES}
+    supplied = {}
+    for item in raw_ranges or []:
+        try:
+            face = int(item.get("face"))
+            minimum = int(item.get("min_reward"))
+            maximum = int(item.get("max_reward"))
+        except (TypeError, ValueError, AttributeError):
+            continue
+        if face not in defaults or minimum < 0 or maximum < minimum:
+            continue
+        supplied[face] = {"face": face, "min_reward": minimum, "max_reward": maximum}
+    return [supplied.get(face, defaults[face]) for face in range(1, 7)]
+
+
+def _normalize_cube_probabilities(raw_probabilities) -> List[dict]:
+    defaults = {item["face"]: dict(item) for item in DEFAULT_CUBE_FACE_PROBABILITIES}
+    supplied = {}
+    for item in raw_probabilities or []:
+        try:
+            face = int(item.get("face"))
+            probability = round(float(item.get("probability_percent")), 2)
+        except (TypeError, ValueError, AttributeError):
+            continue
+        if face not in defaults or not math.isfinite(probability) or probability < 0 or probability > 100:
+            continue
+        supplied[face] = {"face": face, "probability_percent": probability}
+
+    if raw_probabilities and set(supplied) != set(range(1, 7)):
+        return [dict(item) for item in DEFAULT_CUBE_FACE_PROBABILITIES]
+    normalized = [supplied.get(face, defaults[face]) for face in range(1, 7)]
+    total = round(sum(float(item["probability_percent"]) for item in normalized), 2)
+    # Corrupt or partially edited database values must never create an invalid
+    # random table. Fall back as a complete set instead of silently mixing odds.
+    if total != 100.0:
+        return [dict(item) for item in DEFAULT_CUBE_FACE_PROBABILITIES]
+    return normalized
+
+
+async def _cube_settings() -> dict:
+    doc = await db.app_settings.find_one({"id": "generous_cube"}, {"_id": 0}) or {}
+    try:
+        paid_spin_cost = int(doc.get("paid_spin_cost", DEFAULT_CUBE_SPIN_COST))
+    except (TypeError, ValueError):
+        paid_spin_cost = DEFAULT_CUBE_SPIN_COST
+    paid_spin_cost = max(0, min(100000, paid_spin_cost))
+    return {
+        "id": "generous_cube",
+        "paid_spin_cost": paid_spin_cost,
+        "rewards": _normalize_cube_reward_ranges(doc.get("rewards")),
+        "probabilities": _normalize_cube_probabilities(doc.get("probabilities")),
+        "updated_at": doc.get("updated_at"),
+        "updated_by": doc.get("updated_by"),
+        "updated_by_name": doc.get("updated_by_name"),
+    }
+
+
+def _cube_roll_table(settings: dict) -> List[tuple]:
+    rewards = {item["face"]: item for item in settings.get("rewards") or DEFAULT_CUBE_REWARD_RANGES}
+    probabilities = {
+        item["face"]: float(item["probability_percent"])
+        for item in settings.get("probabilities") or DEFAULT_CUBE_FACE_PROBABILITIES
+    }
+    table = []
+    for face, default_weight, tier in CUBE_FACE_META:
+        reward = rewards.get(face) or DEFAULT_CUBE_REWARD_RANGES[face - 1]
+        weight = probabilities.get(face, float(default_weight))
+        table.append((face, weight, int(reward["min_reward"]), int(reward["max_reward"]), tier))
+    return table
 
 
 class CubeSpinResult(BaseModel):
@@ -3654,6 +3774,8 @@ class GamesStatus(BaseModel):
     cube_face: Optional[int] = None
     cube_tier: Optional[str] = None
     next_spin_cost: int = 0
+    paid_spin_cost: int = DEFAULT_CUBE_SPIN_COST
+    cube_reward_ranges: List[CubeRewardRangeBody] = Field(default_factory=list)
     prediction_revealed: bool
     prediction_text: Optional[str] = None
 
@@ -3674,9 +3796,57 @@ async def _get_or_create_games_doc(user_id: str) -> dict:
     return doc
 
 
+@api.get("/admin/cube-settings")
+async def admin_get_cube_settings(admin: dict = Depends(get_current_admin)):
+    return await _cube_settings()
+
+
+@api.patch("/admin/cube-settings")
+async def admin_update_cube_settings(body: CubeSettingsUpdateBody, admin: dict = Depends(get_current_admin)):
+    rewards = [item.model_dump() for item in body.rewards]
+    faces = [item["face"] for item in rewards]
+    if sorted(faces) != [1, 2, 3, 4, 5, 6]:
+        raise HTTPException(status_code=400, detail="Потрібно вказати по одному діапазону для кожної грані від 1 до 6")
+    for item in rewards:
+        if item["min_reward"] > item["max_reward"]:
+            raise HTTPException(status_code=400, detail=f"Для грані {item['face']} мінімальний виграш не може бути більшим за максимальний")
+
+    current = await _cube_settings()
+    if body.probabilities is None:
+        probabilities = current["probabilities"]
+    else:
+        probabilities = [item.model_dump() for item in body.probabilities]
+        probability_faces = [item["face"] for item in probabilities]
+        if sorted(probability_faces) != [1, 2, 3, 4, 5, 6]:
+            raise HTTPException(status_code=400, detail="Потрібно вказати ймовірність для кожної грані від 1 до 6")
+        probabilities = [
+            {"face": int(item["face"]), "probability_percent": round(float(item["probability_percent"]), 2)}
+            for item in probabilities
+        ]
+        probability_total = round(sum(item["probability_percent"] for item in probabilities), 2)
+        if probability_total != 100.0:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Сума ймовірностей усіх граней має дорівнювати 100%. Зараз: {probability_total:g}%",
+            )
+
+    payload = {
+        "id": "generous_cube",
+        "paid_spin_cost": int(body.paid_spin_cost),
+        "rewards": sorted(rewards, key=lambda item: item["face"]),
+        "probabilities": sorted(probabilities, key=lambda item: item["face"]),
+        "updated_at": now_iso(),
+        "updated_by": admin.get("id"),
+        "updated_by_name": admin.get("name", "Адміністратор"),
+    }
+    await db.app_settings.update_one({"id": "generous_cube"}, {"$set": payload}, upsert=True)
+    return payload
+
+
 @api.get("/games/status", response_model=GamesStatus)
 async def games_status(user: dict = Depends(get_current_user)):
     doc = await _get_or_create_games_doc(user["id"])
+    settings = await _cube_settings()
     spin_count = int(doc.get("cube_spin_count") or (1 if doc.get("cube_spun") else 0))
     return GamesStatus(
         date=doc["date"],
@@ -3685,7 +3855,9 @@ async def games_status(user: dict = Depends(get_current_user)):
         cube_reward=doc.get("cube_reward"),
         cube_face=doc.get("cube_face"),
         cube_tier=doc.get("cube_tier"),
-        next_spin_cost=0 if spin_count == 0 else CUBE_SPIN_COST,
+        next_spin_cost=0 if spin_count == 0 else settings["paid_spin_cost"],
+        paid_spin_cost=settings["paid_spin_cost"],
+        cube_reward_ranges=settings["rewards"],
         prediction_revealed=doc.get("prediction_revealed", False),
         prediction_text=doc.get("prediction_text"),
     )
@@ -3696,16 +3868,23 @@ async def cube_spin(user: dict = Depends(get_current_user)):
     import random as _rand
 
     doc = await _get_or_create_games_doc(user["id"])
+    settings = await _cube_settings()
+    cube_table = _cube_roll_table(settings)
     spin_count = int(doc.get("cube_spin_count") or (1 if doc.get("cube_spun") else 0))
-    cost = 0 if spin_count == 0 else CUBE_SPIN_COST
+    cost = 0 if spin_count == 0 else settings["paid_spin_cost"]
 
-    # Weighted face selection. The probability table totals exactly 100%.
-    roll = _rand.uniform(0, 100)
+    # Weighted face selection uses the current administrator-defined odds.
+    # The settings endpoint enforces a 100% total, while the dynamic total below
+    # keeps the spin safe even during legacy data migration.
+    total_weight = sum(max(0.0, float(item[1])) for item in cube_table)
+    if total_weight <= 0:
+        raise HTTPException(status_code=503, detail="Ймовірності Щедрого куба налаштовані некоректно")
+    roll = _rand.random() * total_weight
     acc = 0.0
-    picked = CUBE_TABLE[0]
-    for item in CUBE_TABLE:
-        acc += item[1]
-        if roll <= acc:
+    picked = cube_table[-1]
+    for item in cube_table:
+        acc += max(0.0, float(item[1]))
+        if roll < acc:
             picked = item
             break
 
@@ -3734,6 +3913,9 @@ async def cube_spin(user: dict = Depends(get_current_user)):
     spin_record = {
         "face": face,
         "reward": reward,
+        "reward_min": reward_min,
+        "reward_max": reward_max,
+        "probability_percent": round(float(_weight), 2),
         "cost": cost,
         "tier": tier,
         "spun_at": now_iso(),
@@ -3779,7 +3961,7 @@ async def cube_spin(user: dict = Depends(get_current_user)):
         tier=tier,
         cost=cost,
         spin_count=next_count,
-        next_spin_cost=CUBE_SPIN_COST,
+        next_spin_cost=settings["paid_spin_cost"],
         new_balance=fresh["balance"],
         total_xp=fresh["total_xp"],
     )

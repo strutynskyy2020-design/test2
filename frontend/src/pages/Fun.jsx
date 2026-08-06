@@ -24,6 +24,15 @@ const FACE_DOTS = {
   6: [1, 3, 4, 6, 7, 9],
 };
 
+const DEFAULT_CUBE_REWARD_RANGES = [
+  { face: 1, min_reward: 1, max_reward: 10 },
+  { face: 2, min_reward: 11, max_reward: 20 },
+  { face: 3, min_reward: 21, max_reward: 30 },
+  { face: 4, min_reward: 31, max_reward: 50 },
+  { face: 5, min_reward: 51, max_reward: 100 },
+  { face: 6, min_reward: 101, max_reward: 500 },
+];
+
 const CUBE_VISUAL_VERSION = "v44-slower-cinematic-3d";
 const CUBE_ANIMATION_MS = 3200;
 
@@ -152,7 +161,7 @@ export default function Fun() {
 
   const load = async () => {
     if (mode === "mock") {
-      setStatus({ date: "-", cube_spun: false, cube_spin_count: 0, next_spin_cost: 0, prediction_revealed: false });
+      setStatus({ date: "-", cube_spun: false, cube_spin_count: 0, next_spin_cost: 0, paid_spin_cost: 20, cube_reward_ranges: DEFAULT_CUBE_REWARD_RANGES, prediction_revealed: false });
       setLoadingStatus(false);
       return;
     }
@@ -210,9 +219,10 @@ export default function Fun() {
           cube_face: r.data.face,
           cube_tier: r.data.tier,
           next_spin_cost: r.data.next_spin_cost,
+          paid_spin_cost: r.data.next_spin_cost,
         }));
         fireConfetti();
-        toast.success(`+${r.data.reward} Point`, { description: r.data.cost ? `Вартість кидка: ${r.data.cost} Point` : "Перший кидок безкоштовний", duration: 3500 });
+        toast.success(`+${r.data.reward} Point`, { description: r.data.cost ? `Вартість кидка: ${r.data.cost} Point` : Number(r.data.spin_count) === 1 ? "Перший кидок безкоштовний" : "Повторний кидок безкоштовний", duration: 3500 });
         refreshMe();
       }, CUBE_ANIMATION_MS);
     } catch (e) {
@@ -233,6 +243,14 @@ export default function Fun() {
     } catch (e) { toast.error(extractError(e)); }
     setRevealing(false);
   };
+
+  const cubeRewardRanges = Array.isArray(status?.cube_reward_ranges) && status.cube_reward_ranges.length === 6
+    ? [...status.cube_reward_ranges].sort((a, b) => Number(a.face) - Number(b.face))
+    : DEFAULT_CUBE_REWARD_RANGES;
+  const cubeMaximumReward = Math.max(...cubeRewardRanges.map((item) => Number(item.max_reward || 0)), 0);
+  const paidSpinCost = Number(status?.paid_spin_cost ?? status?.next_spin_cost ?? 20);
+  const nextSpinCost = Number(status?.next_spin_cost ?? paidSpinCost);
+  const spinCount = Number(status?.cube_spin_count || 0);
 
   return (
     <div className="px-5 pt-2 pb-8 space-y-5" data-testid="fun-page">
@@ -293,17 +311,14 @@ export default function Fun() {
             <span className="generous-cube-header-icon"><Dice5 size={18} strokeWidth={3} /></span>
             <div>
               <div className="text-[10px] font-black uppercase tracking-[0.22em] text-[#39FF14]">Щедрий куб</div>
-              <div className="mt-0.5 text-xs font-bold text-zinc-500">Кидай і забирай до 500 Point</div>
+              <div className="mt-0.5 text-xs font-bold text-zinc-500">Кидай і забирай до {cubeMaximumReward.toLocaleString("uk-UA")} Point</div>
             </div>
           </div>
           <details className="generous-cube-info">
             <summary><Info size={14} /> Як працює?</summary>
             <div className="generous-cube-prizes">
-              {[
-                [1, "1–10"], [2, "11–20"], [3, "21–30"],
-                [4, "31–50"], [5, "51–100"], [6, "101–500"],
-              ].map(([value, range]) => (
-                <div key={value}><span>{faceGlyph(value)}</span><b>{value}</b><em>{range} Point</em></div>
+              {cubeRewardRanges.map((item) => (
+                <div key={item.face}><span>{faceGlyph(item.face)}</span><b>{item.face}</b><em>{Number(item.min_reward).toLocaleString("uk-UA")}–{Number(item.max_reward).toLocaleString("uk-UA")} Point</em></div>
               ))}
               <p>Ймовірності граней приховані. Кожен виграш визначається випадково в межах діапазону.</p>
             </div>
@@ -315,7 +330,7 @@ export default function Fun() {
             <Gift size={18} />
             <span>
               <small>Перший кидок</small>
-              <strong>{Number(status?.cube_spin_count || 0) === 0 ? "Безкоштовний" : "Використано"}</strong>
+              <strong>{spinCount === 0 ? "Безкоштовний" : "Використано"}</strong>
             </span>
           </div>
           <div className="generous-cube-meta generous-cube-meta--balance">
@@ -360,26 +375,26 @@ export default function Fun() {
         <button
           data-testid="spin-cube"
           onClick={spin}
-          disabled={rolling || loadingStatus || (Number(status?.cube_spin_count || 0) > 0 && Number(user?.balance || 0) < Number(status?.next_spin_cost || 20))}
+          disabled={rolling || loadingStatus || (spinCount > 0 && Number(user?.balance || 0) < nextSpinCost)}
           className="generous-cube-button"
         >
           <Zap size={20} strokeWidth={3} />
           {rolling
             ? "КУБ НАБИРАЄ ЕНЕРГІЮ..."
-            : Number(status?.cube_spin_count || 0) === 0
+            : spinCount === 0
               ? "КИНУТИ БЕЗКОШТОВНО"
-              : `КИНУТИ ЗА ${status?.next_spin_cost || 20} POINT`}
+              : nextSpinCost === 0 ? "КИНУТИ БЕЗКОШТОВНО" : `КИНУТИ ЗА ${nextSpinCost} POINT`}
         </button>
 
-        {Number(status?.cube_spin_count || 0) > 0 && Number(user?.balance || 0) < Number(status?.next_spin_cost || 20) && (
+        {spinCount > 0 && Number(user?.balance || 0) < nextSpinCost && (
           <div className="mt-3 text-center text-xs font-black text-[#FF5C00]">Недостатньо Point для наступної спроби</div>
         )}
-        <div className="generous-cube-attempts">Спроб сьогодні: <b>{Number(status?.cube_spin_count || 0)}</b></div>
+        <div className="generous-cube-attempts">Спроб сьогодні: <b>{spinCount}</b></div>
       </section>
 
       <div className="text-[11px] text-zinc-500 text-center font-black">
         <Coins size={12} strokeWidth={3} className="inline -mt-0.5 mr-1" />
-        Передбачення безкоштовне раз на добу. Перший кидок куба безкоштовний, наступні — по 20 Point.
+        Передбачення безкоштовне раз на добу. Перший кидок куба безкоштовний, наступні — {paidSpinCost === 0 ? "також безкоштовні" : `по ${paidSpinCost} Point`}.
       </div>
     </div>
   );

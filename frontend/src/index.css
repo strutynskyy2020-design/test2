@@ -1234,9 +1234,10 @@ html.light .diamond-feed-card {
   box-shadow: 0 12px 28px rgba(14,116,144,.12) !important;
 }
 
-/* v142: diamond employee card frames now sit behind the content and use 9-slice scaling,
-   so the rectangular frame keeps correct proportions across leaderboard rows, reports,
-   the activity feed, and profile cards without covering names, scores, or avatar art. */
+/* v144: diamond employees use one adaptive premium background everywhere.
+   The retired rectangular artwork is no longer rendered, so cards of any size
+   keep their native layout while receiving the same aurora/glass treatment as
+   the diamond activity-feed card. */
 .diamond-card-auto {
   position: relative;
   isolation: isolate;
@@ -1245,11 +1246,15 @@ html.light .diamond-feed-card {
 @supports selector(.diamond-card-auto:has(.avatar-frame--diamond)) {
   .diamond-card-auto:has(.avatar-frame--diamond) {
     overflow: hidden;
-    border-color: rgba(126, 211, 255, .38) !important;
+    border-color: rgba(125, 211, 252, .58) !important;
+    background:
+      radial-gradient(circle at 12% 0%, rgba(125, 211, 252, .20), transparent 42%),
+      radial-gradient(circle at 92% 100%, rgba(168, 85, 247, .16), transparent 46%),
+      linear-gradient(145deg, rgba(9, 25, 43, .98), rgba(20, 19, 38, .98)) !important;
     box-shadow:
-      0 0 0 1px rgba(218, 197, 255, .07) inset,
-      0 0 24px rgba(68, 190, 255, .13),
-      0 14px 34px rgba(0, 0, 0, .26);
+      0 0 0 1px rgba(255,255,255,.04) inset,
+      0 0 30px rgba(56, 189, 248, .14),
+      0 16px 34px rgba(0,0,0,.30) !important;
   }
 
   .diamond-card-auto:has(.avatar-frame--diamond) > * {
@@ -1257,113 +1262,62 @@ html.light .diamond-feed-card {
     z-index: 2;
   }
 
-  .diamond-card-auto:has(.avatar-frame--diamond)::before {
+  /* Feed cards already render their own aurora node and shine layer. */
+  .diamond-card-auto:not(.diamond-feed-card):has(.avatar-frame--diamond)::before {
     content: "";
     position: absolute;
-    inset: 4px;
+    inset: -45% -20%;
     z-index: 0;
-    display: block;
     pointer-events: none;
-    user-select: none;
-    border-style: solid;
-    border-color: transparent;
-    border-width: 18px 20px;
-    border-image-source: url("./assets/card-frames/diamond-employee-card-v137.png");
-    border-image-slice: 155 fill;
-    border-image-width: 18px 20px;
-    border-image-repeat: stretch;
-    filter:
-      drop-shadow(0 0 4px rgba(92, 205, 255, .48))
-      drop-shadow(0 0 10px rgba(181, 126, 255, .20));
-    opacity: .98;
-    transform: translateZ(0);
-    animation: diamond-card-frame-breathe 3.8s ease-in-out infinite;
+    opacity: .55;
+    background: conic-gradient(
+      from 0deg,
+      transparent 0 18%,
+      rgba(125,211,252,.20) 26%,
+      transparent 36% 58%,
+      rgba(192,132,252,.18) 68%,
+      transparent 78% 100%
+    );
+    animation: diamond-surface-orbit 8s linear infinite;
+  }
+
+  .diamond-card-auto:not(.diamond-feed-card):has(.avatar-frame--diamond)::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    pointer-events: none;
+    background: linear-gradient(115deg, transparent 0 34%, rgba(255,255,255,.10) 46%, transparent 58% 100%);
+    transform: translateX(-120%);
+    animation: diamond-surface-shine 4.8s ease-in-out infinite;
   }
 }
 
-@keyframes diamond-card-frame-breathe {
-  0%, 100% {
-    opacity: .91;
-    filter:
-      drop-shadow(0 0 4px rgba(92, 205, 255, .44))
-      drop-shadow(0 0 9px rgba(181, 126, 255, .18));
-  }
-  50% {
-    opacity: 1;
-    filter:
-      drop-shadow(0 0 7px rgba(123, 222, 255, .68))
-      drop-shadow(0 0 15px rgba(201, 144, 255, .35));
-  }
+@keyframes diamond-surface-orbit {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes diamond-surface-shine {
+  0%, 58% { transform: translateX(-120%); }
+  78%, 100% { transform: translateX(120%); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .diamond-card-auto:has(.avatar-frame--diamond)::before {
+  .diamond-card-auto:has(.avatar-frame--diamond)::before,
+  .diamond-card-auto:has(.avatar-frame--diamond)::after {
     animation: none;
   }
 }
 
 html.light .diamond-card-auto:has(.avatar-frame--diamond) {
+  border-color: rgba(2,132,199,.42) !important;
+  background:
+    radial-gradient(circle at 10% 0%, rgba(14,165,233,.14), transparent 40%),
+    radial-gradient(circle at 92% 100%, rgba(168,85,247,.10), transparent 44%),
+    linear-gradient(145deg, #F5FBFF, #F7F2FF) !important;
   box-shadow:
-    0 0 0 1px rgba(39, 139, 180, .10) inset,
-    0 10px 28px rgba(74, 93, 145, .12) !important;
-}
-
-html.light .diamond-card-auto:has(.avatar-frame--diamond)::before {
-  filter:
-    drop-shadow(0 0 3px rgba(72, 167, 197, .24))
-    drop-shadow(0 0 8px rgba(167, 120, 230, .16));
-}
-
-/* v143: reserve a calm inner safe-zone for the ornate frame on the two densest
-   surfaces. The artwork remains visible, while profile controls and feed text
-   no longer crowd the flowers and crystals on narrow mobile screens. */
-@supports selector(.diamond-card-auto:has(.avatar-frame--diamond)) {
-  .diamond-profile-card:has(.avatar-frame--diamond) {
-    padding: 28px 30px 24px !important;
-  }
-
-  .diamond-profile-card:has(.avatar-frame--diamond) .diamond-profile-theme-toggle {
-    top: 20px !important;
-    right: 20px !important;
-  }
-
-  .diamond-profile-card:has(.avatar-frame--diamond) .diamond-profile-avatar {
-    margin-left: 2px;
-  }
-
-  .diamond-profile-card:has(.avatar-frame--diamond) .diamond-profile-copy {
-    padding-right: 2px;
-  }
-
-  .diamond-profile-card:has(.avatar-frame--diamond) .diamond-profile-progress {
-    margin-left: 2px;
-    margin-right: 2px;
-  }
-
-  .diamond-feed-shell:has(.avatar-frame--diamond) {
-    padding: 22px 24px 20px !important;
-  }
-
-  .diamond-feed-shell:has(.avatar-frame--diamond) > .diamond-feed-aurora {
-    inset: -52% -24%;
-  }
-}
-
-@media (max-width: 380px) {
-  @supports selector(.diamond-card-auto:has(.avatar-frame--diamond)) {
-    .diamond-profile-card:has(.avatar-frame--diamond) {
-      padding: 26px 24px 22px !important;
-    }
-
-    .diamond-profile-card:has(.avatar-frame--diamond) .diamond-profile-theme-toggle {
-      top: 18px !important;
-      right: 18px !important;
-    }
-
-    .diamond-feed-shell:has(.avatar-frame--diamond) {
-      padding: 20px 20px 18px !important;
-    }
-  }
+    0 0 0 1px rgba(39,139,180,.08) inset,
+    0 10px 28px rgba(74,93,145,.12) !important;
 }
 
 /* ==========================================================================

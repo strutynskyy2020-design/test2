@@ -234,10 +234,10 @@ export default function Home() {
     {mode === "mock" && <div className="rounded-2xl border border-[#FF5C00]/40 bg-[#FF5C00]/10 px-3 py-2 text-[11px] font-black text-[#FF5C00]">ОФЛАЙН РЕЖИМ • використовуються демо-дані</div>}
 
     {/* 1. Avatar / profile */}
-    <section className="diamond-card-auto diamond-profile-card relative rounded-3xl border border-white/10 bg-[#1A1A1E] p-5">
-      <ThemeToggle className="diamond-profile-theme-toggle absolute right-4 top-4 z-10" compact />
+    <section className="diamond-card-auto relative rounded-3xl border border-white/10 bg-[#1A1A1E] p-5">
+      <ThemeToggle className="absolute right-4 top-4 z-10" compact />
       <div className="flex items-center gap-4 pr-14">
-        <div className="diamond-profile-avatar relative shrink-0">
+        <div className="relative shrink-0">
           <button type="button" onClick={() => nav("/store")} className="relative block active:scale-95" aria-label="Відкрити магазин аватарок">
             <AvatarFrame
               src={avatarSrc && !avatarImageFailed ? avatarSrc : null}
@@ -252,9 +252,9 @@ export default function Home() {
           </button>
           <div className="absolute -bottom-1 right-0 rounded-full border-2 border-[#0A0A0A] bg-[#FFB800] px-1.5 py-0.5 text-[9px] font-black text-[#0A0A0A]">LVL {level}</div>
         </div>
-        <div className="diamond-profile-copy min-w-0 flex-1 overflow-hidden"><div className="truncate font-display text-[17px] leading-tight text-white">{user.name}</div><div className="truncate text-xs text-zinc-500">{user.position}</div><div className="truncate text-xs text-zinc-600">{user.team_name || user.department || "—"}</div></div>
+        <div className="min-w-0 flex-1 overflow-hidden"><div className="truncate font-display text-[17px] leading-tight text-white">{user.name}</div><div className="truncate text-xs text-zinc-500">{user.position}</div><div className="truncate text-xs text-zinc-600">{user.team_name || user.department || "—"}</div></div>
       </div>
-      <div className="diamond-profile-progress mt-5"><div className="mb-2 flex justify-between"><div className="text-[11px] font-black uppercase tracking-widest text-zinc-500">Рівень {level}</div><div className="text-[11px] font-black text-white">{xp} / {xpNext} XP</div></div><div className="h-4 overflow-hidden rounded-full border border-white/5 bg-[#0A0A0A]"><div className="xp-stripes h-full rounded-full" style={{ width: `${xpPct}%`, background: "linear-gradient(90deg,#FF5C00,#FFB800)" }} /></div></div>
+      <div className="mt-5"><div className="mb-2 flex justify-between"><div className="text-[11px] font-black uppercase tracking-widest text-zinc-500">Рівень {level}</div><div className="text-[11px] font-black text-white">{xp} / {xpNext} XP</div></div><div className="h-4 overflow-hidden rounded-full border border-white/5 bg-[#0A0A0A]"><div className="xp-stripes h-full rounded-full" style={{ width: `${xpPct}%`, background: "linear-gradient(90deg,#FF5C00,#FFB800)" }} /></div></div>
     </section>
 
     {/* 3. Balance */}

@@ -4,7 +4,7 @@ import {
   Users, Swords, Gift, ShoppingBag, BarChart3, Plus, Pencil, Trash2, X, Minus, Check, Coins, Trophy, ChevronRight,
   UserCog, ShieldCheck, Crown, UsersRound, Inbox, UserCheck, ClipboardList, CheckCircle2, XCircle,
   ArrowUp, ArrowDown, FileText, BrainCircuit, Clock3, TrendingUp, Search, CalendarDays, Target, Save, ChevronDown,
-  KeyRound, Award, Medal, Star, Sparkles, Send, Gamepad2, RotateCcw, PiggyBank, Gem, BadgePercent, Megaphone, MessageSquareText,
+  KeyRound, Award, Medal, Star, Sparkles, Send, Gamepad2, Dice5, RotateCcw, PiggyBank, Gem, BadgePercent, Megaphone, MessageSquareText,
 } from "lucide-react";
 import api, { extractError, API_BASE, getToken } from "@/lib/api";
 import { useApp } from "@/context/AppContext";
@@ -24,6 +24,7 @@ const TABS = [
   { id: "teams", label: "Команди", icon: UsersRound },
   { id: "achievements", label: "Досягнення", icon: Award },
   { id: "bonus-match", label: "Bonus Match", icon: Gamepad2 },
+  { id: "cube-settings", label: "Щедрий куб", icon: Dice5 },
   { id: "announcements", label: "Повідомлення", icon: Megaphone },
   { id: "prizes", label: "Призи", icon: Gift },
   { id: "team-banks", label: "Банка Команди", icon: PiggyBank },
@@ -49,6 +50,27 @@ const APP_STATUS = {
 
 const DIFFICULTIES = ["easy", "medium", "hard"];
 const CATEGORIES = ["avatar", "merch", "privilege", "certificate"];
+
+const CUBE_FACE_GLYPHS = ["⚀", "⚁", "⚂", "⚃", "⚄", "⚅"];
+const DEFAULT_CUBE_SETTINGS = {
+  paid_spin_cost: 20,
+  rewards: [
+    { face: 1, min_reward: 1, max_reward: 10 },
+    { face: 2, min_reward: 11, max_reward: 20 },
+    { face: 3, min_reward: 21, max_reward: 30 },
+    { face: 4, min_reward: 31, max_reward: 50 },
+    { face: 5, min_reward: 51, max_reward: 100 },
+    { face: 6, min_reward: 101, max_reward: 500 },
+  ],
+  probabilities: [
+    { face: 1, probability_percent: 37 },
+    { face: 2, probability_percent: 28 },
+    { face: 3, probability_percent: 20 },
+    { face: 4, probability_percent: 10 },
+    { face: 5, probability_percent: 4 },
+    { face: 6, probability_percent: 1 },
+  ],
+};
 
 const withTeamQuery = (path, teamFilter) => {
   if (!teamFilter) return path;
@@ -3077,6 +3099,192 @@ const BonusMatchLevelsView = ({ teamFilter }) => {
   </div>;
 };
 
+// ─────────────── Generous Cube settings ───────────────
+const CubeSettingsView = () => {
+  const [settings, setSettings] = useState(DEFAULT_CUBE_SETTINGS);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const { data } = await api.get("/admin/cube-settings");
+      setSettings({
+        paid_spin_cost: Number(data?.paid_spin_cost ?? DEFAULT_CUBE_SETTINGS.paid_spin_cost),
+        rewards: Array.isArray(data?.rewards) && data.rewards.length === 6
+          ? data.rewards.map((item) => ({
+              face: Number(item.face),
+              min_reward: Number(item.min_reward),
+              max_reward: Number(item.max_reward),
+            })).sort((a, b) => a.face - b.face)
+          : DEFAULT_CUBE_SETTINGS.rewards,
+        probabilities: Array.isArray(data?.probabilities) && data.probabilities.length === 6
+          ? data.probabilities.map((item) => ({
+              face: Number(item.face),
+              probability_percent: Number(item.probability_percent),
+            })).sort((a, b) => a.face - b.face)
+          : DEFAULT_CUBE_SETTINGS.probabilities,
+        updated_at: data?.updated_at || null,
+        updated_by_name: data?.updated_by_name || null,
+      });
+    } catch (error) {
+      toast.error(extractError(error));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
+
+  const updateReward = (face, field, value) => {
+    const numeric = Math.max(0, Math.min(100000, Number(value || 0)));
+    setSettings((current) => ({
+      ...current,
+      rewards: current.rewards.map((item) => item.face === face ? { ...item, [field]: numeric } : item),
+    }));
+  };
+
+  const updateProbability = (face, value) => {
+    const numeric = Math.max(0, Math.min(100, Number(value || 0)));
+    setSettings((current) => ({
+      ...current,
+      probabilities: current.probabilities.map((item) => item.face === face ? { ...item, probability_percent: numeric } : item),
+    }));
+  };
+
+  const resetProbabilities = () => {
+    setSettings((current) => ({
+      ...current,
+      probabilities: DEFAULT_CUBE_SETTINGS.probabilities.map((item) => ({ ...item })),
+    }));
+  };
+
+  const save = async () => {
+    const paidSpinCost = Math.max(0, Math.min(100000, Number(settings.paid_spin_cost || 0)));
+    const rewards = settings.rewards.map((item) => ({
+      face: Number(item.face),
+      min_reward: Math.max(0, Math.min(100000, Number(item.min_reward || 0))),
+      max_reward: Math.max(0, Math.min(100000, Number(item.max_reward || 0))),
+    }));
+    const probabilities = settings.probabilities.map((item) => ({
+      face: Number(item.face),
+      probability_percent: Math.round(Math.max(0, Math.min(100, Number(item.probability_percent || 0))) * 100) / 100,
+    }));
+    const invalid = rewards.find((item) => item.min_reward > item.max_reward);
+    if (invalid) {
+      toast.error(`Грань ${invalid.face}: мінімальний виграш не може бути більшим за максимальний`);
+      return;
+    }
+    const probabilityTotal = Math.round(probabilities.reduce((sum, item) => sum + item.probability_percent, 0) * 100) / 100;
+    if (probabilityTotal !== 100) {
+      toast.error(`Сума ймовірностей має дорівнювати 100%. Зараз: ${probabilityTotal.toLocaleString("uk-UA")}%`);
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const { data } = await api.patch("/admin/cube-settings", {
+        paid_spin_cost: paidSpinCost,
+        rewards,
+        probabilities,
+      });
+      setSettings({
+        paid_spin_cost: Number(data.paid_spin_cost),
+        rewards: data.rewards,
+        probabilities: data.probabilities,
+        updated_at: data.updated_at,
+        updated_by_name: data.updated_by_name,
+      });
+      toast.success("Налаштування Щедрого куба збережено");
+    } catch (error) {
+      toast.error(extractError(error));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) return <div className="py-8 text-center text-sm font-bold text-zinc-500">Завантаження налаштувань куба...</div>;
+
+  const maximumReward = Math.max(...settings.rewards.map((item) => Number(item.max_reward || 0)), 0);
+  const probabilityTotal = Math.round(settings.probabilities.reduce((sum, item) => sum + Number(item.probability_percent || 0), 0) * 100) / 100;
+  const probabilitiesValid = probabilityTotal === 100;
+  const probabilityByFace = new Map(settings.probabilities.map((item) => [Number(item.face), Number(item.probability_percent || 0)]));
+
+  return <div className="space-y-4" data-testid="cube-settings-view">
+    <section className="rounded-3xl border border-[#39FF14]/25 bg-[radial-gradient(circle_at_top,_rgba(57,255,20,.12),_transparent_58%),#151719] p-5">
+      <div className="flex items-start gap-3">
+        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-[#39FF14]/30 bg-[#39FF14]/10 text-[#39FF14]"><Dice5 size={24} strokeWidth={2.8} /></div>
+        <div className="min-w-0 flex-1">
+          <div className="text-[10px] font-black uppercase tracking-[.2em] text-[#39FF14]">Економіка гри</div>
+          <h2 className="mt-1 font-display text-xl text-white">Налаштування Щедрого куба</h2>
+          <p className="mt-2 text-xs font-bold leading-relaxed text-zinc-400">Перший кидок працівника за день залишається безкоштовним. Тут змінюється вартість кожного наступного кидка, діапазон виграшу та відсоток випадіння кожної грані.</p>
+        </div>
+      </div>
+
+      <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        <label className="rounded-2xl border border-[#FFB800]/25 bg-black/25 p-4">
+          <span className="block text-[10px] font-black uppercase tracking-widest text-zinc-500">Вартість повторного кидка</span>
+          <div className="mt-2 flex items-center gap-2">
+            <input
+              data-testid="cube-paid-spin-cost"
+              type="number"
+              min="0"
+              max="100000"
+              value={settings.paid_spin_cost}
+              onChange={(event) => setSettings((current) => ({ ...current, paid_spin_cost: Math.max(0, Math.min(100000, Number(event.target.value || 0))) }))}
+              className="h-12 min-w-0 flex-1 rounded-xl border border-white/10 bg-[#0F1012] px-3 text-lg font-black text-[#FFB800] outline-none focus:border-[#FFB800]"
+            />
+            <span className="text-xs font-black uppercase text-zinc-500">Point</span>
+          </div>
+          <div className="mt-2 text-[10px] font-bold text-zinc-600">Значення 0 робить усі повторні кидки безкоштовними.</div>
+        </label>
+
+        <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
+          <div className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Поточна верхня межа</div>
+          <div className="mt-2 font-display text-3xl text-[#39FF14]">{maximumReward.toLocaleString("uk-UA")}</div>
+          <div className="mt-1 text-xs font-black text-zinc-500">Point за один кидок</div>
+        </div>
+
+        <div className={`rounded-2xl border p-4 ${probabilitiesValid ? "border-[#00F0FF]/25 bg-[#00F0FF]/[.06]" : "border-[#FF3B30]/35 bg-[#FF3B30]/[.08]"}`} data-testid="cube-probability-total">
+          <div className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Сума ймовірностей</div>
+          <div className={`mt-2 font-display text-3xl ${probabilitiesValid ? "text-[#00F0FF]" : "text-[#FF5B63]"}`}>{probabilityTotal.toLocaleString("uk-UA")}%</div>
+          <div className="mt-1 text-xs font-black text-zinc-500">Для збереження має бути рівно 100%</div>
+        </div>
+      </div>
+    </section>
+
+    <section className="rounded-3xl border border-white/10 bg-[#1A1A1E] p-4 lg:p-5">
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <div className="font-display text-xl text-white">Бали та ймовірності граней</div>
+          <div className="mt-1 text-xs font-bold text-zinc-500">Виграш обирається випадково між мінімумом і максимумом. Відсоток визначає шанс випадіння конкретної грані, а загальна сума має дорівнювати 100%.</div>
+        </div>
+        <button type="button" onClick={resetProbabilities} className="flex h-10 shrink-0 items-center justify-center gap-2 rounded-xl border border-white/10 bg-black/25 px-3 text-[10px] font-black uppercase tracking-wider text-zinc-300 hover:border-[#00F0FF]/40 hover:text-[#00F0FF]"><RotateCcw size={14} />Стандартні відсотки</button>
+      </div>
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        {settings.rewards.map((item) => <article key={item.face} className="rounded-2xl border border-white/10 bg-black/25 p-4" data-testid={`cube-face-setting-${item.face}`}>
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-[#39FF14]/25 bg-[#39FF14]/10 text-3xl leading-none text-[#39FF14]">{CUBE_FACE_GLYPHS[item.face - 1]}</div>
+              <div><div className="text-sm font-black text-white">Грань {item.face}</div><div className="text-[10px] font-bold text-zinc-600">{Number(item.min_reward).toLocaleString("uk-UA")}–{Number(item.max_reward).toLocaleString("uk-UA")} Point · {Number(probabilityByFace.get(item.face) || 0).toLocaleString("uk-UA")}%</div></div>
+            </div>
+          </div>
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <label><span className="mb-1 block text-[9px] font-black uppercase tracking-wider text-zinc-600">Мінімум</span><input type="number" min="0" max="100000" value={item.min_reward} onChange={(event) => updateReward(item.face, "min_reward", event.target.value)} className="h-11 w-full rounded-xl border border-white/10 bg-[#101114] px-3 text-sm font-black text-white outline-none focus:border-[#39FF14]" /></label>
+            <label><span className="mb-1 block text-[9px] font-black uppercase tracking-wider text-zinc-600">Максимум</span><input type="number" min="0" max="100000" value={item.max_reward} onChange={(event) => updateReward(item.face, "max_reward", event.target.value)} className="h-11 w-full rounded-xl border border-white/10 bg-[#101114] px-3 text-sm font-black text-white outline-none focus:border-[#39FF14]" /></label>
+            <label className="col-span-2"><span className="mb-1 block text-[9px] font-black uppercase tracking-wider text-zinc-600">Ймовірність випадіння</span><div className="flex items-center gap-2"><input data-testid={`cube-face-probability-${item.face}`} type="number" min="0" max="100" step="0.01" value={probabilityByFace.get(item.face) ?? 0} onChange={(event) => updateProbability(item.face, event.target.value)} className="h-11 min-w-0 flex-1 rounded-xl border border-[#00F0FF]/20 bg-[#101114] px-3 text-sm font-black text-[#00F0FF] outline-none focus:border-[#00F0FF]" /><span className="text-xs font-black text-zinc-500">%</span></div></label>
+          </div>
+        </article>)}
+      </div>
+    </section>
+
+    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+      <div className="text-[10px] font-bold text-zinc-600">{settings.updated_at ? `Останнє оновлення: ${new Date(settings.updated_at).toLocaleString("uk-UA")}${settings.updated_by_name ? ` · ${settings.updated_by_name}` : ""}` : "Використовуються базові налаштування"}</div>
+      <button type="button" data-testid="save-cube-settings" onClick={save} disabled={saving} className="arcade-btn flex h-12 items-center justify-center gap-2 border-[#197A0E] bg-[#39FF14] px-6 text-sm font-black uppercase tracking-wider text-[#071006] disabled:opacity-60"><Save size={17} strokeWidth={3} />{saving ? "Збереження..." : "Зберегти"}</button>
+    </div>
+  </div>;
+};
+
 // ─────────────── Admin page shell ───────────────
 export default function Admin() {
   const { user, mode } = useApp();
@@ -3132,7 +3340,7 @@ export default function Admin() {
     );
   }
 
-  const V = { analytics: AnalyticsView, "ai-team": AITeamDashboard, "daily-tasks": DailyTasksManager, points: PointsManager, goals: GoalsManager, moderation: ModerationView, applications: ApplicationsView, users: UsersView, teams: TeamsView, achievements: AchievementsView, "bonus-match": BonusMatchLevelsView, announcements: AnnouncementsView, prizes: PrizesView, "team-banks": TeamBanksAdminView, orders: OrdersView }[tab];
+  const V = { analytics: AnalyticsView, "ai-team": AITeamDashboard, "daily-tasks": DailyTasksManager, points: PointsManager, goals: GoalsManager, moderation: ModerationView, applications: ApplicationsView, users: UsersView, teams: TeamsView, achievements: AchievementsView, "bonus-match": BonusMatchLevelsView, "cube-settings": CubeSettingsView, announcements: AnnouncementsView, prizes: PrizesView, "team-banks": TeamBanksAdminView, orders: OrdersView }[tab];
 
   return (
     <div className="px-5 pt-2 pb-8 lg:px-7 lg:pt-6" data-testid="admin-page">

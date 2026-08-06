@@ -31,7 +31,7 @@ export default function FeedItem({ ev }) {
   return (
     <li
       data-testid={`feed-item-${ev.id}`}
-      className={`diamond-card-auto diamond-feed-shell relative overflow-hidden rounded-3xl border p-4 transition-transform ${meta.ring} ${isDiamond ? "diamond-feed-card" : "border-white/10 bg-[#1A1A1E]"}`}
+      className={`diamond-card-auto relative overflow-hidden rounded-3xl border p-4 transition-transform ${meta.ring} ${isDiamond ? "diamond-feed-card" : "border-white/10 bg-[#1A1A1E]"}`}
     >
       {isDiamond && <div className="diamond-feed-aurora" aria-hidden="true" />}
       {isDiamond && (

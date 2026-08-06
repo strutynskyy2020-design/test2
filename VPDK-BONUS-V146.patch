@@ -1,0 +1,416 @@
+--- a/backend/server.py
++++ b/backend/server.py
+@@ -15,6 +15,7 @@
+ import asyncio
+ import shutil
+ import re
++import math
+ from datetime import datetime, timezone, timedelta
+ from zoneinfo import ZoneInfo
+ from typing import List, Optional, Literal
+@@ -480,9 +481,16 @@
+     max_reward: int = Field(ge=0, le=100000)
+ 
+ 
++class CubeFaceProbabilityBody(BaseModel):
++    face: int = Field(ge=1, le=6)
++    probability_percent: float = Field(ge=0, le=100)
++
++
+ class CubeSettingsUpdateBody(BaseModel):
+     paid_spin_cost: int = Field(ge=0, le=100000)
+     rewards: List[CubeRewardRangeBody] = Field(min_length=6, max_length=6)
++    # Optional keeps rolling backend/frontend deployments compatible with v145.
++    probabilities: Optional[List[CubeFaceProbabilityBody]] = Field(default=None, min_length=6, max_length=6)
+ 
+ 
+ class TeamGoalMessageBody(BaseModel):
+@@ -3630,12 +3638,13 @@
+     "Твоя команда виграє тоді, коли ти виграєш. І навпаки.",
+     "Не всі бали видно одразу. Гарна карма повертається.",
+     "Найкраще натхнення — це виконаний квест.",
+-    "Сьогодні є 1% шанс на джекпот у Щедрому Кубі. Спробуй.",
++    "Сьогодні у Щедрому Кубі може чекати джекпот. Спробуй.",
+ ]
+ 
+-# Cube probabilities and tier names stay fixed. Administrators can edit the
+-# reward range for each face and the price of every repeat spin from the admin
+-# panel. The first spin of each Kyiv day always remains free.
++# Administrators can edit the reward range and probability of every face,
++# plus the price of each repeat spin. The first spin of each Kyiv day always
++# remains free. Default probabilities preserve the original 37/28/20/10/4/1
++# economy and add up to exactly 100%.
+ DEFAULT_CUBE_SPIN_COST = 20
+ CUBE_FACE_META = [
+     (1, 37, "one"),
+@@ -3645,6 +3654,14 @@
+     (5, 4, "five"),
+     (6, 1, "six"),
+ ]
++DEFAULT_CUBE_FACE_PROBABILITIES = [
++    {"face": 1, "probability_percent": 37.0},
++    {"face": 2, "probability_percent": 28.0},
++    {"face": 3, "probability_percent": 20.0},
++    {"face": 4, "probability_percent": 10.0},
++    {"face": 5, "probability_percent": 4.0},
++    {"face": 6, "probability_percent": 1.0},
++]
+ DEFAULT_CUBE_REWARD_RANGES = [
+     {"face": 1, "min_reward": 1, "max_reward": 10},
+     {"face": 2, "min_reward": 11, "max_reward": 20},
+@@ -3682,6 +3699,30 @@
+     return [supplied.get(face, defaults[face]) for face in range(1, 7)]
+ 
+ 
++def _normalize_cube_probabilities(raw_probabilities) -> List[dict]:
++    defaults = {item["face"]: dict(item) for item in DEFAULT_CUBE_FACE_PROBABILITIES}
++    supplied = {}
++    for item in raw_probabilities or []:
++        try:
++            face = int(item.get("face"))
++            probability = round(float(item.get("probability_percent")), 2)
++        except (TypeError, ValueError, AttributeError):
++            continue
++        if face not in defaults or not math.isfinite(probability) or probability < 0 or probability > 100:
++            continue
++        supplied[face] = {"face": face, "probability_percent": probability}
++
++    if raw_probabilities and set(supplied) != set(range(1, 7)):
++        return [dict(item) for item in DEFAULT_CUBE_FACE_PROBABILITIES]
++    normalized = [supplied.get(face, defaults[face]) for face in range(1, 7)]
++    total = round(sum(float(item["probability_percent"]) for item in normalized), 2)
++    # Corrupt or partially edited database values must never create an invalid
++    # random table. Fall back as a complete set instead of silently mixing odds.
++    if total != 100.0:
++        return [dict(item) for item in DEFAULT_CUBE_FACE_PROBABILITIES]
++    return normalized
++
++
+ async def _cube_settings() -> dict:
+     doc = await db.app_settings.find_one({"id": "generous_cube"}, {"_id": 0}) or {}
+     try:
+@@ -3693,6 +3734,7 @@
+         "id": "generous_cube",
+         "paid_spin_cost": paid_spin_cost,
+         "rewards": _normalize_cube_reward_ranges(doc.get("rewards")),
++        "probabilities": _normalize_cube_probabilities(doc.get("probabilities")),
+         "updated_at": doc.get("updated_at"),
+         "updated_by": doc.get("updated_by"),
+         "updated_by_name": doc.get("updated_by_name"),
+@@ -3701,9 +3743,14 @@
+ 
+ def _cube_roll_table(settings: dict) -> List[tuple]:
+     rewards = {item["face"]: item for item in settings.get("rewards") or DEFAULT_CUBE_REWARD_RANGES}
++    probabilities = {
++        item["face"]: float(item["probability_percent"])
++        for item in settings.get("probabilities") or DEFAULT_CUBE_FACE_PROBABILITIES
++    }
+     table = []
+-    for face, weight, tier in CUBE_FACE_META:
++    for face, default_weight, tier in CUBE_FACE_META:
+         reward = rewards.get(face) or DEFAULT_CUBE_REWARD_RANGES[face - 1]
++        weight = probabilities.get(face, float(default_weight))
+         table.append((face, weight, int(reward["min_reward"]), int(reward["max_reward"]), tier))
+     return table
+ 
+@@ -3764,10 +3811,30 @@
+         if item["min_reward"] > item["max_reward"]:
+             raise HTTPException(status_code=400, detail=f"Для грані {item['face']} мінімальний виграш не може бути більшим за максимальний")
+ 
++    current = await _cube_settings()
++    if body.probabilities is None:
++        probabilities = current["probabilities"]
++    else:
++        probabilities = [item.model_dump() for item in body.probabilities]
++        probability_faces = [item["face"] for item in probabilities]
++        if sorted(probability_faces) != [1, 2, 3, 4, 5, 6]:
++            raise HTTPException(status_code=400, detail="Потрібно вказати ймовірність для кожної грані від 1 до 6")
++        probabilities = [
++            {"face": int(item["face"]), "probability_percent": round(float(item["probability_percent"]), 2)}
++            for item in probabilities
++        ]
++        probability_total = round(sum(item["probability_percent"] for item in probabilities), 2)
++        if probability_total != 100.0:
++            raise HTTPException(
++                status_code=400,
++                detail=f"Сума ймовірностей усіх граней має дорівнювати 100%. Зараз: {probability_total:g}%",
++            )
++
+     payload = {
+         "id": "generous_cube",
+         "paid_spin_cost": int(body.paid_spin_cost),
+         "rewards": sorted(rewards, key=lambda item: item["face"]),
++        "probabilities": sorted(probabilities, key=lambda item: item["face"]),
+         "updated_at": now_iso(),
+         "updated_by": admin.get("id"),
+         "updated_by_name": admin.get("name", "Адміністратор"),
+@@ -3806,13 +3873,18 @@
+     spin_count = int(doc.get("cube_spin_count") or (1 if doc.get("cube_spun") else 0))
+     cost = 0 if spin_count == 0 else settings["paid_spin_cost"]
+ 
+-    # Weighted face selection. The probability table totals exactly 100%.
+-    roll = _rand.uniform(0, 100)
++    # Weighted face selection uses the current administrator-defined odds.
++    # The settings endpoint enforces a 100% total, while the dynamic total below
++    # keeps the spin safe even during legacy data migration.
++    total_weight = sum(max(0.0, float(item[1])) for item in cube_table)
++    if total_weight <= 0:
++        raise HTTPException(status_code=503, detail="Ймовірності Щедрого куба налаштовані некоректно")
++    roll = _rand.random() * total_weight
+     acc = 0.0
+-    picked = cube_table[0]
++    picked = cube_table[-1]
+     for item in cube_table:
+-        acc += item[1]
+-        if roll <= acc:
++        acc += max(0.0, float(item[1]))
++        if roll < acc:
+             picked = item
+             break
+ 
+@@ -3843,6 +3915,7 @@
+         "reward": reward,
+         "reward_min": reward_min,
+         "reward_max": reward_max,
++        "probability_percent": round(float(_weight), 2),
+         "cost": cost,
+         "tier": tier,
+         "spun_at": now_iso(),
+--- a/frontend/src/pages/Admin.jsx
++++ b/frontend/src/pages/Admin.jsx
+@@ -62,6 +62,14 @@
+     { face: 5, min_reward: 51, max_reward: 100 },
+     { face: 6, min_reward: 101, max_reward: 500 },
+   ],
++  probabilities: [
++    { face: 1, probability_percent: 37 },
++    { face: 2, probability_percent: 28 },
++    { face: 3, probability_percent: 20 },
++    { face: 4, probability_percent: 10 },
++    { face: 5, probability_percent: 4 },
++    { face: 6, probability_percent: 1 },
++  ],
+ };
+ 
+ const withTeamQuery = (path, teamFilter) => {
+@@ -3110,6 +3118,12 @@
+               max_reward: Number(item.max_reward),
+             })).sort((a, b) => a.face - b.face)
+           : DEFAULT_CUBE_SETTINGS.rewards,
++        probabilities: Array.isArray(data?.probabilities) && data.probabilities.length === 6
++          ? data.probabilities.map((item) => ({
++              face: Number(item.face),
++              probability_percent: Number(item.probability_percent),
++            })).sort((a, b) => a.face - b.face)
++          : DEFAULT_CUBE_SETTINGS.probabilities,
+         updated_at: data?.updated_at || null,
+         updated_by_name: data?.updated_by_name || null,
+       });
+@@ -3130,6 +3144,21 @@
+     }));
+   };
+ 
++  const updateProbability = (face, value) => {
++    const numeric = Math.max(0, Math.min(100, Number(value || 0)));
++    setSettings((current) => ({
++      ...current,
++      probabilities: current.probabilities.map((item) => item.face === face ? { ...item, probability_percent: numeric } : item),
++    }));
++  };
++
++  const resetProbabilities = () => {
++    setSettings((current) => ({
++      ...current,
++      probabilities: DEFAULT_CUBE_SETTINGS.probabilities.map((item) => ({ ...item })),
++    }));
++  };
++
+   const save = async () => {
+     const paidSpinCost = Math.max(0, Math.min(100000, Number(settings.paid_spin_cost || 0)));
+     const rewards = settings.rewards.map((item) => ({
+@@ -3137,21 +3166,32 @@
+       min_reward: Math.max(0, Math.min(100000, Number(item.min_reward || 0))),
+       max_reward: Math.max(0, Math.min(100000, Number(item.max_reward || 0))),
+     }));
++    const probabilities = settings.probabilities.map((item) => ({
++      face: Number(item.face),
++      probability_percent: Math.round(Math.max(0, Math.min(100, Number(item.probability_percent || 0))) * 100) / 100,
++    }));
+     const invalid = rewards.find((item) => item.min_reward > item.max_reward);
+     if (invalid) {
+       toast.error(`Грань ${invalid.face}: мінімальний виграш не може бути більшим за максимальний`);
+       return;
+     }
++    const probabilityTotal = Math.round(probabilities.reduce((sum, item) => sum + item.probability_percent, 0) * 100) / 100;
++    if (probabilityTotal !== 100) {
++      toast.error(`Сума ймовірностей має дорівнювати 100%. Зараз: ${probabilityTotal.toLocaleString("uk-UA")}%`);
++      return;
++    }
+ 
+     setSaving(true);
+     try {
+       const { data } = await api.patch("/admin/cube-settings", {
+         paid_spin_cost: paidSpinCost,
+         rewards,
++        probabilities,
+       });
+       setSettings({
+         paid_spin_cost: Number(data.paid_spin_cost),
+         rewards: data.rewards,
++        probabilities: data.probabilities,
+         updated_at: data.updated_at,
+         updated_by_name: data.updated_by_name,
+       });
+@@ -3166,6 +3206,9 @@
+   if (loading) return <div className="py-8 text-center text-sm font-bold text-zinc-500">Завантаження налаштувань куба...</div>;
+ 
+   const maximumReward = Math.max(...settings.rewards.map((item) => Number(item.max_reward || 0)), 0);
++  const probabilityTotal = Math.round(settings.probabilities.reduce((sum, item) => sum + Number(item.probability_percent || 0), 0) * 100) / 100;
++  const probabilitiesValid = probabilityTotal === 100;
++  const probabilityByFace = new Map(settings.probabilities.map((item) => [Number(item.face), Number(item.probability_percent || 0)]));
+ 
+   return <div className="space-y-4" data-testid="cube-settings-view">
+     <section className="rounded-3xl border border-[#39FF14]/25 bg-[radial-gradient(circle_at_top,_rgba(57,255,20,.12),_transparent_58%),#151719] p-5">
+@@ -3174,11 +3217,11 @@
+         <div className="min-w-0 flex-1">
+           <div className="text-[10px] font-black uppercase tracking-[.2em] text-[#39FF14]">Економіка гри</div>
+           <h2 className="mt-1 font-display text-xl text-white">Налаштування Щедрого куба</h2>
+-          <p className="mt-2 text-xs font-bold leading-relaxed text-zinc-400">Перший кидок працівника за день залишається безкоштовним. Тут змінюється вартість кожного наступного кидка та діапазон випадкового виграшу для кожної грані.</p>
++          <p className="mt-2 text-xs font-bold leading-relaxed text-zinc-400">Перший кидок працівника за день залишається безкоштовним. Тут змінюється вартість кожного наступного кидка, діапазон виграшу та відсоток випадіння кожної грані.</p>
+         </div>
+       </div>
+ 
+-      <div className="mt-5 grid gap-3 sm:grid-cols-2">
++      <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+         <label className="rounded-2xl border border-[#FFB800]/25 bg-black/25 p-4">
+           <span className="block text-[10px] font-black uppercase tracking-widest text-zinc-500">Вартість повторного кидка</span>
+           <div className="mt-2 flex items-center gap-2">
+@@ -3201,25 +3244,35 @@
+           <div className="mt-2 font-display text-3xl text-[#39FF14]">{maximumReward.toLocaleString("uk-UA")}</div>
+           <div className="mt-1 text-xs font-black text-zinc-500">Point за один кидок</div>
+         </div>
++
++        <div className={`rounded-2xl border p-4 ${probabilitiesValid ? "border-[#00F0FF]/25 bg-[#00F0FF]/[.06]" : "border-[#FF3B30]/35 bg-[#FF3B30]/[.08]"}`} data-testid="cube-probability-total">
++          <div className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Сума ймовірностей</div>
++          <div className={`mt-2 font-display text-3xl ${probabilitiesValid ? "text-[#00F0FF]" : "text-[#FF5B63]"}`}>{probabilityTotal.toLocaleString("uk-UA")}%</div>
++          <div className="mt-1 text-xs font-black text-zinc-500">Для збереження має бути рівно 100%</div>
++        </div>
+       </div>
+     </section>
+ 
+     <section className="rounded-3xl border border-white/10 bg-[#1A1A1E] p-4 lg:p-5">
+-      <div className="mb-4">
+-        <div className="font-display text-xl text-white">Бали за грані</div>
+-        <div className="mt-1 text-xs font-bold text-zinc-500">Виграш обирається випадково між мінімумом і максимумом. Ймовірності випадіння граней не змінюються.</div>
++      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
++        <div>
++          <div className="font-display text-xl text-white">Бали та ймовірності граней</div>
++          <div className="mt-1 text-xs font-bold text-zinc-500">Виграш обирається випадково між мінімумом і максимумом. Відсоток визначає шанс випадіння конкретної грані, а загальна сума має дорівнювати 100%.</div>
++        </div>
++        <button type="button" onClick={resetProbabilities} className="flex h-10 shrink-0 items-center justify-center gap-2 rounded-xl border border-white/10 bg-black/25 px-3 text-[10px] font-black uppercase tracking-wider text-zinc-300 hover:border-[#00F0FF]/40 hover:text-[#00F0FF]"><RotateCcw size={14} />Стандартні відсотки</button>
+       </div>
+       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+         {settings.rewards.map((item) => <article key={item.face} className="rounded-2xl border border-white/10 bg-black/25 p-4" data-testid={`cube-face-setting-${item.face}`}>
+           <div className="flex items-center justify-between gap-3">
+             <div className="flex items-center gap-3">
+               <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-[#39FF14]/25 bg-[#39FF14]/10 text-3xl leading-none text-[#39FF14]">{CUBE_FACE_GLYPHS[item.face - 1]}</div>
+-              <div><div className="text-sm font-black text-white">Грань {item.face}</div><div className="text-[10px] font-bold text-zinc-600">{Number(item.min_reward).toLocaleString("uk-UA")}–{Number(item.max_reward).toLocaleString("uk-UA")} Point</div></div>
++              <div><div className="text-sm font-black text-white">Грань {item.face}</div><div className="text-[10px] font-bold text-zinc-600">{Number(item.min_reward).toLocaleString("uk-UA")}–{Number(item.max_reward).toLocaleString("uk-UA")} Point · {Number(probabilityByFace.get(item.face) || 0).toLocaleString("uk-UA")}%</div></div>
+             </div>
+           </div>
+           <div className="mt-3 grid grid-cols-2 gap-2">
+             <label><span className="mb-1 block text-[9px] font-black uppercase tracking-wider text-zinc-600">Мінімум</span><input type="number" min="0" max="100000" value={item.min_reward} onChange={(event) => updateReward(item.face, "min_reward", event.target.value)} className="h-11 w-full rounded-xl border border-white/10 bg-[#101114] px-3 text-sm font-black text-white outline-none focus:border-[#39FF14]" /></label>
+             <label><span className="mb-1 block text-[9px] font-black uppercase tracking-wider text-zinc-600">Максимум</span><input type="number" min="0" max="100000" value={item.max_reward} onChange={(event) => updateReward(item.face, "max_reward", event.target.value)} className="h-11 w-full rounded-xl border border-white/10 bg-[#101114] px-3 text-sm font-black text-white outline-none focus:border-[#39FF14]" /></label>
++            <label className="col-span-2"><span className="mb-1 block text-[9px] font-black uppercase tracking-wider text-zinc-600">Ймовірність випадіння</span><div className="flex items-center gap-2"><input data-testid={`cube-face-probability-${item.face}`} type="number" min="0" max="100" step="0.01" value={probabilityByFace.get(item.face) ?? 0} onChange={(event) => updateProbability(item.face, event.target.value)} className="h-11 min-w-0 flex-1 rounded-xl border border-[#00F0FF]/20 bg-[#101114] px-3 text-sm font-black text-[#00F0FF] outline-none focus:border-[#00F0FF]" /><span className="text-xs font-black text-zinc-500">%</span></div></label>
+           </div>
+         </article>)}
+       </div>
+--- a/frontend/public/service-worker.js
++++ b/frontend/public/service-worker.js
+@@ -1,4 +1,5 @@
+ /* VPDK Bonus — Service Worker
++ * v146 adds administrator-managed face probabilities for the Generous Cube.
+  * v145 adds administrator-controlled Generous Cube reward ranges and repeat-spin cost.
+  * v144 removes the rectangular diamond card frame and applies the adaptive activity-feed aurora background everywhere a diamond avatar appears.
+  * v138 fixes light-theme contrast across custom cards and expands leaderboards to 20 places.
+@@ -30,7 +31,7 @@
+  * never be cached as index.html, otherwise browsers can render a giant broken
+  * image element over the board.
+  */
+-const VERSION = "vpdk-v145";
++const VERSION = "vpdk-v146";
+ const STATIC_CACHE = `${VERSION}-static`;
+ const RUNTIME_CACHE = `${VERSION}-runtime`;
+ 
+--- a/tests/test_v145_cube_admin_settings.py
++++ b/tests/test_v145_cube_admin_settings.py
+@@ -63,4 +63,4 @@
+ 
+ 
+ def test_service_worker_bumped() -> None:
+-    assert 'const VERSION = "vpdk-v145";' in SW.read_text(encoding="utf-8")
++    assert 'const VERSION = "vpdk-v146";' in SW.read_text(encoding="utf-8")
+--- /dev/null
++++ b/tests/test_v146_cube_face_probabilities.py
+@@ -0,0 +1,61 @@
++from __future__ import annotations
++
++import ast
++from pathlib import Path
++
++ROOT = Path(__file__).resolve().parents[1]
++SERVER = ROOT / "backend" / "server.py"
++ADMIN = ROOT / "frontend" / "src" / "pages" / "Admin.jsx"
++SW = ROOT / "frontend" / "public" / "service-worker.js"
++
++
++def assignment(name: str):
++    tree = ast.parse(SERVER.read_text(encoding="utf-8"))
++    for node in tree.body:
++        if isinstance(node, ast.Assign):
++            for target in node.targets:
++                if isinstance(target, ast.Name) and target.id == name:
++                    return ast.literal_eval(node.value)
++    raise AssertionError(name)
++
++
++def test_default_face_probabilities_preserve_original_economy() -> None:
++    probabilities = assignment("DEFAULT_CUBE_FACE_PROBABILITIES")
++    assert probabilities == [
++        {"face": 1, "probability_percent": 37.0},
++        {"face": 2, "probability_percent": 28.0},
++        {"face": 3, "probability_percent": 20.0},
++        {"face": 4, "probability_percent": 10.0},
++        {"face": 5, "probability_percent": 4.0},
++        {"face": 6, "probability_percent": 1.0},
++    ]
++    assert sum(item["probability_percent"] for item in probabilities) == 100.0
++
++
++def test_backend_persists_and_uses_editable_probabilities() -> None:
++    source = SERVER.read_text(encoding="utf-8")
++    assert "class CubeFaceProbabilityBody" in source
++    assert "probabilities: Optional[List[CubeFaceProbabilityBody]]" in source
++    assert '"probabilities": _normalize_cube_probabilities(doc.get("probabilities"))' in source
++    assert '"probabilities": sorted(probabilities, key=lambda item: item["face"])' in source
++    assert "Сума ймовірностей усіх граней має дорівнювати 100%" in source
++    assert "total_weight = sum(max(0.0, float(item[1])) for item in cube_table)" in source
++    assert "roll = _rand.random() * total_weight" in source
++    assert '"probability_percent": round(float(_weight), 2)' in source
++
++
++def test_admin_editor_has_probability_fields_and_total_guard() -> None:
++    source = ADMIN.read_text(encoding="utf-8")
++    assert "probabilities:" in source
++    assert "updateProbability" in source
++    assert "resetProbabilities" in source
++    assert 'data-testid="cube-probability-total"' in source
++    assert "Сума ймовірностей має дорівнювати 100%" in source
++    assert 'step="0.01"' in source
++    assert "cube-face-probability-${item.face}" in source
++    assert "Стандартні відсотки" in source
++    assert "probabilities," in source
++
++
++def test_service_worker_is_bumped() -> None:
++    assert 'const VERSION = "vpdk-v146";' in SW.read_text(encoding="utf-8")

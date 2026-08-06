@@ -1,0 +1,265 @@
+# VPDK Bonus v144 patch
+# Delete these obsolete files:
+#   frontend/public/card-frames/diamond-employee-card-v137.png
+#   frontend/src/assets/card-frames/diamond-employee-card-v137.png
+
+--- /mnt/data/vpdk-bonus-v143-diamond-spacing-polish/frontend/src/index.css	2026-08-05 19:05:36.112493004 +0000
++++ /mnt/data/vpdk-bonus-v144-diamond-background-no-card-frame/frontend/src/index.css	2026-08-05 20:05:15.071253768 +0000
+@@ -1234,9 +1234,10 @@
+   box-shadow: 0 12px 28px rgba(14,116,144,.12) !important;
+ }
+ 
+-/* v142: diamond employee card frames now sit behind the content and use 9-slice scaling,
+-   so the rectangular frame keeps correct proportions across leaderboard rows, reports,
+-   the activity feed, and profile cards without covering names, scores, or avatar art. */
++/* v144: diamond employees use one adaptive premium background everywhere.
++   The retired rectangular artwork is no longer rendered, so cards of any size
++   keep their native layout while receiving the same aurora/glass treatment as
++   the diamond activity-feed card. */
+ .diamond-card-auto {
+   position: relative;
+   isolation: isolate;
+@@ -1245,11 +1246,15 @@
+ @supports selector(.diamond-card-auto:has(.avatar-frame--diamond)) {
+   .diamond-card-auto:has(.avatar-frame--diamond) {
+     overflow: hidden;
+-    border-color: rgba(126, 211, 255, .38) !important;
++    border-color: rgba(125, 211, 252, .58) !important;
++    background:
++      radial-gradient(circle at 12% 0%, rgba(125, 211, 252, .20), transparent 42%),
++      radial-gradient(circle at 92% 100%, rgba(168, 85, 247, .16), transparent 46%),
++      linear-gradient(145deg, rgba(9, 25, 43, .98), rgba(20, 19, 38, .98)) !important;
+     box-shadow:
+-      0 0 0 1px rgba(218, 197, 255, .07) inset,
+-      0 0 24px rgba(68, 190, 255, .13),
+-      0 14px 34px rgba(0, 0, 0, .26);
++      0 0 0 1px rgba(255,255,255,.04) inset,
++      0 0 30px rgba(56, 189, 248, .14),
++      0 16px 34px rgba(0,0,0,.30) !important;
+   }
+ 
+   .diamond-card-auto:has(.avatar-frame--diamond) > * {
+@@ -1257,113 +1262,62 @@
+     z-index: 2;
+   }
+ 
+-  .diamond-card-auto:has(.avatar-frame--diamond)::before {
++  /* Feed cards already render their own aurora node and shine layer. */
++  .diamond-card-auto:not(.diamond-feed-card):has(.avatar-frame--diamond)::before {
+     content: "";
+     position: absolute;
+-    inset: 4px;
++    inset: -45% -20%;
+     z-index: 0;
+-    display: block;
+     pointer-events: none;
+-    user-select: none;
+-    border-style: solid;
+-    border-color: transparent;
+-    border-width: 18px 20px;
+-    border-image-source: url("./assets/card-frames/diamond-employee-card-v137.png");
+-    border-image-slice: 155 fill;
+-    border-image-width: 18px 20px;
+-    border-image-repeat: stretch;
+-    filter:
+-      drop-shadow(0 0 4px rgba(92, 205, 255, .48))
+-      drop-shadow(0 0 10px rgba(181, 126, 255, .20));
+-    opacity: .98;
+-    transform: translateZ(0);
+-    animation: diamond-card-frame-breathe 3.8s ease-in-out infinite;
++    opacity: .55;
++    background: conic-gradient(
++      from 0deg,
++      transparent 0 18%,
++      rgba(125,211,252,.20) 26%,
++      transparent 36% 58%,
++      rgba(192,132,252,.18) 68%,
++      transparent 78% 100%
++    );
++    animation: diamond-surface-orbit 8s linear infinite;
+   }
+-}
+-
+-@keyframes diamond-card-frame-breathe {
+-  0%, 100% {
+-    opacity: .91;
+-    filter:
+-      drop-shadow(0 0 4px rgba(92, 205, 255, .44))
+-      drop-shadow(0 0 9px rgba(181, 126, 255, .18));
+-  }
+-  50% {
+-    opacity: 1;
+-    filter:
+-      drop-shadow(0 0 7px rgba(123, 222, 255, .68))
+-      drop-shadow(0 0 15px rgba(201, 144, 255, .35));
+-  }
+-}
+ 
+-@media (prefers-reduced-motion: reduce) {
+-  .diamond-card-auto:has(.avatar-frame--diamond)::before {
+-    animation: none;
++  .diamond-card-auto:not(.diamond-feed-card):has(.avatar-frame--diamond)::after {
++    content: "";
++    position: absolute;
++    inset: 0;
++    z-index: 1;
++    pointer-events: none;
++    background: linear-gradient(115deg, transparent 0 34%, rgba(255,255,255,.10) 46%, transparent 58% 100%);
++    transform: translateX(-120%);
++    animation: diamond-surface-shine 4.8s ease-in-out infinite;
+   }
+ }
+ 
+-html.light .diamond-card-auto:has(.avatar-frame--diamond) {
+-  box-shadow:
+-    0 0 0 1px rgba(39, 139, 180, .10) inset,
+-    0 10px 28px rgba(74, 93, 145, .12) !important;
++@keyframes diamond-surface-orbit {
++  to { transform: rotate(360deg); }
+ }
+ 
+-html.light .diamond-card-auto:has(.avatar-frame--diamond)::before {
+-  filter:
+-    drop-shadow(0 0 3px rgba(72, 167, 197, .24))
+-    drop-shadow(0 0 8px rgba(167, 120, 230, .16));
++@keyframes diamond-surface-shine {
++  0%, 58% { transform: translateX(-120%); }
++  78%, 100% { transform: translateX(120%); }
+ }
+ 
+-/* v143: reserve a calm inner safe-zone for the ornate frame on the two densest
+-   surfaces. The artwork remains visible, while profile controls and feed text
+-   no longer crowd the flowers and crystals on narrow mobile screens. */
+-@supports selector(.diamond-card-auto:has(.avatar-frame--diamond)) {
+-  .diamond-profile-card:has(.avatar-frame--diamond) {
+-    padding: 28px 30px 24px !important;
+-  }
+-
+-  .diamond-profile-card:has(.avatar-frame--diamond) .diamond-profile-theme-toggle {
+-    top: 20px !important;
+-    right: 20px !important;
+-  }
+-
+-  .diamond-profile-card:has(.avatar-frame--diamond) .diamond-profile-avatar {
+-    margin-left: 2px;
+-  }
+-
+-  .diamond-profile-card:has(.avatar-frame--diamond) .diamond-profile-copy {
+-    padding-right: 2px;
+-  }
+-
+-  .diamond-profile-card:has(.avatar-frame--diamond) .diamond-profile-progress {
+-    margin-left: 2px;
+-    margin-right: 2px;
+-  }
+-
+-  .diamond-feed-shell:has(.avatar-frame--diamond) {
+-    padding: 22px 24px 20px !important;
+-  }
+-
+-  .diamond-feed-shell:has(.avatar-frame--diamond) > .diamond-feed-aurora {
+-    inset: -52% -24%;
++@media (prefers-reduced-motion: reduce) {
++  .diamond-card-auto:has(.avatar-frame--diamond)::before,
++  .diamond-card-auto:has(.avatar-frame--diamond)::after {
++    animation: none;
+   }
+ }
+ 
+-@media (max-width: 380px) {
+-  @supports selector(.diamond-card-auto:has(.avatar-frame--diamond)) {
+-    .diamond-profile-card:has(.avatar-frame--diamond) {
+-      padding: 26px 24px 22px !important;
+-    }
+-
+-    .diamond-profile-card:has(.avatar-frame--diamond) .diamond-profile-theme-toggle {
+-      top: 18px !important;
+-      right: 18px !important;
+-    }
+-
+-    .diamond-feed-shell:has(.avatar-frame--diamond) {
+-      padding: 20px 20px 18px !important;
+-    }
+-  }
++html.light .diamond-card-auto:has(.avatar-frame--diamond) {
++  border-color: rgba(2,132,199,.42) !important;
++  background:
++    radial-gradient(circle at 10% 0%, rgba(14,165,233,.14), transparent 40%),
++    radial-gradient(circle at 92% 100%, rgba(168,85,247,.10), transparent 44%),
++    linear-gradient(145deg, #F5FBFF, #F7F2FF) !important;
++  box-shadow:
++    0 0 0 1px rgba(39,139,180,.08) inset,
++    0 10px 28px rgba(74,93,145,.12) !important;
+ }
+ 
+ /* ==========================================================================
+--- /mnt/data/vpdk-bonus-v143-diamond-spacing-polish/frontend/public/service-worker.js	2026-08-05 19:05:36.111448673 +0000
++++ /mnt/data/vpdk-bonus-v144-diamond-background-no-card-frame/frontend/public/service-worker.js	2026-08-05 20:05:15.071498902 +0000
+@@ -1,9 +1,9 @@
+ /* VPDK Bonus — Service Worker
+- * v143 adds responsive safe-zone spacing for diamond profile and activity-feed cards.
++ * v144 removes the rectangular diamond card frame and applies the adaptive activity-feed aurora background everywhere a diamond avatar appears.
+  * v138 fixes light-theme contrast across custom cards and expands leaderboards to 20 places.
+  * v140 adds limited-quantity prize promotions and one-time administrator announcements.
+  * v139 updates game rewards, AI Trainer first-clear rewards, cube economy, and admin search/quick awards.
+- * v137 adds the rectangular diamond employee frame to rankings, reports, profiles, and feed cards.
++ * v137 introduced the legacy rectangular diamond employee frame, removed in v144.
+  * v136 adds premium diamond-avatar grant events to the activity feed.
+  * v135 fixes exact male/female diamond-frame detection and renders rarity frames in every employee report avatar.
+  * v134 pins the exact floral crystal frame supplied for all female diamond avatars and busts stale frame caches.
+@@ -29,7 +29,7 @@
+  * never be cached as index.html, otherwise browsers can render a giant broken
+  * image element over the board.
+  */
+-const VERSION = "vpdk-v143";
++const VERSION = "vpdk-v144";
+ const STATIC_CACHE = `${VERSION}-static`;
+ const RUNTIME_CACHE = `${VERSION}-runtime`;
+ 
+@@ -38,7 +38,6 @@
+   "/icon-192.png",
+   "/icon-512.png",
+   "/apple-touch-icon.png",
+-  "/card-frames/diamond-employee-card-v137.png",
+   "/bonus-match/v90/cell.png?v=90",
+   "/bonus-match/v90/board-frame.png?v=90",
+   "/bonus-match/v90/coin.png?v=90",
+--- /mnt/data/vpdk-bonus-v143-diamond-spacing-polish/frontend/src/pages/Home.jsx	2026-08-05 19:05:36.111977048 +0000
++++ /mnt/data/vpdk-bonus-v144-diamond-background-no-card-frame/frontend/src/pages/Home.jsx	2026-08-05 20:05:15.069247748 +0000
+@@ -234,10 +234,10 @@
+     {mode === "mock" && <div className="rounded-2xl border border-[#FF5C00]/40 bg-[#FF5C00]/10 px-3 py-2 text-[11px] font-black text-[#FF5C00]">ОФЛАЙН РЕЖИМ • використовуються демо-дані</div>}
+ 
+     {/* 1. Avatar / profile */}
+-    <section className="diamond-card-auto diamond-profile-card relative rounded-3xl border border-white/10 bg-[#1A1A1E] p-5">
+-      <ThemeToggle className="diamond-profile-theme-toggle absolute right-4 top-4 z-10" compact />
++    <section className="diamond-card-auto relative rounded-3xl border border-white/10 bg-[#1A1A1E] p-5">
++      <ThemeToggle className="absolute right-4 top-4 z-10" compact />
+       <div className="flex items-center gap-4 pr-14">
+-        <div className="diamond-profile-avatar relative shrink-0">
++        <div className="relative shrink-0">
+           <button type="button" onClick={() => nav("/store")} className="relative block active:scale-95" aria-label="Відкрити магазин аватарок">
+             <AvatarFrame
+               src={avatarSrc && !avatarImageFailed ? avatarSrc : null}
+@@ -252,9 +252,9 @@
+           </button>
+           <div className="absolute -bottom-1 right-0 rounded-full border-2 border-[#0A0A0A] bg-[#FFB800] px-1.5 py-0.5 text-[9px] font-black text-[#0A0A0A]">LVL {level}</div>
+         </div>
+-        <div className="diamond-profile-copy min-w-0 flex-1 overflow-hidden"><div className="truncate font-display text-[17px] leading-tight text-white">{user.name}</div><div className="truncate text-xs text-zinc-500">{user.position}</div><div className="truncate text-xs text-zinc-600">{user.team_name || user.department || "—"}</div></div>
++        <div className="min-w-0 flex-1 overflow-hidden"><div className="truncate font-display text-[17px] leading-tight text-white">{user.name}</div><div className="truncate text-xs text-zinc-500">{user.position}</div><div className="truncate text-xs text-zinc-600">{user.team_name || user.department || "—"}</div></div>
+       </div>
+-      <div className="diamond-profile-progress mt-5"><div className="mb-2 flex justify-between"><div className="text-[11px] font-black uppercase tracking-widest text-zinc-500">Рівень {level}</div><div className="text-[11px] font-black text-white">{xp} / {xpNext} XP</div></div><div className="h-4 overflow-hidden rounded-full border border-white/5 bg-[#0A0A0A]"><div className="xp-stripes h-full rounded-full" style={{ width: `${xpPct}%`, background: "linear-gradient(90deg,#FF5C00,#FFB800)" }} /></div></div>
++      <div className="mt-5"><div className="mb-2 flex justify-between"><div className="text-[11px] font-black uppercase tracking-widest text-zinc-500">Рівень {level}</div><div className="text-[11px] font-black text-white">{xp} / {xpNext} XP</div></div><div className="h-4 overflow-hidden rounded-full border border-white/5 bg-[#0A0A0A]"><div className="xp-stripes h-full rounded-full" style={{ width: `${xpPct}%`, background: "linear-gradient(90deg,#FF5C00,#FFB800)" }} /></div></div>
+     </section>
+ 
+     {/* 3. Balance */}
+--- /mnt/data/vpdk-bonus-v143-diamond-spacing-polish/frontend/src/components/FeedItem.jsx	2026-08-05 19:05:36.112575346 +0000
++++ /mnt/data/vpdk-bonus-v144-diamond-background-no-card-frame/frontend/src/components/FeedItem.jsx	2026-08-05 20:05:15.069709504 +0000
+@@ -31,7 +31,7 @@
+   return (
+     <li
+       data-testid={`feed-item-${ev.id}`}
+-      className={`diamond-card-auto diamond-feed-shell relative overflow-hidden rounded-3xl border p-4 transition-transform ${meta.ring} ${isDiamond ? "diamond-feed-card" : "border-white/10 bg-[#1A1A1E]"}`}
++      className={`diamond-card-auto relative overflow-hidden rounded-3xl border p-4 transition-transform ${meta.ring} ${isDiamond ? "diamond-feed-card" : "border-white/10 bg-[#1A1A1E]"}`}
+     >
+       {isDiamond && <div className="diamond-feed-aurora" aria-hidden="true" />}
+       {isDiamond && (

@@ -1,0 +1,595 @@
+--- /tmp/v144-selected/backend/server.py	2026-08-06 07:19:07.733360321 +0000
++++ backend/server.py	2026-08-06 07:16:55.032035463 +0000
+@@ -474,6 +474,17 @@
+     allow_cross_team_reports: bool = False
+ 
+ 
++class CubeRewardRangeBody(BaseModel):
++    face: int = Field(ge=1, le=6)
++    min_reward: int = Field(ge=0, le=100000)
++    max_reward: int = Field(ge=0, le=100000)
++
++
++class CubeSettingsUpdateBody(BaseModel):
++    paid_spin_cost: int = Field(ge=0, le=100000)
++    rewards: List[CubeRewardRangeBody] = Field(min_length=6, max_length=6)
++
++
+ class TeamGoalMessageBody(BaseModel):
+     message: str = Field(default="", max_length=1200)
+ 
+@@ -3622,8 +3633,28 @@
+     "Сьогодні є 1% шанс на джекпот у Щедрому Кубі. Спробуй.",
+ ]
+ 
+-# Cube faces: (face, weight %, min reward, max reward, tier)
+-# The first spin each Kyiv day is free. Every next spin costs 20 Point.
++# Cube probabilities and tier names stay fixed. Administrators can edit the
++# reward range for each face and the price of every repeat spin from the admin
++# panel. The first spin of each Kyiv day always remains free.
++DEFAULT_CUBE_SPIN_COST = 20
++CUBE_FACE_META = [
++    (1, 37, "one"),
++    (2, 28, "two"),
++    (3, 20, "three"),
++    (4, 10, "four"),
++    (5, 4, "five"),
++    (6, 1, "six"),
++]
++DEFAULT_CUBE_REWARD_RANGES = [
++    {"face": 1, "min_reward": 1, "max_reward": 10},
++    {"face": 2, "min_reward": 11, "max_reward": 20},
++    {"face": 3, "min_reward": 21, "max_reward": 30},
++    {"face": 4, "min_reward": 31, "max_reward": 50},
++    {"face": 5, "min_reward": 51, "max_reward": 100},
++    {"face": 6, "min_reward": 101, "max_reward": 500},
++]
++# Legacy constants remain for compatibility with older validators and tests.
++# Runtime spins use the editable settings returned by _cube_settings().
+ CUBE_SPIN_COST = 20
+ CUBE_TABLE = [
+     (1, 37, 1, 10, "one"),
+@@ -3635,6 +3666,48 @@
+ ]
+ 
+ 
++def _normalize_cube_reward_ranges(raw_ranges) -> List[dict]:
++    defaults = {item["face"]: dict(item) for item in DEFAULT_CUBE_REWARD_RANGES}
++    supplied = {}
++    for item in raw_ranges or []:
++        try:
++            face = int(item.get("face"))
++            minimum = int(item.get("min_reward"))
++            maximum = int(item.get("max_reward"))
++        except (TypeError, ValueError, AttributeError):
++            continue
++        if face not in defaults or minimum < 0 or maximum < minimum:
++            continue
++        supplied[face] = {"face": face, "min_reward": minimum, "max_reward": maximum}
++    return [supplied.get(face, defaults[face]) for face in range(1, 7)]
++
++
++async def _cube_settings() -> dict:
++    doc = await db.app_settings.find_one({"id": "generous_cube"}, {"_id": 0}) or {}
++    try:
++        paid_spin_cost = int(doc.get("paid_spin_cost", DEFAULT_CUBE_SPIN_COST))
++    except (TypeError, ValueError):
++        paid_spin_cost = DEFAULT_CUBE_SPIN_COST
++    paid_spin_cost = max(0, min(100000, paid_spin_cost))
++    return {
++        "id": "generous_cube",
++        "paid_spin_cost": paid_spin_cost,
++        "rewards": _normalize_cube_reward_ranges(doc.get("rewards")),
++        "updated_at": doc.get("updated_at"),
++        "updated_by": doc.get("updated_by"),
++        "updated_by_name": doc.get("updated_by_name"),
++    }
++
++
++def _cube_roll_table(settings: dict) -> List[tuple]:
++    rewards = {item["face"]: item for item in settings.get("rewards") or DEFAULT_CUBE_REWARD_RANGES}
++    table = []
++    for face, weight, tier in CUBE_FACE_META:
++        reward = rewards.get(face) or DEFAULT_CUBE_REWARD_RANGES[face - 1]
++        table.append((face, weight, int(reward["min_reward"]), int(reward["max_reward"]), tier))
++    return table
++
++
+ class CubeSpinResult(BaseModel):
+     reward: int
+     face: int
+@@ -3654,6 +3727,8 @@
+     cube_face: Optional[int] = None
+     cube_tier: Optional[str] = None
+     next_spin_cost: int = 0
++    paid_spin_cost: int = DEFAULT_CUBE_SPIN_COST
++    cube_reward_ranges: List[CubeRewardRangeBody] = Field(default_factory=list)
+     prediction_revealed: bool
+     prediction_text: Optional[str] = None
+ 
+@@ -3674,9 +3749,37 @@
+     return doc
+ 
+ 
++@api.get("/admin/cube-settings")
++async def admin_get_cube_settings(admin: dict = Depends(get_current_admin)):
++    return await _cube_settings()
++
++
++@api.patch("/admin/cube-settings")
++async def admin_update_cube_settings(body: CubeSettingsUpdateBody, admin: dict = Depends(get_current_admin)):
++    rewards = [item.model_dump() for item in body.rewards]
++    faces = [item["face"] for item in rewards]
++    if sorted(faces) != [1, 2, 3, 4, 5, 6]:
++        raise HTTPException(status_code=400, detail="Потрібно вказати по одному діапазону для кожної грані від 1 до 6")
++    for item in rewards:
++        if item["min_reward"] > item["max_reward"]:
++            raise HTTPException(status_code=400, detail=f"Для грані {item['face']} мінімальний виграш не може бути більшим за максимальний")
++
++    payload = {
++        "id": "generous_cube",
++        "paid_spin_cost": int(body.paid_spin_cost),
++        "rewards": sorted(rewards, key=lambda item: item["face"]),
++        "updated_at": now_iso(),
++        "updated_by": admin.get("id"),
++        "updated_by_name": admin.get("name", "Адміністратор"),
++    }
++    await db.app_settings.update_one({"id": "generous_cube"}, {"$set": payload}, upsert=True)
++    return payload
++
++
+ @api.get("/games/status", response_model=GamesStatus)
+ async def games_status(user: dict = Depends(get_current_user)):
+     doc = await _get_or_create_games_doc(user["id"])
++    settings = await _cube_settings()
+     spin_count = int(doc.get("cube_spin_count") or (1 if doc.get("cube_spun") else 0))
+     return GamesStatus(
+         date=doc["date"],
+@@ -3685,7 +3788,9 @@
+         cube_reward=doc.get("cube_reward"),
+         cube_face=doc.get("cube_face"),
+         cube_tier=doc.get("cube_tier"),
+-        next_spin_cost=0 if spin_count == 0 else CUBE_SPIN_COST,
++        next_spin_cost=0 if spin_count == 0 else settings["paid_spin_cost"],
++        paid_spin_cost=settings["paid_spin_cost"],
++        cube_reward_ranges=settings["rewards"],
+         prediction_revealed=doc.get("prediction_revealed", False),
+         prediction_text=doc.get("prediction_text"),
+     )
+@@ -3696,14 +3801,16 @@
+     import random as _rand
+ 
+     doc = await _get_or_create_games_doc(user["id"])
++    settings = await _cube_settings()
++    cube_table = _cube_roll_table(settings)
+     spin_count = int(doc.get("cube_spin_count") or (1 if doc.get("cube_spun") else 0))
+-    cost = 0 if spin_count == 0 else CUBE_SPIN_COST
++    cost = 0 if spin_count == 0 else settings["paid_spin_cost"]
+ 
+     # Weighted face selection. The probability table totals exactly 100%.
+     roll = _rand.uniform(0, 100)
+     acc = 0.0
+-    picked = CUBE_TABLE[0]
+-    for item in CUBE_TABLE:
++    picked = cube_table[0]
++    for item in cube_table:
+         acc += item[1]
+         if roll <= acc:
+             picked = item
+@@ -3734,6 +3841,8 @@
+     spin_record = {
+         "face": face,
+         "reward": reward,
++        "reward_min": reward_min,
++        "reward_max": reward_max,
+         "cost": cost,
+         "tier": tier,
+         "spun_at": now_iso(),
+@@ -3779,7 +3888,7 @@
+         tier=tier,
+         cost=cost,
+         spin_count=next_count,
+-        next_spin_cost=CUBE_SPIN_COST,
++        next_spin_cost=settings["paid_spin_cost"],
+         new_balance=fresh["balance"],
+         total_xp=fresh["total_xp"],
+     )
+--- /tmp/v144-selected/frontend/src/pages/Admin.jsx	2026-08-06 07:19:07.734304942 +0000
++++ frontend/src/pages/Admin.jsx	2026-08-06 07:13:37.446553166 +0000
+@@ -4,7 +4,7 @@
+   Users, Swords, Gift, ShoppingBag, BarChart3, Plus, Pencil, Trash2, X, Minus, Check, Coins, Trophy, ChevronRight,
+   UserCog, ShieldCheck, Crown, UsersRound, Inbox, UserCheck, ClipboardList, CheckCircle2, XCircle,
+   ArrowUp, ArrowDown, FileText, BrainCircuit, Clock3, TrendingUp, Search, CalendarDays, Target, Save, ChevronDown,
+-  KeyRound, Award, Medal, Star, Sparkles, Send, Gamepad2, RotateCcw, PiggyBank, Gem, BadgePercent, Megaphone, MessageSquareText,
++  KeyRound, Award, Medal, Star, Sparkles, Send, Gamepad2, Dice5, RotateCcw, PiggyBank, Gem, BadgePercent, Megaphone, MessageSquareText,
+ } from "lucide-react";
+ import api, { extractError, API_BASE, getToken } from "@/lib/api";
+ import { useApp } from "@/context/AppContext";
+@@ -24,6 +24,7 @@
+   { id: "teams", label: "Команди", icon: UsersRound },
+   { id: "achievements", label: "Досягнення", icon: Award },
+   { id: "bonus-match", label: "Bonus Match", icon: Gamepad2 },
++  { id: "cube-settings", label: "Щедрий куб", icon: Dice5 },
+   { id: "announcements", label: "Повідомлення", icon: Megaphone },
+   { id: "prizes", label: "Призи", icon: Gift },
+   { id: "team-banks", label: "Банка Команди", icon: PiggyBank },
+@@ -50,6 +51,19 @@
+ const DIFFICULTIES = ["easy", "medium", "hard"];
+ const CATEGORIES = ["avatar", "merch", "privilege", "certificate"];
+ 
++const CUBE_FACE_GLYPHS = ["⚀", "⚁", "⚂", "⚃", "⚄", "⚅"];
++const DEFAULT_CUBE_SETTINGS = {
++  paid_spin_cost: 20,
++  rewards: [
++    { face: 1, min_reward: 1, max_reward: 10 },
++    { face: 2, min_reward: 11, max_reward: 20 },
++    { face: 3, min_reward: 21, max_reward: 30 },
++    { face: 4, min_reward: 31, max_reward: 50 },
++    { face: 5, min_reward: 51, max_reward: 100 },
++    { face: 6, min_reward: 101, max_reward: 500 },
++  ],
++};
++
+ const withTeamQuery = (path, teamFilter) => {
+   if (!teamFilter) return path;
+   const separator = path.includes("?") ? "&" : "?";
+@@ -3077,6 +3091,147 @@
+   </div>;
+ };
+ 
++// ─────────────── Generous Cube settings ───────────────
++const CubeSettingsView = () => {
++  const [settings, setSettings] = useState(DEFAULT_CUBE_SETTINGS);
++  const [loading, setLoading] = useState(true);
++  const [saving, setSaving] = useState(false);
++
++  const load = async () => {
++    setLoading(true);
++    try {
++      const { data } = await api.get("/admin/cube-settings");
++      setSettings({
++        paid_spin_cost: Number(data?.paid_spin_cost ?? DEFAULT_CUBE_SETTINGS.paid_spin_cost),
++        rewards: Array.isArray(data?.rewards) && data.rewards.length === 6
++          ? data.rewards.map((item) => ({
++              face: Number(item.face),
++              min_reward: Number(item.min_reward),
++              max_reward: Number(item.max_reward),
++            })).sort((a, b) => a.face - b.face)
++          : DEFAULT_CUBE_SETTINGS.rewards,
++        updated_at: data?.updated_at || null,
++        updated_by_name: data?.updated_by_name || null,
++      });
++    } catch (error) {
++      toast.error(extractError(error));
++    } finally {
++      setLoading(false);
++    }
++  };
++
++  useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
++
++  const updateReward = (face, field, value) => {
++    const numeric = Math.max(0, Math.min(100000, Number(value || 0)));
++    setSettings((current) => ({
++      ...current,
++      rewards: current.rewards.map((item) => item.face === face ? { ...item, [field]: numeric } : item),
++    }));
++  };
++
++  const save = async () => {
++    const paidSpinCost = Math.max(0, Math.min(100000, Number(settings.paid_spin_cost || 0)));
++    const rewards = settings.rewards.map((item) => ({
++      face: Number(item.face),
++      min_reward: Math.max(0, Math.min(100000, Number(item.min_reward || 0))),
++      max_reward: Math.max(0, Math.min(100000, Number(item.max_reward || 0))),
++    }));
++    const invalid = rewards.find((item) => item.min_reward > item.max_reward);
++    if (invalid) {
++      toast.error(`Грань ${invalid.face}: мінімальний виграш не може бути більшим за максимальний`);
++      return;
++    }
++
++    setSaving(true);
++    try {
++      const { data } = await api.patch("/admin/cube-settings", {
++        paid_spin_cost: paidSpinCost,
++        rewards,
++      });
++      setSettings({
++        paid_spin_cost: Number(data.paid_spin_cost),
++        rewards: data.rewards,
++        updated_at: data.updated_at,
++        updated_by_name: data.updated_by_name,
++      });
++      toast.success("Налаштування Щедрого куба збережено");
++    } catch (error) {
++      toast.error(extractError(error));
++    } finally {
++      setSaving(false);
++    }
++  };
++
++  if (loading) return <div className="py-8 text-center text-sm font-bold text-zinc-500">Завантаження налаштувань куба...</div>;
++
++  const maximumReward = Math.max(...settings.rewards.map((item) => Number(item.max_reward || 0)), 0);
++
++  return <div className="space-y-4" data-testid="cube-settings-view">
++    <section className="rounded-3xl border border-[#39FF14]/25 bg-[radial-gradient(circle_at_top,_rgba(57,255,20,.12),_transparent_58%),#151719] p-5">
++      <div className="flex items-start gap-3">
++        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-[#39FF14]/30 bg-[#39FF14]/10 text-[#39FF14]"><Dice5 size={24} strokeWidth={2.8} /></div>
++        <div className="min-w-0 flex-1">
++          <div className="text-[10px] font-black uppercase tracking-[.2em] text-[#39FF14]">Економіка гри</div>
++          <h2 className="mt-1 font-display text-xl text-white">Налаштування Щедрого куба</h2>
++          <p className="mt-2 text-xs font-bold leading-relaxed text-zinc-400">Перший кидок працівника за день залишається безкоштовним. Тут змінюється вартість кожного наступного кидка та діапазон випадкового виграшу для кожної грані.</p>
++        </div>
++      </div>
++
++      <div className="mt-5 grid gap-3 sm:grid-cols-2">
++        <label className="rounded-2xl border border-[#FFB800]/25 bg-black/25 p-4">
++          <span className="block text-[10px] font-black uppercase tracking-widest text-zinc-500">Вартість повторного кидка</span>
++          <div className="mt-2 flex items-center gap-2">
++            <input
++              data-testid="cube-paid-spin-cost"
++              type="number"
++              min="0"
++              max="100000"
++              value={settings.paid_spin_cost}
++              onChange={(event) => setSettings((current) => ({ ...current, paid_spin_cost: Math.max(0, Math.min(100000, Number(event.target.value || 0))) }))}
++              className="h-12 min-w-0 flex-1 rounded-xl border border-white/10 bg-[#0F1012] px-3 text-lg font-black text-[#FFB800] outline-none focus:border-[#FFB800]"
++            />
++            <span className="text-xs font-black uppercase text-zinc-500">Point</span>
++          </div>
++          <div className="mt-2 text-[10px] font-bold text-zinc-600">Значення 0 робить усі повторні кидки безкоштовними.</div>
++        </label>
++
++        <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
++          <div className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Поточна верхня межа</div>
++          <div className="mt-2 font-display text-3xl text-[#39FF14]">{maximumReward.toLocaleString("uk-UA")}</div>
++          <div className="mt-1 text-xs font-black text-zinc-500">Point за один кидок</div>
++        </div>
++      </div>
++    </section>
++
++    <section className="rounded-3xl border border-white/10 bg-[#1A1A1E] p-4 lg:p-5">
++      <div className="mb-4">
++        <div className="font-display text-xl text-white">Бали за грані</div>
++        <div className="mt-1 text-xs font-bold text-zinc-500">Виграш обирається випадково між мінімумом і максимумом. Ймовірності випадіння граней не змінюються.</div>
++      </div>
++      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
++        {settings.rewards.map((item) => <article key={item.face} className="rounded-2xl border border-white/10 bg-black/25 p-4" data-testid={`cube-face-setting-${item.face}`}>
++          <div className="flex items-center justify-between gap-3">
++            <div className="flex items-center gap-3">
++              <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-[#39FF14]/25 bg-[#39FF14]/10 text-3xl leading-none text-[#39FF14]">{CUBE_FACE_GLYPHS[item.face - 1]}</div>
++              <div><div className="text-sm font-black text-white">Грань {item.face}</div><div className="text-[10px] font-bold text-zinc-600">{Number(item.min_reward).toLocaleString("uk-UA")}–{Number(item.max_reward).toLocaleString("uk-UA")} Point</div></div>
++            </div>
++          </div>
++          <div className="mt-3 grid grid-cols-2 gap-2">
++            <label><span className="mb-1 block text-[9px] font-black uppercase tracking-wider text-zinc-600">Мінімум</span><input type="number" min="0" max="100000" value={item.min_reward} onChange={(event) => updateReward(item.face, "min_reward", event.target.value)} className="h-11 w-full rounded-xl border border-white/10 bg-[#101114] px-3 text-sm font-black text-white outline-none focus:border-[#39FF14]" /></label>
++            <label><span className="mb-1 block text-[9px] font-black uppercase tracking-wider text-zinc-600">Максимум</span><input type="number" min="0" max="100000" value={item.max_reward} onChange={(event) => updateReward(item.face, "max_reward", event.target.value)} className="h-11 w-full rounded-xl border border-white/10 bg-[#101114] px-3 text-sm font-black text-white outline-none focus:border-[#39FF14]" /></label>
++          </div>
++        </article>)}
++      </div>
++    </section>
++
++    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
++      <div className="text-[10px] font-bold text-zinc-600">{settings.updated_at ? `Останнє оновлення: ${new Date(settings.updated_at).toLocaleString("uk-UA")}${settings.updated_by_name ? ` · ${settings.updated_by_name}` : ""}` : "Використовуються базові налаштування"}</div>
++      <button type="button" data-testid="save-cube-settings" onClick={save} disabled={saving} className="arcade-btn flex h-12 items-center justify-center gap-2 border-[#197A0E] bg-[#39FF14] px-6 text-sm font-black uppercase tracking-wider text-[#071006] disabled:opacity-60"><Save size={17} strokeWidth={3} />{saving ? "Збереження..." : "Зберегти"}</button>
++    </div>
++  </div>;
++};
++
+ // ─────────────── Admin page shell ───────────────
+ export default function Admin() {
+   const { user, mode } = useApp();
+@@ -3132,7 +3287,7 @@
+     );
+   }
+ 
+-  const V = { analytics: AnalyticsView, "ai-team": AITeamDashboard, "daily-tasks": DailyTasksManager, points: PointsManager, goals: GoalsManager, moderation: ModerationView, applications: ApplicationsView, users: UsersView, teams: TeamsView, achievements: AchievementsView, "bonus-match": BonusMatchLevelsView, announcements: AnnouncementsView, prizes: PrizesView, "team-banks": TeamBanksAdminView, orders: OrdersView }[tab];
++  const V = { analytics: AnalyticsView, "ai-team": AITeamDashboard, "daily-tasks": DailyTasksManager, points: PointsManager, goals: GoalsManager, moderation: ModerationView, applications: ApplicationsView, users: UsersView, teams: TeamsView, achievements: AchievementsView, "bonus-match": BonusMatchLevelsView, "cube-settings": CubeSettingsView, announcements: AnnouncementsView, prizes: PrizesView, "team-banks": TeamBanksAdminView, orders: OrdersView }[tab];
+ 
+   return (
+     <div className="px-5 pt-2 pb-8 lg:px-7 lg:pt-6" data-testid="admin-page">
+--- /tmp/v144-selected/frontend/src/pages/Fun.jsx	2026-08-06 07:19:07.734513219 +0000
++++ frontend/src/pages/Fun.jsx	2026-08-06 07:14:49.820631857 +0000
+@@ -24,6 +24,15 @@
+   6: [1, 3, 4, 6, 7, 9],
+ };
+ 
++const DEFAULT_CUBE_REWARD_RANGES = [
++  { face: 1, min_reward: 1, max_reward: 10 },
++  { face: 2, min_reward: 11, max_reward: 20 },
++  { face: 3, min_reward: 21, max_reward: 30 },
++  { face: 4, min_reward: 31, max_reward: 50 },
++  { face: 5, min_reward: 51, max_reward: 100 },
++  { face: 6, min_reward: 101, max_reward: 500 },
++];
++
+ const CUBE_VISUAL_VERSION = "v44-slower-cinematic-3d";
+ const CUBE_ANIMATION_MS = 3200;
+ 
+@@ -152,7 +161,7 @@
+ 
+   const load = async () => {
+     if (mode === "mock") {
+-      setStatus({ date: "-", cube_spun: false, cube_spin_count: 0, next_spin_cost: 0, prediction_revealed: false });
++      setStatus({ date: "-", cube_spun: false, cube_spin_count: 0, next_spin_cost: 0, paid_spin_cost: 20, cube_reward_ranges: DEFAULT_CUBE_REWARD_RANGES, prediction_revealed: false });
+       setLoadingStatus(false);
+       return;
+     }
+@@ -210,9 +219,10 @@
+           cube_face: r.data.face,
+           cube_tier: r.data.tier,
+           next_spin_cost: r.data.next_spin_cost,
++          paid_spin_cost: r.data.next_spin_cost,
+         }));
+         fireConfetti();
+-        toast.success(`+${r.data.reward} Point`, { description: r.data.cost ? `Вартість кидка: ${r.data.cost} Point` : "Перший кидок безкоштовний", duration: 3500 });
++        toast.success(`+${r.data.reward} Point`, { description: r.data.cost ? `Вартість кидка: ${r.data.cost} Point` : Number(r.data.spin_count) === 1 ? "Перший кидок безкоштовний" : "Повторний кидок безкоштовний", duration: 3500 });
+         refreshMe();
+       }, CUBE_ANIMATION_MS);
+     } catch (e) {
+@@ -234,6 +244,14 @@
+     setRevealing(false);
+   };
+ 
++  const cubeRewardRanges = Array.isArray(status?.cube_reward_ranges) && status.cube_reward_ranges.length === 6
++    ? [...status.cube_reward_ranges].sort((a, b) => Number(a.face) - Number(b.face))
++    : DEFAULT_CUBE_REWARD_RANGES;
++  const cubeMaximumReward = Math.max(...cubeRewardRanges.map((item) => Number(item.max_reward || 0)), 0);
++  const paidSpinCost = Number(status?.paid_spin_cost ?? status?.next_spin_cost ?? 20);
++  const nextSpinCost = Number(status?.next_spin_cost ?? paidSpinCost);
++  const spinCount = Number(status?.cube_spin_count || 0);
++
+   return (
+     <div className="px-5 pt-2 pb-8 space-y-5" data-testid="fun-page">
+       <div className="flex items-center gap-3">
+@@ -293,17 +311,14 @@
+             <span className="generous-cube-header-icon"><Dice5 size={18} strokeWidth={3} /></span>
+             <div>
+               <div className="text-[10px] font-black uppercase tracking-[0.22em] text-[#39FF14]">Щедрий куб</div>
+-              <div className="mt-0.5 text-xs font-bold text-zinc-500">Кидай і забирай до 500 Point</div>
++              <div className="mt-0.5 text-xs font-bold text-zinc-500">Кидай і забирай до {cubeMaximumReward.toLocaleString("uk-UA")} Point</div>
+             </div>
+           </div>
+           <details className="generous-cube-info">
+             <summary><Info size={14} /> Як працює?</summary>
+             <div className="generous-cube-prizes">
+-              {[
+-                [1, "1–10"], [2, "11–20"], [3, "21–30"],
+-                [4, "31–50"], [5, "51–100"], [6, "101–500"],
+-              ].map(([value, range]) => (
+-                <div key={value}><span>{faceGlyph(value)}</span><b>{value}</b><em>{range} Point</em></div>
++              {cubeRewardRanges.map((item) => (
++                <div key={item.face}><span>{faceGlyph(item.face)}</span><b>{item.face}</b><em>{Number(item.min_reward).toLocaleString("uk-UA")}–{Number(item.max_reward).toLocaleString("uk-UA")} Point</em></div>
+               ))}
+               <p>Ймовірності граней приховані. Кожен виграш визначається випадково в межах діапазону.</p>
+             </div>
+@@ -315,7 +330,7 @@
+             <Gift size={18} />
+             <span>
+               <small>Перший кидок</small>
+-              <strong>{Number(status?.cube_spin_count || 0) === 0 ? "Безкоштовний" : "Використано"}</strong>
++              <strong>{spinCount === 0 ? "Безкоштовний" : "Використано"}</strong>
+             </span>
+           </div>
+           <div className="generous-cube-meta generous-cube-meta--balance">
+@@ -360,26 +375,26 @@
+         <button
+           data-testid="spin-cube"
+           onClick={spin}
+-          disabled={rolling || loadingStatus || (Number(status?.cube_spin_count || 0) > 0 && Number(user?.balance || 0) < Number(status?.next_spin_cost || 20))}
++          disabled={rolling || loadingStatus || (spinCount > 0 && Number(user?.balance || 0) < nextSpinCost)}
+           className="generous-cube-button"
+         >
+           <Zap size={20} strokeWidth={3} />
+           {rolling
+             ? "КУБ НАБИРАЄ ЕНЕРГІЮ..."
+-            : Number(status?.cube_spin_count || 0) === 0
++            : spinCount === 0
+               ? "КИНУТИ БЕЗКОШТОВНО"
+-              : `КИНУТИ ЗА ${status?.next_spin_cost || 20} POINT`}
++              : nextSpinCost === 0 ? "КИНУТИ БЕЗКОШТОВНО" : `КИНУТИ ЗА ${nextSpinCost} POINT`}
+         </button>
+ 
+-        {Number(status?.cube_spin_count || 0) > 0 && Number(user?.balance || 0) < Number(status?.next_spin_cost || 20) && (
++        {spinCount > 0 && Number(user?.balance || 0) < nextSpinCost && (
+           <div className="mt-3 text-center text-xs font-black text-[#FF5C00]">Недостатньо Point для наступної спроби</div>
+         )}
+-        <div className="generous-cube-attempts">Спроб сьогодні: <b>{Number(status?.cube_spin_count || 0)}</b></div>
++        <div className="generous-cube-attempts">Спроб сьогодні: <b>{spinCount}</b></div>
+       </section>
+ 
+       <div className="text-[11px] text-zinc-500 text-center font-black">
+         <Coins size={12} strokeWidth={3} className="inline -mt-0.5 mr-1" />
+-        Передбачення безкоштовне раз на добу. Перший кидок куба безкоштовний, наступні — по 20 Point.
++        Передбачення безкоштовне раз на добу. Перший кидок куба безкоштовний, наступні — {paidSpinCost === 0 ? "також безкоштовні" : `по ${paidSpinCost} Point`}.
+       </div>
+     </div>
+   );
+--- /tmp/v144-selected/frontend/public/service-worker.js	2026-08-06 07:19:07.734725794 +0000
++++ frontend/public/service-worker.js	2026-08-06 07:15:02.206269450 +0000
+@@ -1,4 +1,5 @@
+ /* VPDK Bonus — Service Worker
++ * v145 adds administrator-controlled Generous Cube reward ranges and repeat-spin cost.
+  * v144 removes the rectangular diamond card frame and applies the adaptive activity-feed aurora background everywhere a diamond avatar appears.
+  * v138 fixes light-theme contrast across custom cards and expands leaderboards to 20 places.
+  * v140 adds limited-quantity prize promotions and one-time administrator announcements.
+@@ -29,7 +30,7 @@
+  * never be cached as index.html, otherwise browsers can render a giant broken
+  * image element over the board.
+  */
+-const VERSION = "vpdk-v144";
++const VERSION = "vpdk-v145";
+ const STATIC_CACHE = `${VERSION}-static`;
+ const RUNTIME_CACHE = `${VERSION}-runtime`;
+ 
+--- /dev/null	2026-08-06 07:07:09.637548848 +0000
++++ tests/test_v145_cube_admin_settings.py	2026-08-06 07:17:33.489541824 +0000
+@@ -0,0 +1,66 @@
++from __future__ import annotations
++
++import ast
++from pathlib import Path
++
++ROOT = Path(__file__).resolve().parents[1]
++SERVER = ROOT / "backend" / "server.py"
++ADMIN = ROOT / "frontend" / "src" / "pages" / "Admin.jsx"
++FUN = ROOT / "frontend" / "src" / "pages" / "Fun.jsx"
++SW = ROOT / "frontend" / "public" / "service-worker.js"
++
++
++def assignment(name: str):
++    tree = ast.parse(SERVER.read_text(encoding="utf-8"))
++    for node in tree.body:
++        if isinstance(node, ast.Assign):
++            for target in node.targets:
++                if isinstance(target, ast.Name) and target.id == name:
++                    return ast.literal_eval(node.value)
++    raise AssertionError(name)
++
++
++def test_default_cube_economy_is_preserved() -> None:
++    assert assignment("DEFAULT_CUBE_SPIN_COST") == 20
++    assert assignment("DEFAULT_CUBE_REWARD_RANGES") == [
++        {"face": 1, "min_reward": 1, "max_reward": 10},
++        {"face": 2, "min_reward": 11, "max_reward": 20},
++        {"face": 3, "min_reward": 21, "max_reward": 30},
++        {"face": 4, "min_reward": 31, "max_reward": 50},
++        {"face": 5, "min_reward": 51, "max_reward": 100},
++        {"face": 6, "min_reward": 101, "max_reward": 500},
++    ]
++
++
++def test_backend_uses_editable_cube_settings() -> None:
++    source = SERVER.read_text(encoding="utf-8")
++    assert 'db.app_settings.find_one({"id": "generous_cube"}' in source
++    assert '@api.get("/admin/cube-settings")' in source
++    assert '@api.patch("/admin/cube-settings")' in source
++    assert 'settings = await _cube_settings()' in source
++    assert 'cost = 0 if spin_count == 0 else settings["paid_spin_cost"]' in source
++    assert 'cube_table = _cube_roll_table(settings)' in source
++    assert 'cube_reward_ranges=settings["rewards"]' in source
++
++
++def test_admin_has_cube_editor() -> None:
++    source = ADMIN.read_text(encoding="utf-8")
++    assert '{ id: "cube-settings", label: "Щедрий куб", icon: Dice5 }' in source
++    assert 'api.get("/admin/cube-settings")' in source
++    assert 'api.patch("/admin/cube-settings"' in source
++    assert 'data-testid="cube-paid-spin-cost"' in source
++    for face in range(1, 7):
++        assert f'cube-face-setting-${{item.face}}' in source
++
++
++def test_player_cube_screen_is_dynamic() -> None:
++    source = FUN.read_text(encoding="utf-8")
++    assert "status?.cube_reward_ranges" in source
++    assert "status?.paid_spin_cost" in source
++    assert "cubeMaximumReward" in source
++    assert "cubeRewardRanges.map" in source
++    assert "наступні — {paidSpinCost" in source
++
++
++def test_service_worker_bumped() -> None:
++    assert 'const VERSION = "vpdk-v145";' in SW.read_text(encoding="utf-8")
