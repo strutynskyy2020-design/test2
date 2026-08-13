@@ -2144,49 +2144,912 @@ async def claim_quest(quest_id: str, user: dict = Depends(get_current_user)):
 
 
 # ────────────────────────────────────────────────────────────────────────
-# Daily tasks — 3 per Kyiv day, one replacement allowed
+# Daily tasks — sales: 7 business categories; activation: easy/medium/hard
 # ────────────────────────────────────────────────────────────────────────
-SALES_DAILY_TASK_CATALOG = [
-    {"id": 1, "title": "А наша Галя дуже балована", "text": "Скиньте в Teams фото карти дзвінка з клієнткою на ім'я Галина. Приз: 10 Point.", "difficulty": "easy", "reward": 10},
-    {"id": 2, "title": "Чий ти будеш, козаче?", "text": "Скиньте в Teams фото карти дзвінка з іноземним ім'ям. Приз: 20 Point.", "difficulty": "medium", "reward": 20},
-    {"id": 3, "title": "Оптом дешевше", "text": "Зробіть дві видачі кредитних продуктів одному й тому самому клієнту. Приз: 50 Point.", "difficulty": "hard", "reward": 50},
-    {"id": 4, "title": "Олег, ти що плачеш?", "text": "Знайдіть клієнта на ім'я Олег і скиньте скриншот карти дзвінка в Teams. Приз: 10 Point.", "difficulty": "easy", "reward": 10},
-    {"id": 5, "title": "Відкрийте кредитку — і буде вам щастя", "text": "Зробіть видачу клієнту та скиньте карту дзвінка в Teams. Приз: 20 Point.", "difficulty": "medium", "reward": 20},
-    {"id": 6, "title": "Вам ця карта треба, мене не…", "text": "Зробіть три видачі кредитних продуктів трьом клієнтам і надішліть підтвердження в Teams. Приз: 30 Point.", "difficulty": "hard", "reward": 30},
-    {"id": 7, "title": "Агент 777", "text": "Знайдіть у номері телефону клієнта або ІПН три однакові цифри поспіль, наприклад 777. Скиньте скриншот картки в Teams. Приз: 10 Point.", "difficulty": "easy", "reward": 10},
-    {"id": 8, "title": "Я не з такої сім'ї, я з багатої", "text": "Зробіть видачу депозиту в компанії Веб_Апс. Підтвердження — карта дзвінка. Приз: 20 Point.", "difficulty": "medium", "reward": 20},
-    {"id": 9, "title": "Я тебе передумаю", "text": "Зробіть видачу клієнту, в коментарях якого було зазначено «подумаю». Приз: 30 Point.", "difficulty": "hard", "reward": 30},
-    {"id": 10, "title": "Молода кров", "text": "Скиньте карту дзвінка з наймолодшим клієнтом за день, дата народження — 2008 рік або пізніше. Приз: 10 Point.", "difficulty": "easy", "reward": 10},
-    {"id": 11, "title": "Не чує баба", "text": "Скиньте фото карти дзвінка з клієнтом, який народився у 1955 році або раніше. Приз: 20 Point.", "difficulty": "medium", "reward": 20},
-    {"id": 12, "title": "Подвійний удар", "text": "Зробіть дві видачі будь-яких продуктів одному клієнту та скиньте скриншоти карт. Приз: 30 Point.", "difficulty": "hard", "reward": 30},
-    {"id": 13, "title": "Ну ти і фартовий…", "text": "Напишіть у Teams: «Я фартовий/фартова». Приз: 10 Point.", "difficulty": "easy", "reward": 10},
-    {"id": 14, "title": "Перший хлопець на селі", "text": "Знайдіть клієнта, в якого ім'я збігається з основою по батькові, наприклад Іван Іванович. Скиньте скриншот карти. Приз: 20 Point.", "difficulty": "medium", "reward": 20},
-    {"id": 15, "title": "Герой вчорашнього дня", "text": "Якщо станом на вчора у вас найбільше видач у команді, отримайте приз. Приз: 50 Point.", "difficulty": "hard", "reward": 50},
-    {"id": 16, "title": "Сьогодні ж п'ятниця?", "text": "Якщо сьогодні 02 число, знайдіть клієнта з днем народження 02.xx.xxxx. Скиньте скриншот. Приз: 10 Point.", "difficulty": "easy", "reward": 10},
-    {"id": 17, "title": "І дебетку беріть", "text": "Зробіть додаткову видачу дебетової картки в компанії Веб_Апс. Приз: 20 Point.", "difficulty": "medium", "reward": 20},
-    {"id": 18, "title": "Майстер дзену", "text": "Отримайте складне заперечення, опрацюйте його і закрийте угоду. Коротко опишіть у Teams, як це було. Приз: 30 Point.", "difficulty": "hard", "reward": 30},
-    {"id": 19, "title": "Післяробочий вайб", "text": "Зробіть хоча б одну видачу за дві години до завершення робочого дня. Приз: 10 Point.", "difficulty": "easy", "reward": 10},
-    {"id": 20, "title": "Джекпот 7777", "text": "Знайдіть у номері телефону або ІПН чотири однакові цифри поспіль. Скиньте скриншот карти в Teams. Приз: 20 Point.", "difficulty": "medium", "reward": 20},
-    {"id": 21, "title": "Швидкі гроші", "text": "Оформіть видачу кредитного продукту за п'ять хвилин розмови. Скиньте скриншот карти в Teams. Приз: 30 Point.", "difficulty": "hard", "reward": 30},
-    {"id": 22, "title": "Назад у майбутнє", "text": "Скиньте карту дзвінка з клієнтом, який народився у круглому році, наприклад 1970, 1980, 1990 або 2000. Приз: 10 Point.", "difficulty": "easy", "reward": 10},
-    {"id": 23, "title": "Ну ви ж лояльний клієнт", "text": "Зробіть додаткову видачу валютної або дебетової картки в компанії Крос. Приз: 20 Point.", "difficulty": "medium", "reward": 20},
-    {"id": 24, "title": "Хет-трик", "text": "Зробіть три видачі продуктів одному клієнту та скиньте карти в Teams. Приз: 50 Point.", "difficulty": "hard", "reward": 50},
-    {"id": 25, "title": "Ровесник", "text": "Знайдіть клієнта, який народився в один рік із вами. Скиньте карту дзвінка. Приз: 10 Point.", "difficulty": "easy", "reward": 10},
-    {"id": 26, "title": "День народження", "text": "Знайдіть клієнта, в якого день народження цього місяця. Приз: 20 Point.", "difficulty": "medium", "reward": 20},
-    {"id": 27, "title": "Багатий тато", "text": "Знайдіть клієнта з по батькові «Олександрович» або «Миколайович» і зробіть успішну видачу. Приз: 20 Point.", "difficulty": "hard", "reward": 20},
-    {"id": 28, "title": "Два в ряд", "text": "Оформіть дві видачі кредитних продуктів за один робочий день. Надішліть підтвердження одним повідомленням у Teams. Приз: 10 Point.", "difficulty": "easy", "reward": 10},
-    {"id": 29, "title": "Золотий вік", "text": "Оформіть продукт клієнту, який народився у 1960-х роках або раніше. Скиньте карту дзвінка. Приз: 20 Point.", "difficulty": "medium", "reward": 20},
-    {"id": 30, "title": "Подвійний еспресо", "text": "Зробіть дві видачі між 13:00 та 14:00. Надішліть підтвердження в Teams. Приз: 30 Point.", "difficulty": "hard", "reward": 30},
-    {"id": 31, "title": "Красивий фініш", "text": "Знайдіть карту, де ІПН або номер телефону клієнта закінчується на два нулі. Приз: 10 Point.", "difficulty": "easy", "reward": 10},
-    {"id": 32, "title": "Вип'ємо еспресо", "text": "Зробіть видачу між 13:00 та 14:00. Приз: 20 Point.", "difficulty": "medium", "reward": 20},
-    {"id": 33, "title": "Конвеєр", "text": "Зробіть чотири видачі за один день і надішліть підтвердження одним повідомленням у Teams. Приз: 50 Point.", "difficulty": "hard", "reward": 50},
-    {"id": 34, "title": "Двадцять п'ять", "text": "Знайдіть у номері або ІПН клієнта дві п'ятірки поспіль — 55. Приз: 10 Point.", "difficulty": "easy", "reward": 10},
-    {"id": 35, "title": "Турбо-старт", "text": "Оформіть першу видачу кредитного продукту протягом першої години після виходу на лінію. Приз: 20 Point.", "difficulty": "medium", "reward": 20},
-    {"id": 36, "title": "Ювелірна робота", "text": "Проведіть розмову, що завершилася видачею без заперечень завдяки якісному виявленню потреб із перших хвилин. Приз: 30 Point.", "difficulty": "hard", "reward": 30},
-    {"id": 37, "title": "Сієста", "text": "Оформіть видачу в проміжку з 13:00 до 15:00. Приз: 10 Point.", "difficulty": "easy", "reward": 10},
-    {"id": 38, "title": "Ефектний фінал", "text": "Оформіть видачу за годину до завершення робочої зміни. Приз: 20 Point.", "difficulty": "medium", "reward": 20},
-    {"id": 39, "title": "Акула продажів", "text": "Зробіть найбільшу кількість видач у команді за день. Приз: 50 Point.", "difficulty": "hard", "reward": 50},
-]
+SALES_DAILY_TASK_CATEGORIES = [{'key': 'credits', 'label': 'Кредити', 'reward': 20, 'difficulty': 'medium'},
+ {'key': 'credits_2', 'label': 'Кредити 2.0', 'reward': 30, 'difficulty': 'hard'},
+ {'key': 'search', 'label': 'Пошук', 'reward': 10, 'difficulty': 'easy'},
+ {'key': 'debit_cards', 'label': 'Дебетки', 'reward': 10, 'difficulty': 'easy'},
+ {'key': 'deposits', 'label': 'Депозити', 'reward': 20, 'difficulty': 'medium'},
+ {'key': 'card_activation', 'label': 'Активація карти', 'reward': 20, 'difficulty': 'medium'},
+ {'key': 'activation_6', 'label': 'Активація 6.0', 'reward': 20, 'difficulty': 'medium'}]
+
+SALES_DAILY_TASK_CATALOG = [{'id': 101,
+  'source_id': '1.01',
+  'category': 'credits',
+  'category_label': 'Кредити',
+  'title': 'Фініш уже близько',
+  'text': 'До кінця зміни лишилося дві години? Саме час закрити хоча б одну видачу кредитного продукту.',
+  'difficulty': 'medium',
+  'reward': 20},
+ {'id': 102,
+  'source_id': '1.02',
+  'category': 'credits',
+  'category_label': 'Кредити',
+  'title': 'Кредитний дубль',
+  'text': 'Зберіть дві видачі кредитних продуктів за один робочий день і підтвердьте обидві одним повідомленням.',
+  'difficulty': 'medium',
+  'reward': 20},
+ {'id': 103,
+  'source_id': '1.03',
+  'category': 'credits',
+  'category_label': 'Кредити',
+  'title': 'Кредитна сієста',
+  'text': 'Зловіть кредитну видачу в проміжку з 13:00 до 15:00.',
+  'difficulty': 'medium',
+  'reward': 20},
+ {'id': 104,
+  'source_id': '1.04',
+  'category': 'credits',
+  'category_label': 'Кредити',
+  'title': 'Кредитка? Беремо!',
+  'text': 'Оформіть клієнту кредитний продукт і підтвердьте, що видача успішно відбулася.',
+  'difficulty': 'medium',
+  'reward': 20},
+ {'id': 105,
+  'source_id': '1.05',
+  'category': 'credits',
+  'category_label': 'Кредити',
+  'title': 'Ретро-клієнт',
+  'text': 'Знайдіть клієнта, який народився у 1960-х роках або раніше, та оформіть йому кредитний продукт.',
+  'difficulty': 'medium',
+  'reward': 20},
+ {'id': 106,
+  'source_id': '1.06',
+  'category': 'credits',
+  'category_label': 'Кредити',
+  'title': 'Еспресо-видача',
+  'text': 'Встигніть оформити кредитну видачу між 13:00 та 14:00.',
+  'difficulty': 'medium',
+  'reward': 20},
+ {'id': 107,
+  'source_id': '1.07',
+  'category': 'credits',
+  'category_label': 'Кредити',
+  'title': 'Ракета зі старту',
+  'text': 'Першу кредитну видачу дня зробіть протягом першої години після виходу на лінію.',
+  'difficulty': 'medium',
+  'reward': 20},
+ {'id': 108,
+  'source_id': '1.08',
+  'category': 'credits',
+  'category_label': 'Кредити',
+  'title': 'Фінішний ривок',
+  'text': 'Зробіть кредитну видачу за годину до завершення робочої зміни.',
+  'difficulty': 'medium',
+  'reward': 20},
+ {'id': 109,
+  'source_id': '1.09',
+  'category': 'credits',
+  'category_label': 'Кредити',
+  'title': 'Олександрович у справі',
+  'text': 'Знайдіть клієнта з по батькові «Олександрович» або «Миколайович» і закрийте з ним успішну видачу кредитного продукту.',
+  'difficulty': 'medium',
+  'reward': 20},
+ {'id': 110,
+  'source_id': '1.10',
+  'category': 'credits',
+  'category_label': 'Кредити',
+  'title': 'До 11:00 і в дамки',
+  'text': 'Зробіть одну кредитну видачу до 11:00.',
+  'difficulty': 'medium',
+  'reward': 20},
+ {'id': 111,
+  'source_id': '1.11',
+  'category': 'credits',
+  'category_label': 'Кредити',
+  'title': 'Післяобідній камбек',
+  'text': 'Зловіть одну кредитну видачу в проміжку з 15:00 до 17:00.',
+  'difficulty': 'medium',
+  'reward': 20},
+ {'id': 112,
+  'source_id': '1.12',
+  'category': 'credits',
+  'category_label': 'Кредити',
+  'title': 'Офер у яблучко',
+  'text': 'Влучно визначте потребу клієнта, запропонуйте відповідний кредитний продукт і завершіть розмову видачею.',
+  'difficulty': 'medium',
+  'reward': 20},
+ {'id': 113,
+  'source_id': '1.13',
+  'category': 'credits',
+  'category_label': 'Кредити',
+  'title': 'Один дзвінок — одна справа',
+  'text': 'Оформіть кредитний продукт за один контакт, без домовленості на повторний дзвінок.',
+  'difficulty': 'medium',
+  'reward': 20},
+ {'id': 114,
+  'source_id': '1.14',
+  'category': 'credits',
+  'category_label': 'Кредити',
+  'title': 'Платіж без паніки',
+  'text': 'Клієнт питає про щомісячний платіж? Поясніть умови й доведіть розмову до видачі кредитного продукту.',
+  'difficulty': 'medium',
+  'reward': 20},
+ {'id': 115,
+  'source_id': '1.15',
+  'category': 'credits',
+  'category_label': 'Кредити',
+  'title': "Прем'єра продукту",
+  'text': 'Оформіть кредитний продукт клієнту, який раніше саме ним не користувався.',
+  'difficulty': 'medium',
+  'reward': 20},
+ {'id': 116,
+  'source_id': '1.16',
+  'category': 'credits',
+  'category_label': 'Кредити',
+  'title': 'Другий шанс',
+  'text': 'Після попереднього невдалого контакту поверніться в гру й зробіть клієнту успішну кредитну видачу.',
+  'difficulty': 'medium',
+  'reward': 20},
+ {'id': 117,
+  'source_id': '1.17',
+  'category': 'credits',
+  'category_label': 'Кредити',
+  'title': 'Ціль бачу!',
+  'text': 'Клієнт назвав конкретну мету фінансування? Підберіть під неї релевантний кредитний продукт і оформіть його.',
+  'difficulty': 'medium',
+  'reward': 20},
+ {'id': 118,
+  'source_id': '1.18',
+  'category': 'credits',
+  'category_label': 'Кредити',
+  'title': 'Битва варіантів',
+  'text': 'Покажіть клієнту різницю між двома доступними кредитними варіантами й оформіть той, який він обере.',
+  'difficulty': 'medium',
+  'reward': 20},
+ {'id': 119,
+  'source_id': '1.19',
+  'category': 'credits',
+  'category_label': 'Кредити',
+  'title': 'Рівний хід',
+  'text': 'Тримайте темп: щонайменше одна кредитна видача в першій половині зміни й ще одна в другій.',
+  'difficulty': 'medium',
+  'reward': 20},
+ {'id': 120,
+  'source_id': '1.20',
+  'category': 'credits',
+  'category_label': 'Кредити',
+  'title': 'Один аргумент — один гол',
+  'text': 'Після одного стандартного заперечення дайте релевантний аргумент і доведіть розмову до кредитної видачі.',
+  'difficulty': 'medium',
+  'reward': 20},
+ {'id': 121,
+  'source_id': '2.01',
+  'category': 'credits_2',
+  'category_label': 'Кредити 2.0',
+  'title': 'Дубль на одного',
+  'text': 'Зробіть дві видачі кредитних продуктів одному й тому самому клієнту.',
+  'difficulty': 'hard',
+  'reward': 30},
+ {'id': 122,
+  'source_id': '2.02',
+  'category': 'credits_2',
+  'category_label': 'Кредити 2.0',
+  'title': 'Три клієнти — три попадання',
+  'text': 'Закрийте три видачі кредитних продуктів трьом різним клієнтам і підтвердьте результат.',
+  'difficulty': 'hard',
+  'reward': 30},
+ {'id': 123,
+  'source_id': '2.03',
+  'category': 'credits_2',
+  'category_label': 'Кредити 2.0',
+  'title': '«Подумаю»? Уже ні',
+  'text': 'Знайдіть клієнта, у коментарях якого було «подумаю», і зробіть йому видачу кредитного продукту.',
+  'difficulty': 'hard',
+  'reward': 30},
+ {'id': 124,
+  'source_id': '2.04',
+  'category': 'credits_2',
+  'category_label': 'Кредити 2.0',
+  'title': 'Подвійний постріл',
+  'text': 'Оформіть одному клієнту дві видачі кредитних продуктів і підтвердьте обидві.',
+  'difficulty': 'hard',
+  'reward': 30},
+ {'id': 125,
+  'source_id': '2.05',
+  'category': 'credits_2',
+  'category_label': 'Кредити 2.0',
+  'title': 'Вчорашній MVP',
+  'text': 'Якщо за підсумками вчора у вас було найбільше кредитних видач у команді, підтвердьте свій результат.',
+  'difficulty': 'hard',
+  'reward': 30},
+ {'id': 126,
+  'source_id': '2.06',
+  'category': 'credits_2',
+  'category_label': 'Кредити 2.0',
+  'title': 'Дзен проти заперечення',
+  'text': 'Спіймайте складне заперечення, якісно його опрацюйте й закрийте угоду кредитним продуктом. Коротко поділіться, що саме спрацювало.',
+  'difficulty': 'hard',
+  'reward': 30},
+ {'id': 127,
+  'source_id': '2.07',
+  'category': 'credits_2',
+  'category_label': 'Кредити 2.0',
+  'title': "П'ять хвилин слави",
+  'text': "Вкладіться у п'ять хвилин розмови, оформіть кредитну видачу й підтвердьте результат.",
+  'difficulty': 'hard',
+  'reward': 30},
+ {'id': 128,
+  'source_id': '2.08',
+  'category': 'credits_2',
+  'category_label': 'Кредити 2.0',
+  'title': 'Кредитний хет-трик',
+  'text': 'Зробіть одному клієнту три видачі кредитних продуктів і підтвердьте всі три.',
+  'difficulty': 'hard',
+  'reward': 30},
+ {'id': 129,
+  'source_id': '2.09',
+  'category': 'credits_2',
+  'category_label': 'Кредити 2.0',
+  'title': 'Подвійний шот',
+  'text': 'Зробіть дві кредитні видачі в проміжку між 13:00 та 14:00.',
+  'difficulty': 'hard',
+  'reward': 30},
+ {'id': 130,
+  'source_id': '2.10',
+  'category': 'credits_2',
+  'category_label': 'Кредити 2.0',
+  'title': 'Чотири в кошик',
+  'text': 'Зберіть чотири видачі кредитних продуктів за один день і підтвердьте їх одним повідомленням.',
+  'difficulty': 'hard',
+  'reward': 30},
+ {'id': 131,
+  'source_id': '2.11',
+  'category': 'credits_2',
+  'category_label': 'Кредити 2.0',
+  'title': 'Без жодного «але»',
+  'text': 'Проведіть розмову так влучно, щоб якісне виявлення потреб привело до кредитної видачі без заперечень.',
+  'difficulty': 'hard',
+  'reward': 30},
+ {'id': 132,
+  'source_id': '2.12',
+  'category': 'credits_2',
+  'category_label': 'Кредити 2.0',
+  'title': 'Бос видач',
+  'text': 'Зробіть найбільшу кількість кредитних видач у команді за день.',
+  'difficulty': 'hard',
+  'reward': 30},
+ {'id': 133,
+  'source_id': '2.13',
+  'category': 'credits_2',
+  'category_label': 'Кредити 2.0',
+  'title': 'Шерлок з офером',
+  'text': 'Проведіть результативну кредитну розмову з незвичними аргументами та перевагами, а потім поділіться цим кейсом із колегами.',
+  'difficulty': 'hard',
+  'reward': 30},
+ {'id': 134,
+  'source_id': '2.14',
+  'category': 'credits_2',
+  'category_label': 'Кредити 2.0',
+  'title': '«Не хочу»? Побачимо',
+  'text': 'Отримайте згоду на кредитний продукт від клієнта, який на старті розмови сказав: «Я взагалі не хочу з вами говорити».',
+  'difficulty': 'hard',
+  'reward': 30},
+ {'id': 135,
+  'source_id': '2.15',
+  'category': 'credits_2',
+  'category_label': 'Кредити 2.0',
+  'title': 'Хвилина на все',
+  'text': 'Клієнт каже: «У вас хвилина, тільки швидко»? Проведіть повноцінну кредитну консультацію й завершіть її успішною видачею.',
+  'difficulty': 'hard',
+  'reward': 30},
+ {'id': 136,
+  'source_id': '3.01',
+  'category': 'search',
+  'category_label': 'Пошук',
+  'title': 'Галина, виходьте з тіні',
+  'text': "Знайдіть клієнтку на ім'я Галина й підтвердьте виконання за внутрішнім процесом.",
+  'difficulty': 'easy',
+  'reward': 10},
+ {'id': 137,
+  'source_id': '3.02',
+  'category': 'search',
+  'category_label': 'Пошук',
+  'title': 'Олег, ми вас знайшли',
+  'text': "Відшукайте клієнта на ім'я Олег і підтвердьте виконання за внутрішнім процесом.",
+  'difficulty': 'easy',
+  'reward': 10},
+ {'id': 138,
+  'source_id': '3.03',
+  'category': 'search',
+  'category_label': 'Пошук',
+  'title': 'Три сімки — бінго!',
+  'text': 'Полюємо на 777: знайдіть у номері телефону клієнта або ІПН три однакові цифри поспіль.',
+  'difficulty': 'easy',
+  'reward': 10},
+ {'id': 139,
+  'source_id': '3.04',
+  'category': 'search',
+  'category_label': 'Пошук',
+  'title': 'Наймолодший у грі',
+  'text': 'Знайдіть наймолодшого клієнта за день із датою народження 2008 року або пізніше.',
+  'difficulty': 'easy',
+  'reward': 10},
+ {'id': 140,
+  'source_id': '3.05',
+  'category': 'search',
+  'category_label': 'Пошук',
+  'title': 'Двійка шукає двійку',
+  'text': 'Якщо сьогодні 02 число, знайдіть клієнта з днем народження 02.xx.xxxx.',
+  'difficulty': 'easy',
+  'reward': 10},
+ {'id': 141,
+  'source_id': '3.06',
+  'category': 'search',
+  'category_label': 'Пошук',
+  'title': 'Машина часу',
+  'text': 'Знайдіть клієнта з «круглим» роком народження, наприклад 1970, 1980, 1990 або 2000.',
+  'difficulty': 'easy',
+  'reward': 10},
+ {'id': 142,
+  'source_id': '3.07',
+  'category': 'search',
+  'category_label': 'Пошук',
+  'title': 'Одного року врожаю',
+  'text': 'Знайдіть клієнта, який народився в один рік із вами.',
+  'difficulty': 'easy',
+  'reward': 10},
+ {'id': 143,
+  'source_id': '3.08',
+  'category': 'search',
+  'category_label': 'Пошук',
+  'title': 'Нулі на фініші',
+  'text': 'Знайдіть картку клієнта, де ІПН або номер телефону красиво фінішує двома нулями.',
+  'difficulty': 'easy',
+  'reward': 10},
+ {'id': 144,
+  'source_id': '3.09',
+  'category': 'search',
+  'category_label': 'Пошук',
+  'title': 'Піймай 55',
+  'text': "Знайдіть у номері телефону або ІПН дві п'ятірки поспіль, тобто 55.",
+  'difficulty': 'easy',
+  'reward': 10},
+ {'id': 145,
+  'source_id': '3.10',
+  'category': 'search',
+  'category_label': 'Пошук',
+  'title': "Ім'я з родзинкою",
+  'text': "Знайдіть клієнта з незвичним або іноземним ім'ям.",
+  'difficulty': 'easy',
+  'reward': 10},
+ {'id': 146,
+  'source_id': '3.11',
+  'category': 'search',
+  'category_label': 'Пошук',
+  'title': 'Привіт із 1955-го',
+  'text': 'Знайдіть клієнта, який народився у 1955 році або раніше.',
+  'difficulty': 'easy',
+  'reward': 10},
+ {'id': 147,
+  'source_id': '3.12',
+  'category': 'search',
+  'category_label': 'Пошук',
+  'title': 'Іван Іванович mode',
+  'text': "Знайдіть клієнта, в якого ім'я збігається з основою по батькові, наприклад Іван Іванович.",
+  'difficulty': 'easy',
+  'reward': 10},
+ {'id': 148,
+  'source_id': '3.13',
+  'category': 'search',
+  'category_label': 'Пошук',
+  'title': 'Чотири в ряд',
+  'text': 'Знайдіть у номері телефону або ІПН чотири однакові цифри поспіль.',
+  'difficulty': 'easy',
+  'reward': 10},
+ {'id': 149,
+  'source_id': '3.14',
+  'category': 'search',
+  'category_label': 'Пошук',
+  'title': 'Іменинник місяця',
+  'text': 'Знайдіть клієнта, у якого день народження припадає на цей місяць.',
+  'difficulty': 'easy',
+  'reward': 10},
+ {'id': 150,
+  'source_id': '3.15',
+  'category': 'search',
+  'category_label': 'Пошук',
+  'title': 'Колега, це ти?',
+  'text': 'Знайдіть клієнта, прізвище якого збігається з прізвищем вашого колеги.',
+  'difficulty': 'easy',
+  'reward': 10},
+ {'id': 151,
+  'source_id': '3.16',
+  'category': 'search',
+  'category_label': 'Пошук',
+  'title': 'Одна літера на двох',
+  'text': "Знайдіть клієнта, у якого ім'я та прізвище починаються з однієї й тієї самої літери.",
+  'difficulty': 'easy',
+  'reward': 10},
+ {'id': 152,
+  'source_id': '3.17',
+  'category': 'search',
+  'category_label': 'Пошук',
+  'title': 'Дата зациклилась',
+  'text': 'Знайдіть клієнта, у якого день і місяць народження повторюються: наприклад 01.01, 02.02 або 12.12.',
+  'difficulty': 'easy',
+  'reward': 10},
+ {'id': 153,
+  'source_id': '4.01',
+  'category': 'debit_cards',
+  'category_label': 'Дебетки',
+  'title': 'Дебетка до комплекту',
+  'text': 'Додайте до результату ще одну видачу дебетової картки в компанії Веб_Апс.',
+  'difficulty': 'easy',
+  'reward': 10},
+ {'id': 154,
+  'source_id': '4.02',
+  'category': 'debit_cards',
+  'category_label': 'Дебетки',
+  'title': 'Лояльність плюс картка',
+  'text': 'Зробіть додаткову видачу валютної або дебетової картки в компанії Крос.',
+  'difficulty': 'easy',
+  'reward': 10},
+ {'id': 155,
+  'source_id': '4.03',
+  'category': 'debit_cards',
+  'category_label': 'Дебетки',
+  'title': 'Розбуди дебетку',
+  'text': 'Відкрийте рахунок дебеток за день: оформіть першу дебетову картку.',
+  'difficulty': 'easy',
+  'reward': 10},
+ {'id': 156,
+  'source_id': '4.04',
+  'category': 'debit_cards',
+  'category_label': 'Дебетки',
+  'title': 'До 12:00 і готово',
+  'text': 'Встигніть оформити дебетову картку до 12:00.',
+  'difficulty': 'easy',
+  'reward': 10},
+ {'id': 157,
+  'source_id': '4.05',
+  'category': 'debit_cards',
+  'category_label': 'Дебетки',
+  'title': 'Після трьох — час дебетки',
+  'text': 'Оформіть дебетову картку після 15:00.',
+  'difficulty': 'easy',
+  'reward': 10},
+ {'id': 158,
+  'source_id': '4.06',
+  'category': 'debit_cards',
+  'category_label': 'Дебетки',
+  'title': 'Валюта в кишені',
+  'text': 'Оформіть клієнту валютну дебетову картку.',
+  'difficulty': 'easy',
+  'reward': 10},
+ {'id': 159,
+  'source_id': '4.07',
+  'category': 'debit_cards',
+  'category_label': 'Дебетки',
+  'title': 'Перша дебетка клієнта',
+  'text': 'Оформіть дебетову картку клієнту, який раніше не мав дебетової картки банку.',
+  'difficulty': 'easy',
+  'reward': 10},
+ {'id': 160,
+  'source_id': '4.08',
+  'category': 'debit_cards',
+  'category_label': 'Дебетки',
+  'title': 'Ще одна в гаманець',
+  'text': 'Оформіть додаткову дебетову картку чинному клієнту.',
+  'difficulty': 'easy',
+  'reward': 10},
+ {'id': 161,
+  'source_id': '4.09',
+  'category': 'debit_cards',
+  'category_label': 'Дебетки',
+  'title': 'Дебетний дубль',
+  'text': 'Зробіть дві видачі дебетових карток за один робочий день.',
+  'difficulty': 'easy',
+  'reward': 10},
+ {'id': 162,
+  'source_id': '4.10',
+  'category': 'debit_cards',
+  'category_label': 'Дебетки',
+  'title': 'Кредит закрили — дебетку додали',
+  'text': 'Після успішної кредитної видачі запропонуйте клієнту дебетову картку й оформіть її.',
+  'difficulty': 'easy',
+  'reward': 10},
+ {'id': 163,
+  'source_id': '4.11',
+  'category': 'debit_cards',
+  'category_label': 'Дебетки',
+  'title': 'Один контакт — готово',
+  'text': 'Оформіть дебетову картку за один контакт, без повторного дзвінка.',
+  'difficulty': 'easy',
+  'reward': 10},
+ {'id': 164,
+  'source_id': '4.12',
+  'category': 'debit_cards',
+  'category_label': 'Дебетки',
+  'title': 'Три козирі дебетки',
+  'text': 'Назвіть клієнту щонайменше три релевантні переваги дебетової картки й оформіть її.',
+  'difficulty': 'easy',
+  'reward': 10},
+ {'id': 165,
+  'source_id': '4.13',
+  'category': 'debit_cards',
+  'category_label': 'Дебетки',
+  'title': 'Картка на щодень',
+  'text': 'Виявіть потребу клієнта у щоденних розрахунках і під неї оформіть відповідну дебетову картку.',
+  'difficulty': 'easy',
+  'reward': 10},
+ {'id': 166,
+  'source_id': '4.14',
+  'category': 'debit_cards',
+  'category_label': 'Дебетки',
+  'title': 'Запитав — отримав',
+  'text': 'Клієнт уточнив умови дебетової картки? Дайте відповідь і доведіть оформлення до фінішу.',
+  'difficulty': 'easy',
+  'reward': 10},
+ {'id': 167,
+  'source_id': '4.15',
+  'category': 'debit_cards',
+  'category_label': 'Дебетки',
+  'title': 'Дебетка на десерт',
+  'text': 'Оформіть дебетову картку протягом останніх двох годин робочої зміни.',
+  'difficulty': 'easy',
+  'reward': 10},
+ {'id': 168,
+  'source_id': '5.01',
+  'category': 'deposits',
+  'category_label': 'Депозити',
+  'title': 'Багаті теж відкладають',
+  'text': 'Зробіть видачу депозиту в компанії Веб_Апс і підтвердьте результат.',
+  'difficulty': 'medium',
+  'reward': 20},
+ {'id': 169,
+  'source_id': '5.02',
+  'category': 'deposits',
+  'category_label': 'Депозити',
+  'title': 'Перший вклад пішов',
+  'text': 'Відкрийте депозитний рахунок дня: оформіть перший депозит.',
+  'difficulty': 'medium',
+  'reward': 20},
+ {'id': 170,
+  'source_id': '5.03',
+  'category': 'deposits',
+  'category_label': 'Депозити',
+  'title': 'Депозит до ланчу',
+  'text': 'Встигніть оформити депозит до 12:00.',
+  'difficulty': 'medium',
+  'reward': 20},
+ {'id': 171,
+  'source_id': '5.04',
+  'category': 'deposits',
+  'category_label': 'Депозити',
+  'title': 'Після 15:00 — час примножувати',
+  'text': 'Оформіть депозит після 15:00.',
+  'difficulty': 'medium',
+  'reward': 20},
+ {'id': 172,
+  'source_id': '5.05',
+  'category': 'deposits',
+  'category_label': 'Депозити',
+  'title': 'Депозитний дубль',
+  'text': 'Зберіть два оформлені депозити за один робочий день.',
+  'difficulty': 'medium',
+  'reward': 20},
+ {'id': 173,
+  'source_id': '5.06',
+  'category': 'deposits',
+  'category_label': 'Депозити',
+  'title': 'Перший раз у вклад',
+  'text': 'Оформіть депозит клієнту, який раніше не користувався депозитним продуктом банку.',
+  'difficulty': 'medium',
+  'reward': 20},
+ {'id': 174,
+  'source_id': '5.07',
+  'category': 'deposits',
+  'category_label': 'Депозити',
+  'title': 'Ще один у скарбничку',
+  'text': 'Оформіть новий депозит клієнту, який уже користується депозитним продуктом.',
+  'difficulty': 'medium',
+  'reward': 20},
+ {'id': 175,
+  'source_id': '5.08',
+  'category': 'deposits',
+  'category_label': 'Депозити',
+  'title': 'А скільки зароблю?',
+  'text': 'Клієнт питає про дохідність? Поясніть умови й завершіть оформлення депозиту.',
+  'difficulty': 'medium',
+  'reward': 20},
+ {'id': 176,
+  'source_id': '5.09',
+  'category': 'deposits',
+  'category_label': 'Депозити',
+  'title': 'Строк має значення',
+  'text': 'Розкладіть клієнту доступні строки розміщення й оформіть той депозит, який він обере.',
+  'difficulty': 'medium',
+  'reward': 20},
+ {'id': 177,
+  'source_id': '5.10',
+  'category': 'deposits',
+  'category_label': 'Депозити',
+  'title': 'А якщо забрати раніше?',
+  'text': 'Після питання про дострокове зняття поясніть правила й завершіть оформлення депозиту.',
+  'difficulty': 'medium',
+  'reward': 20},
+ {'id': 178,
+  'source_id': '5.11',
+  'category': 'deposits',
+  'category_label': 'Депозити',
+  'title': 'Два строки — один вибір',
+  'text': 'Порівняйте для клієнта два доступні строки депозиту та оформіть обраний варіант.',
+  'difficulty': 'medium',
+  'reward': 20},
+ {'id': 179,
+  'source_id': '5.12',
+  'category': 'deposits',
+  'category_label': 'Депозити',
+  'title': 'Поповнюй і росте',
+  'text': 'Якщо такий варіант доступний, оформіть депозит із можливістю поповнення.',
+  'difficulty': 'medium',
+  'reward': 20},
+ {'id': 180,
+  'source_id': '5.13',
+  'category': 'deposits',
+  'category_label': 'Депозити',
+  'title': 'Продовжуємо автоматом',
+  'text': 'Якщо функція доступна, поясніть клієнту умову автопролонгації й оформіть депозит із його згодою.',
+  'difficulty': 'medium',
+  'reward': 20},
+ {'id': 181,
+  'source_id': '5.14',
+  'category': 'deposits',
+  'category_label': 'Депозити',
+  'title': '«Я подумаю» на депозит',
+  'text': 'Почули «я подумаю»? Опрацюйте заперечення й завершіть оформлення депозиту.',
+  'difficulty': 'medium',
+  'reward': 20},
+ {'id': 182,
+  'source_id': '5.15',
+  'category': 'deposits',
+  'category_label': 'Депозити',
+  'title': 'Один контакт — один вклад',
+  'text': 'Оформіть депозит за один контакт, без повторного дзвінка.',
+  'difficulty': 'medium',
+  'reward': 20},
+ {'id': 183,
+  'source_id': '6.01',
+  'category': 'card_activation',
+  'category_label': 'Активація карти',
+  'title': 'Картка, прокидайся!',
+  'text': 'Активуйте одну картку клієнта за день, дотримуючись внутрішнього процесу.',
+  'difficulty': 'medium',
+  'reward': 20},
+ {'id': 184,
+  'source_id': '6.02',
+  'category': 'card_activation',
+  'category_label': 'Активація карти',
+  'title': 'Сьогодні видали — сьогодні ожила',
+  'text': 'Зробіть так, щоб картка була активована в той самий день, коли клієнт її отримав або оформив.',
+  'difficulty': 'medium',
+  'reward': 20},
+ {'id': 185,
+  'source_id': '6.03',
+  'category': 'card_activation',
+  'category_label': 'Активація карти',
+  'title': 'Активація до обіду',
+  'text': 'Закрийте одну активацію картки до 12:00.',
+  'difficulty': 'medium',
+  'reward': 20},
+ {'id': 186,
+  'source_id': '6.04',
+  'category': 'card_activation',
+  'category_label': 'Активація карти',
+  'title': 'Дві картки — два старти',
+  'text': 'Завершіть дві активації карток за один робочий день.',
+  'difficulty': 'medium',
+  'reward': 20},
+ {'id': 187,
+  'source_id': '6.05',
+  'category': 'card_activation',
+  'category_label': 'Активація карти',
+  'title': 'Не завтра, а зараз',
+  'text': 'Клієнт хоче відкласти активацію? Поясніть кроки й доведіть процес до успішної активації.',
+  'difficulty': 'medium',
+  'reward': 20},
+ {'id': 188,
+  'source_id': '6.06',
+  'category': 'card_activation',
+  'category_label': 'Активація карти',
+  'title': 'Друга картка теж хоче жити',
+  'text': 'Активуйте додаткову картку чинного клієнта.',
+  'difficulty': 'medium',
+  'reward': 20},
+ {'id': 189,
+  'source_id': '6.07',
+  'category': 'card_activation',
+  'category_label': 'Активація карти',
+  'title': 'Новачок у грі',
+  'text': 'Активуйте картку клієнта, який щойно став користувачем карткового продукту.',
+  'difficulty': 'medium',
+  'reward': 20},
+ {'id': 190,
+  'source_id': '6.08',
+  'category': 'card_activation',
+  'category_label': 'Активація карти',
+  'title': 'Три кроки до життя',
+  'text': 'Поясніть процес активації максимум у трьох кроках і доведіть його до завершення.',
+  'difficulty': 'medium',
+  'reward': 20},
+ {'id': 191,
+  'source_id': '6.09',
+  'category': 'card_activation',
+  'category_label': 'Активація карти',
+  'title': 'Активували з першого контакту',
+  'text': 'Завершіть активацію картки за один контакт, без повторного дзвінка.',
+  'difficulty': 'medium',
+  'reward': 20},
+ {'id': 192,
+  'source_id': '6.10',
+  'category': 'card_activation',
+  'category_label': 'Активація карти',
+  'title': 'Фінішна іскра',
+  'text': 'Завершіть активацію картки протягом останніх двох годин робочої зміни.',
+  'difficulty': 'medium',
+  'reward': 20},
+ {'id': 193,
+  'source_id': '7.01',
+  'category': 'activation_6',
+  'category_label': 'Активація 6.0',
+  'title': 'IBAN без квестів',
+  'text': 'Отримайте згоду клієнта оплатити послуги або зробити платіж за IBAN на юридичну особу та створити шаблон у мобільному застосунку.',
+  'difficulty': 'medium',
+  'reward': 20},
+ {'id': 194,
+  'source_id': '7.02',
+  'category': 'activation_6',
+  'category_label': 'Активація 6.0',
+  'title': 'Перші 200 пішли',
+  'text': 'Отримайте згоду клієнта зробити першу покупку саме від 200 грн.',
+  'difficulty': 'medium',
+  'reward': 20},
+ {'id': 195,
+  'source_id': '7.03',
+  'category': 'activation_6',
+  'category_label': 'Активація 6.0',
+  'title': 'Сотня на мобільний',
+  'text': 'Отримайте згоду клієнта поповнити мобільний телефон від 100 грн у застосунку.',
+  'difficulty': 'medium',
+  'reward': 20},
+ {'id': 196,
+  'source_id': '7.04',
+  'category': 'activation_6',
+  'category_label': 'Активація 6.0',
+  'title': 'Челендж? Прийнято!',
+  'text': 'Отримайте згоду клієнта скористатися челенджем у застосунку.',
+  'difficulty': 'medium',
+  'reward': 20},
+ {'id': 197,
+  'source_id': '7.05',
+  'category': 'activation_6',
+  'category_label': 'Активація 6.0',
+  'title': '6.0 з першої фрази',
+  'text': 'Почніть розмову одразу з пропозиції оферу Активації 6.0.',
+  'difficulty': 'medium',
+  'reward': 20},
+ {'id': 198,
+  'source_id': '7.06',
+  'category': 'activation_6',
+  'category_label': 'Активація 6.0',
+  'title': 'Pay-підключення',
+  'text': 'Отримайте згоду клієнта на офер Google Pay або Apple Pay.',
+  'difficulty': 'medium',
+  'reward': 20},
+ {'id': 199,
+  'source_id': '7.07',
+  'category': 'activation_6',
+  'category_label': 'Активація 6.0',
+  'title': 'Зайшли й поїхали',
+  'text': 'Під час розмови клієнт має відкрити мобільний застосунок і успішно в нього увійти.',
+  'difficulty': 'medium',
+  'reward': 20},
+ {'id': 200,
+  'source_id': '7.08',
+  'category': 'activation_6',
+  'category_label': 'Активація 6.0',
+  'title': 'Пуші на старт',
+  'text': 'Отримайте згоду клієнта увімкнути push-сповіщення в мобільному застосунку, якщо ця функція доступна.',
+  'difficulty': 'medium',
+  'reward': 20},
+ {'id': 201,
+  'source_id': '7.09',
+  'category': 'activation_6',
+  'category_label': 'Активація 6.0',
+  'title': 'Комуналка в смартфоні',
+  'text': 'Отримайте згоду клієнта оплатити комунальні послуги в мобільному застосунку.',
+  'difficulty': 'medium',
+  'reward': 20},
+ {'id': 202,
+  'source_id': '7.10',
+  'category': 'activation_6',
+  'category_label': 'Активація 6.0',
+  'title': 'Сам собі переказав',
+  'text': 'Отримайте згоду клієнта зробити переказ між власними рахунками в мобільному застосунку.',
+  'difficulty': 'medium',
+  'reward': 20},
+ {'id': 203,
+  'source_id': '7.11',
+  'category': 'activation_6',
+  'category_label': 'Активація 6.0',
+  'title': 'Картка-картка, полетіли',
+  'text': 'Отримайте згоду клієнта зробити переказ на іншу картку через мобільний застосунок.',
+  'difficulty': 'medium',
+  'reward': 20},
+ {'id': 204,
+  'source_id': '7.12',
+  'category': 'activation_6',
+  'category_label': 'Активація 6.0',
+  'title': 'Гроші зайшли з іншого банку',
+  'text': 'Отримайте згоду клієнта поповнити картку з картки іншого банку через застосунок, якщо така функція доступна.',
+  'difficulty': 'medium',
+  'reward': 20},
+ {'id': 205,
+  'source_id': '7.13',
+  'category': 'activation_6',
+  'category_label': 'Активація 6.0',
+  'title': 'Де були гроші?',
+  'text': 'Покажіть клієнту, де в застосунку дивитися історію операцій або виписку, і отримайте згоду скористатися цією функцією.',
+  'difficulty': 'medium',
+  'reward': 20},
+ {'id': 206,
+  'source_id': '7.14',
+  'category': 'activation_6',
+  'category_label': 'Активація 6.0',
+  'title': 'Кешбек, виходь!',
+  'text': 'Покажіть клієнту розділ кешбеку або бонусів і отримайте згоду активувати доступну пропозицію, якщо така функція є.',
+  'difficulty': 'medium',
+  'reward': 20},
+ {'id': 207,
+  'source_id': '7.15',
+  'category': 'activation_6',
+  'category_label': 'Активація 6.0',
+  'title': 'Картка живе в телефоні',
+  'text': 'Покажіть клієнту, де в застосунку переглянути інформацію про власну картку, не передаючи реквізити третім особам.',
+  'difficulty': 'medium',
+  'reward': 20},
+ {'id': 208,
+  'source_id': '7.16',
+  'category': 'activation_6',
+  'category_label': 'Активація 6.0',
+  'title': 'Підтримка в кишені',
+  'text': 'Покажіть клієнту, де в мобільному застосунку знайти підтримку або чат.',
+  'difficulty': 'medium',
+  'reward': 20},
+ {'id': 209,
+  'source_id': '7.17',
+  'category': 'activation_6',
+  'category_label': 'Активація 6.0',
+  'title': 'Ліміти під рукою',
+  'text': 'Покажіть клієнту розділ керування лімітами картки й отримайте згоду перевірити доступні налаштування.',
+  'difficulty': 'medium',
+  'reward': 20},
+ {'id': 210,
+  'source_id': '7.18',
+  'category': 'activation_6',
+  'category_label': 'Активація 6.0',
+  'title': 'Шаблон, щоб не повторюватись',
+  'text': 'Отримайте згоду клієнта створити шаблон для регулярної операції в мобільному застосунку.',
+  'difficulty': 'medium',
+  'reward': 20},
+ {'id': 211,
+  'source_id': '7.19',
+  'category': 'activation_6',
+  'category_label': 'Активація 6.0',
+  'title': 'Платіж без каси',
+  'text': 'Отримайте згоду клієнта зробити будь-який доступний платіж у мобільному застосунку під час або після консультації.',
+  'difficulty': 'medium',
+  'reward': 20},
+ {'id': 212,
+  'source_id': '7.20',
+  'category': 'activation_6',
+  'category_label': 'Активація 6.0',
+  'title': 'Два фокуси за один контакт',
+  'text': 'За один контакт отримайте згоду клієнта скористатися двома різними функціями мобільного застосунку.',
+  'difficulty': 'medium',
+  'reward': 20}]
 
 
 # V128: activators have a separate daily-task universe. IDs intentionally live
@@ -2225,6 +3088,31 @@ ACTIVATION_DAILY_TASK_CATALOG = [
     {"id": 1028, "title": "Багатий тато", "text": "Знайдіть клієнта з по батькові «Богданович» або «Русланович» і отримайте успішну згоду скористатися офером 6.0. Приз: 30 Point.", "difficulty": "hard", "reward": 30},
     {"id": 1029, "title": "Тарас Бульба", "text": "Отримайте успішну згоду скористатися карткою від клієнта на ім'я Тарас. Приз: 30 Point.", "difficulty": "hard", "reward": 30},
     {"id": 1030, "title": "Дідусівська версія", "text": "Зробіть на лінії з клієнтом оновлення застосунку. Приз: 50 Point.", "difficulty": "hard", "reward": 50},
+
+    # V151: additional activator missions supplied by the product owner.
+    {"id": 1031, "title": "З першого слова", "text": "Клієнт відразу погодився після цілі бази 12+. Приз: 10 Point.", "difficulty": "easy", "reward": 10},
+    {"id": 1032, "title": "Кешбек на десерт", "text": "Підключіть кешбек від банку чи партнерів разом із клієнтом на лінії. Приз: 10 Point.", "difficulty": "easy", "reward": 10},
+    {"id": 1033, "title": "Помічники вже тут", "text": "Підключіть на лінії з клієнтом кумедні помічники. Приз: 20 Point.", "difficulty": "medium", "reward": 20},
+    {"id": 1034, "title": "🪄 Раз — і картка є!", "text": "Відкрийте віртуальну карту до рахунку на лінії разом із клієнтом. Приз: 30 Point.", "difficulty": "hard", "reward": 30},
+    {"id": 1035, "title": "Карта на пенсію", "text": "Отримайте згоду від клієнта на перевипуск карти. Приз: 20 Point.", "difficulty": "medium", "reward": 20},
+    {"id": 1036, "title": "Кругляш", "text": "Скиньте скрін карти дзвінка клієнта, який має круглий ліміт, наприклад 50 000 або 1 000 грн. Приз: 10 Point.", "difficulty": "easy", "reward": 10},
+    {"id": 1037, "title": "ОЧень пощастило", "text": "Скиньте скрін карти дзвінка клієнта з використаним лімітом на ОЧ. Приз: 10 Point.", "difficulty": "easy", "reward": 10},
+    {"id": 1038, "title": "Ліміт під замком", "text": "Скиньте скрін карти дзвінка клієнта із заблокованим лімітом. Приз: 20 Point.", "difficulty": "medium", "reward": 20},
+    {"id": 1039, "title": "Десять тисяч — і не кінець", "text": "Скиньте скрін карти дзвінка клієнта з використаним лімітом більше ніж 10 000 грн. Приз: 20 Point.", "difficulty": "medium", "reward": 20},
+    {"id": 1040, "title": "Грошики з собою", "text": "У першу годину роботи скиньте скрін карти дзвінка клієнта з власними коштами на карті. Приз: 10 Point.", "difficulty": "easy", "reward": 10},
+    {"id": 1041, "title": "Обмінник на дроті", "text": "Отримайте згоду від клієнта на офер «Обмін валют». Приз: 20 Point.", "difficulty": "medium", "reward": 20},
+    {"id": 1042, "title": "ЄКЛ? ЄКЛ!", "text": "Отримайте згоду від клієнта на офер «Оформлення ЄКЛ» або «Зміна ЄКЛ». Приз: 30 Point.", "difficulty": "hard", "reward": 30},
+    {"id": 1043, "title": "Прізвище — вогонь!", "text": "Скиньте скрін карти дзвінка клієнта зі смішним прізвищем. Приз: 20 Point.", "difficulty": "medium", "reward": 20},
+    {"id": 1044, "title": "Три з трьох", "text": "Отримайте три згоди підряд від бази 12+ / 5–6 міс. неактивності. Приз: 30 Point.", "difficulty": "hard", "reward": 30},
+    {"id": 1045, "title": "Подвійна порція", "text": "Скиньте скрін карти дзвінка клієнта з подвійним прізвищем. Приз: 20 Point.", "difficulty": "medium", "reward": 20},
+    {"id": 1046, "title": "Шерлок продажів", "text": "Проведіть розмову з незвичними аргументами та перевагами й поділіться нею з колегами для обміну досвідом. Приз: 30 Point.", "difficulty": "hard", "reward": 30},
+    {"id": 1047, "title": "Челендж прийнято", "text": "У цілі дзвінка по активації кредитної карти запропонуйте клієнту челендж за офером 6.0. Приз: 30 Point.", "difficulty": "hard", "reward": 30},
+    {"id": 1048, "title": "Анекдот на лінії", "text": "Скиньте в робочий час анекдот колегам у чат WhatsApp. Приз: 10 Point.", "difficulty": "easy", "reward": 10},
+    {"id": 1049, "title": "Раритет на зв'язку", "text": "Скиньте скрін карти дзвінка клієнта зі старою кредитною картою. Приз: 20 Point.", "difficulty": "medium", "reward": 20},
+    {"id": 1050, "title": "Все можу, але не все", "text": "Скиньте скрін карти дзвінка клієнта з картою «ВСЕ можу», яка випущена до 2020 року. Приз: 10 Point.", "difficulty": "easy", "reward": 10},
+    {"id": 1051, "title": "О, знайомі люди! 😄", "text": "Знайдіть клієнта, прізвище якого збігається з прізвищем вашого колеги. Приз: 20 Point.", "difficulty": "medium", "reward": 20},
+    {"id": 1052, "title": "Карта, ти куди?! 🗺️", "text": "Отримайте згоду клієнта на активацію, який сказав, що не знає, де його карта. Приз: 30 Point.", "difficulty": "hard", "reward": 30},
+    {"id": 1053, "title": "А слабо?", "text": "Отримайте згоду клієнта, який на початку розмови сказав: «Я взагалі не хочу з вами говорити». Приз: 30 Point.", "difficulty": "hard", "reward": 30},
 ]
 
 # Backwards-compatible name used by old migrations/tests.
@@ -2581,7 +3469,7 @@ async def update_user_goals(user_id: str, body: UserGoalsUpdateBody, admin: dict
 
 
 DAILY_TASK_XP = {"easy": 10, "medium": 20, "hard": 30}
-DAILY_TASK_CATALOG_VERSION = {"sales": "sales-v1", "activation": "activation-v1"}
+DAILY_TASK_CATALOG_VERSION = {"sales": "sales-v2-categories", "activation": "activation-v1"}
 
 
 def _daily_task_profile(value: Optional[str]) -> str:
@@ -2623,11 +3511,21 @@ async def _get_or_create_daily_task_set(user_or_id) -> dict:
     ).sort("date", -1).limit(14).to_list(14)
     recent_ids = {int(task_id) for item in recent_sets for task_id in item.get("task_ids", [])}
     chosen = []
-    for difficulty in ("easy", "medium", "hard"):
-        full_pool = [task for task in catalog if task["difficulty"] == difficulty]
-        fresh_pool = [task for task in full_pool if task["id"] not in recent_ids]
-        pool = fresh_pool or full_pool
-        chosen.append(rng.choice(pool)["id"])
+    if profile == "sales":
+        # V152: sales operators receive one task from each of the seven business categories.
+        # Difficulty is retained only for XP compatibility; the visible grouping is category-based.
+        for category in SALES_DAILY_TASK_CATEGORIES:
+            full_pool = [task for task in catalog if task.get("category") == category["key"]]
+            fresh_pool = [task for task in full_pool if task["id"] not in recent_ids]
+            pool = fresh_pool or full_pool
+            if pool:
+                chosen.append(rng.choice(pool)["id"])
+    else:
+        for difficulty in ("easy", "medium", "hard"):
+            full_pool = [task for task in catalog if task["difficulty"] == difficulty]
+            fresh_pool = [task for task in full_pool if task["id"] not in recent_ids]
+            pool = fresh_pool or full_pool
+            chosen.append(rng.choice(pool)["id"])
     replacement_limit_state = {
         "replacement_used": False,
         "replacements_used": 0,
@@ -2671,12 +3569,18 @@ async def _points_for_day(user_id: str, date_key: str) -> int:
 
 
 async def _ensure_daily_battles(date_key: str) -> None:
-    marker = await db.daily_battle_days.update_one(
-        {"date": date_key},
-        {"$setOnInsert": {"date": date_key, "created_at": now_iso()}},
-        upsert=True,
-    )
-    if marker.upserted_id is None:
+    # V151: use MongoDB's unique _id as a concurrency-safe day lock.
+    # The old update_one(..., upsert=True) on a non-unique date field could race
+    # under simultaneous requests and generate two battle pairings for one day.
+    if await db.daily_battle_days.find_one({"date": date_key}, {"_id": 1}):
+        return
+    try:
+        await db.daily_battle_days.insert_one({
+            "_id": f"daily-battle-day:{date_key}",
+            "date": date_key,
+            "created_at": now_iso(),
+        })
+    except DuplicateKeyError:
         return
     import hashlib
     import random
@@ -2700,14 +3604,86 @@ async def _ensure_daily_battles(date_key: str) -> None:
             "pair_id": pair_id, "date": date_key, "status": "active", "winner_id": None,
             "reward": 50, "settled_at": None, "created_at": now_iso(),
         }
-        docs.append({**base, "user_id": left["id"], "opponent_id": right["id"], "opponent": right})
+        docs.append({
+            **base,
+            "_id": f"daily-battle:{date_key}:{left['id']}",
+            "user_id": left["id"],
+            "opponent_id": right["id"],
+            "opponent": right,
+        })
         if right["id"] != "__tm6_bot__":
-            docs.append({**base, "user_id": right["id"], "opponent_id": left["id"], "opponent": left})
+            docs.append({
+                **base,
+                "_id": f"daily-battle:{date_key}:{right['id']}",
+                "user_id": right["id"],
+                "opponent_id": left["id"],
+                "opponent": left,
+            })
     if docs:
         try:
             await db.daily_battles.insert_many(docs, ordered=False)
         except Exception:
             pass
+
+
+async def _claim_daily_battle_reward(user_id: str, date_key: str, amount: int, kind: str, description: str, pair_id: str) -> bool:
+    """Atomically grant at most one battle reward to a user for a Kyiv calendar day.
+
+    V151 intentionally keys idempotency by user + battle date rather than pair_id.
+    This also protects users from a historical edge case where concurrent day
+    creation could have produced two different pair_ids for the same user/day.
+    """
+    reward_key = f"daily_battle:{date_key}"
+
+    # Preserve compatibility with rewards created before V151. If the ledger
+    # already contains a reward for this battle date, only backfill the marker.
+    existing = await db.transactions.find_one({
+        "user_id": user_id,
+        "kind": {"$in": ["battle_win_bonus", "battle_tie_bonus"]},
+        "meta.battle_date": date_key,
+    }, {"_id": 1})
+    if existing:
+        await db.users.update_one(
+            {"id": user_id},
+            {"$addToSet": {"battle_reward_keys": reward_key}},
+        )
+        return False
+
+    # One MongoDB document update performs the guard + balance increment. Even
+    # if two settlement requests arrive at the same time, only one can match.
+    awarded = await db.users.update_one(
+        {"id": user_id, "battle_reward_keys": {"$ne": reward_key}},
+        {
+            "$inc": {"balance": amount, "total_earned": amount},
+            "$push": {"battle_reward_keys": {"$each": [reward_key], "$slice": -730}},
+        },
+    )
+    if awarded.modified_count != 1:
+        return False
+
+    transaction_id = f"battle-reward:{date_key}:{user_id}"
+    try:
+        await db.transactions.insert_one({
+            "_id": transaction_id,
+            "id": transaction_id,
+            "user_id": user_id,
+            "kind": kind,
+            "amount": amount,
+            "description": description,
+            "created_at": now_iso(),
+            "meta": {
+                "pair_id": pair_id,
+                "battle_date": date_key,
+                "idempotency_key": reward_key,
+            },
+        })
+    except DuplicateKeyError:
+        # Balance is already guarded by battle_reward_keys, so this only means
+        # the matching ledger row already exists.
+        pass
+
+    await _notify_points_awarded(user_id, amount, description)
+    return True
 
 
 async def _settle_finished_battles() -> None:
@@ -2740,40 +3716,73 @@ async def _settle_finished_battles() -> None:
         if is_tie:
             tie_user_ids = [uid for uid in (user_id, opponent_id) if uid != "__tm6_bot__"]
             for tie_user_id in tie_user_ids:
-                existing = await db.transactions.find_one({
-                    "kind": "battle_tie_bonus",
-                    "user_id": tie_user_id,
-                    "meta.pair_id": pair_id,
-                })
-                if existing:
-                    continue
-                await db.users.update_one(
-                    {"id": tie_user_id},
-                    {"$inc": {"balance": 25, "total_earned": 25}},
+                await _claim_daily_battle_reward(
+                    tie_user_id,
+                    date_key,
+                    25,
+                    "battle_tie_bonus",
+                    "Нічия у щоденному батлі",
+                    pair_id,
                 )
-                await db.transactions.insert_one({
-                    "id": str(uuid.uuid4()),
-                    "user_id": tie_user_id,
-                    "kind": "battle_tie_bonus",
-                    "amount": 25,
-                    "description": "Нічия у щоденному батлі",
-                    "created_at": settled_at,
-                    "meta": {"pair_id": pair_id, "battle_date": date_key},
-                })
-                await _notify_points_awarded(tie_user_id, 25, "Нічия у щоденному батлі")
         elif winner_id and winner_id != "__tm6_bot__":
-            existing = await db.transactions.find_one({"kind": "battle_win_bonus", "meta.pair_id": pair_id})
-            if not existing:
-                await db.users.update_one(
-                    {"id": winner_id},
-                    {"$inc": {"balance": 50, "total_earned": 50}},
-                )
-                await db.transactions.insert_one({
-                    "id": str(uuid.uuid4()), "user_id": winner_id, "kind": "battle_win_bonus", "amount": 50,
-                    "description": "Перемога у щоденному батлі", "created_at": settled_at,
-                    "meta": {"pair_id": pair_id, "battle_date": date_key},
-                })
-                await _notify_points_awarded(winner_id, 50, "Перемога у щоденному батлі")
+            await _claim_daily_battle_reward(
+                winner_id,
+                date_key,
+                50,
+                "battle_win_bonus",
+                "Перемога у щоденному батлі",
+                pair_id,
+            )
+
+
+@api.get("/admin/daily-battles/duplicate-audit")
+async def admin_daily_battle_duplicate_audit(admin: dict = Depends(get_current_admin_or_editor)):
+    """Read-only audit for historical duplicate daily-battle rewards.
+
+    A duplicate means that the same user has more than one battle reward ledger
+    entry for the same Kyiv battle date. V151 prevents new duplicates, but this
+    endpoint makes any historical rows visible without mutating balances.
+    """
+    pipeline = [
+        {"$match": {"kind": {"$in": ["battle_win_bonus", "battle_tie_bonus"]}, "meta.battle_date": {"$exists": True}}},
+        {"$sort": {"created_at": 1}},
+        {"$group": {
+            "_id": {"user_id": "$user_id", "battle_date": "$meta.battle_date"},
+            "count": {"$sum": 1},
+            "entries": {"$push": {
+                "id": "$id",
+                "kind": "$kind",
+                "amount": "$amount",
+                "created_at": "$created_at",
+                "pair_id": "$meta.pair_id",
+            }},
+        }},
+        {"$match": {"count": {"$gt": 1}}},
+        {"$sort": {"_id.battle_date": -1}},
+        {"$limit": 500},
+    ]
+    rows = await db.transactions.aggregate(pipeline).to_list(500)
+    duplicates = []
+    total_excess_amount = 0
+    for row in rows:
+        entries = row.get("entries") or []
+        extras = entries[1:]
+        excess_amount = sum(int(item.get("amount") or 0) for item in extras)
+        total_excess_amount += excess_amount
+        duplicates.append({
+            "user_id": row.get("_id", {}).get("user_id"),
+            "battle_date": row.get("_id", {}).get("battle_date"),
+            "count": int(row.get("count") or 0),
+            "excess_count": max(0, int(row.get("count") or 0) - 1),
+            "excess_amount": excess_amount,
+            "entries": entries,
+        })
+    return {
+        "ok": True,
+        "duplicate_days": len(duplicates),
+        "total_excess_amount": total_excess_amount,
+        "duplicates": duplicates,
+    }
 
 
 @api.get("/daily-battle")
@@ -2899,7 +3908,7 @@ async def admin_daily_tasks_dashboard(
         "awarded_points": awarded_points,
         "awarded_xp": awarded_xp,
         "decided_count": decided_count,
-        "total_tasks": len(operators) * 3,
+        "total_tasks": sum(len(item.get("tasks", [])) for item in operators),
         "refresh_at": kyiv_tomorrow_iso(),
         "timezone": "Europe/Kyiv",
     }
@@ -3000,10 +4009,17 @@ async def replace_daily_task(task_id: int, user: dict = Depends(get_current_user
         {"user_id": user["id"], "date": {"$lt": task_set["date"]}}, {"_id": 0, "task_ids": 1}
     ).sort("date", -1).limit(14).to_list(14)
     recent_ids = {int(value) for item in recent_sets for value in item.get("task_ids", [])}
-    full_pool = [
-        task for task in _daily_task_catalog(task_set.get("catalog_profile"))
-        if task["difficulty"] == current["difficulty"] and task["id"] not in task_set["task_ids"]
-    ]
+    profile = _daily_task_profile(task_set.get("catalog_profile"))
+    if profile == "sales":
+        full_pool = [
+            task for task in _daily_task_catalog(profile)
+            if task.get("category") == current.get("category") and task["id"] not in task_set["task_ids"]
+        ]
+    else:
+        full_pool = [
+            task for task in _daily_task_catalog(profile)
+            if task["difficulty"] == current["difficulty"] and task["id"] not in task_set["task_ids"]
+        ]
     pool = [task for task in full_pool if task["id"] not in recent_ids] or full_pool
     if not pool:
         raise HTTPException(status_code=400, detail="Немає доступного завдання для заміни")
@@ -8597,6 +9613,23 @@ class ReportMetricSnapshotBody(BaseModel):
     deposit_group_summaries: dict = Field(default_factory=dict)
 
 
+class OperatorReportMetricBody(BaseModel):
+    key: str = Field(min_length=2, max_length=100)
+    label: str = Field(min_length=2, max_length=160)
+    value: Optional[float] = None
+    unit: str = Field(default="number", max_length=20)
+
+
+class OperatorReportSnapshotBody(BaseModel):
+    snapshot_version: str = Field(min_length=1, max_length=200)
+    snapshot_updated_at: str = Field(default="", max_length=100)
+    report_type: str = Field(min_length=2, max_length=60)
+    period: str = Field(default="month", max_length=40)
+    segment: str = Field(default="overall", max_length=80)
+    segment_label: str = Field(default="", max_length=120)
+    metrics: List[OperatorReportMetricBody] = Field(default_factory=list)
+
+
 # ─── Notification + Web Push helpers ───
 PUSH_DEFAULTS = {
     "push_enabled": True,
@@ -9289,6 +10322,137 @@ async def save_report_metric_snapshot(body: ReportMetricSnapshotBody, user: dict
         raise HTTPException(status_code=403, detail="Зберігати аналітичний знімок може лише керівник або адміністратор")
     await _store_report_metric_snapshots(body)
     return {"ok": True}
+
+
+def _operator_metric_value(value) -> Optional[float]:
+    if value is None:
+        return None
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return None
+    if math.isnan(numeric) or math.isinf(numeric):
+        return None
+    return round(numeric, 4)
+
+
+def _safe_operator_report_key(value: str, fallback: str) -> str:
+    source = re.sub(r"[^a-zA-Z0-9_-]+", "_", str(value or "").strip()).strip("_")
+    return source[:80] or fallback
+
+
+@api.post("/analytics/operator-report-snapshot")
+async def save_operator_report_snapshot(body: OperatorReportSnapshotBody, user: dict = Depends(get_current_user)):
+    if user.get("role") not in PLAYER_ROLES and user.get("role") not in {"admin", "editor"}:
+        raise HTTPException(status_code=403, detail="Знімок звіту доступний лише працівнику")
+
+    metrics = []
+    for metric in body.metrics or []:
+        value = _operator_metric_value(metric.value)
+        if value is None:
+            continue
+        metrics.append({
+            "key": metric.key,
+            "label": metric.label,
+            "value": value,
+            "unit": metric.unit or "number",
+        })
+    if not metrics:
+        return {"ok": True, "skipped": True}
+
+    # v150: one MongoDB document per employee per Kyiv calendar day.
+    # If reports are refreshed 2–3 times during the same day, only the latest
+    # value for each direction/period/segment is kept. The chart therefore has
+    # exactly one point per day instead of separate points for different hours.
+    date_key = kyiv_today_key()
+    report_key = _safe_operator_report_key(body.report_type, "report")
+    period_key = _safe_operator_report_key(body.period, "month")
+    segment_key = _safe_operator_report_key(body.segment, "overall")
+    report_path = f"reports.{report_key}.{period_key}.{segment_key}"
+    timestamp = now_iso()
+    payload = {
+        "snapshot_version": body.snapshot_version,
+        "snapshot_updated_at": body.snapshot_updated_at or timestamp,
+        "report_type": body.report_type,
+        "period": body.period,
+        "segment": body.segment,
+        "segment_label": body.segment_label or body.segment,
+        "metrics": metrics,
+        "updated_at": timestamp,
+    }
+    await db.operator_report_daily.update_one(
+        {"user_id": user.get("id"), "date_key": date_key},
+        {
+            "$set": {
+                "user_id": user.get("id"),
+                "user_name": user.get("name"),
+                "team_id": user.get("team_id"),
+                "team_name": user.get("team_name"),
+                "goals_login": user.get("goals_login"),
+                "date_key": date_key,
+                report_path: payload,
+                "updated_at": timestamp,
+            },
+            "$setOnInsert": {"created_at": timestamp},
+        },
+        upsert=True,
+    )
+    return {"ok": True, "saved": len(metrics), "date_key": date_key, "daily_document": True}
+
+
+def _daily_report_payload(document: dict, report_type: str, period: str, segment: str) -> Optional[dict]:
+    report_key = _safe_operator_report_key(report_type, "report")
+    period_key = _safe_operator_report_key(period, "month")
+    segment_key = _safe_operator_report_key(segment, "overall")
+    return (((document.get("reports") or {}).get(report_key) or {}).get(period_key) or {}).get(segment_key)
+
+
+@api.get("/analytics/operator-report-trends")
+async def operator_report_trends(
+    report_type: str,
+    period: str = "month",
+    segment: str = "overall",
+    limit: int = 30,
+    user: dict = Depends(get_current_user),
+):
+    safe_limit = max(1, min(int(limit or 30), 90))
+    # Fetch a few extra daily documents because a worker may not have opened
+    # every direction on every day. We still return at most `safe_limit` points.
+    scan_limit = min(365, max(safe_limit * 4, safe_limit))
+    docs = await db.operator_report_daily.find(
+        {"user_id": user.get("id")},
+        {"_id": 0},
+    ).sort("date_key", -1).limit(scan_limit).to_list(scan_limit)
+
+    records = []
+    for document in docs:
+        payload = _daily_report_payload(document, report_type, period, segment)
+        if not payload:
+            continue
+        records.append({
+            "date_key": document.get("date_key"),
+            "snapshot_version": payload.get("snapshot_version"),
+            # Use date_key as the chart date, so multiple refresh hours never
+            # create duplicate x-axis labels for the same calendar day.
+            "snapshot_updated_at": document.get("date_key"),
+            "last_refresh_at": payload.get("snapshot_updated_at"),
+            "report_type": payload.get("report_type", report_type),
+            "period": payload.get("period", period),
+            "segment": payload.get("segment", segment),
+            "segment_label": payload.get("segment_label", segment),
+            "metrics": payload.get("metrics") or [],
+            "updated_at": payload.get("updated_at") or document.get("updated_at"),
+        })
+        if len(records) >= safe_limit:
+            break
+    records.reverse()
+    return {
+        "report_type": report_type,
+        "period": period,
+        "segment": segment,
+        "records": records,
+        "storage_mode": "one_daily_document_per_employee",
+    }
 
 
 # ─── Manager analytics ───
@@ -10148,6 +11312,8 @@ async def seed_phase2():
         logger.info("Backfilled %d AI Trainer completions for v139", ai_backfilled)
     await db.report_metric_snapshots.create_index([("snapshot_version", 1), ("team_key", 1)], unique=True)
     await db.report_metric_snapshots.create_index([("team_id", 1), ("created_at", 1)])
+    await db.operator_report_daily.create_index([("user_id", 1), ("date_key", 1)], unique=True)
+    await db.operator_report_daily.create_index([("date_key", -1), ("user_id", 1)])
     await db.leaderboard_positions.create_index("id", unique=True)
     await db.reactions.create_index([("target_id", 1), ("user_id", 1)], unique=True)
     await db.comments.create_index([("target_id", 1), ("created_at", 1)])

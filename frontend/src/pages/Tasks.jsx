@@ -12,6 +12,16 @@ const DIFFICULTY = {
   hard: { label: "Важке", color: "#FF5C00", glow: "rgba(255,92,0,0.18)" },
 };
 
+const SALES_CATEGORIES = {
+  credits: { label: "Кредити", reward: 20, color: "#FFB800", glow: "rgba(255,184,0,0.18)", order: 0 },
+  credits_2: { label: "Кредити 2.0", reward: 30, color: "#FF5C00", glow: "rgba(255,92,0,0.18)", order: 1 },
+  search: { label: "Пошук", reward: 10, color: "#39FF14", glow: "rgba(57,255,20,0.18)", order: 2 },
+  debit_cards: { label: "Дебетки", reward: 10, color: "#00F0FF", glow: "rgba(0,240,255,0.16)", order: 3 },
+  deposits: { label: "Депозити", reward: 20, color: "#22C55E", glow: "rgba(34,197,94,0.18)", order: 4 },
+  card_activation: { label: "Активація карти", reward: 20, color: "#60A5FA", glow: "rgba(96,165,250,0.18)", order: 5 },
+  activation_6: { label: "Активація 6.0", reward: 20, color: "#B78CFF", glow: "rgba(183,140,255,0.18)", order: 6 },
+};
+
 const useCountdown = (refreshAt, onExpired) => {
   const [value, setValue] = useState("--:--:--");
   useEffect(() => {
@@ -40,7 +50,7 @@ const useCountdown = (refreshAt, onExpired) => {
 };
 
 const TaskCard = ({ task, canReplace, replacing, onReplace }) => {
-  const difficulty = DIFFICULTY[task.difficulty] || DIFFICULTY.easy;
+  const difficulty = SALES_CATEGORIES[task.category] || DIFFICULTY[task.difficulty] || DIFFICULTY.easy;
   return (
     <article
       data-testid={`daily-task-${task.id}`}
@@ -246,10 +256,16 @@ export default function Tasks() {
   }, [load]);
 
   const countdown = useCountdown(data?.refresh_at, load);
+  const isSalesProfile = (data?.report_profile || user?.report_profile || "sales") === "sales";
   const sortedTasks = useMemo(() => {
-    const order = { easy: 0, medium: 1, hard: 2 };
-    return [...(data?.tasks || [])].sort((a, b) => order[a.difficulty] - order[b.difficulty]);
-  }, [data]);
+    const difficultyOrder = { easy: 0, medium: 1, hard: 2 };
+    return [...(data?.tasks || [])].sort((a, b) => {
+      if (isSalesProfile) {
+        return (SALES_CATEGORIES[a.category]?.order ?? 99) - (SALES_CATEGORIES[b.category]?.order ?? 99);
+      }
+      return (difficultyOrder[a.difficulty] ?? 99) - (difficultyOrder[b.difficulty] ?? 99);
+    });
+  }, [data, isSalesProfile]);
 
   const replaceTask = async (taskId) => {
     setReplacingId(taskId);
@@ -271,9 +287,25 @@ export default function Tasks() {
         <div className="text-[10px] font-black uppercase tracking-[0.25em] text-zinc-500">VPDK Bonus</div>
         <h1 className="mt-1 font-display text-3xl text-white">Завдання дня</h1>
         <p className="mt-2 text-sm leading-relaxed text-zinc-400">
-          Щодня о 00:00 за київським часом з’являються три нові завдання: легке, середнє та важке.
+          {isSalesProfile
+            ? "Щодня о 00:00 за київським часом з’являються 7 завдань — по одному з кожної категорії: Кредити, Кредити 2.0, Пошук, Дебетки, Депозити, Активація карти та Активація 6.0."
+            : "Щодня о 00:00 за київським часом з’являються три нові завдання: легке, середнє та важке."}
         </p>
       </header>
+
+      {isSalesProfile && (
+        <section className="rounded-3xl border border-white/10 bg-[#1A1A1E] p-4" data-testid="sales-daily-task-categories">
+          <div className="text-[10px] font-black uppercase tracking-[0.18em] text-zinc-500">7 категорій на день</div>
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            {Object.entries(SALES_CATEGORIES).map(([key, category], index) => (
+              <div key={key} className={`rounded-2xl border bg-black/20 p-3 ${index === Object.keys(SALES_CATEGORIES).length - 1 ? "col-span-2" : ""}`} style={{ borderColor: `${category.color}35` }}>
+                <div className="text-xs font-black" style={{ color: category.color }}>{category.label}</div>
+                <div className="mt-1 flex items-center gap-1 text-[10px] font-black text-zinc-400"><Coins size={12} /> {category.reward} Point</div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       <section className="flex items-center gap-3 rounded-3xl border border-white/10 bg-[#1A1A1E] p-4">
         <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border-2 border-[#00F0FF]/40 bg-[#00F0FF]/10">

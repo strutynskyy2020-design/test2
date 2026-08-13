@@ -16,6 +16,8 @@ import {
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { useDailyGoogleReports } from "@/hooks/useGoogleReports";
+import useOperatorReportTrend from "@/hooks/useOperatorReportTrend";
+import OperatorReportTrendChart from "@/components/OperatorReportTrendChart";
 
 const CHANNELS = [
   { id: "xsell", label: "X-Sell", aliases: ["xsell", "x_sell", "x-sell"] },
@@ -542,6 +544,17 @@ export default function CreditGoals() {
   const projectiveEvaluation = evaluateMetric(METRICS.find((item) => item.id === "projective"), activeData?.metrics?.projective);
   const summaryTheme = STATUS_THEME[projectiveEvaluation.status];
   const projectionSource = activeData?.projection_source || null;
+  const activeChannelLabel = CHANNELS.find((item) => item.id === channel)?.label || channel;
+  const { records: trendRecords, loading: trendLoading } = useOperatorReportTrend({
+    reportType: "credit",
+    period,
+    segment: channel,
+    segmentLabel: activeChannelLabel,
+    snapshotVersion: report?.snapshot_version || details?.updated_at || "",
+    snapshotUpdatedAt: details?.updated_at || report?.snapshot_updated_at || "",
+    metrics: projectiveAvailable ? [{ key: "projective_rate", label: "Проекційний результат", value: Number(projective), unit: "percent" }] : [],
+    enabled: Boolean(report && activeData && projectiveAvailable),
+  });
   const currentTeamName = report?.report_access?.current_team?.name || user?.team_name || "ваша команда";
   const teamKey = String(currentTeamName || "").toLowerCase().replace(/[^a-zа-яіїєґ0-9]+/gi, "").replace(/^тм/, "tm");
   const teamColumnLabel = projectionSource?.team_columns?.[teamKey] || projectionSource?.general_column || "";
@@ -600,6 +613,18 @@ export default function CreditGoals() {
               <span className="text-zinc-300">Джерело:</span> аркуш «{projectionSource?.sheet || "Transformation"}», рядок «{projectionSource?.row_label || "Проекційний результат"}», колонка оператора «{projectionSource?.operator_column || user?.goals_login || "логін"}»{teamColumnLabel ? `; порівняння з колонкою «${teamColumnLabel}»` : "; командна колонка не знайдена, тому порівняння не підставляється"}.
             </div>
           </section>
+
+          <OperatorReportTrendChart
+            title={`Тренд ${activeChannelLabel}`}
+            subtitle={`Як змінюється ваш проекційний результат у напрямку ${activeChannelLabel.toUpperCase()} (${period === "month" ? "за місяць" : "за вчора"}).`}
+            color={summaryTheme.color}
+            target={100}
+            metricKey="projective_rate"
+            metricLabel="Проекційний результат"
+            unit="percent"
+            records={trendRecords}
+            loading={trendLoading}
+          />
 
           <section>
             <div className="mb-3 flex items-end justify-between px-1">

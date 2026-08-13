@@ -1,0 +1,1122 @@
+[
+  {
+    "id": 101,
+    "source_id": "1.01",
+    "category": "credits",
+    "category_label": "Кредити",
+    "title": "Фініш уже близько",
+    "text": "До кінця зміни лишилося дві години? Саме час закрити хоча б одну видачу кредитного продукту.",
+    "difficulty": "medium",
+    "reward": 20
+  },
+  {
+    "id": 102,
+    "source_id": "1.02",
+    "category": "credits",
+    "category_label": "Кредити",
+    "title": "Кредитний дубль",
+    "text": "Зберіть дві видачі кредитних продуктів за один робочий день і підтвердьте обидві одним повідомленням.",
+    "difficulty": "medium",
+    "reward": 20
+  },
+  {
+    "id": 103,
+    "source_id": "1.03",
+    "category": "credits",
+    "category_label": "Кредити",
+    "title": "Кредитна сієста",
+    "text": "Зловіть кредитну видачу в проміжку з 13:00 до 15:00.",
+    "difficulty": "medium",
+    "reward": 20
+  },
+  {
+    "id": 104,
+    "source_id": "1.04",
+    "category": "credits",
+    "category_label": "Кредити",
+    "title": "Кредитка? Беремо!",
+    "text": "Оформіть клієнту кредитний продукт і підтвердьте, що видача успішно відбулася.",
+    "difficulty": "medium",
+    "reward": 20
+  },
+  {
+    "id": 105,
+    "source_id": "1.05",
+    "category": "credits",
+    "category_label": "Кредити",
+    "title": "Ретро-клієнт",
+    "text": "Знайдіть клієнта, який народився у 1960-х роках або раніше, та оформіть йому кредитний продукт.",
+    "difficulty": "medium",
+    "reward": 20
+  },
+  {
+    "id": 106,
+    "source_id": "1.06",
+    "category": "credits",
+    "category_label": "Кредити",
+    "title": "Еспресо-видача",
+    "text": "Встигніть оформити кредитну видачу між 13:00 та 14:00.",
+    "difficulty": "medium",
+    "reward": 20
+  },
+  {
+    "id": 107,
+    "source_id": "1.07",
+    "category": "credits",
+    "category_label": "Кредити",
+    "title": "Ракета зі старту",
+    "text": "Першу кредитну видачу дня зробіть протягом першої години після виходу на лінію.",
+    "difficulty": "medium",
+    "reward": 20
+  },
+  {
+    "id": 108,
+    "source_id": "1.08",
+    "category": "credits",
+    "category_label": "Кредити",
+    "title": "Фінішний ривок",
+    "text": "Зробіть кредитну видачу за годину до завершення робочої зміни.",
+    "difficulty": "medium",
+    "reward": 20
+  },
+  {
+    "id": 109,
+    "source_id": "1.09",
+    "category": "credits",
+    "category_label": "Кредити",
+    "title": "Олександрович у справі",
+    "text": "Знайдіть клієнта з по батькові «Олександрович» або «Миколайович» і закрийте з ним успішну видачу кредитного продукту.",
+    "difficulty": "medium",
+    "reward": 20
+  },
+  {
+    "id": 110,
+    "source_id": "1.10",
+    "category": "credits",
+    "category_label": "Кредити",
+    "title": "До 11:00 і в дамки",
+    "text": "Зробіть одну кредитну видачу до 11:00.",
+    "difficulty": "medium",
+    "reward": 20
+  },
+  {
+    "id": 111,
+    "source_id": "1.11",
+    "category": "credits",
+    "category_label": "Кредити",
+    "title": "Післяобідній камбек",
+    "text": "Зловіть одну кредитну видачу в проміжку з 15:00 до 17:00.",
+    "difficulty": "medium",
+    "reward": 20
+  },
+  {
+    "id": 112,
+    "source_id": "1.12",
+    "category": "credits",
+    "category_label": "Кредити",
+    "title": "Офер у яблучко",
+    "text": "Влучно визначте потребу клієнта, запропонуйте відповідний кредитний продукт і завершіть розмову видачею.",
+    "difficulty": "medium",
+    "reward": 20
+  },
+  {
+    "id": 113,
+    "source_id": "1.13",
+    "category": "credits",
+    "category_label": "Кредити",
+    "title": "Один дзвінок — одна справа",
+    "text": "Оформіть кредитний продукт за один контакт, без домовленості на повторний дзвінок.",
+    "difficulty": "medium",
+    "reward": 20
+  },
+  {
+    "id": 114,
+    "source_id": "1.14",
+    "category": "credits",
+    "category_label": "Кредити",
+    "title": "Платіж без паніки",
+    "text": "Клієнт питає про щомісячний платіж? Поясніть умови й доведіть розмову до видачі кредитного продукту.",
+    "difficulty": "medium",
+    "reward": 20
+  },
+  {
+    "id": 115,
+    "source_id": "1.15",
+    "category": "credits",
+    "category_label": "Кредити",
+    "title": "Прем'єра продукту",
+    "text": "Оформіть кредитний продукт клієнту, який раніше саме ним не користувався.",
+    "difficulty": "medium",
+    "reward": 20
+  },
+  {
+    "id": 116,
+    "source_id": "1.16",
+    "category": "credits",
+    "category_label": "Кредити",
+    "title": "Другий шанс",
+    "text": "Після попереднього невдалого контакту поверніться в гру й зробіть клієнту успішну кредитну видачу.",
+    "difficulty": "medium",
+    "reward": 20
+  },
+  {
+    "id": 117,
+    "source_id": "1.17",
+    "category": "credits",
+    "category_label": "Кредити",
+    "title": "Ціль бачу!",
+    "text": "Клієнт назвав конкретну мету фінансування? Підберіть під неї релевантний кредитний продукт і оформіть його.",
+    "difficulty": "medium",
+    "reward": 20
+  },
+  {
+    "id": 118,
+    "source_id": "1.18",
+    "category": "credits",
+    "category_label": "Кредити",
+    "title": "Битва варіантів",
+    "text": "Покажіть клієнту різницю між двома доступними кредитними варіантами й оформіть той, який він обере.",
+    "difficulty": "medium",
+    "reward": 20
+  },
+  {
+    "id": 119,
+    "source_id": "1.19",
+    "category": "credits",
+    "category_label": "Кредити",
+    "title": "Рівний хід",
+    "text": "Тримайте темп: щонайменше одна кредитна видача в першій половині зміни й ще одна в другій.",
+    "difficulty": "medium",
+    "reward": 20
+  },
+  {
+    "id": 120,
+    "source_id": "1.20",
+    "category": "credits",
+    "category_label": "Кредити",
+    "title": "Один аргумент — один гол",
+    "text": "Після одного стандартного заперечення дайте релевантний аргумент і доведіть розмову до кредитної видачі.",
+    "difficulty": "medium",
+    "reward": 20
+  },
+  {
+    "id": 121,
+    "source_id": "2.01",
+    "category": "credits_2",
+    "category_label": "Кредити 2.0",
+    "title": "Дубль на одного",
+    "text": "Зробіть дві видачі кредитних продуктів одному й тому самому клієнту.",
+    "difficulty": "hard",
+    "reward": 30
+  },
+  {
+    "id": 122,
+    "source_id": "2.02",
+    "category": "credits_2",
+    "category_label": "Кредити 2.0",
+    "title": "Три клієнти — три попадання",
+    "text": "Закрийте три видачі кредитних продуктів трьом різним клієнтам і підтвердьте результат.",
+    "difficulty": "hard",
+    "reward": 30
+  },
+  {
+    "id": 123,
+    "source_id": "2.03",
+    "category": "credits_2",
+    "category_label": "Кредити 2.0",
+    "title": "«Подумаю»? Уже ні",
+    "text": "Знайдіть клієнта, у коментарях якого було «подумаю», і зробіть йому видачу кредитного продукту.",
+    "difficulty": "hard",
+    "reward": 30
+  },
+  {
+    "id": 124,
+    "source_id": "2.04",
+    "category": "credits_2",
+    "category_label": "Кредити 2.0",
+    "title": "Подвійний постріл",
+    "text": "Оформіть одному клієнту дві видачі кредитних продуктів і підтвердьте обидві.",
+    "difficulty": "hard",
+    "reward": 30
+  },
+  {
+    "id": 125,
+    "source_id": "2.05",
+    "category": "credits_2",
+    "category_label": "Кредити 2.0",
+    "title": "Вчорашній MVP",
+    "text": "Якщо за підсумками вчора у вас було найбільше кредитних видач у команді, підтвердьте свій результат.",
+    "difficulty": "hard",
+    "reward": 30
+  },
+  {
+    "id": 126,
+    "source_id": "2.06",
+    "category": "credits_2",
+    "category_label": "Кредити 2.0",
+    "title": "Дзен проти заперечення",
+    "text": "Спіймайте складне заперечення, якісно його опрацюйте й закрийте угоду кредитним продуктом. Коротко поділіться, що саме спрацювало.",
+    "difficulty": "hard",
+    "reward": 30
+  },
+  {
+    "id": 127,
+    "source_id": "2.07",
+    "category": "credits_2",
+    "category_label": "Кредити 2.0",
+    "title": "П'ять хвилин слави",
+    "text": "Вкладіться у п'ять хвилин розмови, оформіть кредитну видачу й підтвердьте результат.",
+    "difficulty": "hard",
+    "reward": 30
+  },
+  {
+    "id": 128,
+    "source_id": "2.08",
+    "category": "credits_2",
+    "category_label": "Кредити 2.0",
+    "title": "Кредитний хет-трик",
+    "text": "Зробіть одному клієнту три видачі кредитних продуктів і підтвердьте всі три.",
+    "difficulty": "hard",
+    "reward": 30
+  },
+  {
+    "id": 129,
+    "source_id": "2.09",
+    "category": "credits_2",
+    "category_label": "Кредити 2.0",
+    "title": "Подвійний шот",
+    "text": "Зробіть дві кредитні видачі в проміжку між 13:00 та 14:00.",
+    "difficulty": "hard",
+    "reward": 30
+  },
+  {
+    "id": 130,
+    "source_id": "2.10",
+    "category": "credits_2",
+    "category_label": "Кредити 2.0",
+    "title": "Чотири в кошик",
+    "text": "Зберіть чотири видачі кредитних продуктів за один день і підтвердьте їх одним повідомленням.",
+    "difficulty": "hard",
+    "reward": 30
+  },
+  {
+    "id": 131,
+    "source_id": "2.11",
+    "category": "credits_2",
+    "category_label": "Кредити 2.0",
+    "title": "Без жодного «але»",
+    "text": "Проведіть розмову так влучно, щоб якісне виявлення потреб привело до кредитної видачі без заперечень.",
+    "difficulty": "hard",
+    "reward": 30
+  },
+  {
+    "id": 132,
+    "source_id": "2.12",
+    "category": "credits_2",
+    "category_label": "Кредити 2.0",
+    "title": "Бос видач",
+    "text": "Зробіть найбільшу кількість кредитних видач у команді за день.",
+    "difficulty": "hard",
+    "reward": 30
+  },
+  {
+    "id": 133,
+    "source_id": "2.13",
+    "category": "credits_2",
+    "category_label": "Кредити 2.0",
+    "title": "Шерлок з офером",
+    "text": "Проведіть результативну кредитну розмову з незвичними аргументами та перевагами, а потім поділіться цим кейсом із колегами.",
+    "difficulty": "hard",
+    "reward": 30
+  },
+  {
+    "id": 134,
+    "source_id": "2.14",
+    "category": "credits_2",
+    "category_label": "Кредити 2.0",
+    "title": "«Не хочу»? Побачимо",
+    "text": "Отримайте згоду на кредитний продукт від клієнта, який на старті розмови сказав: «Я взагалі не хочу з вами говорити».",
+    "difficulty": "hard",
+    "reward": 30
+  },
+  {
+    "id": 135,
+    "source_id": "2.15",
+    "category": "credits_2",
+    "category_label": "Кредити 2.0",
+    "title": "Хвилина на все",
+    "text": "Клієнт каже: «У вас хвилина, тільки швидко»? Проведіть повноцінну кредитну консультацію й завершіть її успішною видачею.",
+    "difficulty": "hard",
+    "reward": 30
+  },
+  {
+    "id": 136,
+    "source_id": "3.01",
+    "category": "search",
+    "category_label": "Пошук",
+    "title": "Галина, виходьте з тіні",
+    "text": "Знайдіть клієнтку на ім'я Галина й підтвердьте виконання за внутрішнім процесом.",
+    "difficulty": "easy",
+    "reward": 10
+  },
+  {
+    "id": 137,
+    "source_id": "3.02",
+    "category": "search",
+    "category_label": "Пошук",
+    "title": "Олег, ми вас знайшли",
+    "text": "Відшукайте клієнта на ім'я Олег і підтвердьте виконання за внутрішнім процесом.",
+    "difficulty": "easy",
+    "reward": 10
+  },
+  {
+    "id": 138,
+    "source_id": "3.03",
+    "category": "search",
+    "category_label": "Пошук",
+    "title": "Три сімки — бінго!",
+    "text": "Полюємо на 777: знайдіть у номері телефону клієнта або ІПН три однакові цифри поспіль.",
+    "difficulty": "easy",
+    "reward": 10
+  },
+  {
+    "id": 139,
+    "source_id": "3.04",
+    "category": "search",
+    "category_label": "Пошук",
+    "title": "Наймолодший у грі",
+    "text": "Знайдіть наймолодшого клієнта за день із датою народження 2008 року або пізніше.",
+    "difficulty": "easy",
+    "reward": 10
+  },
+  {
+    "id": 140,
+    "source_id": "3.05",
+    "category": "search",
+    "category_label": "Пошук",
+    "title": "Двійка шукає двійку",
+    "text": "Якщо сьогодні 02 число, знайдіть клієнта з днем народження 02.xx.xxxx.",
+    "difficulty": "easy",
+    "reward": 10
+  },
+  {
+    "id": 141,
+    "source_id": "3.06",
+    "category": "search",
+    "category_label": "Пошук",
+    "title": "Машина часу",
+    "text": "Знайдіть клієнта з «круглим» роком народження, наприклад 1970, 1980, 1990 або 2000.",
+    "difficulty": "easy",
+    "reward": 10
+  },
+  {
+    "id": 142,
+    "source_id": "3.07",
+    "category": "search",
+    "category_label": "Пошук",
+    "title": "Одного року врожаю",
+    "text": "Знайдіть клієнта, який народився в один рік із вами.",
+    "difficulty": "easy",
+    "reward": 10
+  },
+  {
+    "id": 143,
+    "source_id": "3.08",
+    "category": "search",
+    "category_label": "Пошук",
+    "title": "Нулі на фініші",
+    "text": "Знайдіть картку клієнта, де ІПН або номер телефону красиво фінішує двома нулями.",
+    "difficulty": "easy",
+    "reward": 10
+  },
+  {
+    "id": 144,
+    "source_id": "3.09",
+    "category": "search",
+    "category_label": "Пошук",
+    "title": "Піймай 55",
+    "text": "Знайдіть у номері телефону або ІПН дві п'ятірки поспіль, тобто 55.",
+    "difficulty": "easy",
+    "reward": 10
+  },
+  {
+    "id": 145,
+    "source_id": "3.10",
+    "category": "search",
+    "category_label": "Пошук",
+    "title": "Ім'я з родзинкою",
+    "text": "Знайдіть клієнта з незвичним або іноземним ім'ям.",
+    "difficulty": "easy",
+    "reward": 10
+  },
+  {
+    "id": 146,
+    "source_id": "3.11",
+    "category": "search",
+    "category_label": "Пошук",
+    "title": "Привіт із 1955-го",
+    "text": "Знайдіть клієнта, який народився у 1955 році або раніше.",
+    "difficulty": "easy",
+    "reward": 10
+  },
+  {
+    "id": 147,
+    "source_id": "3.12",
+    "category": "search",
+    "category_label": "Пошук",
+    "title": "Іван Іванович mode",
+    "text": "Знайдіть клієнта, в якого ім'я збігається з основою по батькові, наприклад Іван Іванович.",
+    "difficulty": "easy",
+    "reward": 10
+  },
+  {
+    "id": 148,
+    "source_id": "3.13",
+    "category": "search",
+    "category_label": "Пошук",
+    "title": "Чотири в ряд",
+    "text": "Знайдіть у номері телефону або ІПН чотири однакові цифри поспіль.",
+    "difficulty": "easy",
+    "reward": 10
+  },
+  {
+    "id": 149,
+    "source_id": "3.14",
+    "category": "search",
+    "category_label": "Пошук",
+    "title": "Іменинник місяця",
+    "text": "Знайдіть клієнта, у якого день народження припадає на цей місяць.",
+    "difficulty": "easy",
+    "reward": 10
+  },
+  {
+    "id": 150,
+    "source_id": "3.15",
+    "category": "search",
+    "category_label": "Пошук",
+    "title": "Колега, це ти?",
+    "text": "Знайдіть клієнта, прізвище якого збігається з прізвищем вашого колеги.",
+    "difficulty": "easy",
+    "reward": 10
+  },
+  {
+    "id": 151,
+    "source_id": "3.16",
+    "category": "search",
+    "category_label": "Пошук",
+    "title": "Одна літера на двох",
+    "text": "Знайдіть клієнта, у якого ім'я та прізвище починаються з однієї й тієї самої літери.",
+    "difficulty": "easy",
+    "reward": 10
+  },
+  {
+    "id": 152,
+    "source_id": "3.17",
+    "category": "search",
+    "category_label": "Пошук",
+    "title": "Дата зациклилась",
+    "text": "Знайдіть клієнта, у якого день і місяць народження повторюються: наприклад 01.01, 02.02 або 12.12.",
+    "difficulty": "easy",
+    "reward": 10
+  },
+  {
+    "id": 153,
+    "source_id": "4.01",
+    "category": "debit_cards",
+    "category_label": "Дебетки",
+    "title": "Дебетка до комплекту",
+    "text": "Додайте до результату ще одну видачу дебетової картки в компанії Веб_Апс.",
+    "difficulty": "easy",
+    "reward": 10
+  },
+  {
+    "id": 154,
+    "source_id": "4.02",
+    "category": "debit_cards",
+    "category_label": "Дебетки",
+    "title": "Лояльність плюс картка",
+    "text": "Зробіть додаткову видачу валютної або дебетової картки в компанії Крос.",
+    "difficulty": "easy",
+    "reward": 10
+  },
+  {
+    "id": 155,
+    "source_id": "4.03",
+    "category": "debit_cards",
+    "category_label": "Дебетки",
+    "title": "Розбуди дебетку",
+    "text": "Відкрийте рахунок дебеток за день: оформіть першу дебетову картку.",
+    "difficulty": "easy",
+    "reward": 10
+  },
+  {
+    "id": 156,
+    "source_id": "4.04",
+    "category": "debit_cards",
+    "category_label": "Дебетки",
+    "title": "До 12:00 і готово",
+    "text": "Встигніть оформити дебетову картку до 12:00.",
+    "difficulty": "easy",
+    "reward": 10
+  },
+  {
+    "id": 157,
+    "source_id": "4.05",
+    "category": "debit_cards",
+    "category_label": "Дебетки",
+    "title": "Після трьох — час дебетки",
+    "text": "Оформіть дебетову картку після 15:00.",
+    "difficulty": "easy",
+    "reward": 10
+  },
+  {
+    "id": 158,
+    "source_id": "4.06",
+    "category": "debit_cards",
+    "category_label": "Дебетки",
+    "title": "Валюта в кишені",
+    "text": "Оформіть клієнту валютну дебетову картку.",
+    "difficulty": "easy",
+    "reward": 10
+  },
+  {
+    "id": 159,
+    "source_id": "4.07",
+    "category": "debit_cards",
+    "category_label": "Дебетки",
+    "title": "Перша дебетка клієнта",
+    "text": "Оформіть дебетову картку клієнту, який раніше не мав дебетової картки банку.",
+    "difficulty": "easy",
+    "reward": 10
+  },
+  {
+    "id": 160,
+    "source_id": "4.08",
+    "category": "debit_cards",
+    "category_label": "Дебетки",
+    "title": "Ще одна в гаманець",
+    "text": "Оформіть додаткову дебетову картку чинному клієнту.",
+    "difficulty": "easy",
+    "reward": 10
+  },
+  {
+    "id": 161,
+    "source_id": "4.09",
+    "category": "debit_cards",
+    "category_label": "Дебетки",
+    "title": "Дебетний дубль",
+    "text": "Зробіть дві видачі дебетових карток за один робочий день.",
+    "difficulty": "easy",
+    "reward": 10
+  },
+  {
+    "id": 162,
+    "source_id": "4.10",
+    "category": "debit_cards",
+    "category_label": "Дебетки",
+    "title": "Кредит закрили — дебетку додали",
+    "text": "Після успішної кредитної видачі запропонуйте клієнту дебетову картку й оформіть її.",
+    "difficulty": "easy",
+    "reward": 10
+  },
+  {
+    "id": 163,
+    "source_id": "4.11",
+    "category": "debit_cards",
+    "category_label": "Дебетки",
+    "title": "Один контакт — готово",
+    "text": "Оформіть дебетову картку за один контакт, без повторного дзвінка.",
+    "difficulty": "easy",
+    "reward": 10
+  },
+  {
+    "id": 164,
+    "source_id": "4.12",
+    "category": "debit_cards",
+    "category_label": "Дебетки",
+    "title": "Три козирі дебетки",
+    "text": "Назвіть клієнту щонайменше три релевантні переваги дебетової картки й оформіть її.",
+    "difficulty": "easy",
+    "reward": 10
+  },
+  {
+    "id": 165,
+    "source_id": "4.13",
+    "category": "debit_cards",
+    "category_label": "Дебетки",
+    "title": "Картка на щодень",
+    "text": "Виявіть потребу клієнта у щоденних розрахунках і під неї оформіть відповідну дебетову картку.",
+    "difficulty": "easy",
+    "reward": 10
+  },
+  {
+    "id": 166,
+    "source_id": "4.14",
+    "category": "debit_cards",
+    "category_label": "Дебетки",
+    "title": "Запитав — отримав",
+    "text": "Клієнт уточнив умови дебетової картки? Дайте відповідь і доведіть оформлення до фінішу.",
+    "difficulty": "easy",
+    "reward": 10
+  },
+  {
+    "id": 167,
+    "source_id": "4.15",
+    "category": "debit_cards",
+    "category_label": "Дебетки",
+    "title": "Дебетка на десерт",
+    "text": "Оформіть дебетову картку протягом останніх двох годин робочої зміни.",
+    "difficulty": "easy",
+    "reward": 10
+  },
+  {
+    "id": 168,
+    "source_id": "5.01",
+    "category": "deposits",
+    "category_label": "Депозити",
+    "title": "Багаті теж відкладають",
+    "text": "Зробіть видачу депозиту в компанії Веб_Апс і підтвердьте результат.",
+    "difficulty": "medium",
+    "reward": 20
+  },
+  {
+    "id": 169,
+    "source_id": "5.02",
+    "category": "deposits",
+    "category_label": "Депозити",
+    "title": "Перший вклад пішов",
+    "text": "Відкрийте депозитний рахунок дня: оформіть перший депозит.",
+    "difficulty": "medium",
+    "reward": 20
+  },
+  {
+    "id": 170,
+    "source_id": "5.03",
+    "category": "deposits",
+    "category_label": "Депозити",
+    "title": "Депозит до ланчу",
+    "text": "Встигніть оформити депозит до 12:00.",
+    "difficulty": "medium",
+    "reward": 20
+  },
+  {
+    "id": 171,
+    "source_id": "5.04",
+    "category": "deposits",
+    "category_label": "Депозити",
+    "title": "Після 15:00 — час примножувати",
+    "text": "Оформіть депозит після 15:00.",
+    "difficulty": "medium",
+    "reward": 20
+  },
+  {
+    "id": 172,
+    "source_id": "5.05",
+    "category": "deposits",
+    "category_label": "Депозити",
+    "title": "Депозитний дубль",
+    "text": "Зберіть два оформлені депозити за один робочий день.",
+    "difficulty": "medium",
+    "reward": 20
+  },
+  {
+    "id": 173,
+    "source_id": "5.06",
+    "category": "deposits",
+    "category_label": "Депозити",
+    "title": "Перший раз у вклад",
+    "text": "Оформіть депозит клієнту, який раніше не користувався депозитним продуктом банку.",
+    "difficulty": "medium",
+    "reward": 20
+  },
+  {
+    "id": 174,
+    "source_id": "5.07",
+    "category": "deposits",
+    "category_label": "Депозити",
+    "title": "Ще один у скарбничку",
+    "text": "Оформіть новий депозит клієнту, який уже користується депозитним продуктом.",
+    "difficulty": "medium",
+    "reward": 20
+  },
+  {
+    "id": 175,
+    "source_id": "5.08",
+    "category": "deposits",
+    "category_label": "Депозити",
+    "title": "А скільки зароблю?",
+    "text": "Клієнт питає про дохідність? Поясніть умови й завершіть оформлення депозиту.",
+    "difficulty": "medium",
+    "reward": 20
+  },
+  {
+    "id": 176,
+    "source_id": "5.09",
+    "category": "deposits",
+    "category_label": "Депозити",
+    "title": "Строк має значення",
+    "text": "Розкладіть клієнту доступні строки розміщення й оформіть той депозит, який він обере.",
+    "difficulty": "medium",
+    "reward": 20
+  },
+  {
+    "id": 177,
+    "source_id": "5.10",
+    "category": "deposits",
+    "category_label": "Депозити",
+    "title": "А якщо забрати раніше?",
+    "text": "Після питання про дострокове зняття поясніть правила й завершіть оформлення депозиту.",
+    "difficulty": "medium",
+    "reward": 20
+  },
+  {
+    "id": 178,
+    "source_id": "5.11",
+    "category": "deposits",
+    "category_label": "Депозити",
+    "title": "Два строки — один вибір",
+    "text": "Порівняйте для клієнта два доступні строки депозиту та оформіть обраний варіант.",
+    "difficulty": "medium",
+    "reward": 20
+  },
+  {
+    "id": 179,
+    "source_id": "5.12",
+    "category": "deposits",
+    "category_label": "Депозити",
+    "title": "Поповнюй і росте",
+    "text": "Якщо такий варіант доступний, оформіть депозит із можливістю поповнення.",
+    "difficulty": "medium",
+    "reward": 20
+  },
+  {
+    "id": 180,
+    "source_id": "5.13",
+    "category": "deposits",
+    "category_label": "Депозити",
+    "title": "Продовжуємо автоматом",
+    "text": "Якщо функція доступна, поясніть клієнту умову автопролонгації й оформіть депозит із його згодою.",
+    "difficulty": "medium",
+    "reward": 20
+  },
+  {
+    "id": 181,
+    "source_id": "5.14",
+    "category": "deposits",
+    "category_label": "Депозити",
+    "title": "«Я подумаю» на депозит",
+    "text": "Почули «я подумаю»? Опрацюйте заперечення й завершіть оформлення депозиту.",
+    "difficulty": "medium",
+    "reward": 20
+  },
+  {
+    "id": 182,
+    "source_id": "5.15",
+    "category": "deposits",
+    "category_label": "Депозити",
+    "title": "Один контакт — один вклад",
+    "text": "Оформіть депозит за один контакт, без повторного дзвінка.",
+    "difficulty": "medium",
+    "reward": 20
+  },
+  {
+    "id": 183,
+    "source_id": "6.01",
+    "category": "card_activation",
+    "category_label": "Активація карти",
+    "title": "Картка, прокидайся!",
+    "text": "Активуйте одну картку клієнта за день, дотримуючись внутрішнього процесу.",
+    "difficulty": "medium",
+    "reward": 20
+  },
+  {
+    "id": 184,
+    "source_id": "6.02",
+    "category": "card_activation",
+    "category_label": "Активація карти",
+    "title": "Сьогодні видали — сьогодні ожила",
+    "text": "Зробіть так, щоб картка була активована в той самий день, коли клієнт її отримав або оформив.",
+    "difficulty": "medium",
+    "reward": 20
+  },
+  {
+    "id": 185,
+    "source_id": "6.03",
+    "category": "card_activation",
+    "category_label": "Активація карти",
+    "title": "Активація до обіду",
+    "text": "Закрийте одну активацію картки до 12:00.",
+    "difficulty": "medium",
+    "reward": 20
+  },
+  {
+    "id": 186,
+    "source_id": "6.04",
+    "category": "card_activation",
+    "category_label": "Активація карти",
+    "title": "Дві картки — два старти",
+    "text": "Завершіть дві активації карток за один робочий день.",
+    "difficulty": "medium",
+    "reward": 20
+  },
+  {
+    "id": 187,
+    "source_id": "6.05",
+    "category": "card_activation",
+    "category_label": "Активація карти",
+    "title": "Не завтра, а зараз",
+    "text": "Клієнт хоче відкласти активацію? Поясніть кроки й доведіть процес до успішної активації.",
+    "difficulty": "medium",
+    "reward": 20
+  },
+  {
+    "id": 188,
+    "source_id": "6.06",
+    "category": "card_activation",
+    "category_label": "Активація карти",
+    "title": "Друга картка теж хоче жити",
+    "text": "Активуйте додаткову картку чинного клієнта.",
+    "difficulty": "medium",
+    "reward": 20
+  },
+  {
+    "id": 189,
+    "source_id": "6.07",
+    "category": "card_activation",
+    "category_label": "Активація карти",
+    "title": "Новачок у грі",
+    "text": "Активуйте картку клієнта, який щойно став користувачем карткового продукту.",
+    "difficulty": "medium",
+    "reward": 20
+  },
+  {
+    "id": 190,
+    "source_id": "6.08",
+    "category": "card_activation",
+    "category_label": "Активація карти",
+    "title": "Три кроки до життя",
+    "text": "Поясніть процес активації максимум у трьох кроках і доведіть його до завершення.",
+    "difficulty": "medium",
+    "reward": 20
+  },
+  {
+    "id": 191,
+    "source_id": "6.09",
+    "category": "card_activation",
+    "category_label": "Активація карти",
+    "title": "Активували з першого контакту",
+    "text": "Завершіть активацію картки за один контакт, без повторного дзвінка.",
+    "difficulty": "medium",
+    "reward": 20
+  },
+  {
+    "id": 192,
+    "source_id": "6.10",
+    "category": "card_activation",
+    "category_label": "Активація карти",
+    "title": "Фінішна іскра",
+    "text": "Завершіть активацію картки протягом останніх двох годин робочої зміни.",
+    "difficulty": "medium",
+    "reward": 20
+  },
+  {
+    "id": 193,
+    "source_id": "7.01",
+    "category": "activation_6",
+    "category_label": "Активація 6.0",
+    "title": "IBAN без квестів",
+    "text": "Отримайте згоду клієнта оплатити послуги або зробити платіж за IBAN на юридичну особу та створити шаблон у мобільному застосунку.",
+    "difficulty": "medium",
+    "reward": 20
+  },
+  {
+    "id": 194,
+    "source_id": "7.02",
+    "category": "activation_6",
+    "category_label": "Активація 6.0",
+    "title": "Перші 200 пішли",
+    "text": "Отримайте згоду клієнта зробити першу покупку саме від 200 грн.",
+    "difficulty": "medium",
+    "reward": 20
+  },
+  {
+    "id": 195,
+    "source_id": "7.03",
+    "category": "activation_6",
+    "category_label": "Активація 6.0",
+    "title": "Сотня на мобільний",
+    "text": "Отримайте згоду клієнта поповнити мобільний телефон від 100 грн у застосунку.",
+    "difficulty": "medium",
+    "reward": 20
+  },
+  {
+    "id": 196,
+    "source_id": "7.04",
+    "category": "activation_6",
+    "category_label": "Активація 6.0",
+    "title": "Челендж? Прийнято!",
+    "text": "Отримайте згоду клієнта скористатися челенджем у застосунку.",
+    "difficulty": "medium",
+    "reward": 20
+  },
+  {
+    "id": 197,
+    "source_id": "7.05",
+    "category": "activation_6",
+    "category_label": "Активація 6.0",
+    "title": "6.0 з першої фрази",
+    "text": "Почніть розмову одразу з пропозиції оферу Активації 6.0.",
+    "difficulty": "medium",
+    "reward": 20
+  },
+  {
+    "id": 198,
+    "source_id": "7.06",
+    "category": "activation_6",
+    "category_label": "Активація 6.0",
+    "title": "Pay-підключення",
+    "text": "Отримайте згоду клієнта на офер Google Pay або Apple Pay.",
+    "difficulty": "medium",
+    "reward": 20
+  },
+  {
+    "id": 199,
+    "source_id": "7.07",
+    "category": "activation_6",
+    "category_label": "Активація 6.0",
+    "title": "Зайшли й поїхали",
+    "text": "Під час розмови клієнт має відкрити мобільний застосунок і успішно в нього увійти.",
+    "difficulty": "medium",
+    "reward": 20
+  },
+  {
+    "id": 200,
+    "source_id": "7.08",
+    "category": "activation_6",
+    "category_label": "Активація 6.0",
+    "title": "Пуші на старт",
+    "text": "Отримайте згоду клієнта увімкнути push-сповіщення в мобільному застосунку, якщо ця функція доступна.",
+    "difficulty": "medium",
+    "reward": 20
+  },
+  {
+    "id": 201,
+    "source_id": "7.09",
+    "category": "activation_6",
+    "category_label": "Активація 6.0",
+    "title": "Комуналка в смартфоні",
+    "text": "Отримайте згоду клієнта оплатити комунальні послуги в мобільному застосунку.",
+    "difficulty": "medium",
+    "reward": 20
+  },
+  {
+    "id": 202,
+    "source_id": "7.10",
+    "category": "activation_6",
+    "category_label": "Активація 6.0",
+    "title": "Сам собі переказав",
+    "text": "Отримайте згоду клієнта зробити переказ між власними рахунками в мобільному застосунку.",
+    "difficulty": "medium",
+    "reward": 20
+  },
+  {
+    "id": 203,
+    "source_id": "7.11",
+    "category": "activation_6",
+    "category_label": "Активація 6.0",
+    "title": "Картка-картка, полетіли",
+    "text": "Отримайте згоду клієнта зробити переказ на іншу картку через мобільний застосунок.",
+    "difficulty": "medium",
+    "reward": 20
+  },
+  {
+    "id": 204,
+    "source_id": "7.12",
+    "category": "activation_6",
+    "category_label": "Активація 6.0",
+    "title": "Гроші зайшли з іншого банку",
+    "text": "Отримайте згоду клієнта поповнити картку з картки іншого банку через застосунок, якщо така функція доступна.",
+    "difficulty": "medium",
+    "reward": 20
+  },
+  {
+    "id": 205,
+    "source_id": "7.13",
+    "category": "activation_6",
+    "category_label": "Активація 6.0",
+    "title": "Де були гроші?",
+    "text": "Покажіть клієнту, де в застосунку дивитися історію операцій або виписку, і отримайте згоду скористатися цією функцією.",
+    "difficulty": "medium",
+    "reward": 20
+  },
+  {
+    "id": 206,
+    "source_id": "7.14",
+    "category": "activation_6",
+    "category_label": "Активація 6.0",
+    "title": "Кешбек, виходь!",
+    "text": "Покажіть клієнту розділ кешбеку або бонусів і отримайте згоду активувати доступну пропозицію, якщо така функція є.",
+    "difficulty": "medium",
+    "reward": 20
+  },
+  {
+    "id": 207,
+    "source_id": "7.15",
+    "category": "activation_6",
+    "category_label": "Активація 6.0",
+    "title": "Картка живе в телефоні",
+    "text": "Покажіть клієнту, де в застосунку переглянути інформацію про власну картку, не передаючи реквізити третім особам.",
+    "difficulty": "medium",
+    "reward": 20
+  },
+  {
+    "id": 208,
+    "source_id": "7.16",
+    "category": "activation_6",
+    "category_label": "Активація 6.0",
+    "title": "Підтримка в кишені",
+    "text": "Покажіть клієнту, де в мобільному застосунку знайти підтримку або чат.",
+    "difficulty": "medium",
+    "reward": 20
+  },
+  {
+    "id": 209,
+    "source_id": "7.17",
+    "category": "activation_6",
+    "category_label": "Активація 6.0",
+    "title": "Ліміти під рукою",
+    "text": "Покажіть клієнту розділ керування лімітами картки й отримайте згоду перевірити доступні налаштування.",
+    "difficulty": "medium",
+    "reward": 20
+  },
+  {
+    "id": 210,
+    "source_id": "7.18",
+    "category": "activation_6",
+    "category_label": "Активація 6.0",
+    "title": "Шаблон, щоб не повторюватись",
+    "text": "Отримайте згоду клієнта створити шаблон для регулярної операції в мобільному застосунку.",
+    "difficulty": "medium",
+    "reward": 20
+  },
+  {
+    "id": 211,
+    "source_id": "7.19",
+    "category": "activation_6",
+    "category_label": "Активація 6.0",
+    "title": "Платіж без каси",
+    "text": "Отримайте згоду клієнта зробити будь-який доступний платіж у мобільному застосунку під час або після консультації.",
+    "difficulty": "medium",
+    "reward": 20
+  },
+  {
+    "id": 212,
+    "source_id": "7.20",
+    "category": "activation_6",
+    "category_label": "Активація 6.0",
+    "title": "Два фокуси за один контакт",
+    "text": "За один контакт отримайте згоду клієнта скористатися двома різними функціями мобільного застосунку.",
+    "difficulty": "medium",
+    "reward": 20
+  }
+]

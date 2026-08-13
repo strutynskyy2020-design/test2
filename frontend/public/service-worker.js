@@ -31,7 +31,7 @@
  * never be cached as index.html, otherwise browsers can render a giant broken
  * image element over the board.
  */
-const VERSION = "vpdk-v146";
+const VERSION = "vpdk-v152";
 const STATIC_CACHE = `${VERSION}-static`;
 const RUNTIME_CACHE = `${VERSION}-runtime`;
 

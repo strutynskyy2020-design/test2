@@ -13,6 +13,8 @@ import {
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { useDailyGoogleReports } from "@/hooks/useGoogleReports";
+import useOperatorReportTrend from "@/hooks/useOperatorReportTrend";
+import OperatorReportTrendChart from "@/components/OperatorReportTrendChart";
 import AvatarFrame from "@/components/AvatarFrame";
 
 const PERIODS = [
@@ -136,6 +138,16 @@ export default function DebitIssuances() {
   }, null) : null, [activeData]);
   const activeDirections = activeData ? DIRECTIONS.filter((direction) => Number(activeData[direction.key] || 0) > 0).length : 0;
   const fallback = String(user?.avatar_initials || user?.goals_login || user?.name || "?").slice(0, 2).toUpperCase();
+  const { records: trendRecords, loading: trendLoading } = useOperatorReportTrend({
+    reportType: "debit",
+    period,
+    segment: "overall",
+    segmentLabel: "Debit issuances",
+    snapshotVersion: report?.snapshot_version || report?.snapshot_updated_at || activeData?.updated_at || "",
+    snapshotUpdatedAt: activeData?.updated_at || report?.snapshot_updated_at || "",
+    metrics: activeData ? [{ key: "overall_issuances", label: "Загальна кількість видач", value: Number(activeData.overall || 0), unit: "count" }] : [],
+    enabled: Boolean(report && activeData),
+  });
 
   if (loading) return <div className="p-8 text-center text-sm text-zinc-500">Завантаження видач...</div>;
 
@@ -178,6 +190,17 @@ export default function DebitIssuances() {
               <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-[#00F0FF]/30 bg-[#00F0FF]/10 text-[#00F0FF]"><Banknote size={23} strokeWidth={2.8} /></div>
             </div>
           </section>
+
+          <OperatorReportTrendChart
+            title="Тренд дебетових видач"
+            subtitle={`Окремий графік зміни вашої кількості видач (${period === "month" ? "місяць" : "вчора"}).`}
+            color="#00F0FF"
+            metricKey="overall_issuances"
+            metricLabel="Загальна кількість видач"
+            unit="count"
+            records={trendRecords}
+            loading={trendLoading}
+          />
 
           <section className="grid grid-cols-2 gap-2.5">
             {DIRECTIONS.map((direction, index) => (

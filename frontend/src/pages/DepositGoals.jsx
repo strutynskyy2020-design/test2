@@ -14,6 +14,8 @@ import {
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { useDailyGoogleReports } from "@/hooks/useGoogleReports";
+import useOperatorReportTrend from "@/hooks/useOperatorReportTrend";
+import OperatorReportTrendChart from "@/components/OperatorReportTrendChart";
 
 const PERIODS = [
   { id: "month", label: "Місяць" },
@@ -110,6 +112,17 @@ export default function DepositGoals() {
   const active = metrics.find((row) => row.period === period) || null;
   const activeIssuances = issuances.find((row) => row.period === period) || null;
   const projectiveStatus = statusFor(active?.projective_rate, 100);
+  const projectiveValue = parseNumber(active?.projective_rate);
+  const { records: trendRecords, loading: trendLoading } = useOperatorReportTrend({
+    reportType: "deposit",
+    period,
+    segment: "overall",
+    segmentLabel: "Deposit",
+    snapshotVersion: report?.snapshot_version || report?.snapshot_updated_at || "",
+    snapshotUpdatedAt: active?.updated_at || report?.snapshot_updated_at || "",
+    metrics: projectiveValue === null ? [] : [{ key: "projective_rate", label: "Проекційний результат", value: projectiveValue, unit: "percent" }],
+    enabled: Boolean(report && active && projectiveValue !== null),
+  });
 
   const setPeriod = (value) => {
     const next = new URLSearchParams(searchParams);
@@ -166,6 +179,18 @@ export default function DepositGoals() {
               <div className="rounded-2xl border border-white/10 bg-black/25 p-3"><div className="text-[9px] font-black uppercase tracking-wider text-zinc-600">Фактичні видачі</div><div className="mt-1 text-xl font-black text-[#FFB800]">{fmtCount(active.issuances)}</div></div>
             </div>
           </section>
+
+          <OperatorReportTrendChart
+            title="Тренд депозитів"
+            subtitle={`Окремий графік вашого проекційного результату (${period === "month" ? "місяць" : "вчора"}).`}
+            color="#39FF14"
+            target={100}
+            metricKey="projective_rate"
+            metricLabel="Проекційний результат"
+            unit="percent"
+            records={trendRecords}
+            loading={trendLoading}
+          />
 
           <section className="grid grid-cols-2 gap-2.5">
             <MetricCard icon={BriefcaseBusiness} label="Оброблено" value={active.processed_tasks} overall={active.processed_tasks_overall} percent={false} color="#B78CFF" />

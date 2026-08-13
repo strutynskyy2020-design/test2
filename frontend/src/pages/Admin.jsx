@@ -274,6 +274,18 @@ const DAILY_DIFFICULTY = {
   hard: { label: "Важке", color: "#FF5C00" },
 };
 
+const DAILY_SALES_CATEGORIES = {
+  credits: { label: "Кредити", color: "#FFB800" },
+  credits_2: { label: "Кредити 2.0", color: "#FF5C00" },
+  search: { label: "Пошук", color: "#39FF14" },
+  debit_cards: { label: "Дебетки", color: "#00F0FF" },
+  deposits: { label: "Депозити", color: "#22C55E" },
+  card_activation: { label: "Активація карти", color: "#60A5FA" },
+  activation_6: { label: "Активація 6.0", color: "#B78CFF" },
+};
+
+const dailyTaskStyle = (task) => DAILY_SALES_CATEGORIES[task?.category] || DAILY_DIFFICULTY[task?.difficulty] || DAILY_DIFFICULTY.easy;
+
 const DailyTasksManager = ({ teamFilter }) => {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -406,14 +418,14 @@ const DailyTasksManager = ({ teamFilter }) => {
                 <div className="mt-0.5 text-[10px] font-black uppercase tracking-wider text-zinc-500">{operator.position || "Оператор"}</div>
               </div>
               <div className="rounded-2xl border border-[#FFB800]/30 bg-[#FFB800]/10 px-3 py-2 text-center">
-                <div className="font-display text-lg text-[#FFB800]">{operator.decided_count}/3</div>
+                <div className="font-display text-lg text-[#FFB800]">{operator.decided_count}/{operator.tasks.length}</div>
                 <div className="text-[8px] font-black uppercase tracking-wider text-zinc-500">Перевірено</div>
               </div>
             </div>
 
             <div className="divide-y divide-white/5">
               {operator.tasks.map((task) => {
-                const difficulty = DAILY_DIFFICULTY[task.difficulty] || DAILY_DIFFICULTY.easy;
+                const difficulty = dailyTaskStyle(task);
                 return (
                   <div key={task.id} className="p-4" data-testid={`admin-daily-task-${operator.id}-${task.id}`}>
                     <div className="min-w-0">
@@ -433,57 +445,64 @@ const DailyTasksManager = ({ teamFilter }) => {
         ))}
       </div>
 
-      {/* Laptop and desktop: wide operator table */}
+      {/* Laptop and desktop: dynamic task grid (3 activation tasks or 7 sales categories). */}
       <div className="admin-desktop-task-table overflow-hidden rounded-3xl border border-white/10 bg-[#121318] shadow-2xl shadow-black/30">
-        <div className="grid grid-cols-[230px_repeat(3,minmax(210px,1fr))_190px] items-center border-b border-white/10 bg-white/[0.025] px-5 py-4 text-[10px] font-black uppercase tracking-[0.14em] text-zinc-500">
+        <div className="grid grid-cols-[230px_minmax(0,1fr)_160px] items-center border-b border-white/10 bg-white/[0.025] px-5 py-4 text-[10px] font-black uppercase tracking-[0.14em] text-zinc-500">
           <div>Оператор</div>
-          <div>Легке завдання</div>
-          <div>Середнє завдання</div>
-          <div>Важке завдання</div>
+          <div className="px-4">Завдання</div>
           <div className="text-center">Статус</div>
         </div>
         <div className="divide-y divide-white/5">
-          {operators.map((operator) => (
-            <div key={operator.id} className="diamond-card-auto grid grid-cols-[230px_repeat(3,minmax(210px,1fr))_190px] items-stretch px-5 transition-colors hover:bg-white/[0.02]">
-              <div className="flex items-center gap-3 border-r border-white/5 py-5 pr-4">
-                <AvatarFrame
-                  src={operator.avatar_url}
-                  alt={operator.name}
-                  initials={operator.avatar_initials || "?"}
-                  color={operator.avatar_color || "#FFB800"}
-                  rarity={operator.avatar_rarity}
-                  size="compact"
-                />
-                <div className="min-w-0">
-                  <div className="truncate text-sm font-black text-white">{operator.name}</div>
-                  <div className="mt-1 text-[10px] font-bold uppercase tracking-wider text-zinc-500">{operator.position || "Оператор"}</div>
-                  <div className="mt-1 text-[10px] font-black text-[#FFB800]">{operator.decided_count}/3 перевірено</div>
-                </div>
-              </div>
-
-              {operator.tasks.map((task) => {
-                const difficulty = DAILY_DIFFICULTY[task.difficulty] || DAILY_DIFFICULTY.easy;
-                return (
-                  <div key={task.id} className="border-r border-white/5 p-4" data-testid={`admin-desktop-task-${operator.id}-${task.id}`}>
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="rounded-full px-2 py-0.5 text-[8px] font-black uppercase tracking-wider text-[#0A0A0A]" style={{ backgroundColor: difficulty.color }}>{difficulty.label}</span>
-                      <span className="text-[10px] font-black text-[#FFB800]">{task.reward} Point</span><span className="text-[10px] font-black text-[#B78CFF]">+{task.xp} XP</span>
-                    </div>
-                    <div className="mt-2 line-clamp-1 text-xs font-black text-white" title={task.title}>{task.title}</div>
-                    <div className="mt-1 line-clamp-2 min-h-9 text-[10px] font-semibold leading-relaxed text-zinc-500" title={task.text}>{task.text}</div>
-                    {taskActions(operator, task, true)}
+          {operators.map((operator) => {
+            const total = operator.tasks.length;
+            const complete = total > 0 && operator.decided_count === total;
+            return (
+              <div key={operator.id} className="diamond-card-auto grid grid-cols-[230px_minmax(0,1fr)_160px] items-stretch px-5 transition-colors hover:bg-white/[0.02]">
+                <div className="flex items-center gap-3 border-r border-white/5 py-5 pr-4">
+                  <AvatarFrame
+                    src={operator.avatar_url}
+                    alt={operator.name}
+                    initials={operator.avatar_initials || "?"}
+                    color={operator.avatar_color || "#FFB800"}
+                    rarity={operator.avatar_rarity}
+                    size="compact"
+                  />
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-black text-white">{operator.name}</div>
+                    <div className="mt-1 text-[10px] font-bold uppercase tracking-wider text-zinc-500">{operator.position || "Оператор"}</div>
+                    <div className="mt-1 text-[10px] font-black text-[#FFB800]">{operator.decided_count}/{total} перевірено</div>
                   </div>
-                );
-              })}
-
-              <div className="flex flex-col items-center justify-center gap-2 py-5 pl-4 text-center">
-                <div className={`rounded-full px-3 py-1.5 text-[10px] font-black uppercase tracking-wider ${operator.decided_count === 3 ? "bg-[#39FF14]/10 text-[#39FF14]" : operator.decided_count > 0 ? "bg-[#FFB800]/10 text-[#FFB800]" : "bg-white/5 text-zinc-500"}`}>
-                  {operator.decided_count === 3 ? "Готово" : operator.decided_count > 0 ? "В роботі" : "Не перевірено"}
                 </div>
-                <div className="font-display text-2xl text-white">{operator.decided_count}/3</div>
+
+                <div className="overflow-x-auto py-3">
+                  <div className="grid min-w-max gap-2 px-3" style={{ gridTemplateColumns: `repeat(${Math.max(total, 1)}, minmax(210px, 230px))` }}>
+                    {operator.tasks.map((task) => {
+                      const difficulty = dailyTaskStyle(task);
+                      return (
+                        <div key={task.id} className="rounded-2xl border border-white/5 bg-black/15 p-3" data-testid={`admin-desktop-task-${operator.id}-${task.id}`}>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="rounded-full px-2 py-0.5 text-[8px] font-black uppercase tracking-wider text-[#0A0A0A]" style={{ backgroundColor: difficulty.color }}>{difficulty.label}</span>
+                            <span className="text-[10px] font-black text-[#FFB800]">{task.reward} Point</span>
+                            <span className="text-[10px] font-black text-[#B78CFF]">+{task.xp} XP</span>
+                          </div>
+                          <div className="mt-2 line-clamp-1 text-xs font-black text-white" title={task.title}>{task.title}</div>
+                          <div className="mt-1 line-clamp-2 min-h-9 text-[10px] font-semibold leading-relaxed text-zinc-500" title={task.text}>{task.text}</div>
+                          {taskActions(operator, task, true)}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="flex flex-col items-center justify-center gap-2 border-l border-white/5 py-5 pl-4 text-center">
+                  <div className={`rounded-full px-3 py-1.5 text-[10px] font-black uppercase tracking-wider ${complete ? "bg-[#39FF14]/10 text-[#39FF14]" : operator.decided_count > 0 ? "bg-[#FFB800]/10 text-[#FFB800]" : "bg-white/5 text-zinc-500"}`}>
+                    {complete ? "Готово" : operator.decided_count > 0 ? "В роботі" : "Не перевірено"}
+                  </div>
+                  <div className="font-display text-2xl text-white">{operator.decided_count}/{total}</div>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 

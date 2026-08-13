@@ -14,6 +14,8 @@ import {
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { useDailyGoogleReports } from "@/hooks/useGoogleReports";
+import useOperatorReportTrend from "@/hooks/useOperatorReportTrend";
+import OperatorReportTrendChart from "@/components/OperatorReportTrendChart";
 import AvatarFrame from "@/components/AvatarFrame";
 import {
   currentTeamKey,
@@ -129,6 +131,17 @@ export default function ActivationCardsGoals() {
   const projection = projectionRow?.projective_rate;
   const status = valueStatus(projection, 100);
   const teamGivingValue = giving?.team_overall || teamGiving?.overall;
+  const trendProjection = parseReportNumber(projection);
+  const { records: trendRecords, loading: trendLoading } = useOperatorReportTrend({
+    reportType: "activation_cards",
+    period,
+    segment: "overall",
+    segmentLabel: "Activation Cards",
+    snapshotVersion: report?.snapshot_version || report?.activation_cards_updated_at || report?.snapshot_updated_at || "",
+    snapshotUpdatedAt: active?.updated_at || report?.activation_cards_updated_at || report?.snapshot_updated_at || "",
+    metrics: trendProjection === null ? [] : [{ key: "projective_rate", label: "Проекційний результат", value: trendProjection, unit: "percent" }],
+    enabled: Boolean(report && trendProjection !== null),
+  });
 
   const setPeriod = (value) => {
     const next = new URLSearchParams(searchParams);
@@ -184,6 +197,18 @@ export default function ActivationCardsGoals() {
               <div className="rounded-2xl border border-white/10 bg-black/25 p-3"><div className="text-[9px] font-black uppercase tracking-wider text-zinc-600">Видачі карток</div><div className="mt-1 text-xl font-black text-[#FFB800]">{formatCount(giving?.overall, "—")}</div><div className="mt-0.5 text-[9px] font-bold text-zinc-600">команда {formatCount(teamGivingValue, "—")}</div></div>
             </div>
           </section>
+
+          <OperatorReportTrendChart
+            title="Тренд активації карток"
+            subtitle={`Окремий графік зміни вашого проекційного результату (${period === "month" ? "місяць" : "вчора"}).`}
+            color="#00F0FF"
+            target={100}
+            metricKey="projective_rate"
+            metricLabel="Проекційний результат"
+            unit="percent"
+            records={trendRecords}
+            loading={trendLoading}
+          />
 
           {active ? <section className="grid grid-cols-2 gap-2.5">
             {METRICS.map((metric, index) => <div key={metric.key} className={index === METRICS.length - 1 ? "col-span-2" : ""}><MetricCard

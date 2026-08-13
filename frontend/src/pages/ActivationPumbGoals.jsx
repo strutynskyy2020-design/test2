@@ -15,6 +15,8 @@ import {
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { useDailyGoogleReports } from "@/hooks/useGoogleReports";
+import useOperatorReportTrend from "@/hooks/useOperatorReportTrend";
+import OperatorReportTrendChart from "@/components/OperatorReportTrendChart";
 import AvatarFrame from "@/components/AvatarFrame";
 import {
   currentTeamKey,
@@ -133,6 +135,17 @@ export default function ActivationPumbGoals() {
   const teamProjection = active?.projective_rate_team || active?.team_summary?.projective_rate || teamMetrics?.projective_rate;
   const teamGivingValue = giving?.team_overall || teamGiving?.overall;
   const status = valueStatus(projection, 100);
+  const trendProjection = parseReportNumber(projection);
+  const { records: trendRecords, loading: trendLoading } = useOperatorReportTrend({
+    reportType: "activation_pumb",
+    period,
+    segment: "overall",
+    segmentLabel: "PUMB Online",
+    snapshotVersion: report?.snapshot_version || report?.activation_pumb_updated_at || report?.snapshot_updated_at || "",
+    snapshotUpdatedAt: active?.updated_at || report?.activation_pumb_updated_at || report?.snapshot_updated_at || "",
+    metrics: trendProjection === null ? [] : [{ key: "projective_rate", label: "Проекційний результат", value: trendProjection, unit: "percent" }],
+    enabled: Boolean(report && trendProjection !== null),
+  });
 
   const setPeriod = (value) => {
     const next = new URLSearchParams(searchParams);
@@ -194,6 +207,18 @@ export default function ActivationPumbGoals() {
               <div className="rounded-2xl border border-white/10 bg-black/25 p-3"><div className="text-[9px] font-black uppercase tracking-wider text-zinc-600">Видачі</div><div className="mt-1 text-xl font-black text-[#FFB800]">{formatCount(giving?.overall, "—")}</div><div className="mt-0.5 text-[9px] font-bold text-zinc-600">команда {formatCount(teamGivingValue, "—")}</div></div>
             </div>
           </section>
+
+          <OperatorReportTrendChart
+            title="Тренд ПУМБ Online"
+            subtitle={`Окремий графік зміни вашого проекційного результату (${period === "month" ? "місяць" : "вчора"}).`}
+            color="#39FF14"
+            target={100}
+            metricKey="projective_rate"
+            metricLabel="Проекційний результат"
+            unit="percent"
+            records={trendRecords}
+            loading={trendLoading}
+          />
 
           {active ? <section className="grid grid-cols-2 gap-2.5">
             {METRICS.map((metric) => <MetricCard
