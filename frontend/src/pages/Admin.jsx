@@ -16,7 +16,7 @@ const TABS = [
   { id: "analytics", label: "Огляд", icon: BarChart3 },
   { id: "ai-team", label: "AI команда", icon: BrainCircuit },
   { id: "daily-tasks", label: "Завдання дня", icon: CalendarDays },
-  { id: "goals", label: "Цілі", icon: Target },
+  { id: "goals", label: "Проекції", icon: Target },
   { id: "moderation", label: "Модерація", icon: UserCheck },
   { id: "applications", label: "Заявки", icon: Inbox },
   { id: "users", label: "Юзери", icon: Users },
@@ -2535,18 +2535,8 @@ const TaskEditor = ({ task, onClose, onSaved }) => {
 };
 
 
-// ─────────────── Personal goals manager ───────────────
-const EMPTY_METRIC = { current: 0, target: 100, mode: "reach" };
-const normalizeGoalForm = (g = {}) => ({
-  credit: { ...EMPTY_METRIC, ...(g.credit || {}) },
-  debit: { ...EMPTY_METRIC, ...(g.debit || {}) },
-  deposit: { ...EMPTY_METRIC, ...(g.deposit || {}) },
-  monthly_bonus_current: Number(g.monthly_bonus_current || 0),
-  monthly_bonus_target: Number(g.monthly_bonus_target || 0),
-  note: g.note || "",
-});
-
-const parseGoogleGoalNumber = (value) => {
+// ─────────────── Read-only operator projections ───────────────
+const parseProjectionNumber = (value) => {
   if (value === null || value === undefined || value === "") return 0;
   if (typeof value === "number") return Number.isFinite(value) ? value : 0;
   const normalized = String(value)
@@ -2558,51 +2548,30 @@ const parseGoogleGoalNumber = (value) => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
-const googleRowToGoalForm = (row = {}, fallback = {}) => normalizeGoalForm({
-  ...fallback,
-  credit: {
-    current: parseGoogleGoalNumber(row.credit_actual ?? row.credit_current),
-    target: parseGoogleGoalNumber(row.credit_target),
-    mode: row.credit_mode || fallback?.credit?.mode || "reach",
-  },
-  debit: {
-    current: parseGoogleGoalNumber(row.debit_actual ?? row.debit_current),
-    target: parseGoogleGoalNumber(row.debit_target),
-    mode: row.debit_mode || fallback?.debit?.mode || "reach",
-  },
-  deposit: {
-    current: parseGoogleGoalNumber(row.deposit_actual ?? row.deposit_current),
-    target: parseGoogleGoalNumber(row.deposit_target),
-    mode: row.deposit_mode || fallback?.deposit?.mode || "reach",
-  },
-  monthly_bonus_current: parseGoogleGoalNumber(row.monthly_bonus_actual ?? row.monthly_bonus_current),
-  monthly_bonus_target: parseGoogleGoalNumber(row.monthly_bonus_target),
-  note: row.note ?? fallback?.note ?? "",
-});
+const projectionMetric = (row = {}, name) => {
+  const current = parseProjectionNumber(row[`${name}_actual`] ?? row[`${name}_current`]);
+  return { current, target: 100, complete: current >= 100 };
+};
 
-const GoalMetricEditor = ({ label, value, onChange, color }) => (
+const ProjectionMetricView = ({ label, value, color }) => (
   <div className="rounded-2xl border border-white/10 bg-black/25 p-3">
-    <div className="mb-2 text-[10px] font-black uppercase tracking-widest" style={{ color }}>{label}</div>
-    <div className="grid grid-cols-2 gap-2">
-      <label className="text-[9px] font-black uppercase text-zinc-600">Поточний %
-        <input type="number" min="0" step="0.1" value={value.current} onChange={(e) => onChange({ ...value, current: Number(e.target.value) })} className="mt-1 h-10 w-full rounded-xl border border-white/10 bg-[#121318] px-2 text-white outline-none focus:border-[#FFB800]" />
-      </label>
-      <label className="text-[9px] font-black uppercase text-zinc-600">Ціль %
-        <input type="number" min="0" step="0.1" value={value.target} onChange={(e) => onChange({ ...value, target: Number(e.target.value) })} className="mt-1 h-10 w-full rounded-xl border border-white/10 bg-[#121318] px-2 text-white outline-none focus:border-[#FFB800]" />
-      </label>
+    <div className="text-[10px] font-black uppercase tracking-widest" style={{ color }}>{label}</div>
+    <div className="mt-3 flex items-end justify-between gap-3">
+      <div className="font-display text-2xl text-white">{Number(value?.current || 0)}%</div>
+      <div className="text-[10px] font-black uppercase text-zinc-500">ціль 100%</div>
     </div>
-    <select value={value.mode} onChange={(e) => onChange({ ...value, mode: e.target.value })} className="mt-2 h-10 w-full rounded-xl border border-white/10 bg-[#121318] px-2 text-xs font-black text-zinc-300 outline-none focus:border-[#FFB800]">
-      <option value="reach">Підняти до цілі</option>
-      <option value="maintain">Утримати не нижче</option>
-    </select>
+    <div className="mt-2 h-2 overflow-hidden rounded-full bg-black/45">
+      <div
+        className="h-full rounded-full"
+        style={{ width: `${Math.min(100, Math.max(0, Number(value?.current || 0)))}%`, background: color }}
+      />
+    </div>
   </div>
 );
 
 const GoalsManager = ({ teamFilter }) => {
   const [items, setItems] = useState([]);
-  const [forms, setForms] = useState({});
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState({});
   const [search, setSearch] = useState("");
   const [settings, setSettings] = useState({ allow_cross_team_reports: false });
   const [settingsSaving, setSettingsSaving] = useState(false);
@@ -2620,106 +2589,62 @@ const GoalsManager = ({ teamFilter }) => {
         if (!response.ok) throw new Error(data?.error || "Не вдалося завантажити налаштування");
         return data;
       });
-      const [dashboardResult, adminUsersResult, settingsResult] = await Promise.allSettled([
-        api.get(withTeamQuery("/admin/goals-dashboard", teamFilter)),
+
+      const projectionsRequest = fetch("/.netlify/functions/google-goals-admin", {
+        method: "GET",
+        headers: { accept: "application/json", authorization: `Bearer ${token}` },
+        cache: "no-store",
+      }).then(async (response) => {
+        const data = await response.json().catch(() => null);
+        if (!response.ok) throw new Error(data?.error || "Не вдалося завантажити проекції");
+        return data;
+      });
+
+      const [usersResponse, settingsData, projectionData] = await Promise.all([
         api.get("/admin/users"),
         settingsRequest,
+        projectionsRequest,
       ]);
-      const adminUsers = adminUsersResult.status === "fulfilled" && Array.isArray(adminUsersResult.value?.data)
-        ? adminUsersResult.value.data
-        : [];
-      const dashboardUsers = dashboardResult.status === "fulfilled" && Array.isArray(dashboardResult.value?.data)
-        ? dashboardResult.value.data
-        : filterRowsByTeam(adminUsers.filter((user) => user.role !== "admin"), teamFilter).map((user) => ({ ...user, goals: normalizeGoalForm() }));
-      const settingsData = settingsResult.status === "fulfilled"
-        ? settingsResult.value
-        : { allow_cross_team_reports: false, compatibility_mode: true };
+
       setSettings(settingsData || { allow_cross_team_reports: false });
-      const adminUsersById = Object.fromEntries(
-        adminUsers.map((user) => [user.id, user])
+      const users = filterRowsByTeam(
+        (Array.isArray(usersResponse?.data) ? usersResponse.data : []).filter((user) => user.role !== "admin"),
+        teamFilter
       );
-      const users = dashboardUsers.map((user) => {
-        const fullUser = adminUsersById[user.id] || {};
+      const byLogin = projectionData?.goals_by_login || {};
+
+      setItems(users.map((user) => {
+        const goalsLogin = String(user.goals_login || user.goalsLogin || user.login2 || "").trim().toLowerCase();
+        const row = goalsLogin ? byLogin[goalsLogin] : null;
+        const isActivation = String(user.report_profile || "").trim().toLowerCase() === "activation";
+        const projections = isActivation
+          ? {
+              pumb_online: projectionMetric(row, "pumb_online"),
+              cards: projectionMetric(row, "cards"),
+            }
+          : {
+              credit: projectionMetric(row, "credit"),
+              debit: projectionMetric(row, "debit"),
+              deposit: projectionMetric(row, "deposit"),
+            };
+        const values = Object.values(projections);
         return {
-          ...fullUser,
           ...user,
-          goals_login:
-            user.goals_login ||
-            fullUser.goals_login ||
-            fullUser.goalsLogin ||
-            fullUser.login2 ||
-            null,
+          goals_login: goalsLogin,
+          report_profile: isActivation ? "activation" : "sales",
+          projections,
+          projection_found: Boolean(row),
+          projection_complete: Boolean(row) && values.length > 0 && values.every((metric) => metric.complete),
         };
-      });
-
-      const googleResponse = await fetch("/.netlify/functions/google-goals-admin", {
-        method: "GET",
-        headers: {
-          accept: "application/json",
-          authorization: `Bearer ${token}`,
-        },
-        cache: "no-store",
-      });
-      const googleData = await googleResponse.json().catch(() => null);
-
-      if (!googleResponse.ok) {
-        throw new Error(googleData?.error || "Не вдалося завантажити Google-цілі");
-      }
-
-      const byLogin = googleData?.goals_by_login || {};
-      const merged = users.map((u) => {
-        const key = String(u.goals_login || "").trim().toLowerCase();
-        const googleRow = key ? byLogin[key] : null;
-        const goals = googleRow ? googleRowToGoalForm(googleRow, u.goals) : normalizeGoalForm(u.goals);
-        return { ...u, goals, google_synced: Boolean(googleRow) };
-      });
-
-      setItems(merged);
-      setForms(Object.fromEntries(merged.map((u) => [u.id, normalizeGoalForm(u.goals)])));
+      }));
     } catch (e) {
-      toast.error(extractError(e, e?.message || "Не вдалося завантажити цілі"));
+      toast.error(extractError(e, e?.message || "Не вдалося завантажити проекції"));
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
+
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [teamFilter]);
-
-  const save = async (u) => {
-    setSaving((v) => ({ ...v, [u.id]: true }));
-    try {
-      const goalsLogin = String(u.goals_login || "").trim().toLowerCase();
-      if (!goalsLogin) throw new Error(`Для ${u.name} не задано ключ Google Goals`);
-
-      const token = getToken();
-      const googleResponse = await fetch("/.netlify/functions/google-goals-admin", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          accept: "application/json",
-          authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ goals_login: goalsLogin, goals: forms[u.id] }),
-        cache: "no-store",
-      });
-      const googleData = await googleResponse.json().catch(() => null);
-      if (!googleResponse.ok) {
-        throw new Error(googleData?.error || "Не вдалося оновити Google Таблицю");
-      }
-
-      const { data } = await api.put(`/admin/goals/${u.id}`, forms[u.id]);
-      const refreshed = googleData?.goals ? googleRowToGoalForm(googleData.goals, data) : normalizeGoalForm(data);
-      setItems((rows) => rows.map((row) => row.id === u.id ? { ...row, goals: refreshed, google_synced: true } : row));
-      setForms((all) => ({ ...all, [u.id]: refreshed }));
-      const publishHint = googleData?.reports_refresh_required
-        ? ' Натисніть у Google Таблиці кнопку "Оновити звіти", щоб опублікувати зміни на сайті.'
-        : "";
-      if (data.weekly_reward_just_awarded) toast.success(`${u.name}: Google оновлено, +200 Point та +100 XP.${publishHint}`);
-      else if (data.monthly_reward_just_awarded) toast.success(`${u.name}: Google оновлено, +1000 Point та +300 XP.${publishHint}`);
-      else toast.success(`Цілі ${u.name} записано в Google.${publishHint}`);
-    } catch (e) {
-      toast.error(extractError(e, e?.message || "Не вдалося зберегти цілі"));
-    }
-    setSaving((v) => ({ ...v, [u.id]: false }));
-  };
 
   const toggleCrossTeamReports = async () => {
     const nextValue = !settings.allow_cross_team_reports;
@@ -2746,9 +2671,22 @@ const GoalsManager = ({ teamFilter }) => {
     }
   };
 
-  const visible = items.filter((u) => u.name.toLowerCase().includes(search.toLowerCase()));
-  if (loading) return <div className="py-10 text-center text-sm text-zinc-500">Завантаження цілей...</div>;
+  const visible = items.filter((user) => String(user.name || "").toLowerCase().includes(search.toLowerCase()));
+  const withoutData = items.filter((item) => !item.projection_found).length;
+  const completed = items.filter((item) => item.projection_complete).length;
+
+  if (loading) return <div className="py-10 text-center text-sm text-zinc-500">Завантаження проекцій...</div>;
   return <div className="space-y-4" data-testid="admin-goals-view">
+    <section className="rounded-3xl border border-[#B78CFF]/25 bg-[#B78CFF]/[.06] p-4">
+      <div className="flex items-start gap-3">
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-[#B78CFF]/30 bg-[#B78CFF]/10 text-[#B78CFF]"><Target size={20} /></div>
+        <div>
+          <div className="text-sm font-black text-white">Проекції операторів</div>
+          <div className="mt-1 text-[10px] leading-relaxed text-zinc-500">Дані беруться автоматично з опублікованого звіту. Ціль кожного проекційного показника фіксована на 100%. Ручне редагування цілей вимкнено.</div>
+        </div>
+      </div>
+    </section>
+
     <section className="rounded-3xl border border-[#00F0FF]/25 bg-[#00F0FF]/[.06] p-4">
       <div className="flex items-center gap-3">
         <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-[#00F0FF]/30 bg-[#00F0FF]/10 text-[#00F0FF]"><UsersRound size={20} /></div>
@@ -2761,34 +2699,43 @@ const GoalsManager = ({ teamFilter }) => {
         </button>
       </div>
     </section>
-    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+
+    <div className="grid grid-cols-3 gap-3">
       <StatBox label="Операторів" value={items.length} />
-      <StatBox label="Тиждень виконано" value={items.filter(x => x.goals?.weekly_complete).length} accent="#39FF14" />
-      <StatBox label="Місяць виконано" value={items.filter(x => x.goals?.monthly_complete).length} accent="#FFB800" />
-      <StatBox label="Потребують уваги" value={items.filter(x => !x.goals?.weekly_complete).length} accent="#FF5C00" />
+      <StatBox label="Усі ≥100%" value={completed} accent="#39FF14" />
+      <StatBox label="Без проекції" value={withoutData} accent="#FF5C00" />
     </div>
+
     <div className="relative"><Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-600"/><input value={search} onChange={(e)=>setSearch(e.target.value)} placeholder="Пошук оператора" className="h-12 w-full rounded-2xl border border-white/10 bg-[#1A1A1E] pl-10 pr-3 text-white outline-none focus:border-[#FFB800]"/></div>
+
     <div className="space-y-4">
-      {visible.map((u) => {
-        const f = forms[u.id] || normalizeGoalForm();
-        return <section key={u.id} className="diamond-card-auto rounded-3xl border border-white/10 bg-[#1A1A1E] p-4 lg:p-5">
+      {visible.map((user) => {
+        const isActivation = user.report_profile === "activation";
+        const metrics = isActivation
+          ? [
+              ["ПУМБ Online", user.projections.pumb_online, "#39FF14"],
+              ["Активація карток", user.projections.cards, "#00F0FF"],
+            ]
+          : [
+              ["Кредитний", user.projections.credit, "#FFB800"],
+              ["Дебетний", user.projections.debit, "#00F0FF"],
+              ["Депозитний", user.projections.deposit, "#39FF14"],
+            ];
+        return <section key={user.id} className="diamond-card-auto rounded-3xl border border-white/10 bg-[#1A1A1E] p-4 lg:p-5">
           <div className="mb-4 flex items-center gap-3">
-            <AvatarFrame src={u.avatar_url} alt={u.name} initials={u.avatar_initials || "?"} color={u.avatar_color || "#FFB800"} rarity={u.avatar_rarity} size="compact" />
-            <div className="min-w-0 flex-1"><div className="truncate font-black text-white">{u.name}</div><div className="truncate text-xs text-zinc-500">{u.position || u.department || "Оператор"}</div><div className={`mt-1 text-[9px] font-black uppercase ${u.google_synced ? "text-[#39FF14]" : "text-zinc-600"}`}>{u.goals_login ? (u.google_synced ? `Google: ${u.goals_login}` : `Ключ: ${u.goals_login} • рядок не знайдено`) : "Google-ключ не задано"}</div></div>
-            <div className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase ${u.goals?.weekly_complete ? "bg-[#39FF14]/15 text-[#39FF14]" : "bg-[#FFB800]/10 text-[#FFB800]"}`}>{u.goals?.weekly_complete ? "3/3" : `${[u.goals?.credit,u.goals?.debit,u.goals?.deposit].filter(x=>x?.complete).length}/3`}</div>
+            <AvatarFrame src={user.avatar_url} alt={user.name} initials={user.avatar_initials || "?"} color={user.avatar_color || "#FFB800"} rarity={user.avatar_rarity} size="compact" />
+            <div className="min-w-0 flex-1">
+              <div className="truncate font-black text-white">{user.name}</div>
+              <div className="truncate text-xs text-zinc-500">{user.position || user.department || "Оператор"}</div>
+              <div className={`mt-1 text-[9px] font-black uppercase ${user.projection_found ? "text-[#39FF14]" : "text-zinc-600"}`}>
+                {user.goals_login ? (user.projection_found ? `Звіт: ${user.goals_login}` : `Логін: ${user.goals_login} • проекцію не знайдено`) : "Логін звіту не задано"}
+              </div>
+            </div>
+            <div className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase ${user.projection_complete ? "bg-[#39FF14]/15 text-[#39FF14]" : "bg-white/5 text-zinc-500"}`}>{user.projection_complete ? "100%+" : "Проекція"}</div>
           </div>
-          <div className="grid gap-3 lg:grid-cols-3">
-            <GoalMetricEditor label="Кредитний" value={f.credit} color="#FFB800" onChange={(v)=>setForms(all=>({...all,[u.id]:{...f,credit:v}}))}/>
-            <GoalMetricEditor label="Дебетний" value={f.debit} color="#00F0FF" onChange={(v)=>setForms(all=>({...all,[u.id]:{...f,debit:v}}))}/>
-            <GoalMetricEditor label="Депозитний" value={f.deposit} color="#39FF14" onChange={(v)=>setForms(all=>({...all,[u.id]:{...f,deposit:v}}))}/>
+          <div className={`grid gap-3 ${isActivation ? "lg:grid-cols-2" : "lg:grid-cols-3"}`}>
+            {metrics.map(([label, value, color]) => <ProjectionMetricView key={label} label={label} value={value} color={color} />)}
           </div>
-          <div className="mt-3 grid gap-3 lg:grid-cols-[1fr_1fr_2fr_auto]">
-            <label className="text-[9px] font-black uppercase text-zinc-600">Поточний бонус, грн<input type="number" min="0" value={f.monthly_bonus_current} onChange={(e)=>setForms(all=>({...all,[u.id]:{...f,monthly_bonus_current:Number(e.target.value)}}))} className="mt-1 h-11 w-full rounded-xl border border-white/10 bg-[#121318] px-3 text-white outline-none focus:border-[#FFB800]"/></label>
-            <label className="text-[9px] font-black uppercase text-zinc-600">Ціль бонусу, грн<input type="number" min="0" value={f.monthly_bonus_target} onChange={(e)=>setForms(all=>({...all,[u.id]:{...f,monthly_bonus_target:Number(e.target.value)}}))} className="mt-1 h-11 w-full rounded-xl border border-white/10 bg-[#121318] px-3 text-white outline-none focus:border-[#FFB800]"/></label>
-            <label className="text-[9px] font-black uppercase text-zinc-600">Коментар<input value={f.note} onChange={(e)=>setForms(all=>({...all,[u.id]:{...f,note:e.target.value}}))} placeholder="Наприклад: фокус на депозитах" className="mt-1 h-11 w-full rounded-xl border border-white/10 bg-[#121318] px-3 text-white outline-none focus:border-[#FFB800]"/></label>
-            <button onClick={()=>save(u)} disabled={saving[u.id]} className="arcade-btn mt-auto flex h-11 items-center justify-center gap-2 border-[#7a5900] bg-[#FFB800] px-5 text-xs font-black uppercase text-[#0A0A0A] disabled:opacity-50"><Save size={15}/>{saving[u.id] ? "..." : "Зберегти"}</button>
-          </div>
-          <div className="mt-3 flex flex-wrap gap-2 text-[10px] font-black uppercase"><span className="rounded-full bg-[#B78CFF]/10 px-2 py-1 text-[#B78CFF]">3 тижневі цілі = +200 Point • +100 XP</span><span className="rounded-full bg-[#FFB800]/10 px-2 py-1 text-[#FFB800]">Місячний бонус = +1000 Point • +300 XP</span></div>
         </section>;
       })}
     </div>

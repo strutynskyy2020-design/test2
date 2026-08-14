@@ -99,14 +99,14 @@ const projectionFromPersonalMetrics = (report) => {
   };
 };
 
-const projectionFromGoals = (report) => {
+const projectionFromCachedProjection = (report) => {
   const rawValue = firstValue(report?.goals, ["deposit_actual", "deposit_current"]);
   const current = parseNullableSheetNumber(rawValue);
   if (current === null) return null;
   return {
     current,
     rawValue,
-    source: "goals_sheet",
+    source: "report_projection_payload",
     row: report?.goals || null,
   };
 };
@@ -115,7 +115,7 @@ const resolveDepositProjectionCurrent = (report = {}, user = {}) => {
   const candidates = reportLoginCandidates(report, user);
   return projectionFromLeaderboard(report, candidates)
     || projectionFromPersonalMetrics(report)
-    || projectionFromGoals(report)
+    || projectionFromCachedProjection(report)
     || { current: null, rawValue: null, source: "missing", row: null };
 };
 

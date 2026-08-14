@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Target, CreditCard, Landmark, WalletCards, Coins, Trophy, CalendarDays, ChevronRight, Eye, MessageSquareText, X, CheckCircle2, Circle, Save, BarChart3, UsersRound, ShieldCheck, Smartphone } from "lucide-react";
+import { Target, CreditCard, Landmark, WalletCards, ChevronRight, Eye, MessageSquareText, X, CheckCircle2, Circle, Save, BarChart3, UsersRound, ShieldCheck, Smartphone } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { useDailyGoogleReports } from "@/hooks/useGoogleReports";
 import { useNavigate } from "react-router-dom";
@@ -47,7 +47,7 @@ function MetricCard({ name, metric, onOpen }) {
   const Icon = meta.icon;
   const complete = Boolean(metric?.complete);
   const current = Number(metric?.current || 0);
-  const target = Number(metric?.target || 0);
+  const target = 100;
   const Wrapper = onOpen ? "button" : "section";
   return (
     <Wrapper
@@ -61,18 +61,18 @@ function MetricCard({ name, metric, onOpen }) {
         </div>
         <div className="min-w-0 flex-1">
           <div className="text-sm font-black text-white">{meta.label}</div>
-          <div className="text-xs text-zinc-500">{metric?.mode === "maintain" ? `Утримати не нижче ${target}%` : `Підняти до ${target}%`}</div>
+          <div className="text-xs text-zinc-500">Проекція оператора</div>
         </div>
         <div className="flex items-center gap-1.5">
           <div className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase ${complete ? "bg-[#39FF14]/15 text-[#39FF14]" : "bg-white/5 text-zinc-400"}`}>
-            {complete ? "Виконано" : "В процесі"}
+            {complete ? "100%+" : "<100%"}
           </div>
           {onOpen && <ChevronRight size={17} className="text-zinc-600" />}
         </div>
       </div>
       <div className="mt-4 flex items-end justify-between">
         <div className="font-display text-3xl" style={{ color: meta.color }}>{current}%</div>
-        <div className="text-xs font-black text-zinc-500">ціль {target}%</div>
+        <div className="text-xs font-black text-zinc-500">ціль 100%</div>
       </div>
       <div className="mt-2 h-3 overflow-hidden rounded-full bg-black/45">
         <div className="h-full rounded-full transition-all" style={{ width: `${pct(current, target)}%`, background: meta.color, boxShadow: `0 0 14px ${meta.color}55` }} />
@@ -178,9 +178,6 @@ export default function Goals() {
             report_profile: "activation",
             pumb_online: { current: 108.7, target: 100, mode: "reach", complete: true },
             cards: { current: 103.3, target: 100, mode: "reach", complete: true },
-            monthly_bonus_current: 14250,
-            monthly_bonus_target: 18000,
-            note: "",
           },
           emptyMessage: "",
         };
@@ -189,11 +186,8 @@ export default function Goals() {
         data: {
           report_profile: "sales",
           credit: { current: 92, target: 100, mode: "reach", complete: false },
-          debit: { current: 111, target: 110, mode: "maintain", complete: true },
-          deposit: { current: 86, target: 95, mode: "reach", complete: false },
-          monthly_bonus_current: 14250,
-          monthly_bonus_target: 18000,
-          note: "",
+          debit: { current: 111, target: 100, mode: "reach", complete: true },
+          deposit: { current: 86, target: 100, mode: "reach", complete: false },
         },
         emptyMessage: "",
       };
@@ -202,7 +196,7 @@ export default function Goals() {
     if (!report) {
       return {
         data: null,
-        emptyMessage: error ? "Не вдалося завантажити цілі з опублікованого звіту." : "",
+        emptyMessage: error ? "Не вдалося завантажити проекції з опублікованого звіту." : "",
       };
     }
 
@@ -213,24 +207,20 @@ export default function Goals() {
         : report.reason === "reports_not_refreshed"
           ? 'У Google Таблиці ще не натискали кнопку "Оновити звіти".'
           : reportProfile === "activation"
-            ? 'Для вашого ключа ще немає даних на вкладках "Activation Pumb Online" та "Activation Cards".'
-            : "Для вашого ключа ще не додано рядок із цілями в Google Таблиці.";
+            ? 'Для вашого ключа ще немає даних на вкладках "Activation Deb" та "Activation CC".'
+            : "Для вашого ключа ще немає проекційних даних у звітних вкладках.";
       return { data: null, emptyMessage: message };
     }
 
     const metric = (name) => {
       const current = parseSheetNumber(firstDefined(goals, [`${name}_actual`, `${name}_current`]));
-      const target = parseSheetNumber(firstDefined(goals, [`${name}_target`]));
-      const modeValue = goals[`${name}_mode`] === "maintain" ? "maintain" : "reach";
-      return { current, target, mode: modeValue, complete: target > 0 && current >= target };
+      const target = 100;
+      return { current, target, mode: "reach", complete: current >= target };
     };
 
     const base = {
       report_profile: reportProfile,
-      monthly_bonus_current: parseSheetNumber(firstDefined(goals, ["monthly_bonus_actual", "monthly_bonus_current"])),
-      monthly_bonus_target: parseSheetNumber(firstDefined(goals, ["monthly_bonus_target"])),
-      note: goals.note || "",
-      updated_at: report.snapshot_updated_at || goals.updated_at || "",
+      updated_at: report.snapshot_updated_at || "",
     };
 
     if (reportProfile === "activation") {
@@ -250,7 +240,7 @@ export default function Goals() {
         ...result,
         current,
         complete: result.target > 0 && current >= result.target,
-        source: name === "deposit" ? depositProjection.source : "goals_sheet",
+        source: name === "deposit" ? depositProjection.source : "report_tabs",
       };
     };
 
@@ -262,9 +252,7 @@ export default function Goals() {
 
   const loading = mode !== "mock" && reportsLoading && !report;
   const metricNames = data?.report_profile === "activation" ? ["pumb_online", "cards"] : ["credit", "debit", "deposit"];
-  const weeklyTotal = metricNames.length;
-  const weeklyDone = data ? metricNames.filter((name) => data[name]?.complete).length : 0;
-  if (loading) return <div className="p-8 text-center text-sm text-zinc-500">Завантаження цілей...</div>;
+  if (loading) return <div className="p-8 text-center text-sm text-zinc-500">Завантаження проекцій...</div>;
   if (isPrivilegedViewer && report?.privileged_overview) return (
     <div className="space-y-4 px-5 pb-8 pt-2" data-testid="admin-goals-overview">
       <section className="rounded-3xl border border-[#B78CFF]/35 bg-gradient-to-br from-[#B78CFF]/15 to-[#1A1A1E] p-5">
@@ -304,20 +292,17 @@ export default function Goals() {
     <div className="px-5 pt-6">
       <div className="rounded-3xl border border-white/10 bg-[#1A1A1E] p-6 text-center">
         <Target size={34} color="#B78CFF" className="mx-auto" />
-        <div className="mt-3 font-display text-xl text-white">ЦІЛІ ЩЕ НЕ ДОДАНО</div>
-        <p className="mt-2 text-sm text-zinc-500">{emptyMessage || "Керівник ще не додав ваші цілі."}</p>
+        <div className="mt-3 font-display text-xl text-white">ПРОЕКЦІЇ ЩЕ НЕ ДОСТУПНІ</div>
+        <p className="mt-2 text-sm text-zinc-500">{emptyMessage || "Для вашого логіна ще немає проекційних даних."}</p>
       </div>
     </div>
   );
-  const bonusCurrent = Number(data.monthly_bonus_current || 0);
-  const bonusTarget = Number(data.monthly_bonus_target || 0);
-
   return (
     <div className="space-y-5 px-5 pb-8 pt-2" data-testid="goals-page">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <div className="text-[10px] font-black uppercase tracking-[0.25em] text-zinc-500">Персональний прогрес</div>
-          <h1 className="mt-1 flex items-center gap-2 font-display text-3xl text-white"><Target size={28} strokeWidth={3} color="#B78CFF" />Мої цілі</h1>
+          <div className="text-[10px] font-black uppercase tracking-[0.25em] text-zinc-500">Персональний результат</div>
+          <h1 className="mt-1 flex items-center gap-2 font-display text-3xl text-white"><Target size={28} strokeWidth={3} color="#B78CFF" />Мої проекції</h1>
           {access?.current_team?.name && <div className="mt-1 text-[10px] font-black uppercase tracking-wider text-[#00F0FF]">Команда: {access.current_team.name}</div>}
         </div>
         {isTeamLeader && <div className="flex shrink-0 gap-2">
@@ -331,30 +316,16 @@ export default function Goals() {
       </section>}
 
       <section className="rounded-3xl border border-[#B78CFF]/35 bg-gradient-to-br from-[#B78CFF]/15 to-[#1A1A1E] p-5">
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="text-[10px] font-black uppercase tracking-widest text-[#B78CFF]">Цілі тижня</div>
-            <div className="mt-1 font-display text-2xl text-white">{weeklyDone} із {weeklyTotal} виконано</div>
-          </div>
-          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#FFB800]/15 border border-[#FFB800]/40"><Trophy size={26} strokeWidth={3} color="#FFB800" /></div>
-        </div>
-        <div className="mt-4 h-3 overflow-hidden rounded-full bg-black/40"><div className="h-full rounded-full bg-[#B78CFF]" style={{ width: `${weeklyTotal ? weeklyDone / weeklyTotal * 100 : 0}%` }} /></div>
-        <div className="mt-3 text-xs font-black text-zinc-300">{data.report_profile === "activation" ? "Нагорода за обидві цілі:" : "Нагорода за всі три цілі:"} <span className="text-[#FFB800]">+200 Point</span> <span className="text-[#B78CFF]">• +100 XP</span></div>
+        <div className="text-[10px] font-black uppercase tracking-widest text-[#B78CFF]">Єдина шкала</div>
+        <div className="mt-1 font-display text-2xl text-white">Ціль кожного проекційного показника: 100%</div>
+        <p className="mt-2 text-xs font-bold leading-relaxed text-zinc-400">Показуємо фактичну проекцію оператора зі звітних вкладок. Окремих ручних цілей та бонусної цілі більше немає.</p>
+        {data.updated_at && <div className="mt-3 text-[10px] font-black uppercase tracking-wider text-zinc-500">Оновлено: {data.updated_at}</div>}
       </section>
 
       {metricNames.map((name) => {
         const route = metricMeta[name]?.route;
         return <MetricCard key={name} name={name} metric={data[name]} onOpen={route ? () => navigate(route) : undefined} />;
       })}
-
-      <section className="rounded-3xl border border-[#FFB800]/35 bg-[#1A1A1E] p-5">
-        <div className="flex items-center gap-3"><div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#FFB800]/15"><Coins size={22} strokeWidth={3} color="#FFB800" /></div><div><div className="font-black text-white">Місячна ціль по бонусу</div><div className="text-xs text-zinc-500">Нагорода за виконання: +1000 Point • +300 XP</div></div></div>
-        <div className="mt-5 flex items-end justify-between"><div className="font-display text-3xl text-[#FFB800]">{bonusCurrent.toLocaleString("uk-UA")}</div><div className="text-xs font-black text-zinc-500">із {bonusTarget.toLocaleString("uk-UA")} грн</div></div>
-        <div className="mt-2 h-3 overflow-hidden rounded-full bg-black/45"><div className="h-full rounded-full bg-gradient-to-r from-[#FF5C00] to-[#FFB800]" style={{ width: `${pct(bonusCurrent, bonusTarget)}%` }} /></div>
-        <div className="mt-3 flex items-center gap-2 text-xs text-zinc-400"><CalendarDays size={14} />Оновлюється керівником протягом місяця</div>
-      </section>
-
-      {data.note && <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 text-sm text-zinc-300"><span className="font-black text-white">Коментар керівника: </span>{data.note}</section>}
 
       {messageOpen && <div className="fixed inset-0 z-50 flex items-end justify-center">
         <button type="button" className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setMessageOpen(false)} aria-label="Закрити" />

@@ -41,11 +41,11 @@ const fromGoals = resolveDepositProjectionCurrent({
   deposit_metrics: [],
 }, user);
 assert.equal(fromGoals.current, 77.5);
-assert.equal(fromGoals.source, "goals_sheet");
+assert.equal(fromGoals.source, "report_projection_payload");
 
 const goalsSource = fs.readFileSync("frontend/src/pages/Goals.jsx", "utf8");
 assert(goalsSource.includes("resolveDepositProjectionCurrent(report, user)"));
 assert(goalsSource.includes('name === "deposit" && depositProjection.current !== null'));
-assert(goalsSource.includes('source: name === "deposit" ? depositProjection.source : "goals_sheet"'));
+assert(goalsSource.includes('source: name === "deposit" ? depositProjection.source : "report_tabs"'));
 
-console.log("Goals deposit projection v123: leaderboard -> personal metrics -> goals fallback OK");
+console.log("Goals deposit projection v154: leaderboard -> personal metrics -> cached projection fallback OK");

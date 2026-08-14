@@ -59,8 +59,13 @@ const googleAction = async (scriptUrl, token, action, payload = {}) => {
 };
 
 exports.handler = async (event) => {
-  if (!["GET", "POST"].includes(event.httpMethod)) {
-    return makeResponse(405, { success: false, error: "Method not allowed" });
+  if (event.httpMethod !== "GET") {
+    return makeResponse(405, {
+      success: false,
+      error: "Проекції формуються автоматично зі звітів і доступні лише для перегляду.",
+      goals_editable: false,
+      projection_target: 100,
+    });
   }
 
   try {
@@ -102,37 +107,23 @@ exports.handler = async (event) => {
         success: true,
         goals_by_login: goalsByLogin,
         snapshot_updated_at: snapshot.snapshot_updated_at || null,
+        projection_target: 100,
+        goals_editable: false,
         compatibility_mode: true,
       });
     }
 
-    const payload = JSON.parse(event.body || "{}");
-    const goalsLogin = normalizeKey(payload.goals_login);
-    const goals = payload.goals;
-    if (!goalsLogin || !goals || typeof goals !== "object") {
-      return makeResponse(400, { success: false, error: "goals_login і goals обов'язкові" });
-    }
-    if (allowedKeys.size && !allowedKeys.has(goalsLogin)) {
-      return makeResponse(404, { success: false, error: "Користувача з таким Google-ключем не знайдено" });
-    }
-
-    const googleResult = await googleAction(scriptUrl, writeToken, "write_goals", {
-      goals_login: goalsLogin,
-      goals,
-    });
-
-    return makeResponse(200, {
-      success: true,
-      goals_login: goalsLogin,
-      goals: googleResult.goals || null,
-      reports_refresh_required: Boolean(googleResult.reports_refresh_required),
-      message: googleResult.message || null,
+    return makeResponse(405, {
+      success: false,
+      error: "Проекції формуються автоматично зі звітів і доступні лише для перегляду.",
+      goals_editable: false,
+      projection_target: 100,
     });
   } catch (error) {
     console.error("google-goals-admin error", error);
     return makeResponse(error?.status === 401 ? 401 : 500, {
       success: false,
-      error: error?.message || "Помилка синхронізації цілей",
+      error: error?.message || "Помилка завантаження проекцій",
     });
   }
 };

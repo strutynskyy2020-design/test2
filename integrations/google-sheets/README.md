@@ -1,82 +1,57 @@
-# Google Sheets goals integration
+# Google Sheets report integration · V155
 
-## Required sheet columns
+V155 використовує **дві Google-таблиці**.
 
-The `Goals` sheet should use these headers:
-
-- `goals_login`
-- `employee_name`
-- `week_start`
-- `credit_target`
-- `credit_actual`
-- `debit_target`
-- `debit_actual`
-- `deposit_target`
-- `deposit_actual`
-- `monthly_bonus_target`
-- `monthly_bonus_actual`
-
-The frontend also accepts the older `*_current` aliases.
-Localized percentages such as `158,54%` are supported.
-
-## Apps Script
-
-1. Open the Google Sheet URL.
-2. Copy the value between `/d/` and `/edit`. That is the spreadsheet ID.
-3. Paste it into `SPREADSHEET_ID` in `Code.gs`.
-4. Deploy the script as a **Web app**.
-5. Use the deployment URL ending in `/exec` as `GOOGLE_GOALS_SCRIPT_URL` in Netlify.
-
-A URL containing `/macros/library/` is a library URL and must not be used.
-
-After every Apps Script code change, deploy a new version:
-`Deploy -> Manage deployments -> Edit -> New version -> Deploy`.
-
-## Credit direction details (v49)
-
-Create an optional sheet named `CreditMetrics`. The app reads one row per employee/channel/period.
-See `CreditMetrics-example.csv` and `/GOOGLE_CREDIT_METRICS_V49.md` for the complete schema and status rules.
-
-## Work schedule (v98)
-
-The existing Apps Script also reads the `Schedule` sheet. No additional Netlify secret is required: it uses the same `SPREADSHEET_ID`, `GOOGLE_GOALS_SCRIPT_URL`, backend authentication, and user `goals_login` mapping as goals and projection metrics.
-
-Expected layout:
-
-- one header cell named `Логін` (aliases `Login` and `goals_login` are supported);
-- optional employee columns `ПІБ` and `ставка`;
-- a row above the header containing day numbers or actual Google Sheets dates;
-- weekday labels in the header row (`пн`, `вт`, `ср`, `чт`, `пт`, `сб`, `нд`);
-- one employee row per login.
-
-Cell values:
-
-- `9-14`, `9-16`, `9-18` → ordinary work shift with the exact displayed hours;
-- `11-20` → late shift;
-- `10-19` → weekend work shift;
-- `Відпустка` → vacation;
-- `В`, `В.` or an empty cell → day off.
-
-After replacing `Code.gs`, deploy a new Apps Script web-app version. The frontend reads schedule data through the existing `/.netlify/functions/google-goals` endpoint.
-
-## Manual report publishing (v102)
-
-The website no longer rebuilds Google reports every minute. `doGet` serves a saved snapshot from the hidden sheet `_TM6_REPORT_CACHE`.
-
-A new snapshot is created only by the Apps Script function:
+## Основна таблиця
 
 ```text
-refreshReports
+SPREADSHEET_ID = 1J6pgu1HEuufkSA_O3EpcMwrylenAg685sQH4lRMjAic
 ```
 
-Setup:
+З неї читаються:
 
-1. Replace the Apps Script project code with `Code.gs` from this project.
-2. Save the script and deploy a new Web App version.
-3. Reload the Google Sheet. A new menu appears: `TM6 → Оновити звіти`.
-4. For the existing drawing/button named **Оновити звіти**, choose **Assign script** and enter `refreshReports` without parentheses.
-5. Click the button once to create the first snapshot.
+- `Credit`
+- `X-Sell`
+- `Web`
+- `INB`
+- `Debit`
+- `Debit giving`
+- `Deposit `
+- `Deposit transformation`
+- `Deposit giving`
+- `Schedule`
 
-During refresh, Apps Script reads the source sheets, creates one report payload per `goals_login`, and writes chunked JSON to `_TM6_REPORT_CACHE`. The sheet is hidden automatically. Normal website requests only read this cache and do not rebuild reports.
+У ній також живуть `_TM6_REPORT_CACHE` та `_TM6_TEAM_MESSAGES`.
 
-Changes made through the admin panel are written to the `Goals` sheet immediately, but they appear in website reports only after `Оновити звіти` is clicked. This is intentional.
+## Activators projective
+
+```text
+ACTIVATORS_SPREADSHEET_ID = 1X2zXNw52SAIpysVdmkiSbtm346pDes3s_uzdWPC6v2c
+```
+
+З неї читаються тільки звіти активаторів:
+
+- `Pumb Online` → проекція PUMB Online;
+- `Pumb Online transformation` → month / yesterday transformation;
+- `Giving Pumb Online` → month / yesterday giving;
+- `Card activation` → проекція активації картки;
+- `Card transformation` → month / yesterday transformation;
+- `Giving card` → month / yesterday giving.
+
+`Activation Deb` і `Activation CC` в основній таблиці більше не є runtime-джерелами.
+
+## Проекції замість Goals
+
+`Goals` не читається і не записується. Поле `goals` у JSON збережене тільки як read-only API alias.
+
+Для Credit, Debit, Deposit, PUMB Online та Card activation ціль проекції фіксована на `100%`.
+
+## Встановлення
+
+1. Відкрий Apps Script, який використовується застосунком.
+2. Встав `Code.gs` з цієї папки.
+3. Переконайся, що акаунт Apps Script має доступ до обох таблиць.
+4. Онови deployment Web App, якщо потрібно.
+5. Запусти `refreshReports()`.
+
+Деталі: `../../VPDK-BONUS-V155-INSTALL.md`.

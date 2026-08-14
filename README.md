@@ -1,18 +1,25 @@
-# VPDK Bonus v128
+# VPDK Bonus V155
 
-Ця збірка продовжує стабільну гілку **v126** і містить три основні оновлення:
+Ця збірка зберігає основну логіку V154 без `Goals`, але виносить **усі звіти активаторів в окрему Google-таблицю `Activators projective`**.
 
-- точне зіставлення особистих, командних і періодних даних у звіті **ПУМБ Online**;
-- окремий каталог щоденних завдань для активаторів: 10 легких, 10 середніх і 10 важких;
-- глобальний фільтр команд у всіх вкладках адмін-панелі.
+Основні зміни:
 
-Основні файли:
+- основні продажні/депозитні звіти, `Schedule`, кеш і командні повідомлення залишаються в `Електронна таблиця без назви`;
+- `Goals` не читається і не записується;
+- ціль кожної проекції залишається фіксованою `100%`;
+- PUMB Online і Card activation більше не читаються з `Activation Deb` / `Activation CC` основної таблиці;
+- для активаторів використовується окремий `ACTIVATORS_SPREADSHEET_ID`;
+- підтримані окремі projection / transformation / giving аркуші та періоди month / yesterday;
+- `Schedule` і решта напрямків не змінювались.
 
-- `VPDK-Code-v128.gs` — Google Apps Script;
-- `VPDK-BONUS-V128-INSTALL.md` — інструкція з оновлення;
-- `ACTIVATION_DATA_TASKS_TEAM_FILTERS_V128.md` — технічний опис;
-- `test_activation_pumb_v128.js` — перевірка парсера на прикладі `dzhunuso`;
-- `test_activation_pumb_gateway_v128.js` — перевірка персональної фільтрації gateway;
-- `validate_vpdk_v128.py` — перевірка каталогів завдань, командних фільтрів і версій кешу.
+Інструкція: `VPDK-BONUS-V155-INSTALL.md`.
 
-Код v127 у пакет не включено.
+Основний Apps Script: `integrations/google-sheets/Code.gs`.
+
+Перевірки:
+
+```bash
+node test_report_source_v155.js
+node test_activators_source_v155.js
+node test_activation_reports_v125.js
+```

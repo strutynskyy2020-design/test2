@@ -1,19 +1,34 @@
-const SPREADSHEET_ID = "1TV7NHvEmLf6i19yPt7SENl2TOn1Y04ToW1CjSGhtrf0";
-const SHEET_NAME = "Goals";
-const CREDIT_METRICS_SHEET_NAME = "CreditMetrics";
-const CREDIT_LEADERBOARD_SHEET_NAME = "Аркуш2";
-const TRANSFORMATION_SHEET_NAME = "Transformation";
-const DEBIT_LEADERBOARD_SHEET_NAME = "Аркуш2";
-const DEBIT_ISSUANCES_SHEET_NAME = "Transformation Deb";
-const DEPOSIT_SHEET_NAME = "Deposit";
-const ACTIVATION_PUMB_SHEET_NAME = "Activation Pumb Online";
-const ACTIVATION_CARDS_SHEET_NAME = "Activation Cards";
+const SPREADSHEET_ID = "1J6pgu1HEuufkSA_O3EpcMwrylenAg685sQH4lRMjAic";
+const ACTIVATORS_SPREADSHEET_ID = "1X2zXNw52SAIpysVdmkiSbtm346pDes3s_uzdWPC6v2c";
+// V155: the main workbook remains the source for sales/deposit reports, Schedule,
+// report cache and team messages. Activator reports are loaded exclusively from
+// the separate "Activators projective" workbook. The legacy Goals sheet is not used.
+
+const CREDIT_METRICS_SHEET_NAME = "CreditMetrics"; // legacy parser fallback inside the same workbook
+const CREDIT_LEADERBOARD_SHEET_NAME = "Credit";
+const XSELL_TRANSFORMATION_SHEET_NAME = "X-Sell";
+const WEB_TRANSFORMATION_SHEET_NAME = "Web";
+const INB_TRANSFORMATION_SHEET_NAME = "INB";
+const TRANSFORMATION_SHEET_NAME = "Transformation"; // legacy parser fallback inside the same workbook
+const DEBIT_LEADERBOARD_SHEET_NAME = "Debit";
+const DEBIT_ISSUANCES_SHEET_NAME = "Debit giving";
+const DEPOSIT_PROJECTION_SHEET_NAME = "Deposit";
+const DEPOSIT_TRANSFORMATION_SHEET_NAME = "Deposit transformation";
+const DEPOSIT_GIVING_SHEET_NAME = "Deposit giving";
+const DEPOSIT_SHEET_NAME = DEPOSIT_TRANSFORMATION_SHEET_NAME; // compatibility alias
+const ACTIVATION_PUMB_PROJECTION_SHEET_NAME = "Pumb Online";
+const ACTIVATION_PUMB_TRANSFORMATION_SHEET_NAME = "Pumb Online transformation";
+const ACTIVATION_PUMB_GIVING_SHEET_NAME = "Giving Pumb Online";
+const ACTIVATION_CARDS_PROJECTION_SHEET_NAME = "Card activation";
+const ACTIVATION_CARDS_TRANSFORMATION_SHEET_NAME = "Card transformation";
+const ACTIVATION_CARDS_GIVING_SHEET_NAME = "Giving card";
 const SCHEDULE_SHEET_NAME = "Schedule";
 const SCHEDULE_TIMEZONE = "Europe/Kyiv";
 const REPORT_CACHE_SHEET_NAME = "_TM6_REPORT_CACHE";
 const REPORT_CACHE_CHUNK_SIZE = 45000;
-const REPORT_CACHE_API_VERSION = "v129-pumb-period-boundary-fix";
+const REPORT_CACHE_API_VERSION = "v155-activators-separate-source";
 const TEAM_MESSAGES_SHEET_NAME = "_TM6_TEAM_MESSAGES";
+const FIXED_PROJECTION_TARGET = "100";
 
 function normalizeKey(value) {
   return String(value == null ? "" : value)
@@ -22,46 +37,6 @@ function normalizeKey(value) {
     .trim()
     .toLowerCase();
 }
-
-function openGoalsSheet(spreadsheet) {
-  if (!SPREADSHEET_ID || SPREADSHEET_ID.includes("ВСТАВТЕ_ID")) {
-    throw new Error("SPREADSHEET_ID is not configured");
-  }
-  const sourceSpreadsheet = spreadsheet || SpreadsheetApp.openById(SPREADSHEET_ID);
-  const sheet = sourceSpreadsheet.getSheetByName(SHEET_NAME);
-  if (!sheet) throw new Error(`Аркуш "${SHEET_NAME}" не знайдено`);
-  return sheet;
-}
-
-function getSheetContext(spreadsheet) {
-  const sheet = openGoalsSheet(spreadsheet);
-  const values = sheet.getDataRange().getDisplayValues();
-  if (!values.length) return { sheet, headers: [], normalizedHeaders: [], rows: [] };
-  const [headerRow, ...rows] = values;
-  const headers = headerRow.map((header) => String(header).trim());
-  return { sheet, headers, normalizedHeaders: headers.map(normalizeKey), rows };
-}
-
-function findGoalRow(context, goalsLogin) {
-  const keyIndex = context.normalizedHeaders.indexOf("goals_login");
-  if (keyIndex === -1) throw new Error('Немає колонки "goals_login"');
-  const rowOffset = context.rows.findIndex(
-    (row) => normalizeKey(row[keyIndex]) === goalsLogin
-  );
-  return { keyIndex, rowOffset, sheetRow: rowOffset === -1 ? -1 : rowOffset + 2 };
-}
-
-function rowToObject(headers, row) {
-  return Object.fromEntries(headers.map((header, index) => [header, row[index] ?? ""]));
-}
-
-
-const AUTO_GOAL_DEFAULTS = {
-  credit_target: "110",
-  debit_target: "105",
-  deposit_target: "100",
-  monthly_bonus_target: "10000",
-};
 
 function reportRowByLogin(rows, goalsLogin) {
   return (Array.isArray(rows) ? rows : []).find(
@@ -77,67 +52,87 @@ function firstPresentValue(object, keys) {
   return "";
 }
 
-function mostCommonGoalValue(context, headerName, fallbackValue) {
-  const index = context.normalizedHeaders.indexOf(normalizeKey(headerName));
-  if (index === -1) return fallbackValue;
-  const counts = {};
-  const originals = {};
-  context.rows.forEach((row) => {
-    const raw = String(row[index] == null ? "" : row[index]).trim();
-    const key = normalizeKey(raw);
-    if (!key) return;
-    counts[key] = (counts[key] || 0) + 1;
-    if (!originals[key]) originals[key] = raw;
-  });
-  const winner = Object.keys(counts).sort((left, right) => {
-    if (counts[right] !== counts[left]) return counts[right] - counts[left];
-    return left.localeCompare(right);
-  })[0];
-  return winner ? originals[winner] : fallbackValue;
+function monthMetric(rows) {
+  return (Array.isArray(rows) ? rows : []).find((row) => {
+    const period = normalizeKey(row && row.period);
+    return period.includes("month") || period.includes("міся") || period.includes("меся");
+  }) || (Array.isArray(rows) ? rows[0] : null) || {};
 }
 
-function buildAutomaticGoals(context, goalsLogin, personal) {
+function buildProjectionGoals(goalsLogin, personal) {
   const creditRow = personal.creditRow || {};
   const debitRow = personal.debitRow || {};
   const depositProjectionRow = personal.depositProjectionRow || {};
-  const depositMonth = (personal.depositMetrics || []).find(
-    (row) => normalizeKey(row && row.period).includes("month") || normalizeKey(row && row.period).includes("міся")
-  ) || (personal.depositMetrics || [])[0] || {};
+  const depositMonth = monthMetric(personal.depositMetrics);
+  const activationPumbProjectionRow = personal.activationPumbProjectionRow || {};
+  const activationPumbMonth = monthMetric(personal.activationPumbMetrics);
+  const activationCardsProjectionRow = personal.activationCardsProjectionRow || {};
+  const activationCardsMonth = monthMetric(personal.activationCardsMetrics);
 
-  const creditActual = firstPresentValue(creditRow, ["overall", "projective_rate", "result", "value"]) || "0";
-  const debitActual = firstPresentValue(debitRow, ["overall", "projective_rate", "result", "value"]) || "0";
+  const creditActual = firstPresentValue(creditRow, ["projective_rate", "overall", "result", "value"]) || "0";
+  const debitActual = firstPresentValue(debitRow, ["projective_rate", "overall", "result", "value"]) || "0";
   const depositActual = firstPresentValue(
     depositProjectionRow,
     ["projective_rate", "projection_rate", "projective", "projection", "overall", "result", "value"]
   ) || firstPresentValue(depositMonth, ["projective_rate", "projection_rate", "projective", "projection"]) || "0";
+  const pumbActual = firstPresentValue(
+    activationPumbProjectionRow,
+    ["projective_rate", "projection_rate", "overall", "result", "value"]
+  ) || firstPresentValue(activationPumbMonth, ["projective_rate", "projection_rate"]) || "0";
+  const cardsActual = firstPresentValue(
+    activationCardsProjectionRow,
+    ["projective_rate", "projection_rate", "overall", "result", "value"]
+  ) || firstPresentValue(activationCardsMonth, ["projective_rate", "projection_rate"]) || "0";
 
   return {
     goals_login: goalsLogin,
     credit_actual: creditActual,
     credit_current: creditActual,
-    credit_target: mostCommonGoalValue(context, "credit_target", AUTO_GOAL_DEFAULTS.credit_target),
-    credit_mode: mostCommonGoalValue(context, "credit_mode", "reach"),
+    credit_target: FIXED_PROJECTION_TARGET,
+    credit_mode: "reach",
     debit_actual: debitActual,
     debit_current: debitActual,
-    debit_target: mostCommonGoalValue(context, "debit_target", AUTO_GOAL_DEFAULTS.debit_target),
-    debit_mode: mostCommonGoalValue(context, "debit_mode", "reach"),
+    debit_target: FIXED_PROJECTION_TARGET,
+    debit_mode: "reach",
     deposit_actual: depositActual,
     deposit_current: depositActual,
-    deposit_target: mostCommonGoalValue(context, "deposit_target", AUTO_GOAL_DEFAULTS.deposit_target),
-    deposit_mode: mostCommonGoalValue(context, "deposit_mode", "reach"),
+    deposit_target: FIXED_PROJECTION_TARGET,
+    deposit_mode: "reach",
+    pumb_online_actual: pumbActual,
+    pumb_online_current: pumbActual,
+    pumb_online_target: FIXED_PROJECTION_TARGET,
+    pumb_online_mode: "reach",
+    cards_actual: cardsActual,
+    cards_current: cardsActual,
+    cards_target: FIXED_PROJECTION_TARGET,
+    cards_mode: "reach",
+    // Kept only as zero-valued API compatibility fields. There is no Goals sheet
+    // and no editable bonus target in V155.
     monthly_bonus_actual: "0",
     monthly_bonus_current: "0",
-    monthly_bonus_target: mostCommonGoalValue(
-      context,
-      "monthly_bonus_target",
-      AUTO_GOAL_DEFAULTS.monthly_bonus_target
-    ),
+    monthly_bonus_target: "0",
     weekly_complete: "false",
     monthly_complete: "false",
     weekly_reward_awarded: "false",
     monthly_reward_awarded: "false",
     note: "",
     goals_auto_generated: "true",
+    projection_target_fixed: "true",
+  };
+}
+
+function projectionSummaryFromGoals(goals) {
+  const item = (name) => ({
+    current: String(goals[`${name}_current`] || goals[`${name}_actual`] || "0"),
+    target: FIXED_PROJECTION_TARGET,
+  });
+  return {
+    target: Number(FIXED_PROJECTION_TARGET),
+    credit: item("credit"),
+    debit: item("debit"),
+    deposit: item("deposit"),
+    pumb_online: item("pumb_online"),
+    cards: item("cards"),
   };
 }
 
@@ -159,8 +154,6 @@ function hasPersonalReportData(personal) {
     || (personal.schedule && personal.schedule.found)
   );
 }
-
-
 
 function normalizeHeaderKey(value) {
   return String(value || "")
@@ -189,80 +182,189 @@ function isTeamSummaryLogin(value) {
   return /^(?:tm|тм)_?\d+$/i.test(normalized);
 }
 
+function openReportSourceSpreadsheet(appSpreadsheet) {
+  if (appSpreadsheet) return appSpreadsheet;
+  if (!SPREADSHEET_ID || SPREADSHEET_ID.includes("ВСТАВТЕ_ID")) {
+    throw new Error("SPREADSHEET_ID is not configured");
+  }
+  return SpreadsheetApp.openById(SPREADSHEET_ID);
+}
+
+function openActivatorSourceSpreadsheet(activatorsSpreadsheet) {
+  if (activatorsSpreadsheet) return activatorsSpreadsheet;
+  if (!ACTIVATORS_SPREADSHEET_ID || ACTIVATORS_SPREADSHEET_ID.includes("ВСТАВТЕ_ID")) {
+    throw new Error("ACTIVATORS_SPREADSHEET_ID is not configured");
+  }
+  return SpreadsheetApp.openById(ACTIVATORS_SPREADSHEET_ID);
+}
+
+function getSheetByNormalizedName(spreadsheet, sheetName, preferVisible) {
+  if (!spreadsheet) return null;
+  const target = normalizeKey(sheetName);
+  let matches = [];
+  if (typeof spreadsheet.getSheets === "function") {
+    matches = spreadsheet.getSheets().filter((sheet) => normalizeKey(sheet.getName()) === target);
+  }
+  if (preferVisible !== false && matches.length) {
+    const visible = matches.find((sheet) => typeof sheet.isSheetHidden !== "function" || !sheet.isSheetHidden());
+    if (visible) return visible;
+  }
+  const exact = typeof spreadsheet.getSheetByName === "function" ? spreadsheet.getSheetByName(sheetName) : null;
+  return exact || matches[0] || null;
+}
+
+function isReportOperatorLogin(value) {
+  const raw = String(value == null ? "" : value).trim();
+  const key = normalizeKey(raw);
+  if (!key || teamReportKey(key) || isTeamSummaryLogin(key)) return false;
+  if (!/^[a-z0-9._-]{2,80}$/i.test(raw) || !/[a-z]/i.test(raw)) return false;
+  const headerKey = normalizeHeaderKey(raw);
+  const blocked = {
+    all: true, values: true, value: true, date: true, day: true, month: true, year: true,
+    team: true, agent: true, operator: true, login: true, goals_login: true,
+    inb: true, web: true, web_apps: true, xsell: true, x_sell: true, x_sale: true,
+    debit: true, credit: true, deposit: true, total: true, overall: true, summary: true,
+  };
+  return !blocked[headerKey];
+}
+
+function reportTimestamp() {
+  return Utilities.formatDate(
+    new Date(),
+    Session.getScriptTimeZone() || SCHEDULE_TIMEZONE,
+    "dd.MM.yyyy HH:mm"
+  );
+}
+
+function cellText(row, columnIndex) {
+  return columnIndex >= 0 ? String((row || [])[columnIndex] == null ? "" : (row || [])[columnIndex]).trim() : "";
+}
+
+function findHeaderColumn(row, aliases, startColumnIndex, endColumnIndex) {
+  const start = Math.max(0, startColumnIndex == null ? 0 : startColumnIndex);
+  const end = Math.min(
+    (row || []).length - 1,
+    endColumnIndex == null ? (row || []).length - 1 : endColumnIndex
+  );
+  for (let columnIndex = start; columnIndex <= end; columnIndex += 1) {
+    if (headerMatches((row || [])[columnIndex], aliases)) return columnIndex;
+  }
+  return -1;
+}
+
+function findNearestPivotSummaryColumn(values, headerRowIndex, minColumnIndex) {
+  for (let rowIndex = headerRowIndex - 1; rowIndex >= Math.max(0, headerRowIndex - 5); rowIndex -= 1) {
+    const row = values[rowIndex] || [];
+    for (let columnIndex = Math.max(0, minColumnIndex || 0); columnIndex < row.length; columnIndex += 1) {
+      const key = normalizeHeaderKey(row[columnIndex]);
+      if (key.includes("підсумок") || key.includes("итог") || key.includes("summary") || key.includes("total")) {
+        return columnIndex;
+      }
+    }
+  }
+  return -1;
+}
+
 function getCreditLeaderboard(spreadsheet) {
-  const sourceSpreadsheet = spreadsheet || SpreadsheetApp.openById(SPREADSHEET_ID);
-  const sheet = sourceSpreadsheet.getSheetByName(CREDIT_LEADERBOARD_SHEET_NAME);
+  const sourceSpreadsheet = spreadsheet || openReportSourceSpreadsheet();
+  const sheet = getSheetByNormalizedName(sourceSpreadsheet, CREDIT_LEADERBOARD_SHEET_NAME);
   if (!sheet) return { rows: [], group_summary: null, group_summaries: {}, updated_at: "" };
 
   const values = sheet.getDataRange().getDisplayValues();
   if (!values.length) return { rows: [], group_summary: null, group_summaries: {}, updated_at: "" };
 
-  const loginHeaders = ["credit", "кредит", "operator", "оператор", "login", "goals_login"];
-  const xsellHeaders = ["x-sell", "xsell", "x_sell"];
-  const webHeaders = ["web apps", "web_apps", "webapps", "web app"];
-  const inbHeaders = ["inb"];
-  const overallHeaders = ["загальний", "загальний підсумок", "overall", "total", "summary"];
-
   let headerRowIndex = -1;
-  let startColumnIndex = -1;
+  let loginColumnIndex = -1;
+  let xsellColumnIndex = -1;
+  let webColumnIndex = -1;
+  let inbColumnIndex = -1;
+  let overallColumnIndex = -1;
 
   for (let rowIndex = 0; rowIndex < values.length; rowIndex += 1) {
-    const row = values[rowIndex];
-    for (let columnIndex = 0; columnIndex <= row.length - 5; columnIndex += 1) {
-      if (
-        headerMatches(row[columnIndex], loginHeaders) &&
-        headerMatches(row[columnIndex + 1], xsellHeaders) &&
-        headerMatches(row[columnIndex + 2], webHeaders) &&
-        headerMatches(row[columnIndex + 3], inbHeaders) &&
-        headerMatches(row[columnIndex + 4], overallHeaders)
-      ) {
-        headerRowIndex = rowIndex;
-        startColumnIndex = columnIndex;
-        break;
-      }
+    const row = values[rowIndex] || [];
+    const labelColumn = row.findIndex((value) => {
+      const key = normalizeHeaderKey(value);
+      return key.includes("позначки_рядків") || key.includes("row_labels") || key === "login";
+    });
+    if (labelColumn === -1) continue;
+
+    const findProjective = (needleAliases) => row.findIndex((value, columnIndex) => {
+      if (columnIndex <= labelColumn) return false;
+      const key = normalizeHeaderKey(value);
+      const isProjective = key.includes("проекц") || key.includes("project");
+      return isProjective && needleAliases.some((needle) => key.includes(needle));
+    });
+
+    const xsell = findProjective(["x_sale", "x_sell", "xsell"]);
+    const web = findProjective(["web"]);
+    const inb = findProjective(["inb"]);
+    const overall = row.findIndex((value, columnIndex) => {
+      if (columnIndex <= labelColumn) return false;
+      const key = normalizeHeaderKey(value);
+      return (key.includes("проекц") || key.includes("project")) &&
+        (key.includes("общ") || key.includes("загаль") || key.includes("overall") || key.includes("total"));
+    });
+    if (xsell !== -1 && web !== -1 && inb !== -1 && overall !== -1) {
+      headerRowIndex = rowIndex;
+      loginColumnIndex = labelColumn;
+      xsellColumnIndex = xsell;
+      webColumnIndex = web;
+      inbColumnIndex = inb;
+      overallColumnIndex = overall;
+      break;
     }
-    if (headerRowIndex !== -1) break;
   }
 
-  if (headerRowIndex === -1 || startColumnIndex === -1) {
+  if (headerRowIndex === -1) {
     return { rows: [], group_summary: null, group_summaries: {}, updated_at: "" };
   }
 
   const rows = [];
   const groupSummaries = {};
-  let foundData = false;
-  let emptyRowsAfterData = 0;
+  let currentTeamKey = "";
+  let currentTeamName = "";
+  let blankRun = 0;
 
   for (let rowIndex = headerRowIndex + 1; rowIndex < values.length; rowIndex += 1) {
-    const row = values[rowIndex];
-    const login = normalizeKey(row[startColumnIndex]);
-    if (!login) {
-      if (foundData) {
-        emptyRowsAfterData += 1;
-        if (emptyRowsAfterData >= 3) break;
+    const row = values[rowIndex] || [];
+    const rawLabel = cellText(row, loginColumnIndex);
+    const overall = cellText(row, overallColumnIndex);
+
+    if (!rawLabel && !overall) {
+      blankRun += 1;
+      if (blankRun >= 6 && rows.length) break;
+      continue;
+    }
+    blankRun = 0;
+
+    const detectedTeamKey = teamReportKey(rawLabel);
+    if (detectedTeamKey) {
+      currentTeamKey = detectedTeamKey;
+      currentTeamName = rawLabel;
+      if (overall) {
+        groupSummaries[detectedTeamKey] = {
+          login: normalizeKey(rawLabel),
+          team_key: detectedTeamKey,
+          team_name: rawLabel,
+          xsell: cellText(row, xsellColumnIndex),
+          web_apps: cellText(row, webColumnIndex),
+          inb: cellText(row, inbColumnIndex),
+          overall,
+        };
       }
       continue;
     }
 
-    const overall = String(row[startColumnIndex + 4] || "").trim();
-    if (!overall) continue;
-    foundData = true;
-    emptyRowsAfterData = 0;
-
-    const entry = {
-      login,
-      xsell: String(row[startColumnIndex + 1] || "").trim(),
-      web_apps: String(row[startColumnIndex + 2] || "").trim(),
-      inb: String(row[startColumnIndex + 3] || "").trim(),
+    if (!currentTeamKey || !isReportOperatorLogin(rawLabel) || !overall) continue;
+    rows.push({
+      login: normalizeKey(rawLabel),
+      team_key: currentTeamKey,
+      team_name: currentTeamName,
+      xsell: cellText(row, xsellColumnIndex),
+      web_apps: cellText(row, webColumnIndex),
+      inb: cellText(row, inbColumnIndex),
       overall,
-    };
-
-    if (isTeamSummaryLogin(login)) {
-      const key = teamReportKey(login);
-      if (key) groupSummaries[key] = entry;
-    } else {
-      rows.push(entry);
-    }
+    });
   }
 
   const firstSummaryKey = Object.keys(groupSummaries)[0] || "";
@@ -270,90 +372,108 @@ function getCreditLeaderboard(spreadsheet) {
     rows,
     group_summary: groupSummaries.tm6 || (firstSummaryKey ? groupSummaries[firstSummaryKey] : null),
     group_summaries: groupSummaries,
-    updated_at: Utilities.formatDate(new Date(), Session.getScriptTimeZone() || "Europe/Kyiv", "dd.MM.yyyy HH:mm"),
+    updated_at: reportTimestamp(),
   };
 }
 
 function getDebitLeaderboard(spreadsheet) {
-  const sourceSpreadsheet = spreadsheet || SpreadsheetApp.openById(SPREADSHEET_ID);
-  const sheet = sourceSpreadsheet.getSheetByName(DEBIT_LEADERBOARD_SHEET_NAME);
+  const sourceSpreadsheet = spreadsheet || openReportSourceSpreadsheet();
+  const sheet = getSheetByNormalizedName(sourceSpreadsheet, DEBIT_LEADERBOARD_SHEET_NAME);
   if (!sheet) return { rows: [], group_summary: null, group_summaries: {}, updated_at: "" };
 
   const values = sheet.getDataRange().getDisplayValues();
   if (!values.length) return { rows: [], group_summary: null, group_summaries: {}, updated_at: "" };
 
-  const loginHeaders = ["debit", "debet", "дебет", "operator", "оператор", "login", "goals_login"];
-  const inbDebitHeaders = ["inb_deb", "inb deb", "inb debit"];
-  const vseCardHeaders = ["vse_card", "vse card", "все card"];
-  const webFuibHeaders = ["web_fuib", "web fuib"];
-  const webAppsHeaders = ["web_apps", "web apps", "webapps"];
-  const xSellHeaders = ["x_sell", "x-sell", "xsell"];
-  const overallHeaders = ["загальний deb", "загальний debit", "загальний", "overall", "total", "summary"];
-
   let headerRowIndex = -1;
-  let startColumnIndex = -1;
+  let loginColumnIndex = -1;
+  let inbColumnIndex = -1;
+  let webColumnIndex = -1;
+  let webAppsColumnIndex = -1;
+  let xSellColumnIndex = -1;
+  let overallColumnIndex = -1;
 
   for (let rowIndex = 0; rowIndex < values.length; rowIndex += 1) {
-    const row = values[rowIndex];
-    for (let columnIndex = 0; columnIndex <= row.length - 7; columnIndex += 1) {
-      if (
-        headerMatches(row[columnIndex], loginHeaders) &&
-        headerMatches(row[columnIndex + 1], inbDebitHeaders) &&
-        headerMatches(row[columnIndex + 2], vseCardHeaders) &&
-        headerMatches(row[columnIndex + 3], webFuibHeaders) &&
-        headerMatches(row[columnIndex + 4], webAppsHeaders) &&
-        headerMatches(row[columnIndex + 5], xSellHeaders) &&
-        headerMatches(row[columnIndex + 6], overallHeaders)
-      ) {
-        headerRowIndex = rowIndex;
-        startColumnIndex = columnIndex;
-        break;
-      }
+    const row = values[rowIndex] || [];
+    const labelColumn = row.findIndex((value) => normalizeHeaderKey(value).includes("позначки_рядків"));
+    if (labelColumn === -1) continue;
+
+    const inb = findHeaderColumn(row, ["inb"], labelColumn + 1);
+    const web = findHeaderColumn(row, ["web"], labelColumn + 1);
+    const webApps = findHeaderColumn(row, ["web_apps", "web apps", "webapps"], labelColumn + 1);
+    const xSell = findHeaderColumn(row, ["x-sale", "x_sale", "x-sell", "x_sell", "xsell"], labelColumn + 1);
+    if (inb === -1 || web === -1 || webApps === -1 || xSell === -1) continue;
+
+    headerRowIndex = rowIndex;
+    loginColumnIndex = labelColumn;
+    inbColumnIndex = inb;
+    webColumnIndex = web;
+    webAppsColumnIndex = webApps;
+    xSellColumnIndex = xSell;
+    overallColumnIndex = findHeaderColumn(
+      row,
+      ["загальний підсумок", "загальний", "overall", "total", "summary"],
+      xSell + 1
+    );
+    if (overallColumnIndex === -1) {
+      overallColumnIndex = findNearestPivotSummaryColumn(values, headerRowIndex, xSell + 1);
     }
-    if (headerRowIndex !== -1) break;
+    break;
   }
 
-  if (headerRowIndex === -1 || startColumnIndex === -1) {
+  if (headerRowIndex === -1 || overallColumnIndex === -1) {
     return { rows: [], group_summary: null, group_summaries: {}, updated_at: "" };
   }
 
   const rows = [];
   const groupSummaries = {};
-  let foundData = false;
-  let emptyRowsAfterData = 0;
+  let currentTeamKey = "";
+  let currentTeamName = "";
+  let blankRun = 0;
 
   for (let rowIndex = headerRowIndex + 1; rowIndex < values.length; rowIndex += 1) {
-    const row = values[rowIndex];
-    const login = normalizeKey(row[startColumnIndex]);
-    if (!login) {
-      if (foundData) {
-        emptyRowsAfterData += 1;
-        if (emptyRowsAfterData >= 3) break;
+    const row = values[rowIndex] || [];
+    const rawLabel = cellText(row, loginColumnIndex);
+    const overall = cellText(row, overallColumnIndex);
+
+    if (!rawLabel && !overall) {
+      blankRun += 1;
+      if (blankRun >= 6 && rows.length) break;
+      continue;
+    }
+    blankRun = 0;
+
+    const detectedTeamKey = teamReportKey(rawLabel);
+    if (detectedTeamKey) {
+      currentTeamKey = detectedTeamKey;
+      currentTeamName = rawLabel;
+      if (overall) {
+        groupSummaries[detectedTeamKey] = {
+          login: normalizeKey(rawLabel),
+          team_key: detectedTeamKey,
+          team_name: rawLabel,
+          inb_deb: cellText(row, inbColumnIndex),
+          vse_card: "0",
+          web_fuib: cellText(row, webColumnIndex),
+          web_apps: cellText(row, webAppsColumnIndex),
+          x_sell: cellText(row, xSellColumnIndex),
+          overall,
+        };
       }
       continue;
     }
 
-    const overall = String(row[startColumnIndex + 6] || "").trim();
-    if (!overall) continue;
-    foundData = true;
-    emptyRowsAfterData = 0;
-
-    const entry = {
-      login,
-      inb_deb: String(row[startColumnIndex + 1] || "").trim(),
-      vse_card: String(row[startColumnIndex + 2] || "").trim(),
-      web_fuib: String(row[startColumnIndex + 3] || "").trim(),
-      web_apps: String(row[startColumnIndex + 4] || "").trim(),
-      x_sell: String(row[startColumnIndex + 5] || "").trim(),
+    if (!currentTeamKey || !isReportOperatorLogin(rawLabel) || !overall) continue;
+    rows.push({
+      login: normalizeKey(rawLabel),
+      team_key: currentTeamKey,
+      team_name: currentTeamName,
+      inb_deb: cellText(row, inbColumnIndex),
+      vse_card: "0",
+      web_fuib: cellText(row, webColumnIndex),
+      web_apps: cellText(row, webAppsColumnIndex),
+      x_sell: cellText(row, xSellColumnIndex),
       overall,
-    };
-
-    if (isTeamSummaryLogin(login)) {
-      const key = teamReportKey(login);
-      if (key) groupSummaries[key] = entry;
-    } else {
-      rows.push(entry);
-    }
+    });
   }
 
   const firstSummaryKey = Object.keys(groupSummaries)[0] || "";
@@ -361,7 +481,7 @@ function getDebitLeaderboard(spreadsheet) {
     rows,
     group_summary: groupSummaries.tm6 || (firstSummaryKey ? groupSummaries[firstSummaryKey] : null),
     group_summaries: groupSummaries,
-    updated_at: Utilities.formatDate(new Date(), Session.getScriptTimeZone() || "Europe/Kyiv", "dd.MM.yyyy HH:mm"),
+    updated_at: reportTimestamp(),
   };
 }
 
@@ -375,13 +495,9 @@ function isDepositProjectionValue(value) {
 }
 
 function isDepositProjectionLogin(value) {
-  const text = normalizeKey(value);
-  if (!text || teamReportKey(text)) return false;
-  const key = normalizeHeaderKey(text);
-  if (["deposit", "депозит", "депозити", "values", "value", "значення", "підсумок", "итого"].includes(key)) {
-    return false;
-  }
-  return /^[a-zа-яіїєґ0-9._-]{2,}$/i.test(text);
+  const raw = String(value == null ? "" : value).trim();
+  if (!raw || /^-?\d+(?:[.,]\d+)?%?$/.test(raw)) return false;
+  return isReportOperatorLogin(raw);
 }
 
 function scoreDepositProjectionBlock(values, headerRowIndex, teamColumnIndex, loginColumnIndex, valueColumnIndex, layout) {
@@ -519,8 +635,8 @@ function findDepositProjectionBlock(values) {
 }
 
 function getDepositProjectionLeaderboard(spreadsheet) {
-  const sourceSpreadsheet = spreadsheet || SpreadsheetApp.openById(SPREADSHEET_ID);
-  const sheet = sourceSpreadsheet.getSheetByName(CREDIT_LEADERBOARD_SHEET_NAME);
+  const sourceSpreadsheet = spreadsheet || openReportSourceSpreadsheet();
+  const sheet = getSheetByNormalizedName(sourceSpreadsheet, DEPOSIT_PROJECTION_SHEET_NAME, true);
   if (!sheet) return { rows: [], group_summaries: {}, updated_at: "", diagnostics: { reason: "sheet_missing" } };
 
   const values = sheet.getDataRange().getDisplayValues();
@@ -634,8 +750,8 @@ function depositMetricKey(value) {
 function getDepositMetricRows(goalsLogin, sourceValues) {
   let values = sourceValues;
   if (!values) {
-    const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
-    const sheet = spreadsheet.getSheetByName(DEPOSIT_SHEET_NAME);
+    const spreadsheet = openReportSourceSpreadsheet();
+    const sheet = getSheetByNormalizedName(spreadsheet, DEPOSIT_TRANSFORMATION_SHEET_NAME);
     if (!sheet) return [];
     values = sheet.getDataRange().getDisplayValues();
   }
@@ -643,7 +759,7 @@ function getDepositMetricRows(goalsLogin, sourceValues) {
 
   const outputRows = [];
   const seen = {};
-  const updatedAt = Utilities.formatDate(new Date(), Session.getScriptTimeZone() || "Europe/Kyiv", "dd.MM.yyyy HH:mm");
+  const updatedAt = reportTimestamp();
 
   for (let blockRowIndex = 0; blockRowIndex < values.length; blockRowIndex += 1) {
     const row = values[blockRowIndex] || [];
@@ -656,12 +772,15 @@ function getDepositMetricRows(goalsLogin, sourceValues) {
 
     let headerRowIndex = -1;
     let userColumnIndex = -1;
-    const headerSearchEnd = Math.min(values.length - 1, blockRowIndex + 10);
+    const headerSearchEnd = Math.min(values.length - 1, blockRowIndex + 20);
     for (let rowIndex = blockRowIndex + 1; rowIndex <= headerSearchEnd; rowIndex += 1) {
       const candidateColumn = (values[rowIndex] || []).findIndex((value) => normalizeKey(value) === goalsLogin);
       if (candidateColumn !== -1) {
         headerRowIndex = rowIndex;
         userColumnIndex = candidateColumn;
+        break;
+      }
+      if (rowIndex > blockRowIndex + 1 && (values[rowIndex] || []).some((value) => Boolean(detectDepositMetricPeriod(value)))) {
         break;
       }
     }
@@ -680,7 +799,7 @@ function getDepositMetricRows(goalsLogin, sourceValues) {
     for (let rowIndex = headerRowIndex + 1; rowIndex <= metricSearchEnd; rowIndex += 1) {
       const metricRow = values[rowIndex] || [];
       let label = "";
-      const labelSearchEnd = Math.min(userColumnIndex, 5);
+      const labelSearchEnd = Math.min(userColumnIndex, 6);
       for (let columnIndex = 0; columnIndex < labelSearchEnd; columnIndex += 1) {
         if (String(metricRow[columnIndex] || "").trim()) {
           label = metricRow[columnIndex];
@@ -691,21 +810,21 @@ function getDepositMetricRows(goalsLogin, sourceValues) {
       const metricKey = depositMetricKey(label);
       if (!metricKey) continue;
 
-      const mine = String(metricRow[userColumnIndex] || "").trim();
+      const mine = cellText(metricRow, userColumnIndex);
       result[metricKey] = mine;
       if (summaryColumns.defaultColumn >= 0) {
-        const generalValue = String(metricRow[summaryColumns.defaultColumn] || "").trim();
+        const generalValue = cellText(metricRow, summaryColumns.defaultColumn);
         if (generalValue) result[`${metricKey}_overall`] = generalValue;
       }
       Object.keys(summaryColumns.teamColumns).forEach((teamKey) => {
         const columnIndex = summaryColumns.teamColumns[teamKey];
-        const teamValue = String(metricRow[columnIndex] || "").trim();
+        const teamValue = cellText(metricRow, columnIndex);
         if (!result.team_overall[teamKey]) result.team_overall[teamKey] = {};
         result.team_overall[teamKey][`${metricKey}_overall`] = teamValue;
       });
       if (metricKey === "projective_rate") {
         result.projective_source = {
-          sheet: DEPOSIT_SHEET_NAME,
+          sheet: DEPOSIT_TRANSFORMATION_SHEET_NAME,
           row_label: String(label || "").trim(),
           operator_column: String(values[headerRowIndex][userColumnIndex] || goalsLogin).trim(),
           general_column: summaryColumns.defaultColumn >= 0 ? String(summaryColumns.labels.general || "").trim() : "",
@@ -733,109 +852,202 @@ function detectDepositGivingPeriod(value) {
 }
 
 function findDepositGivingHeader(values, blockRowIndex) {
+  // Kept as a compatibility wrapper. V155 uses findGivingPivotBlock below.
+  const titleRow = values[blockRowIndex] || [];
+  const startColumnIndex = titleRow.findIndex((value) => Boolean(detectDepositGivingPeriod(value)));
+  if (startColumnIndex === -1) return null;
+  return findGivingPivotBlock(values, blockRowIndex, startColumnIndex, titleRow.length - 1, "deposit");
+}
+
+function findGivingPivotBlock(values, titleRowIndex, startColumnIndex, endColumnIndex, kind) {
   const aliases = {
     team: ["team", "команда", "група"],
-    agent: ["агент", "agent", "operator", "оператор", "login", "goals_login"],
+    login: kind === "debit"
+      ? ["login_domain", "login domain", "login", "goals_login", "operator", "оператор", "агент", "agent"]
+      : ["агент", "agent", "operator", "оператор", "login", "goals_login"],
     inb: ["inb"],
-    vse: ["vse", "все"],
+    vse: ["vse", "все", "vse_card", "vse card"],
     web: ["web"],
     web_apps: ["web_apps", "web apps", "webapps"],
+    x_sell: ["x-sale", "x_sale", "x-sell", "x_sell", "xsell"],
     overall: ["загальний підсумок", "загальний", "overall", "total", "summary"],
   };
-  const searchEnd = Math.min(values.length - 1, blockRowIndex + 6);
-  for (let rowIndex = blockRowIndex + 1; rowIndex <= searchEnd; rowIndex += 1) {
+  const columns = {
+    team: -1, login: -1, inb: -1, vse: -1, web: -1, web_apps: -1, x_sell: -1, overall: -1,
+  };
+  let identityRowIndex = -1;
+  let channelRowIndex = -1;
+  const searchEnd = Math.min(values.length - 1, titleRowIndex + 14);
+
+  for (let rowIndex = titleRowIndex + 1; rowIndex <= searchEnd; rowIndex += 1) {
     const row = values[rowIndex] || [];
-    const columns = {};
-    Object.keys(aliases).forEach((key) => {
-      columns[key] = row.findIndex((value) => headerMatches(value, aliases[key]));
-    });
-    if (Object.keys(columns).every((key) => columns[key] !== -1)) {
-      return { rowIndex, columns };
+    const localTeam = findHeaderColumn(row, aliases.team, startColumnIndex, endColumnIndex);
+    const localLogin = findHeaderColumn(row, aliases.login, startColumnIndex, endColumnIndex);
+    if (localTeam !== -1 && localLogin !== -1) {
+      columns.team = localTeam;
+      columns.login = localLogin;
+      identityRowIndex = rowIndex;
+    }
+
+    const localInb = findHeaderColumn(row, aliases.inb, startColumnIndex, endColumnIndex);
+    const localWeb = findHeaderColumn(row, aliases.web, startColumnIndex, endColumnIndex);
+    const localWebApps = findHeaderColumn(row, aliases.web_apps, startColumnIndex, endColumnIndex);
+    const localOverall = findHeaderColumn(row, aliases.overall, startColumnIndex, endColumnIndex);
+    const localXSell = findHeaderColumn(row, aliases.x_sell, startColumnIndex, endColumnIndex);
+    const localVse = findHeaderColumn(row, aliases.vse, startColumnIndex, endColumnIndex);
+    const channelsValid = kind === "debit"
+      ? localInb !== -1 && localWeb !== -1 && localWebApps !== -1 && localXSell !== -1 && localOverall !== -1
+      : localInb !== -1 && localWeb !== -1 && localWebApps !== -1 && localOverall !== -1;
+    if (channelsValid) {
+      columns.inb = localInb;
+      columns.vse = localVse;
+      columns.web = localWeb;
+      columns.web_apps = localWebApps;
+      columns.x_sell = localXSell;
+      columns.overall = localOverall;
+      channelRowIndex = rowIndex;
     }
   }
-  return null;
+
+  if (identityRowIndex === -1 || channelRowIndex === -1) return null;
+  return {
+    rowIndex: Math.max(identityRowIndex, channelRowIndex),
+    titleRowIndex,
+    startColumnIndex,
+    endColumnIndex,
+    columns,
+  };
+}
+
+function givingTitleBlocks(values, detectPeriod, kind) {
+  const blocks = [];
+  const seenPeriods = {};
+  for (let rowIndex = 0; rowIndex < values.length; rowIndex += 1) {
+    const row = values[rowIndex] || [];
+    const titleColumns = [];
+    for (let columnIndex = 0; columnIndex < row.length; columnIndex += 1) {
+      const period = detectPeriod(row[columnIndex]);
+      if (period) titleColumns.push({ columnIndex, period });
+    }
+    for (let titleIndex = 0; titleIndex < titleColumns.length; titleIndex += 1) {
+      const title = titleColumns[titleIndex];
+      if (seenPeriods[title.period]) continue;
+      const endColumnIndex = titleIndex + 1 < titleColumns.length
+        ? titleColumns[titleIndex + 1].columnIndex - 1
+        : row.length - 1;
+      const block = findGivingPivotBlock(values, rowIndex, title.columnIndex, endColumnIndex, kind);
+      if (!block) continue;
+      block.period = title.period;
+      blocks.push(block);
+      seenPeriods[title.period] = true;
+    }
+  }
+  return blocks;
+}
+
+function parseGivingPivotData(values, kind) {
+  const detectPeriod = kind === "debit" ? detectDebitIssuancePeriod : detectDepositGivingPeriod;
+  const blocks = givingTitleBlocks(values, detectPeriod, kind);
+  const rows = [];
+  const groupSummaries = { month: {}, yesterday: {} };
+  const availablePeriods = {};
+  const updatedAt = reportTimestamp();
+
+  blocks.forEach((block) => {
+    const period = block.period;
+    availablePeriods[period] = true;
+    let currentTeamKey = "";
+    let currentTeamName = "";
+    let foundData = false;
+    let blankRun = 0;
+
+    for (let rowIndex = block.rowIndex + 1; rowIndex < values.length; rowIndex += 1) {
+      const row = values[rowIndex] || [];
+      const rawTeam = cellText(row, block.columns.team);
+      const rawLogin = cellText(row, block.columns.login);
+      const overall = cellText(row, block.columns.overall);
+      const inb = cellText(row, block.columns.inb);
+      const web = cellText(row, block.columns.web);
+      const webApps = cellText(row, block.columns.web_apps);
+      const xSell = cellText(row, block.columns.x_sell);
+      const vse = cellText(row, block.columns.vse);
+      const hasValues = Boolean(overall || inb || web || webApps || xSell || vse);
+
+      if (!rawTeam && !rawLogin && !hasValues) {
+        if (foundData) {
+          blankRun += 1;
+          if (blankRun >= 5) break;
+        }
+        continue;
+      }
+      blankRun = 0;
+
+      const detectedTeamKey = teamReportKey(rawTeam);
+      if (detectedTeamKey) {
+        currentTeamKey = detectedTeamKey;
+        currentTeamName = rawTeam;
+      }
+
+      if (!currentTeamKey || !hasValues) continue;
+      const baseEntry = kind === "debit"
+        ? {
+            period,
+            team_key: currentTeamKey,
+            team_name: currentTeamName,
+            inb_deb: inb || "0",
+            vse_card: vse || "0",
+            web_fuib: web || "0",
+            web_apps: webApps || "0",
+            x_sell: xSell || "0",
+            overall: overall || "0",
+            updated_at: updatedAt,
+          }
+        : {
+            period,
+            team_key: currentTeamKey,
+            team_name: currentTeamName,
+            inb: inb || "0",
+            vse: vse || "0",
+            web: web || "0",
+            web_apps: webApps || "0",
+            overall: overall || "0",
+            updated_at: updatedAt,
+          };
+
+      if (detectedTeamKey && !rawLogin) {
+        groupSummaries[period][currentTeamKey] = Object.assign({}, baseEntry);
+        foundData = true;
+        continue;
+      }
+
+      if (!isReportOperatorLogin(rawLogin)) continue;
+      const entry = Object.assign({}, baseEntry, {
+        login: normalizeKey(rawLogin),
+        goals_login: normalizeKey(rawLogin),
+      });
+      rows.push(entry);
+      foundData = true;
+    }
+  });
+
+  return { rows, group_summaries: groupSummaries, available_periods: availablePeriods, updated_at: updatedAt };
 }
 
 function getDepositGivingData(sourceValues) {
   let values = sourceValues;
   if (!values) {
-    const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
-    const sheet = spreadsheet.getSheetByName(DEPOSIT_SHEET_NAME);
+    const spreadsheet = openReportSourceSpreadsheet();
+    const sheet = getSheetByNormalizedName(spreadsheet, DEPOSIT_GIVING_SHEET_NAME);
     if (!sheet) return { rows: [], group_summaries: { month: {}, yesterday: {} }, updated_at: "" };
     values = sheet.getDataRange().getDisplayValues();
   }
   if (!values.length) return { rows: [], group_summaries: { month: {}, yesterday: {} }, updated_at: "" };
-
-  const rows = [];
-  const groupSummaries = { month: {}, yesterday: {} };
-  const seenPeriods = {};
-  const updatedAt = Utilities.formatDate(new Date(), Session.getScriptTimeZone() || "Europe/Kyiv", "dd.MM.yyyy HH:mm");
-
-  for (let blockRowIndex = 0; blockRowIndex < values.length; blockRowIndex += 1) {
-    const blockRow = values[blockRowIndex] || [];
-    let period = "";
-    for (let columnIndex = 0; columnIndex < blockRow.length; columnIndex += 1) {
-      period = detectDepositGivingPeriod(blockRow[columnIndex]);
-      if (period) break;
-    }
-    if (!period || seenPeriods[period]) continue;
-    const header = findDepositGivingHeader(values, blockRowIndex);
-    if (!header) continue;
-
-    let currentTeamKey = "";
-    let currentTeamName = "";
-    let foundData = false;
-    let emptyRows = 0;
-    for (let rowIndex = header.rowIndex + 1; rowIndex < values.length; rowIndex += 1) {
-      const row = values[rowIndex] || [];
-      const nextBlock = row.some((value) => Boolean(detectDepositGivingPeriod(value)));
-      if (nextBlock) break;
-
-      const rawTeam = String(row[header.columns.team] || "").trim();
-      const rawAgent = String(row[header.columns.agent] || "").trim();
-      const hasValues = ["inb", "vse", "web", "web_apps", "overall"].some((key) => String(row[header.columns[key]] || "").trim() !== "");
-      if (!rawTeam && !rawAgent && !hasValues) {
-        if (foundData) {
-          emptyRows += 1;
-          if (emptyRows >= 3) break;
-        }
-        continue;
-      }
-      emptyRows = 0;
-
-      if (rawTeam) {
-        const detectedTeamKey = teamReportKey(rawTeam);
-        if (detectedTeamKey) {
-          currentTeamKey = detectedTeamKey;
-          currentTeamName = rawTeam;
-        }
-      }
-      if (!currentTeamKey || !hasValues) continue;
-
-      const entry = {
-        period,
-        team_key: currentTeamKey,
-        team_name: currentTeamName,
-        inb: String(row[header.columns.inb] || "").trim(),
-        vse: String(row[header.columns.vse] || "").trim(),
-        web: String(row[header.columns.web] || "").trim(),
-        web_apps: String(row[header.columns.web_apps] || "").trim(),
-        overall: String(row[header.columns.overall] || "").trim(),
-        updated_at: updatedAt,
-      };
-
-      if (!rawAgent) {
-        groupSummaries[period][currentTeamKey] = entry;
-      } else {
-        entry.login = normalizeKey(rawAgent);
-        if (entry.login) rows.push(entry);
-      }
-      foundData = true;
-    }
-    seenPeriods[period] = true;
-  }
-
-  return { rows, group_summaries: groupSummaries, updated_at: updatedAt };
+  const parsed = parseGivingPivotData(values, "deposit");
+  return {
+    rows: parsed.rows,
+    group_summaries: parsed.group_summaries,
+    updated_at: parsed.updated_at,
+  };
 }
 
 function getDepositIssuanceRows(goalsLogin, depositData) {
@@ -864,60 +1076,20 @@ function headerStartsWithAlias(value, aliases) {
 function getDebitIssuanceRows(goalsLogin, sourceValues) {
   let values = sourceValues;
   if (!values) {
-    const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
-    const sheet = spreadsheet.getSheetByName(DEBIT_ISSUANCES_SHEET_NAME);
+    const spreadsheet = openReportSourceSpreadsheet();
+    const sheet = getSheetByNormalizedName(spreadsheet, DEBIT_ISSUANCES_SHEET_NAME);
     if (!sheet) return [];
     values = sheet.getDataRange().getDisplayValues();
   }
   if (!values.length) return [];
 
-  const rows = [];
-  const seen = {};
-  const availablePeriods = {};
-  const updatedAt = Utilities.formatDate(new Date(), Session.getScriptTimeZone() || "Europe/Kyiv", "dd.MM.yyyy HH:mm");
-
-  for (let headerRowIndex = 0; headerRowIndex < values.length; headerRowIndex += 1) {
-    const headerRow = values[headerRowIndex];
-    for (let startColumnIndex = 0; startColumnIndex <= headerRow.length - 7; startColumnIndex += 1) {
-      const period = detectDebitIssuancePeriod(headerRow[startColumnIndex]);
-      if (!period || seen[period]) continue;
-
-      const validHeaders =
-        headerStartsWithAlias(headerRow[startColumnIndex + 1], ["inb_deb", "inb deb"]) &&
-        headerStartsWithAlias(headerRow[startColumnIndex + 2], ["vse_card", "vse card"]) &&
-        headerStartsWithAlias(headerRow[startColumnIndex + 3], ["web_fuib", "web fuib"]) &&
-        headerStartsWithAlias(headerRow[startColumnIndex + 4], ["web_apps", "web apps"]) &&
-        headerStartsWithAlias(headerRow[startColumnIndex + 5], ["x_sell", "x-sell", "xsell"]) &&
-        headerStartsWithAlias(headerRow[startColumnIndex + 6], ["загальний", "overall", "total"]);
-      if (!validHeaders) continue;
-      availablePeriods[period] = true;
-
-      for (let rowIndex = headerRowIndex + 1; rowIndex < values.length; rowIndex += 1) {
-        const row = values[rowIndex];
-        if (detectDebitIssuancePeriod(row[startColumnIndex])) break;
-        const login = normalizeKey(row[startColumnIndex]);
-        if (!login) continue;
-        if (login !== goalsLogin) continue;
-
-        rows.push({
-          goals_login: goalsLogin,
-          period,
-          inb_deb: String(row[startColumnIndex + 1] || "").trim(),
-          vse_card: String(row[startColumnIndex + 2] || "").trim(),
-          web_fuib: String(row[startColumnIndex + 3] || "").trim(),
-          web_apps: String(row[startColumnIndex + 4] || "").trim(),
-          x_sell: String(row[startColumnIndex + 5] || "").trim(),
-          overall: String(row[startColumnIndex + 6] || "").trim(),
-          updated_at: updatedAt,
-        });
-        seen[period] = true;
-        break;
-      }
-    }
-  }
+  const parsed = parseGivingPivotData(values, "debit");
+  const rows = (parsed.rows || [])
+    .filter((row) => normalizeKey(row.login) === goalsLogin)
+    .map((row) => Object.assign({}, row, { goals_login: goalsLogin }));
 
   ["month", "yesterday"].forEach((period) => {
-    if (!availablePeriods[period] || seen[period]) return;
+    if (!parsed.available_periods[period] || rows.some((row) => row.period === period)) return;
     rows.push({
       goals_login: goalsLogin,
       period,
@@ -927,7 +1099,7 @@ function getDebitIssuanceRows(goalsLogin, sourceValues) {
       web_apps: "0",
       x_sell: "0",
       overall: "0",
-      updated_at: updatedAt,
+      updated_at: parsed.updated_at,
     });
   });
 
@@ -991,11 +1163,12 @@ function findSummaryColumns(values, blockRowIndex, headerRowIndex) {
   return { defaultColumn, teamColumns, labels };
 }
 
-function getTransformationMetricRows(goalsLogin, sourceValues) {
+function getTransformationMetricRows(goalsLogin, sourceValues, sourceSheetName) {
   let values = sourceValues;
+  const sheetName = sourceSheetName || TRANSFORMATION_SHEET_NAME;
   if (!values) {
-    const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
-    const sheet = spreadsheet.getSheetByName(TRANSFORMATION_SHEET_NAME);
+    const spreadsheet = openReportSourceSpreadsheet();
+    const sheet = getSheetByNormalizedName(spreadsheet, sheetName);
     if (!sheet) return [];
     values = sheet.getDataRange().getDisplayValues();
   }
@@ -1005,7 +1178,7 @@ function getTransformationMetricRows(goalsLogin, sourceValues) {
   const seen = {};
 
   for (let blockRowIndex = 0; blockRowIndex < values.length; blockRowIndex += 1) {
-    const blockRow = values[blockRowIndex];
+    const blockRow = values[blockRowIndex] || [];
     let block = null;
     for (let columnIndex = 0; columnIndex < blockRow.length; columnIndex += 1) {
       block = detectTransformationBlock(blockRow[columnIndex]);
@@ -1018,14 +1191,17 @@ function getTransformationMetricRows(goalsLogin, sourceValues) {
 
     let headerRowIndex = -1;
     let userColumnIndex = -1;
-    const headerSearchEnd = Math.min(values.length - 1, blockRowIndex + 10);
+    const headerSearchEnd = Math.min(values.length - 1, blockRowIndex + 20);
     for (let rowIndex = blockRowIndex + 1; rowIndex <= headerSearchEnd; rowIndex += 1) {
-      const candidateColumn = values[rowIndex].findIndex(
+      const candidateColumn = (values[rowIndex] || []).findIndex(
         (value) => normalizeKey(value) === goalsLogin
       );
       if (candidateColumn !== -1) {
         headerRowIndex = rowIndex;
         userColumnIndex = candidateColumn;
+        break;
+      }
+      if (rowIndex > blockRowIndex + 1 && (values[rowIndex] || []).some((value) => Boolean(detectTransformationBlock(value)))) {
         break;
       }
     }
@@ -1039,13 +1215,13 @@ function getTransformationMetricRows(goalsLogin, sourceValues) {
       channel: block.channel,
       period: block.period,
       team_overall: {},
-      updated_at: Utilities.formatDate(new Date(), Session.getScriptTimeZone() || "Europe/Kyiv", "dd.MM.yyyy HH:mm"),
+      updated_at: reportTimestamp(),
     };
     let foundMetric = false;
     const metricSearchEnd = Math.min(values.length - 1, headerRowIndex + 14);
 
     for (let rowIndex = headerRowIndex + 1; rowIndex <= metricSearchEnd; rowIndex += 1) {
-      const row = values[rowIndex];
+      const row = values[rowIndex] || [];
       let label = "";
       const labelSearchEnd = Math.min(userColumnIndex, 6);
       for (let columnIndex = 0; columnIndex < labelSearchEnd; columnIndex += 1) {
@@ -1059,8 +1235,8 @@ function getTransformationMetricRows(goalsLogin, sourceValues) {
       const metricKey = transformationMetricKey(label);
       if (!metricKey) continue;
 
-      const mine = String(row[userColumnIndex] || "").trim();
-      const overall = overallColumnIndex >= 0 ? String(row[overallColumnIndex] || "").trim() : "";
+      const mine = cellText(row, userColumnIndex);
+      const overall = overallColumnIndex >= 0 ? cellText(row, overallColumnIndex) : "";
       if (metricKey === "processed_tasks") {
         output.processed_tasks = mine;
         if (overall) output.processed_tasks_overall = overall;
@@ -1070,7 +1246,7 @@ function getTransformationMetricRows(goalsLogin, sourceValues) {
       }
       if (metricKey === "projective_rate") {
         output.projective_source = {
-          sheet: TRANSFORMATION_SHEET_NAME,
+          sheet: sheetName,
           row_label: String(label || "").trim(),
           operator_column: String(values[headerRowIndex][userColumnIndex] || goalsLogin).trim(),
           general_column: overallColumnIndex >= 0 ? String(summaryColumns.labels.general || "").trim() : "",
@@ -1079,7 +1255,7 @@ function getTransformationMetricRows(goalsLogin, sourceValues) {
       }
       Object.keys(summaryColumns.teamColumns).forEach((teamKey) => {
         const columnIndex = summaryColumns.teamColumns[teamKey];
-        const teamValue = String(row[columnIndex] || "").trim();
+        const teamValue = cellText(row, columnIndex);
         if (!output.team_overall[teamKey]) output.team_overall[teamKey] = {};
         if (metricKey === "processed_tasks") output.team_overall[teamKey].processed_tasks_overall = teamValue;
         else output.team_overall[teamKey][`${metricKey}_overall`] = teamValue;
@@ -1097,25 +1273,46 @@ function getTransformationMetricRows(goalsLogin, sourceValues) {
 }
 
 function getCreditMetricRows(goalsLogin, sources) {
+  const sourceGroups = sources && Array.isArray(sources.creditTransformationSources)
+    ? sources.creditTransformationSources
+    : null;
+
+  if (sourceGroups && sourceGroups.length) {
+    const rows = [];
+    sourceGroups.forEach((source) => {
+      getTransformationMetricRows(goalsLogin, source.values, source.sheetName)
+        .forEach((row) => rows.push(row));
+    });
+    if (rows.length) return rows;
+  } else if (!sources) {
+    const spreadsheet = openReportSourceSpreadsheet();
+    const definitions = [
+      { sheetName: XSELL_TRANSFORMATION_SHEET_NAME, values: sheetDisplayValues(spreadsheet, XSELL_TRANSFORMATION_SHEET_NAME) },
+      { sheetName: WEB_TRANSFORMATION_SHEET_NAME, values: sheetDisplayValues(spreadsheet, WEB_TRANSFORMATION_SHEET_NAME) },
+      { sheetName: INB_TRANSFORMATION_SHEET_NAME, values: sheetDisplayValues(spreadsheet, INB_TRANSFORMATION_SHEET_NAME) },
+    ];
+    const rows = [];
+    definitions.forEach((source) => {
+      getTransformationMetricRows(goalsLogin, source.values, source.sheetName)
+        .forEach((row) => rows.push(row));
+    });
+    if (rows.length) return rows;
+  }
+
   const transformationRows = getTransformationMetricRows(
     goalsLogin,
-    sources && sources.transformationValues
+    sources && sources.transformationValues,
+    TRANSFORMATION_SHEET_NAME
   );
   if (transformationRows.length) return transformationRows;
 
   let values = sources && sources.creditMetricValues;
-  if (!values) {
-    const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
-    const sheet = spreadsheet.getSheetByName(CREDIT_METRICS_SHEET_NAME);
-    if (!sheet) return [];
-    values = sheet.getDataRange().getDisplayValues();
-  }
-  if (values.length < 2) return [];
+  if (!values || values.length < 2) return [];
   const [headerRow, ...rows] = values;
   const headers = headerRow.map((header) => String(header).trim());
   const normalizedHeaders = headers.map(normalizeKey);
   const keyIndex = normalizedHeaders.indexOf("goals_login");
-  if (keyIndex === -1) throw new Error('В аркуші "CreditMetrics" немає колонки "goals_login"');
+  if (keyIndex === -1) return [];
 
   return rows
     .filter((row) => normalizeKey(row[keyIndex]) === goalsLogin)
@@ -1161,6 +1358,10 @@ function isActivationLoginValue(value) {
   if (/[%:]/.test(raw) || /^\d+(?:[.,]\d+)?$/.test(raw)) return false;
   const headerKey = normalizeHeaderKey(raw);
   if (
+    ["all", "lui", "team", "agent", "operator", "login", "goals_login", "channel_name", "processed_date", "processed_year",
+     "processed_month", "token", "div", "leftt", "communication_type", "isreached", "ct_client_type", "ct_base_type",
+     "cp_code", "calc_type", "isagent"].includes(headerKey) ||
+    headerKey.startsWith("ct_") ||
     headerKey.includes("підсумок") || headerKey.includes("итог") || headerKey.includes("summary") ||
     headerKey.includes("значен") || headerKey.includes("values") || headerKey.includes("позначки") ||
     headerKey.includes("general") || headerKey.includes("overall") || headerKey.includes("загальний")
@@ -1259,6 +1460,19 @@ function cardActivationMetricKey(value) {
   return "";
 }
 
+function activationMetricLabelColumn(values, headerRowIndex, loginColumns) {
+  const headerRow = values[headerRowIndex] || [];
+  const firstLoginColumn = Math.min.apply(null, (loginColumns || []).length ? loginColumns : [headerRow.length]);
+  for (let columnIndex = 0; columnIndex < firstLoginColumn; columnIndex += 1) {
+    const key = normalizeHeaderKey(headerRow[columnIndex]);
+    if (key.includes("значен") || key.includes("values") || key.includes("metric")) return columnIndex;
+  }
+  for (let columnIndex = firstLoginColumn - 1; columnIndex >= 0; columnIndex -= 1) {
+    if (String(headerRow[columnIndex] || "").trim()) return columnIndex;
+  }
+  return Math.max(0, firstLoginColumn - 1);
+}
+
 function parseActivationTransformation(values, kind, sheetName) {
   const rows = [];
   const groupSummaries = { month: {}, yesterday: {} };
@@ -1272,13 +1486,14 @@ function parseActivationTransformation(values, kind, sheetName) {
     if (titleColumn === -1) continue;
     const title = blockRow[titleColumn];
     const period = activationPeriodFromTitle(title);
-    const header = activationHeaderRow(values, blockRowIndex, 10);
+    const header = activationHeaderRow(values, blockRowIndex, 20);
     if (!header || !period) {
       diagnostics.blocks.push({ title: String(title || ""), row: blockRowIndex + 1, reason: "header_not_found" });
       continue;
     }
 
     const summary = activationSummaryColumns(values, blockRowIndex, header.rowIndex, header.loginColumns);
+    const metricLabelColumn = activationMetricLabelColumn(values, header.rowIndex, header.loginColumns);
     const outputs = {};
     header.loginColumns.forEach((columnIndex) => {
       const login = normalizeKey(values[header.rowIndex][columnIndex]);
@@ -1298,7 +1513,7 @@ function parseActivationTransformation(values, kind, sheetName) {
       const row = values[rowIndex] || [];
       const nextTitle = row.some((cell) => isActivationTransformBlockTitle(cell, kind));
       if (nextTitle) break;
-      const firstLabel = String(row[0] || "").trim();
+      const firstLabel = String(row[metricLabelColumn] || "").trim();
       const firstKey = normalizeHeaderKey(firstLabel);
       if (firstKey.includes("giving") || firstKey.includes("видач")) break;
       const metricKey = metricKeyFor(firstLabel);
@@ -1353,6 +1568,7 @@ function parseActivationTransformation(values, kind, sheetName) {
       title: String(title || ""),
       row: blockRowIndex + 1,
       header_row: header.rowIndex + 1,
+      metric_label_column: metricLabelColumn + 1,
       period,
       operators: Object.keys(outputs).length,
       metrics: foundMetrics,
@@ -1379,17 +1595,221 @@ function parseActivationTransformation(values, kind, sheetName) {
   return { rows, group_summaries: groupSummaries, updated_at: updatedAt, diagnostics };
 }
 
+function getActivationPumbProjectionData(values) {
+  const rows = [];
+  const groupSummaries = {};
+  const diagnostics = {};
+  const updatedAt = reportTimestamp();
+  if (!Array.isArray(values) || !values.length) {
+    return { rows, group_summaries: groupSummaries, updated_at: updatedAt, diagnostics: { reason: "projection_sheet_empty" } };
+  }
+
+  let headerRowIndex = -1;
+  let teamColumn = -1;
+  let agentColumn = -1;
+  let valueColumn = -1;
+
+  for (let rowIndex = 0; rowIndex < Math.min(values.length, 30); rowIndex += 1) {
+    const row = values[rowIndex] || [];
+    const candidateAgent = findHeaderColumn(row, ["agent", "агент"]);
+    const candidateTeam = findHeaderColumn(row, ["team", "команда"]);
+    if (candidateAgent === -1 || candidateTeam === -1) continue;
+
+    let candidateValue = -1;
+    for (let columnIndex = candidateAgent + 1; columnIndex < row.length; columnIndex += 1) {
+      const raw = String(row[columnIndex] || "").trim();
+      const numeric = Number(raw.replace(",", "."));
+      if (raw && Number.isFinite(numeric) && numeric >= 1 && numeric <= 12) {
+        candidateValue = columnIndex;
+        break;
+      }
+    }
+    if (candidateValue === -1) {
+      for (let columnIndex = candidateAgent + 1; columnIndex < row.length; columnIndex += 1) {
+        const key = normalizeHeaderKey(row[columnIndex]);
+        if (!key || key.includes("processed_date") || key.includes("date")) continue;
+        candidateValue = columnIndex;
+        break;
+      }
+    }
+    if (candidateValue === -1) continue;
+
+    headerRowIndex = rowIndex;
+    teamColumn = candidateTeam;
+    agentColumn = candidateAgent;
+    valueColumn = candidateValue;
+    break;
+  }
+
+  if (headerRowIndex === -1) {
+    return { rows, group_summaries: groupSummaries, updated_at: updatedAt, diagnostics: { reason: "projection_header_not_found" } };
+  }
+
+  let currentTeamKey = "";
+  let currentTeamName = "";
+  for (let rowIndex = headerRowIndex + 1; rowIndex < values.length; rowIndex += 1) {
+    const row = values[rowIndex] || [];
+    const teamRaw = cellText(row, teamColumn);
+    const agentRaw = cellText(row, agentColumn);
+    const value = cellText(row, valueColumn);
+    const teamKey = teamReportKey(teamRaw);
+
+    if (teamKey) {
+      currentTeamKey = teamKey;
+      currentTeamName = teamRaw;
+      const teamLabelKey = normalizeHeaderKey(teamRaw);
+      if (!agentRaw || teamLabelKey.includes("підсумок") || teamLabelKey.includes("итог") || teamLabelKey.includes("summary")) {
+        if (value) {
+          groupSummaries[teamKey] = {
+            team_key: teamKey,
+            team_name: teamRaw,
+            projective_rate: value,
+            overall: value,
+            updated_at: updatedAt,
+          };
+        }
+        continue;
+      }
+    }
+
+    const rowLabel = (row || []).map((cell) => String(cell || "").trim()).find(Boolean) || "";
+    const rowLabelKey = normalizeHeaderKey(rowLabel);
+    if (
+      !agentRaw &&
+      value &&
+      (rowLabelKey.includes("загальний_підсумок") || rowLabelKey.includes("grand_total") || rowLabelKey.includes("overall"))
+    ) {
+      groupSummaries.general = { projective_rate: value, overall: value, updated_at: updatedAt };
+      continue;
+    }
+
+    if (!isActivationLoginValue(agentRaw) || !value) continue;
+    const login = normalizeKey(agentRaw);
+    rows.push({
+      login,
+      goals_login: login,
+      team_key: currentTeamKey,
+      team_name: currentTeamName,
+      projective_rate: value,
+      overall: value,
+      period: "month",
+      updated_at: updatedAt,
+      projective_source: {
+        sheet: ACTIVATION_PUMB_PROJECTION_SHEET_NAME,
+        row: rowIndex + 1,
+        value_column: valueColumn + 1,
+      },
+    });
+  }
+
+  diagnostics.header_row = headerRowIndex + 1;
+  diagnostics.team_column = teamColumn + 1;
+  diagnostics.agent_column = agentColumn + 1;
+  diagnostics.value_column = valueColumn + 1;
+  diagnostics.detected_rows = rows.length;
+  diagnostics.detected_teams = Object.keys(groupSummaries).filter((key) => key !== "general");
+  diagnostics.reason = rows.length ? null : "projection_rows_not_found";
+  return { rows, group_summaries: groupSummaries, updated_at: updatedAt, diagnostics };
+}
+
 function getActivationPumbGivingData(values) {
   const rows = [];
   const groupSummaries = { month: {}, yesterday: {} };
-  const updatedAt = Utilities.formatDate(new Date(), Session.getScriptTimeZone() || SCHEDULE_TIMEZONE, "dd.MM.yyyy HH:mm");
+  const diagnostics = { blocks: [] };
+  const updatedAt = reportTimestamp();
+
   for (let titleRowIndex = 0; titleRowIndex < values.length; titleRowIndex += 1) {
-    const row = values[titleRowIndex] || [];
-    const title = row.find((cell) => normalizeHeaderKey(cell).includes("pumb_online_giving"));
+    const titleRow = values[titleRowIndex] || [];
+    const title = titleRow.find((cell) => normalizeHeaderKey(cell).includes("pumb_online_giving"));
     if (!title) continue;
     const period = activationPeriodFromTitle(title) || "month";
+
+    let headerRowIndex = -1;
+    let teamColumn = -1;
+    let agentColumn = -1;
+    let valueColumn = -1;
+    const headerEnd = Math.min(values.length - 1, titleRowIndex + 12);
+    for (let rowIndex = titleRowIndex + 1; rowIndex <= headerEnd; rowIndex += 1) {
+      const row = values[rowIndex] || [];
+      const candidateAgent = findHeaderColumn(row, ["agent", "агент"]);
+      const candidateTeam = findHeaderColumn(row, ["team", "команда"]);
+      if (candidateAgent === -1 || candidateTeam === -1) continue;
+
+      let candidateValue = -1;
+      for (let columnIndex = row.length - 1; columnIndex > candidateAgent; columnIndex -= 1) {
+        const key = normalizeHeaderKey(row[columnIndex]);
+        if (!key || key === "token") continue;
+        candidateValue = columnIndex;
+        break;
+      }
+      if (candidateValue === -1) continue;
+      headerRowIndex = rowIndex;
+      teamColumn = candidateTeam;
+      agentColumn = candidateAgent;
+      valueColumn = candidateValue;
+      break;
+    }
+
+    if (headerRowIndex !== -1) {
+      let currentTeamKey = "";
+      for (let rowIndex = headerRowIndex + 1; rowIndex < values.length; rowIndex += 1) {
+        const row = values[rowIndex] || [];
+        const nextTitle = row.some((cell) => {
+          const key = normalizeHeaderKey(cell);
+          return key.includes("pumb_online_giving") && rowIndex !== titleRowIndex;
+        });
+        if (nextTitle) break;
+
+        const teamRaw = cellText(row, teamColumn);
+        const agentRaw = cellText(row, agentColumn);
+        const value = cellText(row, valueColumn);
+        const teamKey = teamReportKey(teamRaw);
+        if (teamKey) {
+          currentTeamKey = teamKey;
+          const teamLabelKey = normalizeHeaderKey(teamRaw);
+          if (!agentRaw || teamLabelKey.includes("підсумок") || teamLabelKey.includes("итог") || teamLabelKey.includes("summary")) {
+            if (value) groupSummaries[period][teamKey] = { overall: value, updated_at: updatedAt };
+            continue;
+          }
+        }
+
+        const firstNonEmpty = (row || []).map((cell) => String(cell || "").trim()).find(Boolean) || "";
+        const firstKey = normalizeHeaderKey(firstNonEmpty);
+        if (
+          !agentRaw &&
+          value &&
+          (firstKey.includes("загальний_підсумок") || firstKey.includes("grand_total") || firstKey.includes("overall"))
+        ) {
+          groupSummaries[period].general = { overall: value, updated_at: updatedAt };
+          continue;
+        }
+
+        if (!isActivationLoginValue(agentRaw) || !value) continue;
+        const login = normalizeKey(agentRaw);
+        rows.push({
+          goals_login: login,
+          login,
+          period,
+          team_key: currentTeamKey,
+          overall: value,
+          updated_at: updatedAt,
+        });
+      }
+      diagnostics.blocks.push({
+        title: String(title || ""),
+        row: titleRowIndex + 1,
+        header_row: headerRowIndex + 1,
+        period,
+        operators: rows.filter((item) => item.period === period).length,
+        mode: "structured_table",
+      });
+      continue;
+    }
+
+    // Compatibility fallback for the older compact three-column PUMB giving layout.
     let currentTeamKey = "";
     let blankRun = 0;
+    let foundInBlock = 0;
     for (let rowIndex = titleRowIndex + 1; rowIndex < Math.min(values.length, titleRowIndex + 35); rowIndex += 1) {
       const current = values[rowIndex] || [];
       const first = String(current[0] || "").trim();
@@ -1402,7 +1822,7 @@ function getActivationPumbGivingData(values) {
       if (nextTitle) break;
       if (!first && !second && !third) {
         blankRun += 1;
-        if (blankRun >= 2 && rows.some((item) => item.period === period)) break;
+        if (blankRun >= 2 && foundInBlock) break;
         continue;
       }
       blankRun = 0;
@@ -1414,6 +1834,7 @@ function getActivationPumbGivingData(values) {
         continue;
       }
       if (!isActivationLoginValue(second) || !third) continue;
+      foundInBlock += 1;
       rows.push({
         goals_login: normalizeKey(second),
         login: normalizeKey(second),
@@ -1423,27 +1844,217 @@ function getActivationPumbGivingData(values) {
         updated_at: updatedAt,
       });
     }
+    diagnostics.blocks.push({
+      title: String(title || ""),
+      row: titleRowIndex + 1,
+      period,
+      operators: foundInBlock,
+      mode: "legacy_compact",
+    });
   }
+
   rows.forEach((row) => {
     const summary = row && row.period && row.team_key
       ? groupSummaries[row.period] && groupSummaries[row.period][row.team_key]
       : null;
-    if (summary && String(summary.overall || "").trim()) {
-      row.team_overall = String(summary.overall).trim();
-    }
+    if (summary && String(summary.overall || "").trim()) row.team_overall = String(summary.overall).trim();
   });
-  return { rows, group_summaries: groupSummaries, updated_at: updatedAt };
+  return { rows, group_summaries: groupSummaries, updated_at: updatedAt, diagnostics };
+}
+
+function simpleActivationPivotCandidate(values, headerRowIndex, labelColumnIndex) {
+  const headerRow = values[headerRowIndex] || [];
+  const overallColumnIndex = findHeaderColumn(
+    headerRow,
+    ["загальний підсумок", "загальний", "overall", "total", "summary"],
+    labelColumnIndex + 1
+  );
+  if (overallColumnIndex === -1) return null;
+
+  const channelColumns = {
+    inb: findHeaderColumn(headerRow, ["inb"], labelColumnIndex + 1, overallColumnIndex - 1),
+    vse: findHeaderColumn(headerRow, ["vse", "все"], labelColumnIndex + 1, overallColumnIndex - 1),
+    web: findHeaderColumn(headerRow, ["web"], labelColumnIndex + 1, overallColumnIndex - 1),
+    web_apps: findHeaderColumn(headerRow, ["web_apps", "web apps", "webapps"], labelColumnIndex + 1, overallColumnIndex - 1),
+    x_sell: findHeaderColumn(headerRow, ["x-sale", "x_sale", "x-sell", "x_sell", "xsell", "xsale"], labelColumnIndex + 1, overallColumnIndex - 1),
+  };
+  const channelCount = Object.keys(channelColumns).filter((key) => channelColumns[key] !== -1).length;
+  if (channelCount < 2) return null;
+
+  let operators = 0;
+  let teams = 0;
+  for (let rowIndex = headerRowIndex + 1; rowIndex < values.length; rowIndex += 1) {
+    const row = values[rowIndex] || [];
+    const label = cellText(row, labelColumnIndex);
+    const overall = cellText(row, overallColumnIndex);
+    if (!overall) continue;
+    if (teamReportKey(label)) teams += 1;
+    else if (isReportOperatorLogin(label)) operators += 1;
+  }
+  return {
+    headerRowIndex,
+    labelColumnIndex,
+    overallColumnIndex,
+    channelColumns,
+    operators,
+    teams,
+    score: operators * 20 + teams * 4 + channelCount,
+  };
+}
+
+function parseSimpleActivationPivot(values, kind, sheetName) {
+  const candidates = [];
+  for (let rowIndex = 0; rowIndex < values.length; rowIndex += 1) {
+    const row = values[rowIndex] || [];
+    for (let columnIndex = 0; columnIndex < row.length; columnIndex += 1) {
+      const key = normalizeHeaderKey(row[columnIndex]);
+      if (!(key.includes("позначки_рядків") || key.includes("row_labels"))) continue;
+      const candidate = simpleActivationPivotCandidate(values, rowIndex, columnIndex);
+      if (candidate) candidates.push(candidate);
+    }
+  }
+  candidates.sort((left, right) => right.score - left.score);
+  const winner = candidates[0];
+  const updatedAt = reportTimestamp();
+  const groupSummaries = { month: {}, yesterday: {} };
+  if (!winner || !winner.operators) {
+    return {
+      metrics: [],
+      leaderboard: [],
+      group_summaries: groupSummaries,
+      updated_at: updatedAt,
+      diagnostics: { reason: "simple_activation_pivot_not_found", candidates: candidates.length },
+    };
+  }
+
+  const metrics = [];
+  const leaderboard = [];
+  let currentTeamKey = "";
+  let currentTeamName = "";
+  const generalAliases = ["загальний підсумок", "загальний", "overall", "grand total", "общий итог"];
+
+  for (let rowIndex = winner.headerRowIndex + 1; rowIndex < values.length; rowIndex += 1) {
+    const row = values[rowIndex] || [];
+    const rawLabel = cellText(row, winner.labelColumnIndex);
+    const overall = cellText(row, winner.overallColumnIndex);
+    if (!rawLabel || !overall) continue;
+
+    if (headerMatches(rawLabel, generalAliases)) {
+      groupSummaries.month.general = {
+        projective_rate: overall,
+        overall,
+        updated_at: updatedAt,
+      };
+      continue;
+    }
+
+    const teamKey = teamReportKey(rawLabel);
+    if (teamKey) {
+      currentTeamKey = teamKey;
+      currentTeamName = rawLabel;
+      groupSummaries.month[teamKey] = {
+        team_key: teamKey,
+        team_name: rawLabel,
+        projective_rate: overall,
+        overall,
+        updated_at: updatedAt,
+      };
+      continue;
+    }
+
+    if (!currentTeamKey || !isReportOperatorLogin(rawLabel)) continue;
+    const login = normalizeKey(rawLabel);
+    const metric = {
+      goals_login: login,
+      login,
+      period: "month",
+      team_key: currentTeamKey,
+      team_name: currentTeamName,
+      projective_rate: overall,
+      overall,
+      updated_at: updatedAt,
+      projective_source: {
+        sheet: sheetName,
+        row_label: rawLabel,
+        operator_column: rawLabel,
+        general_column: cellText(values[winner.headerRowIndex], winner.overallColumnIndex),
+        team_columns: {},
+      },
+    };
+
+    Object.keys(winner.channelColumns).forEach((key) => {
+      const columnIndex = winner.channelColumns[key];
+      if (columnIndex !== -1) metric[key] = cellText(row, columnIndex);
+    });
+
+    if (kind === "pumb") {
+      metric.activation_online_rate = overall;
+    } else {
+      metric.activation_from_processed_rate = overall;
+    }
+    const teamSummary = groupSummaries.month[currentTeamKey];
+    if (teamSummary) {
+      metric.team_summary = Object.assign({}, teamSummary);
+      metric.projective_rate_team = teamSummary.projective_rate;
+      if (kind === "pumb") metric.activation_online_rate_team = teamSummary.projective_rate;
+      else metric.activation_from_processed_rate_team = teamSummary.projective_rate;
+    }
+
+    metrics.push(metric);
+    leaderboard.push({
+      login,
+      goals_login: login,
+      team_key: currentTeamKey,
+      team_name: currentTeamName,
+      projective_rate: overall,
+      updated_at: updatedAt,
+    });
+  }
+
+  return {
+    metrics,
+    leaderboard,
+    group_summaries: groupSummaries,
+    updated_at: updatedAt,
+    diagnostics: {
+      reason: metrics.length ? null : "simple_activation_rows_not_found",
+      sheet: sheetName,
+      header_row: winner.headerRowIndex + 1,
+      label_column: winner.labelColumnIndex + 1,
+      overall_column: winner.overallColumnIndex + 1,
+      detected_rows: metrics.length,
+      detected_teams: Object.keys(groupSummaries.month).filter((key) => key !== "general"),
+    },
+  };
 }
 
 function getActivationPumbData(spreadsheet) {
-  const sourceSpreadsheet = spreadsheet || SpreadsheetApp.openById(SPREADSHEET_ID);
-  const values = sheetDisplayValues(sourceSpreadsheet, ACTIVATION_PUMB_SHEET_NAME);
-  if (!values.length) {
-    return { metrics: [], leaderboard: [], group_summaries: { month: {}, yesterday: {} }, giving: [], giving_group_summaries: { month: {}, yesterday: {} }, updated_at: "", diagnostics: { reason: "sheet_missing_or_empty" } };
+  const sourceSpreadsheet = openActivatorSourceSpreadsheet(spreadsheet);
+  const projectionValues = sheetDisplayValues(sourceSpreadsheet, ACTIVATION_PUMB_PROJECTION_SHEET_NAME);
+  const transformationValues = sheetDisplayValues(sourceSpreadsheet, ACTIVATION_PUMB_TRANSFORMATION_SHEET_NAME);
+  const givingValues = sheetDisplayValues(sourceSpreadsheet, ACTIVATION_PUMB_GIVING_SHEET_NAME);
+
+  if (!projectionValues.length && !transformationValues.length && !givingValues.length) {
+    return {
+      metrics: [],
+      leaderboard: [],
+      group_summaries: { month: {}, yesterday: {} },
+      giving: [],
+      giving_group_summaries: { month: {}, yesterday: {} },
+      updated_at: "",
+      diagnostics: { reason: "activator_pumb_sheets_missing_or_empty" },
+    };
   }
-  const transformation = parseActivationTransformation(values, "pumb", ACTIVATION_PUMB_SHEET_NAME);
-  const giving = getActivationPumbGivingData(values);
-  const leaderboard = transformation.rows
+
+  const transformation = parseActivationTransformation(
+    transformationValues,
+    "pumb",
+    ACTIVATION_PUMB_TRANSFORMATION_SHEET_NAME
+  );
+  const projection = getActivationPumbProjectionData(projectionValues);
+  const giving = getActivationPumbGivingData(givingValues);
+
+  const fallbackLeaderboard = transformation.rows
     .filter((row) => row.period === "month" && String(row.projective_rate || "").trim())
     .map((row) => ({
       login: row.login,
@@ -1452,14 +2063,31 @@ function getActivationPumbData(spreadsheet) {
       projective_rate: row.projective_rate,
       updated_at: row.updated_at,
     }));
+  const leaderboard = projection.rows.length ? projection.rows : fallbackLeaderboard;
+
+  const groupSummaries = transformation.group_summaries || { month: {}, yesterday: {} };
+  if (!groupSummaries.month) groupSummaries.month = {};
+  Object.keys(projection.group_summaries || {}).forEach((key) => {
+    groupSummaries.month[key] = Object.assign(
+      {},
+      groupSummaries.month[key] || {},
+      projection.group_summaries[key] || {}
+    );
+  });
+
   return {
     metrics: transformation.rows,
     leaderboard,
-    group_summaries: transformation.group_summaries,
+    group_summaries: groupSummaries,
     giving: giving.rows,
     giving_group_summaries: giving.group_summaries,
-    updated_at: transformation.updated_at,
-    diagnostics: transformation.diagnostics,
+    updated_at: transformation.updated_at || projection.updated_at || giving.updated_at,
+    diagnostics: {
+      source: "Activators projective",
+      projection: projection.diagnostics,
+      transformation: transformation.diagnostics,
+      giving: giving.diagnostics,
+    },
   };
 }
 
@@ -1562,8 +2190,16 @@ function getActivationCardsProjection(values, availableLogins) {
       continue;
     }
     if (!value || !/%/.test(value)) continue;
-    const match = activationMatchNameToLogin(label, availableLogins, used);
-    diagnostics.mappings.push({ name: label, login: match ? match.login : "", score: match ? Math.round(match.score * 10) / 10 : 0 });
+    const directLogin = isActivationLoginValue(label) ? normalizeKey(label) : "";
+    const match = directLogin
+      ? { login: directLogin, score: 999, prefix: directLogin.length, similarity: 1 }
+      : activationMatchNameToLogin(label, availableLogins, used);
+    diagnostics.mappings.push({
+      name: label,
+      login: match ? match.login : "",
+      score: match ? Math.round(match.score * 10) / 10 : 0,
+      mode: directLogin ? "direct_login" : "name_match",
+    });
     if (!match) continue;
     used[match.login] = true;
     rows.push({
@@ -1645,15 +2281,35 @@ function getActivationCardsGivingData(values) {
 }
 
 function getActivationCardsData(spreadsheet) {
-  const sourceSpreadsheet = spreadsheet || SpreadsheetApp.openById(SPREADSHEET_ID);
-  const values = sheetDisplayValues(sourceSpreadsheet, ACTIVATION_CARDS_SHEET_NAME);
-  if (!values.length) {
-    return { metrics: [], leaderboard: [], group_summaries: {}, giving: [], giving_group_summaries: { month: {}, yesterday: {} }, updated_at: "", diagnostics: { reason: "sheet_missing_or_empty" } };
+  const sourceSpreadsheet = openActivatorSourceSpreadsheet(spreadsheet);
+  const projectionValues = sheetDisplayValues(sourceSpreadsheet, ACTIVATION_CARDS_PROJECTION_SHEET_NAME);
+  const transformationValues = sheetDisplayValues(sourceSpreadsheet, ACTIVATION_CARDS_TRANSFORMATION_SHEET_NAME);
+  const givingValues = sheetDisplayValues(sourceSpreadsheet, ACTIVATION_CARDS_GIVING_SHEET_NAME);
+
+  if (!projectionValues.length && !transformationValues.length && !givingValues.length) {
+    return {
+      metrics: [],
+      leaderboard: [],
+      group_summaries: {},
+      transformation_group_summaries: { month: {}, yesterday: {} },
+      giving: [],
+      giving_group_summaries: { month: {}, yesterday: {} },
+      updated_at: "",
+      diagnostics: { reason: "activator_card_sheets_missing_or_empty" },
+    };
   }
-  const transformation = parseActivationTransformation(values, "cards", ACTIVATION_CARDS_SHEET_NAME);
-  const availableLogins = Array.from(new Set(transformation.rows.map((row) => normalizeKey(row.login)).filter(Boolean)));
-  const projection = getActivationCardsProjection(values, availableLogins);
-  const giving = getActivationCardsGivingData(values);
+
+  const transformation = parseActivationTransformation(
+    transformationValues,
+    "cards",
+    ACTIVATION_CARDS_TRANSFORMATION_SHEET_NAME
+  );
+  const availableLogins = Array.from(new Set(
+    transformation.rows.map((row) => normalizeKey(row.login)).filter(Boolean)
+  ));
+  const projection = getActivationCardsProjection(projectionValues, availableLogins);
+  const giving = getActivationCardsGivingData(givingValues);
+
   return {
     metrics: transformation.rows,
     leaderboard: projection.rows,
@@ -1661,10 +2317,11 @@ function getActivationCardsData(spreadsheet) {
     transformation_group_summaries: transformation.group_summaries,
     giving: giving.rows,
     giving_group_summaries: giving.group_summaries,
-    updated_at: transformation.updated_at || projection.updated_at,
+    updated_at: transformation.updated_at || projection.updated_at || giving.updated_at,
     diagnostics: {
-      transformation: transformation.diagnostics,
+      source: "Activators projective",
       projection: projection.diagnostics,
+      transformation: transformation.diagnostics,
       giving: giving.diagnostics,
     },
   };
@@ -1755,6 +2412,17 @@ function findScheduleDateRow(displayValues, rawValues, headerRowIndex, firstSche
   }
 
   return best;
+}
+
+function scheduleWeekdayNearDateRow(displayValues, dateRowIndex, columnIndex, headerRowIndex) {
+  const candidateRows = [dateRowIndex + 1, dateRowIndex - 1, headerRowIndex];
+  for (let index = 0; index < candidateRows.length; index += 1) {
+    const rowIndex = candidateRows[index];
+    if (rowIndex < 0 || rowIndex >= displayValues.length) continue;
+    const weekdayIndex = scheduleWeekdayIndex((displayValues[rowIndex] || [])[columnIndex]);
+    if (weekdayIndex >= 0) return weekdayIndex;
+  }
+  return -1;
 }
 
 function scheduleIsoDate(date) {
@@ -1858,7 +2526,7 @@ function getScheduleForLogin(goalsLogin, sourceData) {
   let rawValues = sourceData && sourceData.rawValues;
   if (!displayValues || !rawValues) {
     const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
-    const sheet = spreadsheet.getSheetByName(SCHEDULE_SHEET_NAME);
+    const sheet = getSheetByNormalizedName(spreadsheet, SCHEDULE_SHEET_NAME);
     if (!sheet) {
       return { found: false, reason: "schedule_sheet_missing", sheet_name: SCHEDULE_SHEET_NAME, days: [] };
     }
@@ -1947,7 +2615,7 @@ function getScheduleForLogin(goalsLogin, sourceData) {
     dateColumns.push({
       columnIndex,
       day,
-      weekdayIndex: scheduleWeekdayIndex(headerRow[columnIndex]),
+      weekdayIndex: scheduleWeekdayNearDateRow(displayValues, dateRowIndex, columnIndex, headerRowIndex),
       rawDate: dateRawRow[columnIndex],
     });
   }
@@ -2001,12 +2669,12 @@ function getScheduleForLogin(goalsLogin, sourceData) {
 }
 
 function sheetDisplayValues(spreadsheet, sheetName) {
-  const sheet = spreadsheet.getSheetByName(sheetName);
+  const sheet = getSheetByNormalizedName(spreadsheet, sheetName);
   return sheet ? sheet.getDataRange().getDisplayValues() : [];
 }
 
 function scheduleSourceData(spreadsheet) {
-  const sheet = spreadsheet.getSheetByName(SCHEDULE_SHEET_NAME);
+  const sheet = getSheetByNormalizedName(spreadsheet, SCHEDULE_SHEET_NAME);
   if (!sheet) return null;
   const range = sheet.getDataRange();
   return {
@@ -2054,58 +2722,73 @@ function emptyScheduleSnapshot(reason, goalsLogin) {
   };
 }
 
-function loadReportSources(spreadsheet) {
+function loadReportSources(appSpreadsheet, reportSpreadsheet) {
+  const sourceSpreadsheet = reportSpreadsheet || openReportSourceSpreadsheet(appSpreadsheet);
   return {
-    transformationValues: sheetDisplayValues(spreadsheet, TRANSFORMATION_SHEET_NAME),
-    creditMetricValues: sheetDisplayValues(spreadsheet, CREDIT_METRICS_SHEET_NAME),
-    debitIssuanceValues: sheetDisplayValues(spreadsheet, DEBIT_ISSUANCES_SHEET_NAME),
-    depositValues: sheetDisplayValues(spreadsheet, DEPOSIT_SHEET_NAME),
-    schedule: scheduleSourceData(spreadsheet),
+    creditTransformationSources: [
+      { sheetName: XSELL_TRANSFORMATION_SHEET_NAME, values: sheetDisplayValues(sourceSpreadsheet, XSELL_TRANSFORMATION_SHEET_NAME) },
+      { sheetName: WEB_TRANSFORMATION_SHEET_NAME, values: sheetDisplayValues(sourceSpreadsheet, WEB_TRANSFORMATION_SHEET_NAME) },
+      { sheetName: INB_TRANSFORMATION_SHEET_NAME, values: sheetDisplayValues(sourceSpreadsheet, INB_TRANSFORMATION_SHEET_NAME) },
+    ],
+    transformationValues: sheetDisplayValues(sourceSpreadsheet, TRANSFORMATION_SHEET_NAME),
+    creditMetricValues: sheetDisplayValues(sourceSpreadsheet, CREDIT_METRICS_SHEET_NAME),
+    debitIssuanceValues: sheetDisplayValues(sourceSpreadsheet, DEBIT_ISSUANCES_SHEET_NAME),
+    depositTransformationValues: sheetDisplayValues(sourceSpreadsheet, DEPOSIT_TRANSFORMATION_SHEET_NAME),
+    depositGivingValues: sheetDisplayValues(sourceSpreadsheet, DEPOSIT_GIVING_SHEET_NAME),
+    schedule: scheduleSourceData(sourceSpreadsheet),
   };
 }
 
-function buildReportSnapshots(spreadsheet) {
-  const context = getSheetContext(spreadsheet);
-  const goalsLoginIndex = context.normalizedHeaders.indexOf("goals_login");
-  if (goalsLoginIndex === -1) throw new Error('Немає колонки "goals_login"');
-
-  const sources = loadReportSources(spreadsheet);
-  const leaderboard = getCreditLeaderboard(spreadsheet);
-  const debitLeaderboard = getDebitLeaderboard(spreadsheet);
-  const depositProjection = getDepositProjectionLeaderboard(spreadsheet);
-  const depositGiving = getDepositGivingData(sources.depositValues);
-  const activationPumb = getActivationPumbData(spreadsheet);
-  const activationCards = getActivationCardsData(spreadsheet);
+function buildReportSnapshots(spreadsheet, activatorsSpreadsheet) {
+  const reportSpreadsheet = openReportSourceSpreadsheet(spreadsheet);
+  const activationSpreadsheet = openActivatorSourceSpreadsheet(activatorsSpreadsheet);
+  const sources = loadReportSources(reportSpreadsheet, reportSpreadsheet);
+  const leaderboard = getCreditLeaderboard(reportSpreadsheet);
+  const debitLeaderboard = getDebitLeaderboard(reportSpreadsheet);
+  const depositProjection = getDepositProjectionLeaderboard(reportSpreadsheet);
+  const depositGiving = getDepositGivingData(sources.depositGivingValues);
+  const activationPumb = getActivationPumbData(activationSpreadsheet);
+  const activationCards = getActivationCardsData(activationSpreadsheet);
   const now = new Date();
   const timezone = Session.getScriptTimeZone() || SCHEDULE_TIMEZONE;
   const snapshotUpdatedAt = Utilities.formatDate(now, timezone, "dd.MM.yyyy HH:mm");
   const snapshotDay = Utilities.formatDate(now, timezone, "yyyy-MM-dd");
   const snapshotVersion = `${Date.now()}-${Utilities.getUuid()}`;
 
-  const goalLogins = context.rows
-    .map((row) => normalizeKey(row[goalsLoginIndex]))
-    .filter(Boolean);
+  // V155 profiles combine the main report workbook (sales/deposit + Schedule)
+  // with the dedicated Activators projective workbook. Goals is not consulted.
   const scheduleLogins = getScheduleLogins(sources.schedule);
   const creditLogins = (leaderboard.rows || []).map((row) => normalizeKey(row.login)).filter(Boolean);
   const debitLogins = (debitLeaderboard.rows || []).map((row) => normalizeKey(row.login)).filter(Boolean);
   const depositLogins = getDepositLogins(depositGiving);
   const depositProjectionLogins = (depositProjection.rows || []).map((row) => normalizeKey(row.login)).filter(Boolean);
-  const activationPumbLogins = (activationPumb.metrics || []).concat(activationPumb.giving || [], activationPumb.leaderboard || []).map((row) => normalizeKey(row.login || row.goals_login)).filter(Boolean);
-  const activationCardsLogins = (activationCards.metrics || []).concat(activationCards.giving || [], activationCards.leaderboard || []).map((row) => normalizeKey(row.login || row.goals_login)).filter(Boolean);
+  const activationPumbLogins = (activationPumb.metrics || [])
+    .concat(activationPumb.giving || [], activationPumb.leaderboard || [])
+    .map((row) => normalizeKey(row.login || row.goals_login))
+    .filter(Boolean);
+  const activationCardsLogins = (activationCards.metrics || [])
+    .concat(activationCards.giving || [], activationCards.leaderboard || [])
+    .map((row) => normalizeKey(row.login || row.goals_login))
+    .filter(Boolean);
+
   const logins = Array.from(new Set(
-    goalLogins
-      .concat(scheduleLogins, creditLogins, debitLogins, depositLogins, depositProjectionLogins, activationPumbLogins, activationCardsLogins)
+    scheduleLogins.concat(
+      creditLogins,
+      debitLogins,
+      depositLogins,
+      depositProjectionLogins,
+      activationPumbLogins,
+      activationCardsLogins
+    )
   )).sort();
 
   const reports = logins.map((goalsLogin) => {
-    const found = findGoalRow(context, goalsLogin);
-    const hasGoalRow = found.rowOffset !== -1;
     const schedule = sources.schedule
       ? getScheduleForLogin(goalsLogin, sources.schedule)
       : emptyScheduleSnapshot("schedule_sheet_missing", goalsLogin);
     const creditMetrics = getCreditMetricRows(goalsLogin, sources);
     const debitIssuances = getDebitIssuanceRows(goalsLogin, sources.debitIssuanceValues);
-    const depositMetrics = getDepositMetricRows(goalsLogin, sources.depositValues);
+    const depositMetrics = getDepositMetricRows(goalsLogin, sources.depositTransformationValues);
     const depositIssuances = getDepositIssuanceRows(goalsLogin, depositGiving);
     const activationPumbMetrics = activationRowsForLogin(activationPumb.metrics, goalsLogin);
     const activationPumbGiving = activationRowsForLogin(activationPumb.giving, goalsLogin);
@@ -2127,10 +2810,9 @@ function buildReportSnapshots(spreadsheet) {
       activationCardsProjectionRow: reportRowByLogin(activationCards.leaderboard, goalsLogin),
       schedule,
     };
-    const reportFound = hasGoalRow || hasPersonalReportData(personal);
-    const goals = hasGoalRow
-      ? rowToObject(context.headers, context.rows[found.rowOffset])
-      : buildAutomaticGoals(context, goalsLogin, personal);
+    const reportFound = hasPersonalReportData(personal);
+    const goals = buildProjectionGoals(goalsLogin, personal);
+    const projections = projectionSummaryFromGoals(goals);
 
     return {
       goals_login: goalsLogin,
@@ -2144,9 +2826,16 @@ function buildReportSnapshots(spreadsheet) {
         goals_login: goalsLogin,
         found: reportFound,
         report_found: reportFound,
-        goals_found: hasGoalRow,
-        reason: hasGoalRow ? null : (reportFound ? "goals_auto_generated" : "key_not_found"),
+        goals_found: false,
+        reason: reportFound ? null : "key_not_found",
+        // "goals" is preserved only as an API-compatibility alias for the
+        // read-only projection values. It is never loaded from or written to a Goals sheet.
         goals,
+        projections,
+        projection_target: Number(FIXED_PROJECTION_TARGET),
+        projection_source: "main_report_tabs+activators_projective",
+        activation_source: "Activators projective",
+        goals_editable: false,
         credit_metrics: creditMetrics,
         credit_leaderboard: leaderboard.rows,
         credit_group_summary: leaderboard.group_summary,
@@ -2195,7 +2884,6 @@ function buildReportSnapshots(spreadsheet) {
     snapshotDay,
   };
 }
-
 function splitReportJson(value) {
   const text = String(value || "");
   const chunks = [];
@@ -2416,6 +3104,10 @@ function reportsNotRefreshedPayload(goalsLogin) {
     goals_found: false,
     reason: "reports_not_refreshed",
     goals: null,
+    projections: null,
+    projection_target: Number(FIXED_PROJECTION_TARGET),
+    projection_source: "report_tabs",
+    goals_editable: false,
     credit_metrics: [],
     credit_leaderboard: [],
     credit_group_summary: null,
@@ -2562,11 +3254,14 @@ function doPost(e) {
 
     const action = normalizeKey(body.action);
     if (action === "read_all_goals") {
+      // Compatibility endpoint name: values are read-only projections from report tabs.
       const all = readAllCachedGoals();
       return jsonResponse({
         success: true,
         api_version: REPORT_CACHE_API_VERSION,
         report_mode: "manual_snapshot",
+        projection_target: Number(FIXED_PROJECTION_TARGET),
+        goals_editable: false,
         ...all,
       });
     }
@@ -2589,6 +3284,8 @@ function doPost(e) {
     }
 
     if (action === "get_goals_settings") {
+      // Compatibility action name. This setting controls cross-team report visibility,
+      // not editable goals.
       return jsonResponse({ success: true, ...readGoalsSettings() });
     }
 
@@ -2599,61 +3296,20 @@ function doPost(e) {
       });
     }
 
-    const goalsLogin = normalizeKey(body.goals_login);
-    const goals = body.goals || {};
-    if (!goalsLogin) return jsonResponse({ success: false, error: "goals_login is required" });
-
-    const context = getSheetContext();
-    const found = findGoalRow(context, goalsLogin);
-    if (found.sheetRow === -1) {
-      return jsonResponse({ success: false, error: `Рядок для ключа ${goalsLogin} не знайдено` });
+    if (action === "write_goals") {
+      return jsonResponse({
+        success: false,
+        error: "Проекції формуються автоматично зі звітів. Редагування Goals вимкнено у V155.",
+        goals_editable: false,
+        projection_target: Number(FIXED_PROJECTION_TARGET),
+      });
     }
 
-    const valuesByHeader = {
-      credit_actual: numberValue(goals.credit && goals.credit.current),
-      credit_current: numberValue(goals.credit && goals.credit.current),
-      credit_target: numberValue(goals.credit && goals.credit.target),
-      credit_mode: String((goals.credit && goals.credit.mode) || "reach"),
-      debit_actual: numberValue(goals.debit && goals.debit.current),
-      debit_current: numberValue(goals.debit && goals.debit.current),
-      debit_target: numberValue(goals.debit && goals.debit.target),
-      debit_mode: String((goals.debit && goals.debit.mode) || "reach"),
-      deposit_actual: numberValue(goals.deposit && goals.deposit.current),
-      deposit_current: numberValue(goals.deposit && goals.deposit.current),
-      deposit_target: numberValue(goals.deposit && goals.deposit.target),
-      deposit_mode: String((goals.deposit && goals.deposit.mode) || "reach"),
-      monthly_bonus_actual: numberValue(goals.monthly_bonus_current),
-      monthly_bonus_current: numberValue(goals.monthly_bonus_current),
-      monthly_bonus_target: numberValue(goals.monthly_bonus_target),
-      note: String(goals.note || ""),
-    };
-
-    context.normalizedHeaders.forEach((header, index) => {
-      if (!(header in valuesByHeader)) return;
-      const cell = context.sheet.getRange(found.sheetRow, index + 1);
-      const value = valuesByHeader[header];
-      if (["credit_actual", "credit_current", "credit_target", "debit_actual", "debit_current", "debit_target", "deposit_actual", "deposit_current", "deposit_target"].includes(header)) {
-        cell.setValue(value / 100).setNumberFormat("0.00%");
-      } else {
-        cell.setValue(value);
-      }
-    });
-
-    SpreadsheetApp.flush();
-    const refreshed = context.sheet.getRange(found.sheetRow, 1, 1, context.headers.length).getDisplayValues()[0];
-    return jsonResponse({
-      success: true,
-      found: true,
-      goals_login: goalsLogin,
-      goals: rowToObject(context.headers, refreshed),
-      reports_refresh_required: true,
-      message: 'Зміни записано в таблицю. Натисніть кнопку "Оновити звіти", щоб опублікувати їх на сайті.',
-    });
+    return jsonResponse({ success: false, error: "Unknown action" });
   } catch (error) {
-    return jsonResponse({ success: false, error: error && error.message ? error.message : "Помилка запису таблиці" });
+    return jsonResponse({ success: false, error: error && error.message ? error.message : "Помилка обробки запиту" });
   }
 }
-
 function numberValue(value) {
   const number = Number(value || 0);
   return Number.isFinite(number) ? number : 0;
