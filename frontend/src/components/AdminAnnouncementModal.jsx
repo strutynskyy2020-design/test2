@@ -95,10 +95,11 @@ export default function AdminAnnouncementModal({ user }) {
   if (!announcement) return null;
 
   return (
-    <div className="admin-announcement-overlay fixed inset-0 z-[90] flex items-center justify-center px-5 py-8" role="presentation">
+    <div className="admin-announcement-overlay fixed inset-0 z-[90] flex items-center justify-center overflow-hidden px-3 py-3 sm:px-5 sm:py-8" role="presentation">
       <button
         type="button"
         aria-label="Закрити повідомлення"
+        tabIndex={-1}
         className="absolute inset-0 cursor-default bg-black/75 backdrop-blur-md"
         onClick={dismiss}
       />
@@ -106,12 +107,31 @@ export default function AdminAnnouncementModal({ user }) {
         role="dialog"
         aria-modal="true"
         aria-labelledby="admin-announcement-title"
-        className="admin-announcement-card relative z-10 w-full max-w-[430px] overflow-hidden rounded-[30px] border border-[#7DD3FC]/45 p-5 shadow-2xl"
+        onKeyDown={(event) => { if (event.key === "Escape") dismiss(); }}
+        className="admin-announcement-card relative z-10 flex max-h-[calc(100dvh-1.5rem)] min-h-0 w-full max-w-[430px] flex-col overflow-hidden rounded-[30px] border border-[#7DD3FC]/45 shadow-2xl sm:max-h-[calc(100dvh-4rem)]"
         data-testid="admin-announcement-modal"
       >
         <div className="admin-announcement-orbit" aria-hidden="true" />
-        <div className="relative z-10">
-          <div className="flex items-start justify-between gap-4">
+        <button
+          type="button"
+          autoFocus
+          onClick={dismiss}
+          disabled={closing}
+          className="absolute right-4 top-4 z-30 flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-white/15 bg-[#0A0A0A]/90 text-zinc-300 shadow-lg transition hover:border-white/30 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7DD3FC] active:scale-95 disabled:opacity-50"
+          aria-label="Закрити повідомлення"
+          title="Закрити повідомлення"
+          data-testid="close-admin-announcement"
+        >
+          <X size={17} strokeWidth={3} />
+        </button>
+        <div
+          role="region"
+          aria-label="Текст повідомлення"
+          tabIndex={0}
+          data-testid="admin-announcement-scroll-body"
+          className="announcement-scrollbar relative z-10 min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-contain p-5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#7DD3FC]"
+        >
+          <div className="flex items-start gap-4 pr-12">
             <div className="flex min-w-0 items-center gap-3">
               <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-[#7DD3FC]/35 bg-[#7DD3FC]/10 text-[#7DD3FC]">
                 <Megaphone size={22} strokeWidth={2.8} />
@@ -125,15 +145,6 @@ export default function AdminAnnouncementModal({ user }) {
                 </h2>
               </div>
             </div>
-            <button
-              type="button"
-              onClick={dismiss}
-              disabled={closing}
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-black/25 text-zinc-400 active:scale-95 disabled:opacity-50"
-              aria-label="Закрити"
-            >
-              <X size={17} strokeWidth={3} />
-            </button>
           </div>
 
           <div className="mt-5 whitespace-pre-wrap rounded-2xl border border-white/10 bg-black/20 px-4 py-4 text-sm font-bold leading-relaxed text-zinc-200">

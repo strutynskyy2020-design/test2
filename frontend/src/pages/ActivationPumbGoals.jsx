@@ -16,6 +16,7 @@ import {
 import { useApp } from "@/context/AppContext";
 import { useDailyGoogleReports } from "@/hooks/useGoogleReports";
 import useOperatorReportTrend from "@/hooks/useOperatorReportTrend";
+import { useTeamReportTrend } from "@/hooks/useTeamReportTrend";
 import OperatorReportTrendChart from "@/components/OperatorReportTrendChart";
 import AvatarFrame from "@/components/AvatarFrame";
 import {
@@ -146,6 +147,12 @@ export default function ActivationPumbGoals() {
     metrics: trendProjection === null ? [] : [{ key: "projective_rate", label: "Проекційний результат", value: trendProjection, unit: "percent" }],
     enabled: Boolean(report && trendProjection !== null),
   });
+  const { records: teamTrendRecords, loading: teamTrendLoading } = useTeamReportTrend({
+    reportType: "activation_pumb",
+    period,
+    teamId: user?.team_id || "",
+    enabled: Boolean(report && user?.team_id && canViewActivationReports),
+  });
 
   const setPeriod = (value) => {
     const next = new URLSearchParams(searchParams);
@@ -158,13 +165,13 @@ export default function ActivationPumbGoals() {
   if (report && !canViewActivationReports) {
     return (
       <div className="space-y-4 px-5 pb-8 pt-2" data-testid="activation-report-access-denied">
-        <button type="button" onClick={() => navigate("/goals")} className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-[#1A1A1E] text-zinc-300 active:scale-95" aria-label="Назад до цілей">
+        <button type="button" onClick={() => navigate("/goals")} className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-[#1A1A1E] text-zinc-300 active:scale-95" aria-label="Назад до проекційних">
           <ArrowLeft size={21} strokeWidth={2.7} />
         </button>
         <section className="rounded-3xl border border-white/10 bg-[#1A1A1E] p-7 text-center">
           <Target size={38} className="mx-auto text-[#B78CFF]" />
           <h1 className="mt-3 font-display text-xl text-white">ЦЕЙ ЗВІТ ДОСТУПНИЙ АКТИВАТОРАМ</h1>
-          <p className="mt-2 text-sm leading-relaxed text-zinc-500">Для вашого профілю залишаються доступними продажні звіти у вкладці «Цілі».</p>
+          <p className="mt-2 text-sm leading-relaxed text-zinc-500">Для вашого профілю залишаються доступними продажні звіти у вкладці «Проекційні».</p>
         </section>
       </div>
     );
@@ -173,7 +180,7 @@ export default function ActivationPumbGoals() {
   return (
     <div className="space-y-4 px-5 pb-8 pt-2" data-testid="activation-pumb-goals-page">
       <section className="flex items-start gap-3">
-        <button type="button" onClick={() => navigate("/goals")} className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-[#1A1A1E] text-zinc-300 active:scale-95" aria-label="Назад до цілей">
+        <button type="button" onClick={() => navigate("/goals")} className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-[#1A1A1E] text-zinc-300 active:scale-95" aria-label="Назад до проекційних">
           <ArrowLeft size={21} strokeWidth={2.7} />
         </button>
         <div className="min-w-0 flex-1 pt-0.5">
@@ -218,6 +225,18 @@ export default function ActivationPumbGoals() {
             unit="percent"
             records={trendRecords}
             loading={trendLoading}
+          />
+
+          <OperatorReportTrendChart
+            title="Тренд підсумка групи"
+            subtitle={`Зміна проекційного підсумка команди для ПУМБ Online (${period === "month" ? "місяць" : "вчора"}).`}
+            color="#39FF14"
+            target={100}
+            metricKey="projective_rate"
+            metricLabel="Проекційний підсумок групи"
+            unit="percent"
+            records={teamTrendRecords}
+            loading={teamTrendLoading}
           />
 
           {active ? <section className="grid grid-cols-2 gap-2.5">

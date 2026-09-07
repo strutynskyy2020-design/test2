@@ -1,4 +1,15 @@
 /* VPDK Bonus — Service Worker
+ * v171 adds the personal story and consequence-driven random encounters.
+ * v169 adds the strict personal-pet survival state, warnings and recovery actions.
+ * v168 improves the completed daily-ritual card.
+ * v167 moves pet-room actions into a single row and places the pet request below the scene.
+ * v166 adds persistent drag-and-drop placement for layered pet-room items.
+ * v165 adds the layered personal-pet room and its lightweight offline base scene.
+ * v164 adds permanent levels, monthly ranks, milestone rewards and XP history.
+ * v162 refreshes Projective report payloads after the privileged gateway fix.
+ * v161 adds VPDK Detective and caches the first hidden-object scene.
+ * v160 adds the lightweight personal-pet room to the offline app shell.
+ * v159 adds random Cube of Generosity days and quest-earned bonus throws.
  * v146 adds administrator-managed face probabilities for the Generous Cube.
  * v145 adds administrator-controlled Generous Cube reward ranges and repeat-spin cost.
  * v144 removes the rectangular diamond card frame and applies the adaptive activity-feed aurora background everywhere a diamond avatar appears.
@@ -20,8 +31,8 @@
  * v113 audits every light-theme route for readable contrast, adds exact balance
  * correction, and reorganizes the store into compact avatar rarity shelves.
  * v112 keeps store purchases out of competitive ratings, updates Щедрий Куб rewards,
- * and opens Bonus Match / Sudoku in a scroll-locked game-only viewport.
- * v111 applies the VPDK rebrand, dark-first theme, refreshed PWA icons, and Sudoku light-theme polish.
+ * and opens full-screen games in a scroll-locked game-only viewport.
+ * v111 applies the VPDK rebrand, dark-first theme, and refreshed PWA icons.
  * v109 fixes net Point leaderboards and adds periods to the team rating.
  * v106 fixes admin goals access, team messages, settings compatibility, and projection source mapping.
  * v105 adds team-aware goals, scoped prizes, leader messages, and report-view tracking.
@@ -31,15 +42,25 @@
  * never be cached as index.html, otherwise browsers can render a giant broken
  * image element over the board.
  */
-const VERSION = "vpdk-v152";
+const VERSION = "vpdk-v171";
 const STATIC_CACHE = `${VERSION}-static`;
 const RUNTIME_CACHE = `${VERSION}-runtime`;
 
 const PRECACHE_URLS = [
+  "/",
   "/manifest.json",
   "/icon-192.png",
   "/icon-512.png",
   "/apple-touch-icon.png",
+  "/pet/room/v2/background.webp",
+  "/pet/room/v2/cat/cat-sit.webp",
+  "/pet/room/v2/cat/cat-sleep.webp",
+  "/pet/room/v2/cat/cat-eat.webp",
+  "/pet/room/v2/cat/cat-play.webp",
+  "/pet/room/v2/items/bed-basic.webp",
+  "/pet/room/v2/items/bowl-amber.webp",
+  "/pet/room/v2/items/toy-wand.webp",
+  "/pet/room/v2/items/wall-neon.webp",
   "/bonus-match/v90/cell.png?v=90",
   "/bonus-match/v90/board-frame.png?v=90",
   "/bonus-match/v90/coin.png?v=90",
@@ -55,6 +76,7 @@ const PRECACHE_URLS = [
   "/bonus-match/v90/hit-1.png?v=90",
   "/bonus-match/v90/hit-2.png?v=90",
   "/bonus-match/atlas/obstacles-v85.webp?v=85",
+  "/hidden-objects/v1/scenes/office-dusk-v1.png",
 ];
 
 const isImageRequest = (request, url) => (
@@ -215,8 +237,13 @@ self.addEventListener("fetch", (event) => {
         const response = await fetch(request, { cache: "no-cache" });
         if (!hasImageContentType(response)) return transparentImage();
         if (isSameOrigin) {
-          const cache = await caches.open(RUNTIME_CACHE);
-          await cache.put(request, response.clone());
+          try {
+            const cache = await caches.open(RUNTIME_CACHE);
+            await cache.put(request, response.clone());
+          } catch (_) {
+            // A full/disabled browser cache must never replace a valid image
+            // response with the transparent offline placeholder.
+          }
         }
         return response;
       } catch (_) {

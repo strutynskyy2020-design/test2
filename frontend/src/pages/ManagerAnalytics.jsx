@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  Activity, ArrowLeft, BarChart3, Coins, Eye, Gamepad2, Gift, Grid3X3,
+  Activity, ArrowLeft, BarChart3, CheckCircle2, ChevronDown, Coins, Eye, Gamepad2, Gift, Search,
   RefreshCcw, TrendingUp, UserRoundCheck, UserRoundX, UsersRound,
 } from "lucide-react";
 import {
@@ -20,9 +20,68 @@ const PERIODS = [
 
 const formatNumber = (value) => Number(value || 0).toLocaleString("uk-UA");
 const shortDate = (value) => {
-  const parts = String(value || "").split("-");
-  return parts.length === 3 ? `${parts[2]}.${parts[1]}` : value;
+  const source = String(value || "").trim();
+  const iso = source.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return `${iso[3]}.${iso[2]}`;
+  const ua = source.match(/^(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})/);
+  if (ua) return `${String(Number(ua[1])).padStart(2, "0")}.${String(Number(ua[2])).padStart(2, "0")}`;
+  return source;
 };
+
+
+const REPORT_VIEW_GROUPS = [
+  {
+    title: "Огляд",
+    rows: [{ label: "Мої проекційні", single: "overview" }],
+  },
+  {
+    title: "Кредит",
+    rows: [
+      { label: "Рейтинг", single: "credit_leaderboard" },
+      { label: "X-Sell / Крос", month: "credit_xsell_month", yesterday: "credit_xsell_yesterday" },
+      { label: "Web Apps", month: "credit_web_apps_month", yesterday: "credit_web_apps_yesterday" },
+      { label: "INB", month: "credit_inb_month", yesterday: "credit_inb_yesterday" },
+    ],
+  },
+  {
+    title: "Дебет",
+    rows: [
+      { label: "Рейтинг", single: "debit_leaderboard" },
+      { label: "Видачі", month: "debit_issuances_month", yesterday: "debit_issuances_yesterday" },
+    ],
+  },
+  {
+    title: "Депозит",
+    rows: [
+      { label: "Проекційний рейтинг", single: "deposit_projection" },
+      { label: "Показники", month: "deposit_metrics_month", yesterday: "deposit_metrics_yesterday" },
+      { label: "Видачі", month: "deposit_giving_month", yesterday: "deposit_giving_yesterday" },
+    ],
+  },
+  {
+    title: "Активатори",
+    rows: [
+      { label: "ПУМБ Online", month: "activation_pumb_month", yesterday: "activation_pumb_yesterday" },
+      { label: "Активація карток", month: "activation_cards_month", yesterday: "activation_cards_yesterday" },
+    ],
+  },
+];
+
+const viewedAtLabel = (value) => {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleString("uk-UA", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+};
+
+const ViewPill = ({ viewedAt, label }) => (
+  <span
+    title={viewedAt ? `Переглянуто: ${viewedAtLabel(viewedAt)}` : "Не переглянуто за вибраний період"}
+    className={`inline-flex min-w-7 items-center justify-center gap-1 rounded-full border px-1.5 py-1 text-[8px] font-black uppercase ${viewedAt ? "border-[#16A34A]/30 bg-[#16A34A]/10 text-[#16A34A]" : "border-zinc-200 bg-white text-zinc-400 dark:border-white/10 dark:bg-white/[.03] dark:text-zinc-600"}`}
+  >
+    {viewedAt ? <CheckCircle2 size={9} strokeWidth={3} /> : null}{label}
+  </span>
+);
 
 const Card = ({ icon: Icon, label, value, detail, accent = "#8B5CF6" }) => (
   <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-[#1A1A1E]">
@@ -59,6 +118,7 @@ export default function ManagerAnalytics() {
   const [teamId, setTeamId] = useState(user?.team_id || "");
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [expandedOperators, setExpandedOperators] = useState({});
 
   const load = async () => {
     setLoading(true);
@@ -82,7 +142,7 @@ export default function ManagerAnalytics() {
   const trend = useMemo(() => (data?.trend || []).map((item) => ({ ...item, label: shortDate(item.date) })), [data?.trend]);
   const reportTrend = useMemo(() => (data?.report_trends || []).map((item) => ({
     ...item,
-    label: item.snapshot_updated_at || shortDate(item.created_at?.slice(0, 10)),
+    label: shortDate(item.snapshot_updated_at || item.created_at),
   })), [data?.report_trends]);
   const inactive = useMemo(() => (data?.operators || []).filter((item) => item.days_inactive >= 7), [data?.operators]);
 
@@ -127,7 +187,7 @@ export default function ManagerAnalytics() {
             <Card icon={Coins} label="Зароблено" value={formatNumber(data.summary.points_earned)} detail="Point за період" accent="#16A34A" />
             <Card icon={TrendingUp} label="Витрачено" value={formatNumber(data.summary.points_spent)} detail="Point за період" accent="#EA580C" />
             <Card icon={Gamepad2} label="Bonus Match" value={data.summary.bonus_match_activity} detail={`сер. рівень ${data.summary.average_bonus_level}`} accent="#7C3AED" />
-            <Card icon={Grid3X3} label="Sudoku" value={data.summary.sudoku_activity} detail={`сер. рівень ${data.summary.average_sudoku_level}`} accent="#9333EA" />
+            <Card icon={Search} label="VPDK Детектив" value={data.summary.hidden_object_activity} detail={`сер. рівень ${data.summary.average_hidden_object_level}`} accent="#FFB800" />
           </div>
 
           <Panel title="Активність і Point" subtitle="Щоденна динаміка за вибраний період" icon={Activity}>
@@ -161,24 +221,69 @@ export default function ManagerAnalytics() {
             </div>
           </Panel>
 
-          <Panel title="Оператори" subtitle="Хто активний, хто дивився звіти та кому потрібна увага" icon={UserRoundCheck}>
+          <Panel title="Оператори" subtitle="Детально: які звіти й періоди відкривали за вибраний проміжок" icon={UserRoundCheck}>
             <div className="space-y-2">
-              {(data.operators || []).map((operator) => (
-                <div key={operator.id} className="flex items-center gap-3 rounded-2xl border border-zinc-100 bg-zinc-50 p-3 dark:border-white/5 dark:bg-black/20">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl font-black text-black" style={{ backgroundColor: operator.avatar_color || "#FFB800" }}>{operator.avatar_initials || "?"}</div>
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-black text-[#242735] dark:text-white">{operator.name}</div>
-                    <div className="mt-0.5 flex flex-wrap gap-x-2 text-[9px] font-bold text-zinc-500">
-                      <span className={operator.active ? "text-[#16A34A]" : "text-zinc-500"}>{operator.active ? "активний" : "не заходив"}</span>
-                      <span className={operator.viewed_reports ? "text-[#0891B2]" : "text-zinc-500"}>{operator.viewed_reports ? "звіт переглянуто" : "звіт не переглянуто"}</span>
+              {(data.operators || []).map((operator) => {
+                const expanded = Boolean(expandedOperators[operator.id]);
+                const reportViews = operator.report_views || {};
+                return (
+                  <div key={operator.id} className="overflow-hidden rounded-2xl border border-zinc-100 bg-zinc-50 dark:border-white/5 dark:bg-black/20">
+                    <div className="flex items-center gap-3 p-3">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl font-black text-black" style={{ backgroundColor: operator.avatar_color || "#FFB800" }}>{operator.avatar_initials || "?"}</div>
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm font-black text-[#242735] dark:text-white">{operator.name}</div>
+                        <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[9px] font-bold text-zinc-500">
+                          <span className={operator.active ? "text-[#16A34A]" : "text-zinc-500"}>{operator.active ? "активний" : "не заходив"}</span>
+                          <span className={operator.report_view_count ? "text-[#0891B2]" : "text-zinc-500"}>{operator.report_view_count || 0}/{operator.report_view_total || 0} звітів</span>
+                        </div>
+                      </div>
+                      <div className="shrink-0 text-right text-[10px] font-black">
+                        <div className="text-[#16A34A]">+{formatNumber(operator.earned)}</div>
+                        <div className="text-[#EA580C]">−{formatNumber(operator.spent)}</div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setExpandedOperators((current) => ({ ...current, [operator.id]: !current[operator.id] }))}
+                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-zinc-200 bg-white text-zinc-500 transition-transform active:scale-95 dark:border-white/10 dark:bg-white/[.04]"
+                        aria-label={expanded ? "Згорнути деталізацію звітів" : "Розгорнути деталізацію звітів"}
+                        aria-expanded={expanded}
+                      >
+                        <ChevronDown size={16} className={`transition-transform ${expanded ? "rotate-180" : ""}`} />
+                      </button>
                     </div>
+
+                    {expanded && (
+                      <div className="border-t border-zinc-200/70 px-3 pb-3 pt-2 dark:border-white/5">
+                        <div className="mb-2 text-[8px] font-black uppercase tracking-[.15em] text-zinc-500">М = місяць · В = вчора</div>
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          {REPORT_VIEW_GROUPS.map((group) => (
+                            <div key={group.title} className="rounded-xl border border-zinc-200 bg-white/70 p-2 dark:border-white/5 dark:bg-white/[.025]">
+                              <div className="mb-1.5 text-[9px] font-black uppercase tracking-wider text-[#7C3AED] dark:text-[#B78CFF]">{group.title}</div>
+                              <div className="space-y-1">
+                                {group.rows.map((row) => (
+                                  <div key={row.label} className="flex min-h-7 items-center justify-between gap-2 rounded-lg bg-zinc-50 px-2 py-1 dark:bg-black/20">
+                                    <span className="min-w-0 flex-1 truncate text-[9px] font-bold text-zinc-600 dark:text-zinc-400" title={row.label}>{row.label}</span>
+                                    <div className="flex shrink-0 gap-1">
+                                      {row.single ? (
+                                        <ViewPill viewedAt={reportViews[row.single]} label={reportViews[row.single] ? "✓" : "—"} />
+                                      ) : (
+                                        <>
+                                          <ViewPill viewedAt={reportViews[row.month]} label="М" />
+                                          <ViewPill viewedAt={reportViews[row.yesterday]} label="В" />
+                                        </>
+                                      )}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
-                  <div className="shrink-0 text-right text-[10px] font-black">
-                    <div className="text-[#16A34A]">+{formatNumber(operator.earned)}</div>
-                    <div className="text-[#EA580C]">−{formatNumber(operator.spent)}</div>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </Panel>
 

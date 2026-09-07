@@ -14,6 +14,8 @@ import api from "@/lib/api";
 import { useApp } from "@/context/AppContext";
 import { useDailyGoogleReports } from "@/hooks/useGoogleReports";
 import AvatarFrame from "@/components/AvatarFrame";
+import OperatorReportTrendChart from "@/components/OperatorReportTrendChart";
+import { useTeamReportTrend } from "@/hooks/useTeamReportTrend";
 import { useGoalsAccess } from "@/hooks/useGoalsAccess";
 import {
   calculatedGroupSummary,
@@ -359,6 +361,13 @@ export default function DebitLeaderboard() {
     [leaderboard]
   );
 
+  const { records: groupTrendRecords, loading: groupTrendLoading } = useTeamReportTrend({
+    reportType: "debit",
+    period: "month",
+    teamId: selectedTeam?.id || "",
+    enabled: mode !== "mock" && Boolean(selectedTeam?.id),
+  });
+
   const needsTeamMapping = mode !== "mock"
     && Boolean(selectedTeam)
     && Boolean(access?.allow_cross_team_reports)
@@ -376,7 +385,7 @@ export default function DebitLeaderboard() {
   const emptyMessage = error
     ? "Не вдалося завантажити дебетовий рейтинг з опублікованого звіту."
     : report && !rawRows.length
-      ? 'На вкладці "Аркуш2" не знайдено таблицю Debit / Inb_deb / Vse_Card / Web_Fuib / Web_apps / X_sell / Загальний deb.'
+      ? 'У таблиці "Projective" на вкладці "Debit" не знайдено рейтинг операторів.'
       : teamMappingMissing
         ? `Звіт із Google Таблиці завантажено, але логіни операторів не зіставлено з командою ${selectedTeam?.name || ""}. Перевірте goals_login і команду користувачів в адмін-панелі.`
         : rawRows.length > 0 && !allLeaderboard.length
@@ -388,7 +397,7 @@ export default function DebitLeaderboard() {
   return (
     <div className="space-y-4 px-5 pb-8 pt-2" data-testid="debit-leaderboard-page">
       <section className="flex items-start gap-3">
-        <button type="button" onClick={() => navigate("/goals")} className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-[#1A1A1E] text-zinc-300 active:scale-95" aria-label="Назад до цілей">
+        <button type="button" onClick={() => navigate("/goals")} className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-[#1A1A1E] text-zinc-300 active:scale-95" aria-label="Назад до проекційних">
           <ArrowLeft size={21} strokeWidth={2.7} />
         </button>
         <div className="min-w-0 flex-1 pt-0.5">
@@ -444,6 +453,18 @@ export default function DebitLeaderboard() {
               <div className="rounded-xl border border-[#FF4D55]/20 bg-[#FF4D55]/[.06] px-2 py-2"><div className="text-lg font-black text-[#FF4D55]">{attention}</div><div className="text-[8px] font-black uppercase text-zinc-600">Зона уваги</div></div>
             </div>
           </section>
+          <OperatorReportTrendChart
+            title="Тренд підсумка групи"
+            subtitle={`Як змінюється проекційний підсумок ${selectedTeam?.name || "команди"} по днях.`}
+            color="#00F0FF"
+            target={100}
+            metricKey="projective_rate"
+            metricLabel="Підсумок групи"
+            unit="percent"
+            records={groupTrendRecords}
+            loading={groupTrendLoading}
+          />
+
 
           <section>
             <div className="mb-3 flex items-end justify-between px-1">
@@ -477,7 +498,7 @@ export default function DebitLeaderboard() {
         <section className="rounded-3xl border border-white/10 bg-[#1A1A1E] p-6 text-center">
           <Target size={34} color="#00F0FF" className="mx-auto" />
           <h2 className="mt-3 font-display text-xl text-white">РЕЙТИНГ ЩЕ НЕ НАЛАШТОВАНО</h2>
-          <p className="mt-2 text-sm leading-relaxed text-zinc-500">{emptyMessage || 'Додайте дебетову таблицю на вкладку "Аркуш2".'}</p>
+          <p className="mt-2 text-sm leading-relaxed text-zinc-500">{emptyMessage || 'Перевірте вкладку "Debit" у таблиці "Projective".'}</p>
         </section>
       )}
     </div>

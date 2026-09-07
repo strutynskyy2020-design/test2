@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { Home, ClipboardList, Gift, LogOut, Shield, Trophy, UsersRound, Bot, Target } from "lucide-react";
+import { Home, ClipboardList, Gift, LogOut, Shield, Trophy, UsersRound, Cat, Target } from "lucide-react";
 import { useEffect } from "react";
 import { useApp } from "@/context/AppContext";
 import api from "@/lib/api";
@@ -9,32 +9,42 @@ import AdminAnnouncementModal from "@/components/AdminAnnouncementModal";
 
 const PAGE_LABELS = {
   "/": "Головна",
+  "/profile": "Особистий кабінет",
   "/tasks": "Завдання",
   "/quests": "Квести",
   "/teams": "Команди",
   "/analytics": "Аналітика команди",
-  "/ai-trainer": "AI-тренажер",
-  "/goals": "Цілі",
+  "/pet": "Мій кіт",
+  "/pet/room": "Мій кіт",
+  "/pet/games": "Ігри з котом",
+  "/pet/journal": "Щоденник кота",
+  "/pet/collection": "Колекція кота",
+  "/goals": "Мої проекційні",
   "/goals/credit": "Кредитний рейтинг",
   "/goals/credit/me": "Мої кредитні показники",
   "/goals/debit": "Дебетовий рейтинг",
   "/goals/debit/me": "Мої дебетові видачі",
   "/goals/deposit": "Депозитний рейтинг",
   "/goals/deposit/me": "Мої депозитні показники",
+  "/goals/deposit/issuances": "Депозитні видачі",
+  "/goals/activation/pumb": "ПУМБ Online",
+  "/goals/activation/cards": "Активація карток",
   "/store": "Магазин",
   "/leaderboard": "Загальний рейтинг",
   "/fun": "Щедрий куб",
   "/games/bonus-match": "Bonus Match",
-  "/games/sudoku": "VPDK Sudoku",
+  "/games/hidden-objects": "VPDK Детектив",
   "/history": "Історія Point",
   "/schedule": "Мій графік",
   "/feed": "Стрічка активності",
 };
 
 const getPageLabel = (pathname, search) => {
-  const base = PAGE_LABELS[pathname] || pathname;
+  const base = pathname.startsWith("/pet/games/")
+    ? "Ігри з котом"
+    : PAGE_LABELS[pathname] || pathname;
   const params = new URLSearchParams(search || "");
-  if (pathname === "/goals/debit/me" || pathname === "/goals/deposit/me") {
+  if (["/goals/debit/me", "/goals/deposit/me", "/goals/deposit/issuances", "/goals/activation/pumb", "/goals/activation/cards"].includes(pathname)) {
     return `${base} · ${params.get("period") === "yesterday" ? "Вчора" : "Місяць"}`;
   }
   if (pathname === "/goals/credit/me") {
@@ -50,6 +60,7 @@ const NavItem = ({ to, icon: Icon, label, testId, exact = true }) => (
   <NavLink
     to={to}
     data-testid={testId}
+    aria-label={label}
     end={exact}
     className={({ isActive }) =>
       `flex flex-col items-center justify-center gap-1 flex-1 min-w-0 h-full transition-transform active:scale-95 ${
@@ -78,6 +89,7 @@ const NavItem = ({ to, icon: Icon, label, testId, exact = true }) => (
 
 export default function AppLayout() {
   const { user, logout } = useApp();
+  const userId = user?.id;
   const nav = useNavigate();
   const loc = useLocation();
 
@@ -86,7 +98,7 @@ export default function AppLayout() {
   }, [user, nav]);
 
   useEffect(() => {
-    if (!user || loc.pathname.startsWith("/admin")) return;
+    if (!userId || loc.pathname.startsWith("/admin")) return;
     const path = `${loc.pathname}${loc.search || ""}`;
     const now = Date.now();
     const previous = sessionStorage.getItem("tm6-last-page-view") || "";
@@ -103,19 +115,19 @@ export default function AppLayout() {
       label: getPageLabel(loc.pathname, loc.search),
       session_id: sessionId,
     }).catch(() => {});
-  }, [user?.id, loc.pathname, loc.search]);
+  }, [userId, loc.pathname, loc.search]);
 
   if (!user) return null;
   const isAdmin = ["admin", "editor"].includes(user.role);
   const isAdminRoute = loc.pathname.startsWith("/admin");
   const isBonusMatchRoute = loc.pathname === "/games/bonus-match";
-  const isSudokuRoute = loc.pathname === "/games/sudoku";
-  const isGameRoute = isBonusMatchRoute || isSudokuRoute;
+  const isHiddenObjectRoute = loc.pathname === "/games/hidden-objects";
+  const isGameRoute = isBonusMatchRoute || isHiddenObjectRoute;
 
   return (
     <div className={`${isGameRoute ? "h-[100dvh] overflow-hidden" : "min-h-screen"} w-full flex justify-center`}>
       <div
-        className={`app-theme-shell relative w-full flex flex-col ${isGameRoute ? "h-[100dvh] min-h-0 overflow-hidden border-0 game-only-app-shell" : "min-h-screen border-x"} ${isBonusMatchRoute ? "bonus-match-app-shell" : ""} ${isSudokuRoute ? "sudoku-app-shell" : ""} ${isAdminRoute ? "app-shell app-shell-admin" : "app-shell"}`}
+        className={`app-theme-shell relative w-full flex flex-col ${isGameRoute ? "h-[100dvh] min-h-0 overflow-hidden border-0 game-only-app-shell" : "min-h-screen border-x"} ${isBonusMatchRoute ? "bonus-match-app-shell" : ""} ${isHiddenObjectRoute ? "hidden-objects-app-shell" : ""} ${isAdminRoute ? "app-shell app-shell-admin" : "app-shell"}`}
         style={{ maxWidth: isAdminRoute ? "1500px" : isGameRoute ? "none" : "480px" }}
       >
         {!isGameRoute && <header
@@ -178,8 +190,8 @@ export default function AppLayout() {
         >
           <NavItem to="/" icon={Home} label="Головна" testId="nav-home" />
           <NavItem to="/tasks" icon={ClipboardList} label="Квести" testId="nav-tasks" />
-          <NavItem to="/goals" icon={Target} label="Цілі" testId="nav-goals" exact={false} />
-          <NavItem to="/ai-trainer" icon={Bot} label="AI" testId="nav-ai-trainer" />
+          <NavItem to="/goals" icon={Target} label="Проекційні" testId="nav-goals" exact={false} />
+          <NavItem to="/pet" icon={Cat} label="Кіт" testId="nav-pet" exact={false} />
           <NavItem to="/store" icon={Gift} label="Магазин" testId="nav-store" />
           <NavItem to="/leaderboard" icon={Trophy} label="Рейтинг" testId="nav-board" />
         </nav>}

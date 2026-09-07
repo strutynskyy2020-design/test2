@@ -2,17 +2,25 @@ import { useMemo, useState } from "react";
 import { Area, AreaChart, CartesianGrid, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { CalendarDays, CalendarRange, TrendingDown, TrendingUp } from "lucide-react";
 
+const normalizeDateValue = (value) => {
+  if (!value) return "";
+  const source = String(value).trim();
+  const iso = source.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+  const ua = source.match(/^(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})/);
+  if (ua) return `${ua[3]}-${String(Number(ua[2])).padStart(2, "0")}-${String(Number(ua[1])).padStart(2, "0")}`;
+  return source;
+};
+
 const formatDateLabel = (value) => {
-  if (!value) return "—";
-  const source = String(value);
-  const datePart = source.includes("T") ? source.split("T")[0] : source;
-  const parts = datePart.split(/[-.]/);
-  if (parts.length >= 3) return `${parts[2]}.${parts[1]}`;
-  return source.slice(0, 10);
+  const normalized = normalizeDateValue(value);
+  const parts = normalized.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return parts ? `${parts[3]}.${parts[2]}` : (normalized || "—").slice(0, 10);
 };
 
 const weekKey = (value) => {
-  const date = new Date(value);
+  const normalized = normalizeDateValue(value);
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(normalized) ? new Date(`${normalized}T12:00:00Z`) : new Date(normalized);
   if (Number.isNaN(date.getTime())) return String(value || "");
   const utcDate = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
   const dayNum = utcDate.getUTCDay() || 7;
@@ -49,8 +57,8 @@ export default function OperatorReportTrendChart({
     const metric = Array.isArray(record?.metrics) ? record.metrics.find((item) => item?.key === metricKey) : null;
     const value = metric?.value;
     return {
-      rawDate: record?.snapshot_updated_at || record?.created_at || record?.updated_at,
-      label: formatDateLabel(record?.snapshot_updated_at || record?.created_at || record?.updated_at),
+      rawDate: normalizeDateValue(record?.date_key || record?.snapshot_updated_at || record?.created_at || record?.updated_at),
+      label: formatDateLabel(record?.date_key || record?.snapshot_updated_at || record?.created_at || record?.updated_at),
       value: value === null || value === undefined ? null : Number(value),
     };
   }).filter((item) => item.value !== null && Number.isFinite(item.value)), [metricKey, records]);

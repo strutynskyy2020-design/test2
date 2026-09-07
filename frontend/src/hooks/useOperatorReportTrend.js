@@ -65,22 +65,29 @@ export function useOperatorReportTrend({
       segment_label: segmentLabel || segment,
       metrics: normalizedMetrics,
     }, { timeout: 30000 })
-      .then(() => {
+      .then((response) => {
         if (typeof window !== "undefined") window.sessionStorage.setItem(key, "1");
+        const dateKey = response?.data?.date_key || "";
         setRecords((current) => {
+          const nextRecord = {
+            date_key: dateKey || undefined,
+            snapshot_version: snapshotVersion,
+            snapshot_updated_at: dateKey || snapshotUpdatedAt,
+            last_refresh_at: snapshotUpdatedAt,
+            report_type: reportType,
+            period,
+            segment,
+            segment_label: segmentLabel || segment,
+            metrics: normalizedMetrics,
+          };
+          const sameDayIndex = dateKey ? (current || []).findIndex((item) => item?.date_key === dateKey || item?.snapshot_updated_at === dateKey) : -1;
+          if (sameDayIndex >= 0) {
+            const next = [...current];
+            next[sameDayIndex] = nextRecord;
+            return next.slice(-30);
+          }
           if ((current || []).some((item) => item?.snapshot_version === snapshotVersion)) return current;
-          return [
-            ...(current || []),
-            {
-              snapshot_version: snapshotVersion,
-              snapshot_updated_at: snapshotUpdatedAt,
-              report_type: reportType,
-              period,
-              segment,
-              segment_label: segmentLabel || segment,
-              metrics: normalizedMetrics,
-            },
-          ].slice(-30);
+          return [...(current || []), nextRecord].slice(-30);
         });
       })
       .catch(() => {});

@@ -1,0 +1,178 @@
+{
+  "version": "v5",
+  "scenes": [
+    {
+      "id": "illustrated-easy-office-panorama",
+      "image": "/hidden-objects/v5/scenes/illustrated-easy-office-panorama-v5.png",
+      "width": 1536,
+      "height": 1024,
+      "objects": [
+        { "id": "blue-umbrella", "label": "Яскраво-синя складена парасоля у підставці ліворуч", "icon": "umbrella", "x": 0.065, "y": 0.737, "rx": 0.032, "ry": 0.176 },
+        { "id": "golden-trophy", "label": "Золотий кубок на полиці ліворуч", "icon": "trophy", "x": 0.260, "y": 0.492, "rx": 0.036, "ry": 0.064 },
+        { "id": "green-coffee-mug", "label": "Зелена чашка з ручкою на центральному столі", "icon": "coffee", "x": 0.610, "y": 0.452, "rx": 0.022, "ry": 0.030 },
+        { "id": "red-fountain-pen", "label": "Велика червоно-золота перова ручка на центральному столі", "icon": "pen", "x": 0.526, "y": 0.502, "rx": 0.050, "ry": 0.018 },
+        { "id": "large-brass-key", "label": "Великий латунний ключ на зеленій папці праворуч", "icon": "key", "x": 0.788, "y": 0.668, "rx": 0.056, "ry": 0.039 },
+        { "id": "purple-eyeglasses", "label": "Фіолетові окуляри на нижньому правому лотку", "icon": "glasses", "x": 0.744, "y": 0.865, "rx": 0.062, "ry": 0.054 }
+      ]
+    },
+    {
+      "id": "illustrated-easy-lounge-panorama",
+      "image": "/hidden-objects/v5/scenes/illustrated-easy-lounge-panorama-v5.png",
+      "width": 1536,
+      "height": 1024,
+      "objects": [
+        { "id": "red-headphones", "label": "Червоні накладні навушники на крайній лівій полиці", "icon": "headphones", "x": 0.049, "y": 0.227, "rx": 0.031, "ry": 0.042 },
+        { "id": "blue-lunchbox", "label": "Синій ланчбокс на круглому столику", "icon": "box", "x": 0.256, "y": 0.779, "rx": 0.052, "ry": 0.049 },
+        { "id": "yellow-lemon", "label": "Яскраво-жовтий лимон на журнальному столику", "icon": "circle", "x": 0.473, "y": 0.752, "rx": 0.017, "ry": 0.017 },
+        { "id": "silver-spoon", "label": "Велика срібна ложка на журнальному столику", "icon": "utensils", "x": 0.523, "y": 0.791, "rx": 0.018, "ry": 0.030 },
+        { "id": "purple-wall-clock", "label": "Фіолетовий настінний годинник угорі праворуч", "icon": "clock", "x": 0.883, "y": 0.102, "rx": 0.036, "ry": 0.051 },
+        { "id": "green-cactus", "label": "Зелений кактус у горщику на крайньому правому столику", "icon": "sprout", "x": 0.945, "y": 0.645, "rx": 0.031, "ry": 0.067 }
+      ]
+    },
+    {
+      "id": "illustrated-easy-archive-panorama",
+      "image": "/hidden-objects/v5/scenes/illustrated-easy-archive-panorama-v5.png",
+      "width": 1536,
+      "height": 1024,
+      "objects": [
+        { "id": "black-camera-left", "label": "Чорний плівковий фотоапарат на крайньому лівому столі", "icon": "camera", "x": 0.0710, "y": 0.6620, "rx": 0.0610, "ry": 0.0900 },
+        { "id": "large-golden-magnifier", "label": "Велика золота лупа на передньому столі", "icon": "search", "x": 0.2215, "y": 0.7215, "rx": 0.0700, "ry": 0.0870 },
+        { "id": "white-sealed-envelope", "label": "Великий білий конверт із сургучною печаткою", "icon": "mail", "x": 0.4780, "y": 0.7580, "rx": 0.0580, "ry": 0.0560 },
+        { "id": "red-scissors", "label": "Червоні ножиці праворуч від конверта", "icon": "scissors", "x": 0.5880, "y": 0.7090, "rx": 0.0360, "ry": 0.0340 },
+        { "id": "orange-toy-rocket", "label": "Помаранчево-червона іграшкова ракета на правому столі", "icon": "rocket", "x": 0.7805, "y": 0.6070, "rx": 0.0370, "ry": 0.1130 },
+        { "id": "large-blue-compass", "label": "Великий синій компас на крайньому правому столі", "icon": "compass", "x": 0.8915, "y": 0.6360, "rx": 0.0450, "ry": 0.0830 }
+      ]
+    },
+    {
+      "id": "illustrated-station-panorama",
+      "image": "/hidden-objects/v5/scenes/illustrated-station-panorama-v5.png",
+      "width": 1536,
+      "height": 1024,
+      "objects": [
+        { "id": "red-travel-ticket", "label": "Маленький червоний квиток на крайній лівій полиці", "icon": "ticket", "x": 0.048, "y": 0.401, "rx": 0.017, "ry": 0.016 },
+        { "id": "pocket-watch", "label": "Кишеньковий годинник у руці хлопця ліворуч", "icon": "watch", "x": 0.303, "y": 0.572, "rx": 0.019, "ry": 0.039 },
+        { "id": "left-blue-umbrella", "label": "Довга синя складена парасоля біля колін хлопця ліворуч", "icon": "umbrella", "x": 0.220, "y": 0.838, "rx": 0.025, "ry": 0.123 },
+        { "id": "large-green-suitcase", "label": "Велика зелена валіза на центральній купі", "icon": "backpack", "x": 0.440, "y": 0.525, "rx": 0.045, "ry": 0.035 },
+        { "id": "black-camera", "label": "Чорний фотоапарат перед зеленою валізою", "icon": "camera", "x": 0.521, "y": 0.595, "rx": 0.015, "ry": 0.018 },
+        { "id": "yellow-sealed-envelope", "label": "Жовтий конверт із червоною печаткою в центрі", "icon": "mail", "x": 0.570, "y": 0.630, "rx": 0.016, "ry": 0.020 },
+        { "id": "purple-travel-guide", "label": "Фіолетовий путівник у руках літньої пасажирки", "icon": "book", "x": 0.739, "y": 0.548, "rx": 0.028, "ry": 0.056 },
+        { "id": "brass-baggage-key", "label": "Латунний багажний ключ у піднятій руці бородатого клієнта", "icon": "key", "x": 0.835, "y": 0.332, "rx": 0.023, "ry": 0.032 },
+        { "id": "white-hat-feather", "label": "Біле перо на чорному капелюсі праворуч", "icon": "feather", "x": 0.942, "y": 0.431, "rx": 0.033, "ry": 0.035 }
+      ]
+    },
+    {
+      "id": "illustrated-night-fair-panorama",
+      "image": "/hidden-objects/v5/scenes/illustrated-night-fair-panorama-v5.png",
+      "width": 1661,
+      "height": 947,
+      "objects": [
+        { "id": "turquoise-origami", "label": "Бірюзовий паперовий журавлик на бочці зліва", "icon": "origami", "x": 0.057, "y": 0.715, "rx": 0.037, "ry": 0.068 },
+        { "id": "red-flashlight", "label": "Маленький червоний ліхтарик на ящику зліва", "icon": "flashlight", "x": 0.234, "y": 0.802, "rx": 0.036, "ry": 0.036 },
+        { "id": "striped-sock", "label": "Синьо-біла смугаста шкарпетка біля робота", "icon": "footprints", "x": 0.179, "y": 0.685, "rx": 0.027, "ry": 0.076 },
+        { "id": "gold-trophy", "label": "Маленький золотий кубок на передньому ящику", "icon": "trophy", "x": 0.418, "y": 0.677, "rx": 0.018, "ry": 0.017 },
+        { "id": "green-die", "label": "Зелений гральний кубик у передньому ящику", "icon": "dice", "x": 0.424, "y": 0.772, "rx": 0.021, "ry": 0.018 },
+        { "id": "pink-feather", "label": "Рожеве перо серед речей у центрі", "icon": "feather", "x": 0.483, "y": 0.722, "rx": 0.014, "ry": 0.058 },
+        { "id": "black-headphones", "label": "Чорні накладні навушники в центрі", "icon": "headphones", "x": 0.550, "y": 0.768, "rx": 0.028, "ry": 0.075 },
+        { "id": "crescent-balloon", "label": "Велика синя кулька з жовтим місяцем угорі праворуч", "icon": "circle", "x": 0.700, "y": 0.167, "rx": 0.032, "ry": 0.082 },
+        { "id": "silver-scissors", "label": "Великі срібні ножиці серед механізмів праворуч", "icon": "scissors", "x": 0.753, "y": 0.785, "rx": 0.034, "ry": 0.076 },
+        { "id": "orange-rocket", "label": "Помаранчева іграшкова ракета біля кролика", "icon": "rocket", "x": 0.842, "y": 0.704, "rx": 0.029, "ry": 0.089 }
+      ]
+    },
+    {
+      "id": "illustrated-backstage-panorama",
+      "image": "/hidden-objects/v5/scenes/illustrated-backstage-panorama-v5.png",
+      "width": 1536,
+      "height": 1024,
+      "objects": [
+        { "id": "small-golden-crown", "label": "Маленька золота корона на верхній полиці ліворуч", "icon": "crown", "x": 0.0550, "y": 0.1255, "rx": 0.0205, "ry": 0.0270 },
+        { "id": "red-costume-feather", "label": "Довге червоне перо на чорному капелюсі ліворуч", "icon": "feather", "x": 0.1035, "y": 0.4170, "rx": 0.0200, "ry": 0.0520 },
+        { "id": "folded-blue-umbrella", "label": "Складена синя парасоля біля лівого краю", "icon": "umbrella", "x": 0.0800, "y": 0.7110, "rx": 0.0140, "ry": 0.1100 },
+        { "id": "blue-white-striped-sock", "label": "Синьо-біла смугаста шкарпетка біля парасолі", "icon": "footprints", "x": 0.1320, "y": 0.6410, "rx": 0.0090, "ry": 0.0740 },
+        { "id": "silver-tailor-scissors", "label": "Великі срібні кравецькі ножиці на центральному столі", "icon": "scissors", "x": 0.4565, "y": 0.6990, "rx": 0.0180, "ry": 0.0180 },
+        { "id": "green-script-book", "label": "Закрита зелена книга сценарію на центральному столі", "icon": "book", "x": 0.5265, "y": 0.6655, "rx": 0.0220, "ry": 0.0250 },
+        { "id": "black-opera-glasses", "label": "Чорний театральний бінокль перед зеленою книгою", "icon": "glasses", "x": 0.5910, "y": 0.7140, "rx": 0.0200, "ry": 0.0270 },
+        { "id": "purple-admission-ticket", "label": "Фіолетовий вхідний квиток на правому столику", "icon": "ticket", "x": 0.7685, "y": 0.7780, "rx": 0.0165, "ry": 0.0190 },
+        { "id": "orange-flashlight", "label": "Помаранчевий ліхтарик на правому столику", "icon": "flashlight", "x": 0.8105, "y": 0.8410, "rx": 0.0290, "ry": 0.0210 },
+        { "id": "brass-dressing-room-key", "label": "Латунний ключ унизу правого столика", "icon": "key", "x": 0.8070, "y": 0.9180, "rx": 0.0290, "ry": 0.0170 },
+        { "id": "white-bird-marionette", "label": "Біла пташка-маріонетка біля правого краю", "icon": "bird", "x": 0.9450, "y": 0.6810, "rx": 0.0260, "ry": 0.0580 }
+      ]
+    },
+    {
+      "id": "illustrated-office-panorama",
+      "image": "/hidden-objects/v4/scenes/illustrated-office-panorama-v4.png",
+      "width": 1536,
+      "height": 1024,
+      "objects": [
+        { "id": "blue-origami", "label": "Синій паперовий журавлик", "icon": "origami", "x": 0.3483, "y": 0.1084, "rx": 0.0220, "ry": 0.0360 },
+        { "id": "silver-wristwatch", "label": "Срібний годинник під великим годинником", "icon": "watch", "x": 0.7044, "y": 0.1504, "rx": 0.0170, "ry": 0.0330 },
+        { "id": "green-binder-clips", "label": "Три зелені затискачі на дошці", "icon": "paperclip", "x": 0.5190, "y": 0.1480, "rx": 0.0220, "ry": 0.0370 },
+        { "id": "brass-key", "label": "Латунний ключ на червоній книзі", "icon": "key", "x": 0.3920, "y": 0.4900, "rx": 0.0310, "ry": 0.0320 },
+        { "id": "red-usb", "label": "Червона USB-флешка серед кабелів", "icon": "usb", "x": 0.6860, "y": 0.7350, "rx": 0.0220, "ry": 0.0230 },
+        { "id": "red-mug-laptop", "label": "Червона чашка біля ноутбука", "icon": "coffee", "x": 0.8270, "y": 0.5410, "rx": 0.0210, "ry": 0.0330 },
+        { "id": "purple-access-card", "label": "Фіолетова картка доступу на підлозі", "icon": "ticket", "x": 0.5335, "y": 0.8805, "rx": 0.0160, "ry": 0.0340 },
+        { "id": "white-earbud-case", "label": "Білий футляр серед кабелів", "icon": "headphones", "x": 0.7077, "y": 0.9033, "rx": 0.0350, "ry": 0.0370 },
+        { "id": "black-flashlight", "label": "Чорний ліхтарик у нижній коробці", "icon": "flashlight", "x": 0.5265, "y": 0.9800, "rx": 0.0380, "ry": 0.0200 },
+        { "id": "striped-sock", "label": "Синьо-біла смугаста шкарпетка", "icon": "footprints", "x": 0.0650, "y": 0.7800, "rx": 0.0290, "ry": 0.0740 },
+        { "id": "yellow-star", "label": "Жовта зірка у шухляді", "icon": "star", "x": 0.1530, "y": 0.8850, "rx": 0.0300, "ry": 0.0410 },
+        { "id": "brown-backpack", "label": "Коричневий рюкзак на полиці", "icon": "backpack", "x": 0.1945, "y": 0.2520, "rx": 0.0320, "ry": 0.0740 }
+      ]
+    },
+    {
+      "id": "illustrated-workshop-panorama",
+      "image": "/hidden-objects/v4/scenes/illustrated-workshop-panorama-v4.png",
+      "width": 1661,
+      "height": 947,
+      "objects": [
+        { "id": "blue-feather", "label": "Синє перо", "icon": "feather", "x": 0.299, "y": 0.077, "rx": 0.037, "ry": 0.034 },
+        { "id": "chess-knight", "label": "Білий шаховий кінь", "icon": "crown", "x": 0.458, "y": 0.168, "rx": 0.020, "ry": 0.050 },
+        { "id": "orange-rocket", "label": "Червоно-помаранчева ракета", "icon": "rocket", "x": 0.654, "y": 0.107, "rx": 0.020, "ry": 0.070 },
+        { "id": "green-die", "label": "Зелений гральний кубик", "icon": "dice", "x": 0.301, "y": 0.568, "rx": 0.019, "ry": 0.031 },
+        { "id": "cabinet-padlock", "label": "Золотий навісний замок на сейфі", "icon": "lock", "x": 0.802, "y": 0.379, "rx": 0.021, "ry": 0.047 },
+        { "id": "red-wire-spool", "label": "Червона котушка дроту", "icon": "disc", "x": 0.192, "y": 0.641, "rx": 0.018, "ry": 0.030 },
+        { "id": "yellow-tape-measure", "label": "Жовта рулетка", "icon": "ruler", "x": 0.480, "y": 0.626, "rx": 0.025, "ry": 0.035 },
+        { "id": "mounted-magnifier", "label": "Велика лупа на верстаку", "icon": "search", "x": 0.625, "y": 0.758, "rx": 0.026, "ry": 0.043 },
+        { "id": "blue-drill", "label": "Синій дриль", "icon": "drill", "x": 0.247, "y": 0.748, "rx": 0.035, "ry": 0.050 },
+        { "id": "red-spray-can", "label": "Червоний балончик", "icon": "spray-can", "x": 0.584, "y": 0.879, "rx": 0.021, "ry": 0.058 },
+        { "id": "gray-tape-roll", "label": "Сірий рулон клейкої стрічки", "icon": "circle-dot", "x": 0.733, "y": 0.958, "rx": 0.039, "ry": 0.038 },
+        { "id": "yellow-rubber-duck", "label": "Жовта гумова качечка", "icon": "bird", "x": 0.648, "y": 0.579, "rx": 0.017, "ry": 0.032 },
+        { "id": "gold-windup-key", "label": "Золотий заводний ключ", "icon": "key", "x": 0.188, "y": 0.837, "rx": 0.028, "ry": 0.020 },
+        { "id": "purple-gear", "label": "Фіолетова шестерня", "icon": "cog", "x": 0.313, "y": 0.841, "rx": 0.029, "ry": 0.035 }
+      ]
+    },
+    {
+      "id": "illustrated-archive-panorama",
+      "image": "/hidden-objects/v4/scenes/illustrated-archive-panorama-v4.png",
+      "width": 1536,
+      "height": 1024,
+      "objects": [
+        { "id": "ship-under-dome", "label": "Корабель під скляним ковпаком", "icon": "sailboat", "x": 0.0345, "y": 0.4590, "rx": 0.0306, "ry": 0.0879 },
+        { "id": "butterfly-display-frame", "label": "Рамка з метеликами внизу ліворуч", "icon": "frame", "x": 0.0684, "y": 0.6973, "rx": 0.0430, "ry": 0.0615 },
+        { "id": "ornate-key-suitcase", "label": "Золотий ключ у фіолетовій валізі", "icon": "key", "x": 0.2025, "y": 0.8857, "rx": 0.0234, "ry": 0.0195 },
+        { "id": "tall-red-lighthouse", "label": "Високий червоно-білий маяк", "icon": "flame", "x": 0.2422, "y": 0.8018, "rx": 0.0130, "ry": 0.0615 },
+        { "id": "pocket-watch", "label": "Кишеньковий годинник угорі", "icon": "watch", "x": 0.2878, "y": 0.0820, "rx": 0.0215, "ry": 0.0400 },
+        { "id": "camera-in-hands", "label": "Фотоапарат у руках дівчини", "icon": "camera", "x": 0.3587, "y": 0.6094, "rx": 0.0293, "ry": 0.0283 },
+        { "id": "candle-in-hand", "label": "Свічка в руці архіваріуса", "icon": "flame", "x": 0.3971, "y": 0.3242, "rx": 0.0078, "ry": 0.0273 },
+        { "id": "hourglass", "label": "Пісочний годинник на скрині", "icon": "hourglass", "x": 0.4674, "y": 0.5420, "rx": 0.0169, "ry": 0.0420 },
+        { "id": "blue-butterfly-window", "label": "Великий синій метелик над вікном", "icon": "bug", "x": 0.4733, "y": 0.0703, "rx": 0.0195, "ry": 0.0273 },
+        { "id": "upper-sealed-envelope", "label": "Верхній конверт із фіолетовою печаткою", "icon": "mail", "x": 0.5417, "y": 0.8584, "rx": 0.0221, "ry": 0.0283 },
+        { "id": "white-quill", "label": "Велике біле перо на верхньому столі", "icon": "feather", "x": 0.5632, "y": 0.1699, "rx": 0.0202, "ry": 0.0537 },
+        { "id": "brass-compass", "label": "Великий латунний компас унизу", "icon": "compass", "x": 0.6563, "y": 0.9570, "rx": 0.0286, "ry": 0.0391 },
+        { "id": "framed-animal-skull", "label": "Череп тварини у світлій рамці", "icon": "skull", "x": 0.7096, "y": 0.0635, "rx": 0.0189, "ry": 0.0381 },
+        { "id": "globe", "label": "Блакитний глобус", "icon": "globe", "x": 0.7454, "y": 0.3789, "rx": 0.0254, "ry": 0.0469 },
+        { "id": "green-bottle-cabinet", "label": "Яскраво-зелена пляшка у скляній шафі", "icon": "wine", "x": 0.8874, "y": 0.5322, "rx": 0.0145, "ry": 0.0479 },
+        { "id": "owl-in-cage", "label": "Біла сова в золотій клітці", "icon": "bird", "x": 0.9440, "y": 0.5352, "rx": 0.0160, "ry": 0.0596 }
+      ]
+    }
+  ],
+  "levels": [
+    { "id": 1, "title": "Перші зачіпки", "description": "Оглянь широкий офіс і знайди шість помітних доказів.", "chapter": "Перші зачіпки", "difficulty": "easy", "scene_id": "illustrated-easy-office-panorama", "par_time": 150, "hints": 3, "target_ids": ["blue-umbrella", "golden-trophy", "green-coffee-mug", "red-fountain-pen", "large-brass-key", "purple-eyeglasses"] },
+    { "id": 2, "title": "Кавова перерва", "description": "Пройди кімнату від полиць до столиків і поверни речі на місце.", "chapter": "Перші зачіпки", "difficulty": "easy", "scene_id": "illustrated-easy-lounge-panorama", "par_time": 165, "hints": 3, "target_ids": ["red-headphones", "blue-lunchbox", "yellow-lemon", "silver-spoon", "purple-wall-clock", "green-cactus"] },
+    { "id": 3, "title": "Архівна справа", "description": "Досліди панорамний архів і відшукай шість великих знахідок.", "chapter": "Перші зачіпки", "difficulty": "easy", "scene_id": "illustrated-easy-archive-panorama", "par_time": 180, "hints": 3, "target_ids": ["black-camera-left", "large-golden-magnifier", "white-sealed-envelope", "red-scissors", "orange-toy-rocket", "large-blue-compass"] },
+    { "id": 4, "title": "Загублений багаж", "description": "Обшукай старий вокзал від паровоза до бюро знахідок.", "chapter": "Нові виклики", "difficulty": "medium", "scene_id": "illustrated-station-panorama", "par_time": 225, "hints": 2, "target_ids": ["red-travel-ticket", "pocket-watch", "left-blue-umbrella", "large-green-suitcase", "black-camera", "yellow-sealed-envelope", "purple-travel-guide", "brass-baggage-key", "white-hat-feather"] },
+    { "id": 5, "title": "Нічний ярмарок", "description": "Знайди десять доказів серед вогнів, механізмів і святкового натовпу.", "chapter": "Нові виклики", "difficulty": "medium", "scene_id": "illustrated-night-fair-panorama", "par_time": 250, "hints": 2, "target_ids": ["turquoise-origami", "red-flashlight", "striped-sock", "gold-trophy", "green-die", "pink-feather", "black-headphones", "crescent-balloon", "silver-scissors", "orange-rocket"] },
+    { "id": 6, "title": "Таємниці за лаштунками", "description": "Перевір костюмерну, реквізит і гримерні столики перед виставою.", "chapter": "Нові виклики", "difficulty": "medium", "scene_id": "illustrated-backstage-panorama", "par_time": 275, "hints": 2, "target_ids": ["small-golden-crown", "red-costume-feather", "folded-blue-umbrella", "blue-white-striped-sock", "silver-tailor-scissors", "green-script-book", "black-opera-glasses", "purple-admission-ticket", "orange-flashlight", "brass-dressing-room-key", "white-bird-marionette"] },
+    { "id": 7, "title": "Зниклий протокол", "description": "Досліджуй панорамний офіс і знайди дванадцять доказів у всіх його кутках.", "chapter": "Справи детектива", "difficulty": "hard", "scene_id": "illustrated-office-panorama", "par_time": 300, "hints": 2, "target_ids": ["blue-origami", "silver-wristwatch", "green-binder-clips", "brass-key", "red-usb", "red-mug-laptop", "purple-access-card", "white-earbud-case", "black-flashlight", "striped-sock", "yellow-star", "brown-backpack"] },
+    { "id": 8, "title": "Схованка механіка", "description": "Прогортай широку майстерню та відшукай чотирнадцять прихованих деталей.", "chapter": "Справи детектива", "difficulty": "hard", "scene_id": "illustrated-workshop-panorama", "par_time": 360, "hints": 1, "target_ids": ["blue-feather", "chess-knight", "orange-rocket", "green-die", "cabinet-padlock", "red-wire-spool", "yellow-tape-measure", "mounted-magnifier", "blue-drill", "red-spray-can", "gray-tape-roll", "yellow-rubber-duck", "gold-windup-key", "purple-gear"] },
+    { "id": 9, "title": "Останній доказ", "description": "Фінальна панорамна справа: шістнадцять предметів у загадковому архіві.", "chapter": "Справи детектива", "difficulty": "hard", "scene_id": "illustrated-archive-panorama", "par_time": 420, "hints": 1, "target_ids": ["ship-under-dome", "butterfly-display-frame", "ornate-key-suitcase", "tall-red-lighthouse", "pocket-watch", "camera-in-hands", "candle-in-hand", "hourglass", "blue-butterfly-window", "upper-sealed-envelope", "white-quill", "brass-compass", "framed-animal-skull", "globe", "green-bottle-cabinet", "owl-in-cage"] }
+  ]
+}

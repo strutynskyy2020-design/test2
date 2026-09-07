@@ -1,12 +1,11 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Flame, Trophy, GraduationCap, Sparkles, Crown, Award, Medal, Star, Zap, ChevronRight, Coins, TrendingUp, Swords, Gift, Lock, Dice5, ScrollText, Target, Newspaper, Gamepad2, BriefcaseBusiness, CalendarClock, CalendarDays, Coffee, Grid3X3 } from "lucide-react";
+import { Flame, Sparkles, Award, Zap, ChevronRight, Coins, TrendingUp, Swords, Gift, Dice5, ScrollText, Target, Newspaper, Gamepad2, BriefcaseBusiness, CalendarClock, CalendarDays, Coffee, Search } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { useDailyGoogleReports } from "@/hooks/useGoogleReports";
 import api from "@/lib/api";
 import { resolveAvatarUrl } from "@/lib/avatar";
 import AvatarFrame from "@/components/AvatarFrame";
-import { getAchievements } from "@/lib/achievements";
 import FeedItem from "@/components/FeedItem";
 import ThemeToggle from "@/components/ThemeToggle";
 import PalmOnSandIcon from "@/components/PalmOnSandIcon";
@@ -14,7 +13,6 @@ import { addIsoDays, formatShiftTime, getScheduleStatus, kyivTodayIso } from "@/
 import depositProjection from "@/lib/depositProjection";
 import { normalizeReportProfile } from "@/lib/activationReports";
 
-const ICONS = { flame: Flame, trophy: Trophy, "graduation-cap": GraduationCap, sparkles: Sparkles, crown: Crown, award: Award, medal: Medal, star: Star };
 const { resolveDepositProjectionCurrent } = depositProjection;
 
 const ScheduleMiniIcon = ({ type, size = 21 }) => {
@@ -23,20 +21,6 @@ const ScheduleMiniIcon = ({ type, size = 21 }) => {
   if (type === "vacation") return <PalmOnSandIcon size={size} strokeWidth={2.35} />;
   if (type === "day_off") return <Coffee size={size} strokeWidth={2.6} />;
   return <BriefcaseBusiness size={size} strokeWidth={2.6} />;
-};
-
-
-const Badge = ({ ach }) => {
-  const Icon = ICONS[ach.icon] || Sparkles;
-  return <div className={`relative flex aspect-square flex-col items-center justify-center rounded-2xl border-2 p-3 ${ach.unlocked ? "border-white/10 bg-[#1A1A1E]" : "border-white/5 bg-[#141416] opacity-60"}`}>
-    <div
-      className={`achievement-badge-icon mb-2 flex h-12 w-12 items-center justify-center rounded-2xl ${ach.unlocked ? "is-unlocked" : "is-locked"}`}
-      style={ach.unlocked ? { backgroundColor: ach.color + "22", borderColor: ach.color } : undefined}
-    >
-      {ach.unlocked ? <Icon size={22} strokeWidth={2.75} color={ach.color} /> : <Lock size={18} className="achievement-lock-icon" />}
-    </div>
-    <div className="line-clamp-2 text-center text-[10px] font-black uppercase leading-tight tracking-tight text-white/90">{ach.title}</div>
-  </div>;
 };
 
 
@@ -117,10 +101,16 @@ const warmBonusMatch = () => {
   return bonusMatchWarmup;
 };
 
-let sudokuWarmup = null;
-const warmSudoku = () => {
-  if (!sudokuWarmup) sudokuWarmup = import("@/pages/Sudoku").catch(() => null);
-  return sudokuWarmup;
+let hiddenObjectsWarmup = null;
+const warmHiddenObjects = () => {
+  if (!hiddenObjectsWarmup) {
+    hiddenObjectsWarmup = import("@/pages/HiddenObjects")
+      .then(({ preloadHiddenObjectArtwork }) => preloadHiddenObjectArtwork([
+        { image: "/hidden-objects/v5/scenes/illustrated-easy-office-panorama-v5.png" },
+      ]))
+      .catch(() => null);
+  }
+  return hiddenObjectsWarmup;
 };
 
 export default function Home() {
@@ -129,7 +119,6 @@ export default function Home() {
   const [avatarImageFailed, setAvatarImageFailed] = useState(false);
   const [goals, setGoals] = useState(defaultGoals);
   const [feed, setFeed] = useState([]);
-  const [awardedAchievements, setAwardedAchievements] = useState([]);
   const [workSchedule, setWorkSchedule] = useState(null);
   const selectedScheduleLogin = (user?.role === "admin" || user?.role === "editor") && typeof window !== "undefined"
     ? localStorage.getItem("tm6_schedule_admin_login_v1") || ""
@@ -138,8 +127,8 @@ export default function Home() {
 
   useEffect(() => {
     const schedule = window.requestIdleCallback
-      ? window.requestIdleCallback(() => { warmBonusMatch(); warmSudoku(); }, { timeout: 2200 })
-      : window.setTimeout(() => { warmBonusMatch(); warmSudoku(); }, 1500);
+      ? window.requestIdleCallback(() => { warmBonusMatch(); warmHiddenObjects(); }, { timeout: 2200 })
+      : window.setTimeout(() => { warmBonusMatch(); warmHiddenObjects(); }, 1500);
     return () => {
       if (window.cancelIdleCallback && typeof schedule === "number") window.cancelIdleCallback(schedule);
       else window.clearTimeout(schedule);
@@ -184,12 +173,6 @@ export default function Home() {
     api.get("/feed", { params: { limit: 5 } }).then(r => {
       if (!cancelled) setFeed(r.data.events || []);
     }).catch(() => {});
-    api.get("/achievements/me").then((r) => {
-      if (!cancelled) setAwardedAchievements(Array.isArray(r.data) ? r.data : []);
-    }).catch(() => {
-      if (!cancelled) setAwardedAchievements([]);
-    });
-
     return () => {
       cancelled = true;
     };
@@ -200,12 +183,6 @@ export default function Home() {
   const xp = user.xp ?? 0;
   const xpNext = user.xp_to_next ?? 1000;
   const xpPct = Math.min(100, Math.round((xp / xpNext) * 100));
-  const automaticAchievements = getAchievements(user);
-  const automaticIds = new Set(automaticAchievements.map((item) => item.id));
-  const customAchievements = awardedAchievements
-    .filter((item) => item?.id && !automaticIds.has(item.id))
-    .map((item) => ({ ...item, unlocked: true, custom: true }));
-  const achievements = [...automaticAchievements, ...customAchievements];
   const avatarSrc = resolveAvatarUrl(user.avatar_url);
   const isActivationProfile = normalizeReportProfile(goals.report_profile || user?.report_profile) === "activation";
   const goalEntries = isActivationProfile
@@ -223,11 +200,17 @@ export default function Home() {
     {mode === "mock" && <div className="rounded-2xl border border-[#FF5C00]/40 bg-[#FF5C00]/10 px-3 py-2 text-[11px] font-black text-[#FF5C00]">ОФЛАЙН РЕЖИМ • використовуються демо-дані</div>}
 
     {/* 1. Avatar / profile */}
-    <section className="diamond-card-auto relative rounded-3xl border border-white/10 bg-[#1A1A1E] p-5">
+    <section className="diamond-card-auto relative overflow-hidden rounded-3xl border border-white/10 bg-[#1A1A1E]">
       <ThemeToggle className="absolute right-4 top-4 z-10" compact />
-      <div className="flex items-center gap-4 pr-14">
-        <div className="relative shrink-0">
-          <button type="button" onClick={() => nav("/store")} className="relative block active:scale-95" aria-label="Відкрити магазин аватарок">
+      <button
+        type="button"
+        onClick={() => nav("/profile")}
+        className="block w-full p-5 text-left active:scale-[.99]"
+        aria-label="Відкрити особистий кабінет"
+        data-testid="open-personal-profile"
+      >
+        <div className="flex items-center gap-4 pr-14">
+          <div className="relative shrink-0">
             <AvatarFrame
               src={avatarSrc && !avatarImageFailed ? avatarSrc : null}
               alt="Аватар профілю"
@@ -238,12 +221,20 @@ export default function Home() {
               onLoad={() => setAvatarImageFailed(false)}
               onError={() => setAvatarImageFailed(true)}
             />
-          </button>
-          <div className="absolute -bottom-1 right-0 rounded-full border-2 border-[#0A0A0A] bg-[#FFB800] px-1.5 py-0.5 text-[9px] font-black text-[#0A0A0A]">LVL {level}</div>
+            <div className="absolute -bottom-1 right-0 rounded-full border-2 border-[#0A0A0A] bg-[#FFB800] px-1.5 py-0.5 text-[9px] font-black text-[#0A0A0A]">LVL {level}</div>
+          </div>
+          <div className="min-w-0 flex-1 overflow-hidden">
+            <div className="truncate font-display text-[17px] leading-tight text-white">{user.name}</div>
+            <div className="truncate text-xs text-zinc-500">{user.position}</div>
+            <div className="truncate text-xs text-zinc-600">{user.team_name || user.department || "—"}</div>
+          </div>
         </div>
-        <div className="min-w-0 flex-1 overflow-hidden"><div className="truncate font-display text-[17px] leading-tight text-white">{user.name}</div><div className="truncate text-xs text-zinc-500">{user.position}</div><div className="truncate text-xs text-zinc-600">{user.team_name || user.department || "—"}</div></div>
-      </div>
-      <div className="mt-5"><div className="mb-2 flex justify-between"><div className="text-[11px] font-black uppercase tracking-widest text-zinc-500">Рівень {level}</div><div className="text-[11px] font-black text-white">{xp} / {xpNext} XP</div></div><div className="h-4 overflow-hidden rounded-full border border-white/5 bg-[#0A0A0A]"><div className="xp-stripes h-full rounded-full" style={{ width: `${xpPct}%`, background: "linear-gradient(90deg,#FF5C00,#FFB800)" }} /></div></div>
+        <div className="mt-5"><div className="mb-2 flex justify-between"><div className="text-[11px] font-black uppercase tracking-widest text-zinc-500">Рівень {level}</div><div className="text-[11px] font-black text-white">{xp} / {xpNext} XP</div></div><div className="h-4 overflow-hidden rounded-full border border-white/5 bg-[#0A0A0A]"><div className="xp-stripes h-full rounded-full" style={{ width: `${xpPct}%`, background: "linear-gradient(90deg,#FF5C00,#FFB800)" }} /></div></div>
+        <div className="mt-4 flex items-center justify-between border-t border-white/8 pt-3">
+          <span className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.14em] text-[#B78CFF]"><Award size={16} />Особистий кабінет</span>
+          <span className="flex items-center gap-1 text-[10px] font-black uppercase tracking-wider text-zinc-500">Рівні та досягнення <ChevronRight size={16} /></span>
+        </div>
+      </button>
     </section>
 
     {/* 3. Balance */}
@@ -254,7 +245,7 @@ export default function Home() {
 
     {/* 4. Projections banner */}
     <button onClick={() => nav("/goals")} className="w-full rounded-3xl border border-[#B78CFF]/45 bg-gradient-to-br from-[#B78CFF]/18 to-[#1A1A1E] p-5 text-left active:scale-[.99]">
-      <div className="flex items-center gap-3"><div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#B78CFF]/20"><Target size={24} strokeWidth={3} color="#B78CFF" /></div><div className="flex-1"><div className="font-display text-xl text-white">МОЇ ПРОЕКЦІЇ</div><div className="text-xs text-zinc-400">Ціль кожного напрямку: 100%</div></div><ChevronRight color="#B78CFF" /></div>
+      <div className="flex items-center gap-3"><div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#B78CFF]/20"><Target size={24} strokeWidth={3} color="#B78CFF" /></div><div className="flex-1"><div className="font-display text-xl text-white">МОЇ ПРОЕКЦІЙНІ</div><div className="text-xs text-zinc-400">Ціль кожного напрямку: 100%</div></div><ChevronRight color="#B78CFF" /></div>
       <div className={`mt-4 grid gap-2 ${isActivationProfile ? "grid-cols-2" : "grid-cols-3"}`}>{goalEntries.map(([label,g]) => <div key={label}><div className="truncate text-[9px] font-black uppercase text-zinc-500">{label}</div><div className={`mt-1 text-sm font-black ${g?.complete ? "text-[#39FF14]" : "text-white"}`}>{Number(g?.current||0)}%</div><div className="mt-0.5 text-[8px] font-black uppercase text-zinc-600">ціль 100%</div></div>)}</div>
     </button>
 
@@ -278,12 +269,12 @@ export default function Home() {
       <ChevronRight className="relative shrink-0 text-[#B78CFF] transition-transform group-active:translate-x-1" />
     </button>
 
-    {/* 10. VPDK Sudoku */}
-    <button type="button" onPointerEnter={warmSudoku} onFocus={warmSudoku} onTouchStart={warmSudoku} onClick={() => nav("/games/sudoku")} className="home-sudoku-card group relative flex w-full items-center gap-3 min-[390px]:gap-4 overflow-hidden rounded-3xl p-4 min-[390px]:p-5 text-left active:scale-[.99]">
-      <div className="home-sudoku-glow absolute -right-8 -top-10 h-28 w-28 rounded-full blur-2xl" />
-      <div className="home-sudoku-icon relative flex h-12 w-12 min-[390px]:h-14 min-[390px]:w-14 shrink-0 items-center justify-center rounded-2xl"><Grid3X3 size={27} strokeWidth={2.7} /></div>
-      <div className="relative min-w-0 flex-1"><div className="flex items-center gap-2"><div className="home-sudoku-title font-display text-[clamp(0.92rem,4.6vw,1.25rem)] leading-tight">VPDK SUDOKU</div><Sparkles size={16} color="#B78CFF" /></div><div className="home-sudoku-description mt-1 text-[11px] min-[390px]:text-xs font-bold leading-snug">50 рівнів логіки, нотатки та мультизаповнення</div></div>
-      <ChevronRight className="home-sudoku-chevron relative shrink-0 transition-transform group-active:translate-x-1" />
+    {/* 10. VPDK Detective */}
+    <button type="button" onPointerEnter={warmHiddenObjects} onFocus={warmHiddenObjects} onTouchStart={warmHiddenObjects} onClick={() => nav("/games/hidden-objects")} className="home-hidden-object-card group relative flex w-full items-center gap-3 min-[390px]:gap-4 overflow-hidden rounded-3xl p-4 min-[390px]:p-5 text-left active:scale-[.99]" data-testid="home-hidden-objects">
+      <div className="home-hidden-object-glow absolute -right-8 -top-10 h-28 w-28 rounded-full blur-2xl" />
+      <div className="home-hidden-object-icon relative flex h-12 w-12 min-[390px]:h-14 min-[390px]:w-14 shrink-0 items-center justify-center rounded-2xl"><Search size={27} strokeWidth={2.9} /></div>
+      <div className="relative min-w-0 flex-1"><div className="flex items-center gap-2"><div className="home-hidden-object-title font-display text-[clamp(0.92rem,4.6vw,1.25rem)] leading-tight">VPDK ДЕТЕКТИВ</div><Sparkles size={16} color="#FFB800" /></div><div className="home-hidden-object-description mt-1 text-[11px] min-[390px]:text-xs font-bold leading-snug">Шукай приховані предмети та розкривай справи</div></div>
+      <ChevronRight className="home-hidden-object-chevron relative shrink-0 transition-transform group-active:translate-x-1" />
     </button>
 
     {/* 11. Work schedule */}
@@ -324,10 +315,6 @@ export default function Home() {
         ))}
       </div>
     </button>
-
-
-    {/* 12. Achievements */}
-    <section><div className="mb-3 flex items-center justify-between px-1"><div className="font-display text-lg text-white">Досягнення</div><div className="text-xs font-black text-zinc-500">{achievements.filter(a=>a.unlocked).length} / {achievements.length}</div></div><div className="grid grid-cols-3 gap-3">{achievements.map(a=><Badge key={a.id} ach={a}/>)}</div></section>
 
   </div>;
 }

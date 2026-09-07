@@ -26,7 +26,7 @@ const SCHEDULE_SHEET_NAME = "Schedule";
 const SCHEDULE_TIMEZONE = "Europe/Kyiv";
 const REPORT_CACHE_SHEET_NAME = "_TM6_REPORT_CACHE";
 const REPORT_CACHE_CHUNK_SIZE = 45000;
-const REPORT_CACHE_API_VERSION = "v155-activators-separate-source";
+const REPORT_CACHE_API_VERSION = "v156-analytics-trends-ui-fixes";
 const TEAM_MESSAGES_SHEET_NAME = "_TM6_TEAM_MESSAGES";
 const FIXED_PROJECTION_TARGET = "100";
 
@@ -3162,6 +3162,10 @@ function notifyBackendReportsPublished(snapshot) {
     credit_group_summaries: firstReport.credit_group_summaries || {},
     debit_group_summaries: firstReport.debit_group_summaries || {},
     deposit_group_summaries: (firstReport.deposit_group_summaries && firstReport.deposit_group_summaries.month) || {},
+    deposit_projection_group_summaries: firstReport.deposit_projection_group_summaries || {},
+    activation_pumb_group_summaries: firstReport.activation_pumb_group_summaries || { month: {}, yesterday: {} },
+    activation_cards_group_summaries: firstReport.activation_cards_group_summaries || {},
+    activation_cards_transformation_group_summaries: firstReport.activation_cards_transformation_group_summaries || { month: {}, yesterday: {} },
   };
 
   try {

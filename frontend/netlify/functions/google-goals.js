@@ -625,8 +625,14 @@ exports.handler = async (event) => {
       ? (debitGroupSummaries[currentTeamKey] || null)
       : (isPrivileged ? null : (baseData.debit_group_summary || null));
     const participants = Array.isArray(reportAccess?.participants) ? reportAccess.participants : [];
-    const salesAllowedLogins = allowedLoginsForProfile(allowedLogins, participants, "sales");
-    const activationAllowedLogins = allowedLoginsForProfile(allowedLogins, participants, "activation");
+    // Administrators and editors must see every published Projective row. Their
+    // local participant list is enrichment metadata, not an access filter.
+    const salesAllowedLogins = isPrivileged
+      ? null
+      : allowedLoginsForProfile(allowedLogins, participants, "sales");
+    const activationAllowedLogins = isPrivileged
+      ? null
+      : allowedLoginsForProfile(allowedLogins, participants, "activation");
     const creditLeaderboard = enrichRowsWithParticipants(
       filterRowsByAllowedLogins(baseData.credit_leaderboard, salesAllowedLogins),
       participants,

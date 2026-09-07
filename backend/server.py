@@ -16,9 +16,11 @@ import asyncio
 import shutil
 import re
 import math
+import hashlib
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 from typing import List, Optional, Literal
+from urllib.parse import parse_qs
 
 import bcrypt
 import jwt
@@ -30,6 +32,33 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo import UpdateOne, ReturnDocument
 from pymongo.errors import DuplicateKeyError
 from pydantic import BaseModel, Field, EmailStr, ConfigDict
+
+try:
+    from backend.hidden_object_game import (
+        hidden_object_apply_miss,
+        hidden_object_contains,
+        hidden_object_mistake_limit,
+        hidden_object_public_level,
+        hidden_object_stars,
+        hidden_object_targets,
+        load_hidden_object_catalog,
+    )
+except ModuleNotFoundError:  # ``uvicorn server:app`` when cwd is backend/
+    from hidden_object_game import (
+        hidden_object_apply_miss,
+        hidden_object_contains,
+        hidden_object_mistake_limit,
+        hidden_object_public_level,
+        hidden_object_stars,
+        hidden_object_targets,
+        load_hidden_object_catalog,
+    )
+try:
+    from backend.pet_feature import register_pet_routes, seed_pet_v1
+except ModuleNotFoundError as exc:  # ``uvicorn server:app`` when cwd is backend/
+    if exc.name != "backend":
+        raise
+    from pet_feature import register_pet_routes, seed_pet_v1
 
 try:
     from pywebpush import webpush, WebPushException
@@ -52,6 +81,9 @@ VAPID_SUBJECT = os.environ.get("VAPID_SUBJECT", f"mailto:{ADMIN_EMAIL}").strip()
 PUSH_SCHEDULER_TOKEN = os.environ.get("PUSH_SCHEDULER_TOKEN", "").strip()
 REPORTS_WEBHOOK_TOKEN = os.environ.get("REPORTS_WEBHOOK_TOKEN", "").strip()
 SEED_DEMO_USERS_ENABLED = os.environ.get("SEED_DEMO_USERS", "false").strip().lower() in {"1", "true", "yes", "on"}
+RESET_LOCAL_ADMIN_PASSWORD_ON_STARTUP = os.environ.get(
+    "RESET_LOCAL_ADMIN_PASSWORD_ON_STARTUP", "false"
+).strip().lower() in {"1", "true", "yes", "on"}
 PLAYER_ROLES = ["employee", "editor"]
 
 mongo_url = os.environ["MONGO_URL"]
@@ -285,7 +317,13 @@ async def _touch_daily_streak(user: dict) -> dict:
         {"id": user["id"]},
         {"$set": {"streak": new_streak, "last_active_date": today}},
     )
-    return {**user, "streak": new_streak, "last_active_date": today}
+    if new_streak >= 7:
+        await _award_xp(
+            user["id"], 75, "streak", "streak:7-days",
+            "Активність 7 днів поспіль", {"streak": new_streak},
+        )
+    fresh = await db.users.find_one({"id": user["id"]}, {"_id": 0})
+    return fresh or {**user, "streak": new_streak, "last_active_date": today}
 
 
 def hash_password(pw: str) -> str:
@@ -311,21 +349,97 @@ def create_token(user_id: str, email: str, role: str, auth_version: int = 0) -> 
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALG)
 
 
+MAX_PROFILE_LEVEL = 50
+
+
 def xp_to_next(level: int) -> int:
-    """Progressive XP curve: L1→L2 needs 1000, L2→L3 needs 1500, etc."""
-    return 500 + level * 500
+    """XP needed for the next permanent profile level."""
+    normalized = max(1, int(level or 1))
+    return 0 if normalized >= MAX_PROFILE_LEVEL else 100 + normalized * 25
+
+
+def profile_level_title(level: int) -> str:
+    normalized = max(1, min(MAX_PROFILE_LEVEL, int(level or 1)))
+    if normalized <= 5:
+        return "Новачок"
+    if normalized <= 10:
+        return "Гравець"
+    if normalized <= 20:
+        return "Досвідчений"
+    if normalized <= 30:
+        return "Профі"
+    if normalized <= 40:
+        return "Майстер"
+    if normalized <= 49:
+        return "Легенда"
+    return "VPDK Champion"
 
 
 def level_from_total_xp(total_xp: int) -> tuple[int, int, int]:
     """Return (level, xp_in_level, xp_needed_for_next)."""
     level = 1
-    remaining = total_xp
+    remaining = max(0, int(total_xp or 0))
     need = xp_to_next(level)
-    while remaining >= need:
+    while level < MAX_PROFILE_LEVEL and need > 0 and remaining >= need:
         remaining -= need
         level += 1
         need = xp_to_next(level)
     return level, remaining, need
+
+
+LEVEL_REWARDS = [
+    {"level": 5, "kind": "title", "title": "Титул «Впевнений старт»", "description": "Новий титул для особистого профілю.", "inventory_key": "title-confident-start"},
+    {"level": 10, "kind": "avatar", "title": "Ексклюзивний аватар", "description": "Колекційний аватар десятого рівня.", "inventory_key": "avatar-level-10"},
+    {"level": 15, "kind": "cube_spin", "title": "+1 кидок Щедрого куба", "description": "Один безкоштовний бонусний кидок.", "inventory_key": "cube-spin-level-15"},
+    {"level": 20, "kind": "frame", "title": "Рамка профілю «Профі»", "description": "Особлива рамка навколо аватара.", "inventory_key": "frame-level-20"},
+    {"level": 25, "kind": "discount", "title": "Знижка 5%", "description": "Разова знижка 5% на наступну покупку в магазині.", "inventory_key": "discount-level-25"},
+    {"level": 30, "kind": "avatar", "title": "Рідкісний аватар", "description": "Рідкісний аватар за стабільний розвиток.", "inventory_key": "avatar-level-30"},
+    {"level": 35, "kind": "animated_frame", "title": "Анімована рамка", "description": "Анімована рамка профілю майстра.", "inventory_key": "frame-level-35"},
+    {"level": 40, "kind": "name_color", "title": "Особливий колір імені", "description": "Золотий колір імені у персональному кабінеті.", "inventory_key": "name-color-level-40"},
+    {"level": 45, "kind": "cosmetic", "title": "Легендарна косметика", "description": "Легендарний предмет колекції профілю.", "inventory_key": "cosmetic-level-45"},
+    {"level": 50, "kind": "champion", "title": "VPDK Champion", "description": "Унікальний титул і чемпіонська рамка.", "inventory_key": "champion-level-50"},
+]
+
+
+SYSTEM_ACHIEVEMENTS = [
+    {"id": "first_quest", "title": "Перший крок", "description": "Виконай перший підтверджений квест.", "category": "Активність", "icon": "flag", "color": "#39FF14", "rarity": "bronze", "stat": "quests_completed", "target": 1, "unit": "квест", "xp_reward": 25},
+    {"id": "perfect_day", "title": "Ідеальний день", "description": "Виконай усі 3 щоденні квести за один день.", "category": "Активність", "icon": "calendar-check", "color": "#00F0FF", "rarity": "silver", "stat": "perfect_days", "target": 1, "unit": "день", "xp_reward": 40},
+    {"id": "streak_7", "title": "Залізний ритм", "description": "Підтримуй активну серію 7 днів поспіль.", "category": "Активність", "icon": "flame", "color": "#FF5C00", "rarity": "silver", "stat": "streak", "target": 7, "unit": "днів", "xp_reward": 50},
+    {"id": "streak_30", "title": "Без вихідних", "description": "Підтримуй активну серію 30 днів поспіль.", "category": "Активність", "icon": "flame", "color": "#FFB800", "rarity": "gold", "stat": "streak", "target": 30, "unit": "днів", "xp_reward": 100},
+    {"id": "quests_100", "title": "Сотня", "description": "Виконай 100 підтверджених квестів.", "category": "Активність", "icon": "trophy", "color": "#FFB800", "rarity": "gold", "stat": "quests_completed", "target": 100, "unit": "квестів", "xp_reward": 150},
+    {"id": "projection_100", "title": "План виконано", "description": "Отримай місячний проекційний результат 100% або більше.", "category": "Проекційні", "icon": "target", "color": "#B78CFF", "rarity": "silver", "stat": "projection_100_days", "target": 1, "unit": "день", "xp_reward": 50},
+    {"id": "projection_triple", "title": "Потрійний удар", "description": "Одночасно виконай усі три напрямки на 100%+.", "category": "Проекційні", "icon": "zap", "color": "#FFB800", "rarity": "gold", "stat": "projection_triple_days", "target": 1, "unit": "день", "xp_reward": 100},
+    {"id": "projection_stable", "title": "Стабільність", "description": "Утримуй результат 100%+ протягом 5 робочих днів.", "category": "Проекційні", "icon": "trending-up", "color": "#39FF14", "rarity": "gold", "stat": "projection_streak", "target": 5, "unit": "днів", "xp_reward": 125},
+    {"id": "projection_leader", "title": "Лідер дня", "description": "Посідай перше місце у своєму проекційному рейтингу.", "category": "Проекційні", "icon": "crown", "color": "#FFB800", "rarity": "gold", "stat": "projection_first_places", "target": 1, "unit": "перше місце", "xp_reward": 125},
+    {"id": "projection_comeback", "title": "Камбэк", "description": "Підніми результат із зони уваги до 100%+.", "category": "Проекційні", "icon": "trending-up", "color": "#00F0FF", "rarity": "gold", "stat": "projection_comebacks", "target": 1, "unit": "камбэк", "xp_reward": 100},
+    {"id": "projection_record", "title": "Рекордсмен", "description": "Перевищ свій попередній проекційний рекорд.", "category": "Проекційні", "icon": "medal", "color": "#B78CFF", "rarity": "silver", "stat": "projection_records", "target": 1, "unit": "рекорд", "xp_reward": 75},
+    {"id": "team_first_contribution", "title": "Командний гравець", "description": "Зроби перший внесок у банку команди.", "category": "Командні", "icon": "users", "color": "#00F0FF", "rarity": "bronze", "stat": "bank_contributions", "target": 1, "unit": "внесок", "xp_reward": 25},
+    {"id": "team_patron", "title": "Меценат", "description": "Внеси сумарно 1 000 Point у командні банки.", "category": "Командні", "icon": "piggy-bank", "color": "#FFB800", "rarity": "gold", "stat": "bank_points", "target": 1000, "unit": "Point", "xp_reward": 125},
+    {"id": "team_goal", "title": "Спільна перемога", "description": "Візьми участь у закритті командної банки.", "category": "Командні", "icon": "handshake", "color": "#39FF14", "rarity": "silver", "stat": "team_goals", "target": 1, "unit": "ціль", "xp_reward": 75},
+    {"id": "first_purchase", "title": "Перша покупка", "description": "Отримай свій перший приз у магазині.", "category": "Колекція", "icon": "shopping-bag", "color": "#FF5C00", "rarity": "bronze", "stat": "orders", "target": 1, "unit": "покупка", "xp_reward": 25},
+    {"id": "avatar_collector", "title": "Колекціонер", "description": "Збери 5 аватарок у власній колекції.", "category": "Колекція", "icon": "gem", "color": "#B78CFF", "rarity": "gold", "stat": "owned_avatars", "target": 5, "unit": "аватарів", "xp_reward": 100},
+    {"id": "cube_first", "title": "Перший кидок", "description": "Уперше кинь Щедрий куб.", "category": "Ігри", "icon": "dice-5", "color": "#FFB800", "rarity": "bronze", "stat": "cube_spins", "target": 1, "unit": "кидок", "xp_reward": 25},
+    {"id": "cube_six", "title": "Щаслива шістка", "description": "Отримай максимальну грань Щедрого куба.", "category": "Ігри", "icon": "dice-6", "color": "#39FF14", "rarity": "gold", "stat": "cube_sixes", "target": 1, "unit": "шістка", "xp_reward": 100},
+    {"id": "cube_fortune", "title": "Улюбленець фортуни", "description": "Тричі отримай рідкісну нагороду Куба.", "category": "Ігри", "icon": "sparkles", "color": "#B78CFF", "rarity": "diamond", "stat": "cube_rare", "target": 3, "unit": "нагороди", "xp_reward": 175},
+    {"id": "detective_first", "title": "Детектив", "description": "Уперше пройди рівень VPDK Detective.", "category": "Ігри", "icon": "search", "color": "#00F0FF", "rarity": "silver", "stat": "detective_levels", "target": 1, "unit": "рівень", "xp_reward": 50},
+    {"id": "detective_sharp_eye", "title": "Гостре око", "description": "Пройди рівень Detective без жодної помилки.", "category": "Ігри", "icon": "eye", "color": "#39FF14", "rarity": "gold", "stat": "detective_perfect", "target": 1, "unit": "рівень", "xp_reward": 100},
+    {"id": "bonus_master", "title": "Bonus Master", "description": "Вперше пройди 10 різних рівнів Bonus Match.", "category": "Ігри", "icon": "gamepad-2", "color": "#B78CFF", "rarity": "gold", "stat": "bonus_match_levels", "target": 10, "unit": "рівнів", "xp_reward": 125},
+    {"id": "secret_triple_cube", "title": "Тричі пощастило", "description": "Отримай однакову грань Куба тричі поспіль.", "category": "Секретні", "icon": "help-circle", "color": "#FF3B8A", "rarity": "diamond", "stat": "cube_same_three", "target": 1, "unit": "секрет", "xp_reward": 200, "secret": True},
+    {"id": "secret_last_prize", "title": "Останній екземпляр", "description": "Придбай останній доступний екземпляр призу.", "category": "Секретні", "icon": "help-circle", "color": "#FF3B8A", "rarity": "diamond", "stat": "last_prize_buys", "target": 1, "unit": "секрет", "xp_reward": 200, "secret": True},
+]
+
+
+def _monthly_rank_tier(overall: float) -> dict:
+    value = max(0.0, float(overall or 0))
+    if value >= 120:
+        return {"tier": "S", "code": "S", "title": "Еліта", "color": "#FFB800"}
+    if value >= 100:
+        return {"tier": "A", "code": "A", "title": "План виконано", "color": "#39FF14"}
+    if value >= 85:
+        return {"tier": "B", "code": "B", "title": "Сильний темп", "color": "#00F0FF"}
+    if value >= 70:
+        return {"tier": "C", "code": "C", "title": "Зона росту", "color": "#B78CFF"}
+    return {"tier": "D", "code": "D", "title": "Зона уваги", "color": "#FF5B63"}
 
 
 # ────────────────────────────────────────────────────────────────────────
@@ -366,11 +480,19 @@ class UserPublic(BaseModel):
     diamond_avatar_expires_at: Optional[str] = None
     diamond_avatar_granted_at: Optional[str] = None
     diamond_avatar_active: bool = False
+    active_profile_title: Optional[str] = None
+    active_profile_frame: Optional[str] = None
+    active_name_color: Optional[str] = None
+    bonus_cube_spins: int = 0
+    store_discount_tokens: int = 0
+    reward_inventory: List[str] = Field(default_factory=list)
+    pinned_achievement_ids: List[str] = Field(default_factory=list)
     created_at: str
 
 
 class UserWithProgress(UserPublic):
     level: int
+    level_title: str
     xp: int
     xp_to_next: int
 
@@ -475,6 +597,11 @@ class GoalsSettingsUpdateBody(BaseModel):
     allow_cross_team_reports: bool = False
 
 
+class ScheduleSettingsUpdateBody(BaseModel):
+    year: int = Field(ge=2020, le=2100)
+    month: int = Field(ge=1, le=12)
+
+
 class CubeRewardRangeBody(BaseModel):
     face: int = Field(ge=1, le=6)
     min_reward: int = Field(ge=0, le=100000)
@@ -491,6 +618,7 @@ class CubeSettingsUpdateBody(BaseModel):
     rewards: List[CubeRewardRangeBody] = Field(min_length=6, max_length=6)
     # Optional keeps rolling backend/frontend deployments compatible with v145.
     probabilities: Optional[List[CubeFaceProbabilityBody]] = Field(default=None, min_length=6, max_length=6)
+    generosity_day_chance_percent: Optional[float] = Field(default=None, ge=0, le=100)
 
 
 class TeamGoalMessageBody(BaseModel):
@@ -502,6 +630,9 @@ class AchievementCreateBody(BaseModel):
     description: str = Field(default="", max_length=300)
     icon: str = Field(default="trophy", max_length=40)
     color: str = Field(default="#FFB800", max_length=20)
+    category: str = Field(default="Особливе", max_length=40)
+    rarity: Literal["bronze", "silver", "gold", "diamond"] = "silver"
+    xp_reward: int = Field(default=50, ge=25, le=250)
     active: bool = True
 
 
@@ -510,7 +641,28 @@ class AchievementUpdateBody(BaseModel):
     description: Optional[str] = Field(default=None, max_length=300)
     icon: Optional[str] = Field(default=None, max_length=40)
     color: Optional[str] = Field(default=None, max_length=20)
+    category: Optional[str] = Field(default=None, max_length=40)
+    rarity: Optional[Literal["bronze", "silver", "gold", "diamond"]] = None
+    xp_reward: Optional[int] = Field(default=None, ge=25, le=250)
     active: Optional[bool] = None
+
+
+class ProgressionReportSyncBody(BaseModel):
+    snapshot_version: str = Field(min_length=1, max_length=200)
+    snapshot_updated_at: str = Field(default="", max_length=100)
+    overall: float = Field(ge=0, le=10000)
+    metrics: dict = Field(default_factory=dict)
+    rank: Optional[int] = Field(default=None, ge=1, le=100000)
+    total_participants: Optional[int] = Field(default=None, ge=1, le=100000)
+
+
+class AchievementPinsBody(BaseModel):
+    achievement_ids: List[str] = Field(default_factory=list, max_length=3)
+
+
+class XPAdjustBody(BaseModel):
+    amount: int = Field(ge=1, le=100000)
+    description: str = Field(default="Ручне нарахування XP", min_length=2, max_length=240)
 
 
 class PageViewBody(BaseModel):
@@ -667,6 +819,8 @@ class PrizeModel(BaseModel):
     promotion_quantity_total: int = 0
     promotion_quantity_remaining: int = 0
     promotion_active: bool = False
+    level_discount_points: int = 0
+    level_discount_active: bool = False
     created_at: str
 
 
@@ -729,6 +883,7 @@ class PrizePromotionModel(BaseModel):
 class AnnouncementCreateBody(BaseModel):
     title: str = Field(min_length=2, max_length=120)
     message: str = Field(min_length=2, max_length=4000)
+    team_id: Optional[str] = None
 
 
 class AnnouncementUpdateBody(BaseModel):
@@ -742,6 +897,8 @@ class AnnouncementModel(BaseModel):
     title: str
     message: str
     active: bool = True
+    team_id: Optional[str] = None
+    team_name: Optional[str] = None
     created_by: str
     created_by_name: str
     created_at: str
@@ -765,6 +922,8 @@ class TeamBankModel(BaseModel):
     id: str
     team_id: str
     team_name: str
+    title: str = "Банка Команди"
+    active: bool = True
     cycle_number: int = 1
     goal_points: int = 15000
     current_points: int = 0
@@ -784,6 +943,23 @@ class TeamBankContributionBody(BaseModel):
     amount: int = Field(default=100, ge=1, le=5000)
 
 
+class TeamBankCreateBody(BaseModel):
+    team_id: str = Field(min_length=1, max_length=120)
+    title: str = Field(min_length=2, max_length=120)
+    goal_points: int = Field(ge=1, le=10_000_000)
+    description: str = Field(min_length=2, max_length=2000)
+    reward_title: str = Field(min_length=2, max_length=240)
+    active: bool = True
+
+
+class TeamBankUpdateBody(BaseModel):
+    title: Optional[str] = Field(default=None, min_length=2, max_length=120)
+    goal_points: Optional[int] = Field(default=None, ge=1, le=10_000_000)
+    description: Optional[str] = Field(default=None, min_length=2, max_length=2000)
+    reward_title: Optional[str] = Field(default=None, min_length=2, max_length=240)
+    active: Optional[bool] = None
+
+
 class OrderModel(BaseModel):
     id: str
     user_id: str
@@ -793,6 +969,7 @@ class OrderModel(BaseModel):
     price: int
     base_price: Optional[int] = None
     discount_points: int = 0
+    level_discount_points: int = 0
     promotion_id: Optional[str] = None
     status: Literal["processing", "ready", "delivered", "cancelled"]
     team_id: Optional[str] = None
@@ -853,6 +1030,13 @@ def _sanitize_user(doc: dict) -> UserPublic:
     doc.setdefault("diamond_avatar_code", None)
     doc.setdefault("diamond_avatar_expires_at", None)
     doc.setdefault("diamond_avatar_granted_at", None)
+    doc.setdefault("active_profile_title", None)
+    doc.setdefault("active_profile_frame", None)
+    doc.setdefault("active_name_color", None)
+    doc.setdefault("bonus_cube_spins", 0)
+    doc.setdefault("store_discount_tokens", 0)
+    doc.setdefault("reward_inventory", [])
+    doc.setdefault("pinned_achievement_ids", [])
     doc["diamond_avatar_active"] = _diamond_avatar_is_active(doc)
     return UserPublic(**doc)
 
@@ -861,9 +1045,332 @@ def _user_with_progress(doc: dict) -> UserWithProgress:
     base = _sanitize_user(doc).model_dump()
     lvl, xp, need = level_from_total_xp(base["total_xp"])
     base["level"] = lvl
+    base["level_title"] = profile_level_title(lvl)
     base["xp"] = xp
     base["xp_to_next"] = need
     return UserWithProgress(**base)
+
+
+async def _award_xp(
+    user_id: str,
+    amount: int,
+    source: str,
+    event_key: str,
+    description: str,
+    meta: Optional[dict] = None,
+    awarded_by: Optional[str] = None,
+) -> dict:
+    """Award XP exactly once for a stable event key and record the level change."""
+    amount = max(0, int(amount or 0))
+    if not amount:
+        return {"awarded": False, "amount": 0}
+    event_id = f"{user_id}:{event_key}"
+    created_at = now_iso()
+    ledger = {
+        "id": event_id,
+        "user_id": user_id,
+        "source": str(source or "activity")[:80],
+        "event_key": str(event_key)[:240],
+        "amount": amount,
+        "description": str(description or "Нарахування XP")[:300],
+        "meta": meta or {},
+        "awarded_by": awarded_by,
+        "created_at": created_at,
+    }
+    try:
+        await db.xp_ledger.insert_one(ledger)
+    except DuplicateKeyError:
+        existing = await db.xp_ledger.find_one({"id": event_id}, {"_id": 0}) or ledger
+        return {"awarded": False, "amount": 0, "event": existing}
+
+    before = await db.users.find_one_and_update(
+        {"id": user_id},
+        {"$inc": {"total_xp": amount}},
+        return_document=ReturnDocument.BEFORE,
+        projection={"_id": 0},
+    )
+    if not before:
+        await db.xp_ledger.delete_one({"id": event_id})
+        return {"awarded": False, "amount": 0}
+
+    before_level, _, _ = level_from_total_xp(before.get("total_xp", 0))
+    after_total = int(before.get("total_xp", 0) or 0) + amount
+    after_level, _, _ = level_from_total_xp(after_total)
+    await db.xp_ledger.update_one(
+        {"id": event_id},
+        {"$set": {
+            "user_name": before.get("name") or before.get("email") or "Користувач",
+            "team_id": before.get("team_id"),
+            "level_before": before_level,
+            "level_after": after_level,
+            "total_xp_after": after_total,
+        }},
+    )
+
+    if after_level > before_level:
+        for unlocked_level in range(before_level + 1, after_level + 1):
+            level_event_id = f"{user_id}:level:{unlocked_level}"
+            try:
+                await db.level_up_events.insert_one({
+                    "id": level_event_id,
+                    "user_id": user_id,
+                    "level": unlocked_level,
+                    "level_title": profile_level_title(unlocked_level),
+                    "source_event_id": event_id,
+                    "seen_at": None,
+                    "created_at": created_at,
+                })
+                await _notify(
+                    user_id,
+                    "level_up",
+                    f"Новий рівень: {unlocked_level}!",
+                    f"Твій статус — {profile_level_title(unlocked_level)}. Нагорода вже чекає в особистому кабінеті.",
+                    "/profile",
+                    "sparkles",
+                    "achievements",
+                    {"level": unlocked_level},
+                )
+            except DuplicateKeyError:
+                pass
+
+    return {
+        "awarded": True,
+        "amount": amount,
+        "level_before": before_level,
+        "level_after": after_level,
+        "event": {**ledger, "level_before": before_level, "level_after": after_level},
+    }
+
+
+def _has_three_equal_cube_faces(spins: List[dict]) -> bool:
+    faces = [int(item.get("face") or 0) for item in spins if int(item.get("face") or 0) in range(1, 7)]
+    return any(faces[index] == faces[index - 1] == faces[index - 2] for index in range(2, len(faces)))
+
+
+async def _progression_stats(user: dict) -> dict:
+    user_id = user["id"]
+    approved_daily, approved_applications, perfect_rows, contribution_rows, order_count, cube_days, hidden_rows, bonus_count, report_progress = await asyncio.gather(
+        db.daily_task_reviews.count_documents({"user_id": user_id, "status": "approved"}),
+        db.applications.count_documents({"user_id": user_id, "status": "approved"}),
+        db.daily_task_reviews.aggregate([
+            {"$match": {"user_id": user_id, "status": "approved"}},
+            {"$group": {"_id": "$date", "count": {"$sum": 1}}},
+            {"$match": {"count": {"$gte": 3}}},
+        ]).to_list(1000),
+        db.team_bank_contributions.find({"user_id": user_id}, {"_id": 0, "bank_id": 1, "cycle_number": 1, "amount": 1}).to_list(5000),
+        db.orders.count_documents({"user_id": user_id}),
+        db.daily_games.find({"user_id": user_id}, {"_id": 0, "date": 1, "cube_spins": 1, "cube_face": 1, "cube_tier": 1}).sort("date", 1).to_list(2000),
+        db.hidden_object_completions.find({"user_id": user_id}, {"_id": 0, "best_mistakes": 1}).to_list(1000),
+        db.bonus_match_completions.count_documents({"user_id": user_id}),
+        db.progression_reports.find_one({"user_id": user_id}, {"_id": 0}),
+    )
+
+    contribution_rows = list(contribution_rows or [])
+    contributed_bank_ids = list({row.get("bank_id") for row in contribution_rows if row.get("bank_id")})
+    unlocked_banks = set()
+    if contributed_bank_ids:
+        unlocked_banks = set(await db.team_banks.distinct("id", {
+            "id": {"$in": contributed_bank_ids},
+            "unlocked_at": {"$ne": None},
+        }))
+
+    spins = []
+    for day in cube_days or []:
+        day_spins = day.get("cube_spins") or []
+        if day_spins:
+            spins.extend(day_spins)
+        elif day.get("cube_face"):
+            spins.append({"face": day.get("cube_face"), "tier": day.get("cube_tier"), "spun_at": day.get("date")})
+    spins.sort(key=lambda item: str(item.get("spun_at") or ""))
+
+    report_progress = report_progress or {}
+    return {
+        "quests_completed": int(approved_daily) + int(approved_applications),
+        "perfect_days": len(perfect_rows or []),
+        "streak": int(user.get("streak", 0) or 0),
+        "projection_100_days": len(report_progress.get("qualified_dates") or []),
+        "projection_triple_days": len(report_progress.get("triple_dates") or []),
+        "projection_streak": int(report_progress.get("best_qualified_streak", 0) or 0),
+        "projection_first_places": 1 if int(((report_progress.get("monthly_rank") or {}).get("rank")) or 0) == 1 else 0,
+        "projection_comebacks": int(report_progress.get("comeback_count", 0) or 0),
+        "projection_records": int(report_progress.get("record_count", 0) or 0),
+        "bank_contributions": len(contribution_rows),
+        "bank_points": sum(max(0, int(row.get("amount") or 0)) for row in contribution_rows),
+        "team_goals": len(unlocked_banks),
+        "orders": int(order_count),
+        "owned_avatars": len(set(user.get("owned_avatar_ids") or [])),
+        "cube_spins": len(spins),
+        "cube_sixes": sum(1 for item in spins if int(item.get("face") or 0) == 6),
+        "cube_rare": sum(1 for item in spins if item.get("tier") in {"five", "six", "rare", "legendary"}),
+        "cube_same_three": 1 if _has_three_equal_cube_faces(spins) else 0,
+        "detective_levels": len(hidden_rows or []),
+        "detective_perfect": sum(1 for item in (hidden_rows or []) if int(item.get("best_mistakes", 1) or 0) == 0),
+        "bonus_match_levels": int(bonus_count),
+        "last_prize_buys": int(user.get("last_prize_buys", 0) or 0),
+    }
+
+
+def _achievement_public(definition: dict, progress_value: int, grant: Optional[dict] = None) -> dict:
+    target = max(1, int(definition.get("target") or 1))
+    unlocked = bool(grant)
+    secret = bool(definition.get("secret"))
+    return {
+        **definition,
+        "title": "Секретне досягнення" if secret and not unlocked else definition["title"],
+        "description": "Виконай приховану умову, щоб відкрити нагороду." if secret and not unlocked else definition["description"],
+        "icon": "lock" if secret and not unlocked else definition.get("icon", "award"),
+        "unlocked": unlocked,
+        "progress_value": target if unlocked else min(target, max(0, int(progress_value or 0))),
+        "progress_target": target,
+        "progress": None if secret and not unlocked else f"{target if unlocked else min(target, max(0, int(progress_value or 0)))} / {target} {definition.get('unit', '')}".strip(),
+        "granted_at": grant.get("granted_at") if grant else None,
+        "seen": bool(grant and grant.get("seen_at")),
+        "system": True,
+    }
+
+
+async def _sync_system_achievements(user: dict) -> tuple[List[dict], List[dict], dict]:
+    stats = await _progression_stats(user)
+    grants = await db.user_achievements.find(
+        {"user_id": user["id"], "achievement_id": {"$in": [item["id"] for item in SYSTEM_ACHIEVEMENTS]}},
+        {"_id": 0},
+    ).to_list(len(SYSTEM_ACHIEVEMENTS))
+    by_id = {item["achievement_id"]: item for item in grants}
+    newly_unlocked = []
+
+    for definition in SYSTEM_ACHIEVEMENTS:
+        achievement_id = definition["id"]
+        value = int(stats.get(definition["stat"], 0) or 0)
+        if achievement_id in by_id or value < int(definition["target"]):
+            continue
+        granted_at = now_iso()
+        grant = {
+            "id": f"{user['id']}:{achievement_id}",
+            "user_id": user["id"],
+            "achievement_id": achievement_id,
+            "system": True,
+            "granted_by": "system",
+            "granted_by_name": "VPDK Bonus",
+            "granted_at": granted_at,
+            "seen_at": None,
+        }
+        try:
+            await db.user_achievements.insert_one(grant)
+        except DuplicateKeyError:
+            continue
+        grant.pop("_id", None)
+        by_id[achievement_id] = grant
+        xp_reward = int(definition.get("xp_reward") or 0)
+        if xp_reward:
+            await _award_xp(
+                user["id"], xp_reward, "achievement", f"achievement:{achievement_id}",
+                f"Досягнення: {definition['title']}", {"achievement_id": achievement_id},
+            )
+        public = _achievement_public(definition, value, grant)
+        newly_unlocked.append(public)
+        await _notify(
+            user["id"], "achievement", "Нове досягнення!", definition["title"],
+            "/profile", definition.get("icon", "award"), "achievements",
+            {"achievement_id": achievement_id, "xp_reward": xp_reward},
+        )
+
+    views = [
+        _achievement_public(definition, stats.get(definition["stat"], 0), by_id.get(definition["id"]))
+        for definition in SYSTEM_ACHIEVEMENTS
+    ]
+    return views, newly_unlocked, stats
+
+
+async def _custom_achievement_views(user_id: str) -> List[dict]:
+    grants = await db.user_achievements.find(
+        {"user_id": user_id, "achievement_id": {"$nin": [item["id"] for item in SYSTEM_ACHIEVEMENTS]}},
+        {"_id": 0},
+    ).sort("granted_at", -1).to_list(500)
+    if not grants:
+        return []
+    definitions = await db.achievements.find(
+        {"id": {"$in": [grant["achievement_id"] for grant in grants]}, "active": {"$ne": False}},
+        {"_id": 0},
+    ).to_list(500)
+    by_id = {item["id"]: item for item in definitions}
+    result = []
+    for grant in grants:
+        definition = by_id.get(grant["achievement_id"])
+        if not definition:
+            continue
+        result.append({
+            **definition,
+            "category": definition.get("category") or "Особливе",
+            "rarity": definition.get("rarity") or "silver",
+            "xp_reward": int(definition.get("xp_reward") or 50),
+            "unlocked": True,
+            "progress_value": 1,
+            "progress_target": 1,
+            "progress": "1 / 1",
+            "granted_at": grant.get("granted_at"),
+            "seen": bool(grant.get("seen_at")),
+            "custom": True,
+        })
+    return result
+
+
+def _projection_workday_streak(values: List[str]) -> int:
+    dates = sorted({datetime.strptime(value, "%Y-%m-%d").date() for value in values if re.match(r"^\d{4}-\d{2}-\d{2}$", str(value or ""))})
+    if not dates:
+        return 0
+    best = current = 1
+    for previous, today in zip(dates, dates[1:]):
+        expected = previous + timedelta(days=1)
+        while expected.weekday() >= 5:
+            expected += timedelta(days=1)
+        current = current + 1 if today == expected else 1
+        best = max(best, current)
+    return best
+
+
+async def _progression_payload(user: dict) -> dict:
+    current = await db.users.find_one({"id": user["id"]}, {"_id": 0}) or user
+    system_achievements, newly_unlocked, stats = await _sync_system_achievements(current)
+    custom_achievements = await _custom_achievement_views(user["id"])
+    fresh = await db.users.find_one({"id": user["id"]}, {"_id": 0}) or current
+    public_user = _user_with_progress(fresh).model_dump()
+    pinned = list(dict.fromkeys(fresh.get("pinned_achievement_ids") or []))[:3]
+    achievements = system_achievements + custom_achievements
+    achievements.sort(key=lambda item: (0 if item.get("id") in pinned else 1, 0 if item.get("unlocked") else 1, item.get("category", ""), item.get("title", "")))
+    claims = await db.user_level_rewards.find({"user_id": user["id"]}, {"_id": 0}).to_list(len(LEVEL_REWARDS))
+    claimed_by_level = {int(item.get("level") or 0): item for item in claims}
+    level_rewards = [{
+        **reward,
+        "unlocked": int(public_user["level"]) >= int(reward["level"]),
+        "claimed": int(reward["level"]) in claimed_by_level,
+        "claimed_at": (claimed_by_level.get(int(reward["level"])) or {}).get("claimed_at"),
+    } for reward in LEVEL_REWARDS]
+    next_reward = next((item for item in level_rewards if not item["claimed"]), None)
+    latest_level_up = await db.level_up_events.find_one(
+        {"user_id": user["id"], "seen_at": None}, {"_id": 0}, sort=[("level", -1)]
+    )
+    xp_history = await db.xp_ledger.find({"user_id": user["id"]}, {"_id": 0}).sort("created_at", -1).to_list(20)
+    monthly_rank = await db.progression_reports.find_one({"user_id": user["id"]}, {"_id": 0}) or {}
+    return {
+        "user": public_user,
+        "level": {
+            "current": public_user["level"],
+            "title": public_user["level_title"],
+            "xp": public_user["xp"],
+            "xp_to_next": public_user["xp_to_next"],
+            "total_xp": public_user["total_xp"],
+            "max_level": MAX_PROFILE_LEVEL,
+        },
+        "monthly_rank": monthly_rank.get("monthly_rank") or {**_monthly_rank_tier(0), "overall": 0, "rank": None, "total_participants": None},
+        "achievements": achievements,
+        "newly_unlocked": [item for item in achievements if item.get("unlocked") and not item.get("seen")],
+        "pinned_achievement_ids": pinned,
+        "level_rewards": level_rewards,
+        "next_level_reward": next_reward,
+        "latest_level_up": latest_level_up,
+        "xp_history": xp_history,
+        "stats": stats,
+    }
 
 
 async def get_current_user(
@@ -952,6 +1459,7 @@ async def _hydrate_user_team(doc: dict) -> dict:
 TEAM_BANK_GOAL_POINTS = 15000
 TEAM_BANK_REWARD_TITLE = "Групова зустріч на 30 хв"
 TEAM_BANK_DESCRIPTION = "Разом збираємо на групову зустріч"
+TEAM_BANK_TITLE = "Банка Команди"
 
 
 async def _ensure_team_bank(team_id: Optional[str]) -> dict:
@@ -965,6 +1473,8 @@ async def _ensure_team_bank(team_id: Optional[str]) -> dict:
         "id": f"team-bank-{team_id}",
         "team_id": team_id,
         "team_name": team.get("name") or "Команда",
+        "title": TEAM_BANK_TITLE,
+        "active": True,
         "goal_points": TEAM_BANK_GOAL_POINTS,
         "current_points": 0,
         "reward_title": TEAM_BANK_REWARD_TITLE,
@@ -976,35 +1486,22 @@ async def _ensure_team_bank(team_id: Optional[str]) -> dict:
         "created_at": current_time,
         "updated_at": current_time,
     }
-    # MongoDB rejects an upsert when the same field is present in both
-    # $setOnInsert and $set. Keep immutable / initial fields in $setOnInsert and
-    # refresh the public bank configuration separately in $set.
+    default_bank_id = defaults["id"]
+    insert_defaults = {**defaults}
+    insert_defaults.pop("team_name", None)
     await db.team_banks.update_one(
-        {"team_id": team_id},
+        {"id": default_bank_id},
         {
-            "$setOnInsert": {
-                "id": defaults["id"],
-                "team_id": team_id,
-                "current_points": 0,
-                "cycle_number": 1,
-                "unlocked_at": None,
-                "last_reset_at": None,
-                "last_reset_by": None,
-                "created_at": current_time,
-            },
-            "$set": {
-                "team_name": defaults["team_name"],
-                "goal_points": TEAM_BANK_GOAL_POINTS,
-                "reward_title": TEAM_BANK_REWARD_TITLE,
-                "description": TEAM_BANK_DESCRIPTION,
-                "updated_at": current_time,
-            },
+            "$setOnInsert": insert_defaults,
+            "$set": {"team_name": defaults["team_name"]},
         },
         upsert=True,
     )
-    doc = await db.team_banks.find_one({"team_id": team_id}, {"_id": 0}) or defaults
+    doc = await db.team_banks.find_one({"id": default_bank_id}, {"_id": 0}) or defaults
     doc.setdefault("created_at", current_time)
     doc.setdefault("updated_at", current_time)
+    doc.setdefault("title", TEAM_BANK_TITLE)
+    doc.setdefault("active", True)
     doc.setdefault("goal_points", TEAM_BANK_GOAL_POINTS)
     doc.setdefault("current_points", 0)
     doc.setdefault("reward_title", TEAM_BANK_REWARD_TITLE)
@@ -1015,16 +1512,21 @@ async def _ensure_team_bank(team_id: Optional[str]) -> dict:
     return doc
 
 
-async def _team_bank_response(team_id: str, current_user_id: Optional[str] = None) -> TeamBankModel:
-    bank = await _ensure_team_bank(team_id)
+async def _team_bank_model(bank: dict, current_user_id: Optional[str] = None) -> TeamBankModel:
+    team_id = str(bank.get("team_id") or "")
+    bank_id = str(bank.get("id") or f"team-bank-{team_id}")
     cycle_number = max(1, int(bank.get("cycle_number") or 1))
-    contribution_match = {"team_id": team_id, "cycle_number": cycle_number}
+    cycle_match = {"cycle_number": cycle_number}
     if cycle_number == 1:
+        cycle_match = {"$or": [{"cycle_number": 1}, {"cycle_number": {"$exists": False}}]}
+    contribution_match = {"bank_id": bank_id, **cycle_match}
+    # Contributions made before multi-bank support did not have bank_id.
+    if bank_id == f"team-bank-{team_id}":
         contribution_match = {
-            "team_id": team_id,
-            "$or": [
-                {"cycle_number": 1},
-                {"cycle_number": {"$exists": False}},
+            "$and": [
+                {"team_id": team_id},
+                cycle_match,
+                {"$or": [{"bank_id": bank_id}, {"bank_id": {"$exists": False}}]},
             ],
         }
     rows = await db.team_bank_contributions.aggregate([
@@ -1070,9 +1572,11 @@ async def _team_bank_response(team_id: str, current_user_id: Optional[str] = Non
     remaining_points = max(0, goal_points - current_points)
     unlocked_at = bank.get("unlocked_at")
     return TeamBankModel(
-        id=str(bank.get("id") or f"team-bank-{team_id}"),
+        id=bank_id,
         team_id=team_id,
         team_name=bank.get("team_name") or "Команда",
+        title=bank.get("title") or TEAM_BANK_TITLE,
+        active=bool(bank.get("active", True)),
         cycle_number=cycle_number,
         goal_points=goal_points,
         current_points=current_points,
@@ -1089,12 +1593,55 @@ async def _team_bank_response(team_id: str, current_user_id: Optional[str] = Non
     )
 
 
+async def _team_bank_response(team_id: str, current_user_id: Optional[str] = None) -> TeamBankModel:
+    """Backward-compatible response for the original default bank endpoint."""
+    return await _team_bank_model(await _ensure_team_bank(team_id), current_user_id)
+
+
+async def _team_banks_response(
+    team_id: str,
+    current_user_id: Optional[str] = None,
+    *,
+    include_inactive: bool = False,
+) -> List[TeamBankModel]:
+    await _ensure_team_bank(team_id)
+    query = {"team_id": team_id}
+    if not include_inactive:
+        query["active"] = {"$ne": False}
+    docs = await db.team_banks.find(query, {"_id": 0}).sort([("created_at", 1), ("title", 1)]).to_list(500)
+    return [await _team_bank_model(doc, current_user_id) for doc in docs]
+
+
 async def _goals_settings() -> dict:
     doc = await db.app_settings.find_one({"id": "goals_visibility"}, {"_id": 0}) or {}
     return {
         "allow_cross_team_reports": bool(doc.get("allow_cross_team_reports", False)),
         "updated_at": doc.get("updated_at"),
         "updated_by": doc.get("updated_by"),
+    }
+
+
+async def _schedule_settings() -> dict:
+    """Return the global month that should be shown in the work calendar."""
+    local_now = datetime.now(KYIV_TZ)
+    doc = await db.app_settings.find_one({"id": "work_schedule_calendar"}, {"_id": 0}) or {}
+    try:
+        year = int(doc.get("year") or local_now.year)
+        month = int(doc.get("month") or local_now.month)
+    except (TypeError, ValueError):
+        year, month = local_now.year, local_now.month
+    if year < 2020 or year > 2100:
+        year = local_now.year
+    if month < 1 or month > 12:
+        month = local_now.month
+    return {
+        "id": "work_schedule_calendar",
+        "year": year,
+        "month": month,
+        "month_key": f"{year:04d}-{month:02d}",
+        "updated_at": doc.get("updated_at"),
+        "updated_by": doc.get("updated_by"),
+        "updated_by_name": doc.get("updated_by_name"),
     }
 
 
@@ -1329,22 +1876,190 @@ async def track_page_view(body: PageViewBody, user: dict = Depends(get_current_u
 
 @api.get("/achievements/me")
 async def my_awarded_achievements(user: dict = Depends(get_current_user)):
+    return (await _progression_payload(user))["achievements"]
+
+
+@api.get("/progression/me")
+async def my_progression(user: dict = Depends(get_current_user)):
+    return await _progression_payload(user)
+
+
+@api.post("/progression/report-sync")
+async def sync_my_progression_report(
+    body: ProgressionReportSyncBody,
+    user: dict = Depends(get_current_user),
+):
+    date_key = kyiv_today_key()
+    month_key = date_key[:7]
+    metrics = {}
+    for key, raw_value in (body.metrics or {}).items():
+        try:
+            value = float(raw_value)
+        except (TypeError, ValueError):
+            continue
+        if math.isnan(value) or math.isinf(value) or value < 0 or value > 10000:
+            continue
+        metrics[str(key)[:80]] = round(value, 4)
+    overall = round(float(body.overall), 4)
+    all_directions_complete = len(metrics) >= 3 and all(value >= 100 for value in metrics.values())
+    previous = await db.progression_reports.find_one({"user_id": user["id"]}, {"_id": 0}) or {}
+    same_month = str(((previous.get("monthly_rank") or {}).get("month")) or "") == month_key
+    qualified_dates = set(previous.get("qualified_dates") or []) if same_month else set()
+    triple_dates = set(previous.get("triple_dates") or []) if same_month else set()
+    if overall >= 100:
+        qualified_dates.add(date_key)
+    if all_directions_complete:
+        triple_dates.add(date_key)
+    best_streak = max(
+        int(previous.get("best_qualified_streak", 0) or 0) if same_month else 0,
+        _projection_workday_streak(list(qualified_dates)),
+    )
+    previous_overall = float(((previous.get("monthly_rank") or {}).get("overall")) or 0) if same_month else 0
+    previous_best = float(previous.get("best_overall", 0) or 0) if same_month else 0
+    comeback_count = int(previous.get("comeback_count", 0) or 0) if same_month else 0
+    record_count = int(previous.get("record_count", 0) or 0) if same_month else 0
+    monthly_rank = {
+        **_monthly_rank_tier(overall),
+        "overall": overall,
+        "rank": body.rank,
+        "total_participants": body.total_participants,
+        "month": month_key,
+        "metrics": metrics,
+        "snapshot_version": body.snapshot_version,
+        "snapshot_updated_at": body.snapshot_updated_at,
+    }
+    if same_month and previous_overall < 70 and overall >= 100:
+        comeback_count += 1
+    if same_month and previous_best > 0 and overall > previous_best:
+        record_count += 1
+    update = {
+        "$set": {
+            "user_id": user["id"],
+            "goals_login": user.get("goals_login"),
+            "team_id": user.get("team_id"),
+            "qualified_dates": sorted(qualified_dates),
+            "triple_dates": sorted(triple_dates),
+            "best_qualified_streak": best_streak,
+            "best_overall": max(previous_best, overall),
+            "comeback_count": comeback_count,
+            "record_count": record_count,
+            "monthly_rank": monthly_rank,
+            "updated_at": now_iso(),
+        },
+        "$setOnInsert": {"created_at": now_iso()},
+    }
+    await db.progression_reports.update_one({"user_id": user["id"]}, update, upsert=True)
+    if overall >= 100:
+        await _award_xp(
+            user["id"], 25, "projection", f"projection-100:{date_key}",
+            "Проекційний результат 100%+", {"overall": overall, "snapshot_version": body.snapshot_version},
+        )
+    if all_directions_complete:
+        await _award_xp(
+            user["id"], 50, "projection", f"projection-triple:{date_key}",
+            "Усі три напрямки виконано на 100%+", {"metrics": metrics, "snapshot_version": body.snapshot_version},
+        )
+    return await _progression_payload(user)
+
+
+@api.put("/progression/achievements/pins")
+async def update_achievement_pins(body: AchievementPinsBody, user: dict = Depends(get_current_user)):
+    ids = list(dict.fromkeys(str(value) for value in body.achievement_ids if value))[:3]
     grants = await db.user_achievements.find(
-        {"user_id": user["id"]}, {"_id": 0}
-    ).sort("granted_at", -1).to_list(500)
-    if not grants:
-        return []
-    achievement_ids = [grant["achievement_id"] for grant in grants]
-    definitions = await db.achievements.find(
-        {"id": {"$in": achievement_ids}, "active": {"$ne": False}}, {"_id": 0}
-    ).to_list(500)
-    by_id = {item["id"]: item for item in definitions}
-    result = []
-    for grant in grants:
-        achievement = by_id.get(grant["achievement_id"])
-        if achievement:
-            result.append({**achievement, "granted_at": grant.get("granted_at"), "unlocked": True, "custom": True})
-    return result
+        {"user_id": user["id"], "achievement_id": {"$in": ids}}, {"_id": 0, "achievement_id": 1}
+    ).to_list(3)
+    granted_ids = {item["achievement_id"] for item in grants}
+    if any(value not in granted_ids for value in ids):
+        raise HTTPException(status_code=400, detail="Закріпити можна лише отримані досягнення")
+    await db.users.update_one({"id": user["id"]}, {"$set": {"pinned_achievement_ids": ids}})
+    return {"achievement_ids": ids}
+
+
+@api.post("/progression/achievements/{achievement_id}/seen")
+async def mark_achievement_seen(achievement_id: str, user: dict = Depends(get_current_user)):
+    await db.user_achievements.update_one(
+        {"user_id": user["id"], "achievement_id": achievement_id},
+        {"$set": {"seen_at": now_iso()}},
+    )
+    return {"ok": True}
+
+
+@api.post("/progression/achievements/{achievement_id}/share")
+async def share_achievement(achievement_id: str, user: dict = Depends(get_current_user)):
+    payload = await _progression_payload(user)
+    achievement = next((item for item in payload["achievements"] if item.get("id") == achievement_id and item.get("unlocked")), None)
+    if not achievement:
+        raise HTTPException(status_code=404, detail="Отримане досягнення не знайдено")
+    event_id = f"achievement-share:{user['id']}:{achievement_id}:{kyiv_today_key()}"
+    event = {
+        "id": event_id,
+        "kind": "goal",
+        "user_id": user["id"],
+        "user_name": user.get("name") or "Користувач",
+        "avatar_initials": user.get("avatar_initials") or "?",
+        "avatar_color": user.get("avatar_color") or "#FFB800",
+        "avatar_url": user.get("avatar_url"),
+        "avatar_rarity": user.get("avatar_rarity") or "basic",
+        "department": user.get("department") or "",
+        "title": "поділився досягненням",
+        "subtitle": f"{achievement['title']} · +{achievement.get('xp_reward', 0)} XP",
+        "created_at": now_iso(),
+    }
+    result = await db.feed_events.update_one({"id": event_id}, {"$setOnInsert": event}, upsert=True)
+    return {"ok": True, "shared": result.upserted_id is not None}
+
+
+@api.post("/progression/level-up/{level}/seen")
+async def mark_level_up_seen(level: int, user: dict = Depends(get_current_user)):
+    await db.level_up_events.update_one(
+        {"user_id": user["id"], "level": int(level)}, {"$set": {"seen_at": now_iso()}}
+    )
+    return {"ok": True}
+
+
+@api.post("/progression/level-rewards/{level}/claim")
+async def claim_level_reward(level: int, user: dict = Depends(get_current_user)):
+    reward = next((item for item in LEVEL_REWARDS if int(item["level"]) == int(level)), None)
+    if not reward:
+        raise HTTPException(status_code=404, detail="Нагороду рівня не знайдено")
+    fresh = await db.users.find_one({"id": user["id"]}, {"_id": 0}) or user
+    current_level, _, _ = level_from_total_xp(fresh.get("total_xp", 0))
+    if current_level < int(level):
+        raise HTTPException(status_code=400, detail="Цей рівень ще не відкрито")
+    claim = {
+        "id": f"{user['id']}:{level}",
+        "user_id": user["id"],
+        "level": int(level),
+        "reward": reward,
+        "claimed_at": now_iso(),
+    }
+    try:
+        await db.user_level_rewards.insert_one(claim)
+    except DuplicateKeyError:
+        raise HTTPException(status_code=409, detail="Цю нагороду вже отримано")
+
+    update: dict = {"$addToSet": {"reward_inventory": reward["inventory_key"]}}
+    kind = reward["kind"]
+    if kind == "title":
+        update["$set"] = {"active_profile_title": "Впевнений старт"}
+    elif kind == "avatar":
+        avatar_ids = ["avatar-male-improved-1", "avatar-female-improved-1"] if int(level) == 10 else ["avatar-male-rare-1", "avatar-female-rare-1"]
+        update["$addToSet"]["owned_avatar_ids"] = {"$each": avatar_ids}
+    elif kind == "cube_spin":
+        update["$inc"] = {"bonus_cube_spins": 1}
+    elif kind == "discount":
+        update["$inc"] = {"store_discount_tokens": 1}
+    elif kind in {"frame", "animated_frame"}:
+        update["$set"] = {"active_profile_frame": reward["inventory_key"]}
+    elif kind == "name_color":
+        update["$set"] = {"active_name_color": "#FFB800"}
+    elif kind == "cosmetic":
+        update["$set"] = {"active_profile_frame": reward["inventory_key"]}
+    elif kind == "champion":
+        update["$set"] = {"active_profile_title": "VPDK Champion", "active_profile_frame": reward["inventory_key"]}
+    await db.users.update_one({"id": user["id"]}, update)
+    await _notify(user["id"], "achievement", "Нагороду рівня отримано", reward["title"], "/profile", "gift", "achievements")
+    return await _progression_payload(user)
 
 
 @api.patch("/auth/me/avatar", response_model=UserWithProgress)
@@ -1409,6 +2124,10 @@ async def save_ai_training_result(
     body: AITrainingResultBody,
     user: dict = Depends(get_current_user),
 ):
+    raise HTTPException(
+        status_code=410,
+        detail="AI-тренажер замінено персональним котом. Відкрийте розділ «Кіт».",
+    )
     ts = now_iso()
     verified_difficulty = AI_SCENARIO_DIFFICULTY.get(
         body.scenario_id,
@@ -1956,6 +2675,7 @@ async def admin_achievements_dashboard(
             item["team_name"] = team_name
     return {
         "achievements": [{**item, "granted_count": grant_count.get(item["id"], 0)} for item in achievements],
+        "system_achievements": [{**item, "granted_count": grant_count.get(item["id"], 0)} for item in SYSTEM_ACHIEVEMENTS],
         "users": [{**item, "achievement_ids": grants_by_user.get(item["id"], [])} for item in users],
     }
 
@@ -1972,6 +2692,9 @@ async def admin_create_achievement(body: AchievementCreateBody, admin: dict = De
         "description": body.description.strip(),
         "icon": body.icon.strip() or "trophy",
         "color": body.color.strip() or "#FFB800",
+        "category": body.category.strip() or "Особливе",
+        "rarity": body.rarity,
+        "xp_reward": int(body.xp_reward),
         "active": body.active,
         "created_by": admin["id"],
         "created_at": now_iso(),
@@ -1990,7 +2713,7 @@ async def admin_update_achievement(
     if not current:
         raise HTTPException(status_code=404, detail="Досягнення не знайдено")
     updates = {key: value for key, value in body.model_dump().items() if value is not None}
-    for field in ("title", "description", "icon", "color"):
+    for field in ("title", "description", "icon", "color", "category"):
         if field in updates:
             updates[field] = str(updates[field]).strip()
     if "title" in updates:
@@ -2029,8 +2752,18 @@ async def admin_grant_achievement(
         "granted_by": admin["id"],
         "granted_by_name": admin.get("name", "Адміністратор"),
         "granted_at": granted_at,
+        "seen_at": None,
     }
     await db.user_achievements.insert_one(grant)
+    await _award_xp(
+        user_id,
+        int(achievement.get("xp_reward") or 50),
+        "achievement",
+        f"achievement:{achievement_id}",
+        f"Досягнення: {achievement.get('title', 'Особливе досягнення')}",
+        {"achievement_id": achievement_id, "manual": True},
+        admin["id"],
+    )
     await db.admin_audit_logs.insert_one({
         "id": str(uuid.uuid4()), "admin_id": admin["id"], "admin_name": admin.get("name", "Адміністратор"),
         "action": "achievement_granted", "target_user_id": user_id, "target_user_name": target.get("name", "Працівник"),
@@ -2119,11 +2852,21 @@ async def claim_quest(quest_id: str, user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=400, detail="Квест ще не виконано")
 
     reward = int(quest["reward"])
-    xp_gain = reward // 2
+    xp_gain = 20
     await db.users.update_one(
         {"id": user["id"]},
-        {"$inc": {"balance": reward, "total_earned": reward, "total_xp": xp_gain}},
+        {"$inc": {"balance": reward, "total_earned": reward}},
     )
+    await _award_xp(
+        user["id"],
+        xp_gain,
+        "quest",
+        f"legacy-quest:{_today_key()}:{quest_id}",
+        f"Квест виконано: {quest['title']}",
+        {"quest_id": quest_id, "date": _today_key()},
+    )
+    fresh_for_achievements = await db.users.find_one({"id": user["id"]}, {"_id": 0}) or user
+    await _sync_system_achievements(fresh_for_achievements)
     await db.daily_progress.update_one(
         {"user_id": user["id"], "date": _today_key()},
         {"$addToSet": {"claimed": quest_id}},
@@ -3174,7 +3917,7 @@ async def _award_goal_reward(user_id: str, kind: str, amount: int, period_key: s
     now = now_iso()
     await db.users.update_one(
         {"id": user_id},
-        {"$inc": {"balance": amount, "total_earned": amount, "total_xp": xp_reward}},
+        {"$inc": {"balance": amount, "total_earned": amount}},
     )
     await db.transactions.insert_one({
         "id": str(uuid.uuid4()), "user_id": user_id, "kind": "goal_reward", "amount": amount,
@@ -3186,6 +3929,14 @@ async def _award_goal_reward(user_id: str, kind: str, amount: int, period_key: s
             "xp_reward": xp_reward,
         },
     })
+    await _award_xp(
+        user_id,
+        xp_reward,
+        "projection_goal",
+        tx_key,
+        description,
+        {"goal_kind": kind, "period_key": period_key},
+    )
     await _notify_points_awarded(user_id, amount, description)
     return True
 
@@ -3405,6 +4156,38 @@ async def admin_update_goals_settings(body: GoalsSettingsUpdateBody, admin: dict
     return payload
 
 
+@api.get("/schedule-settings")
+async def get_schedule_settings(user: dict = Depends(get_current_user)):
+    return await _schedule_settings()
+
+
+@api.get("/admin/schedule-settings")
+async def admin_get_schedule_settings(admin: dict = Depends(get_current_admin)):
+    return await _schedule_settings()
+
+
+@api.patch("/admin/schedule-settings")
+async def admin_update_schedule_settings(
+    body: ScheduleSettingsUpdateBody,
+    admin: dict = Depends(get_current_admin),
+):
+    payload = {
+        "id": "work_schedule_calendar",
+        "year": int(body.year),
+        "month": int(body.month),
+        "month_key": f"{int(body.year):04d}-{int(body.month):02d}",
+        "updated_at": now_iso(),
+        "updated_by": admin.get("id"),
+        "updated_by_name": admin.get("name", "Адміністратор"),
+    }
+    await db.app_settings.update_one(
+        {"id": "work_schedule_calendar"},
+        {"$set": payload},
+        upsert=True,
+    )
+    return payload
+
+
 @api.get("/admin/goals-dashboard")
 async def admin_goals_dashboard(
     team_id: Optional[str] = None,
@@ -3561,6 +4344,10 @@ async def _points_for_day(user_id: str, date_key: str) -> int:
             "created_at": {"$gte": start, "$lt": end},
             "amount": {"$gt": 0},
             "kind": {"$nin": ["battle_win_bonus", "battle_tie_bonus"]},
+            "$nor": [
+                {"meta.source": "pet"},
+                {"kind": "pet_gift"},
+            ],
         }},
         {"$group": {"_id": None, "score": {"$sum": "$amount"}}},
     ]
@@ -3940,7 +4727,7 @@ async def admin_review_daily_task(
 
     status = "approved" if decision == "approve" else "rejected"
     reviewed_at = now_iso()
-    xp_reward = int(task.get("xp", 0)) if status == "approved" else 0
+    xp_reward = 20 if status == "approved" else 0
     review = {
         "id": str(uuid.uuid4()),
         "user_id": user_id,
@@ -3959,8 +4746,32 @@ async def admin_review_daily_task(
         reward = int(task["reward"])
         await db.users.update_one(
             {"id": user_id},
-            {"$inc": {"balance": reward, "total_earned": reward, "total_xp": xp_reward}},
+            {"$inc": {"balance": reward, "total_earned": reward}},
         )
+        await _award_xp(
+            user_id,
+            xp_reward,
+            "daily_quest",
+            f"daily-quest:{task_set['date']}:{task_id}",
+            f"Щоденний квест: {task['title']}",
+            {"task_id": task_id, "date": task_set["date"]},
+            admin["id"],
+        )
+        approved_today = await db.daily_task_reviews.count_documents({
+            "user_id": user_id,
+            "date": task_set["date"],
+            "status": "approved",
+        })
+        if approved_today >= 3:
+            await _award_xp(
+                user_id,
+                30,
+                "daily_quest_bonus",
+                f"daily-perfect:{task_set['date']}",
+                "Виконано 3 щоденні квести",
+                {"date": task_set["date"], "approved_count": approved_today},
+                admin["id"],
+            )
         await db.transactions.insert_one({
             "id": str(uuid.uuid4()),
             "user_id": user_id,
@@ -3976,6 +4787,9 @@ async def admin_review_daily_task(
             },
         })
         await _notify_points_awarded(user_id, reward, f"Завдання дня підтверджено: {task['title']}")
+        progression_user = await db.users.find_one({"id": user_id}, {"_id": 0})
+        if progression_user:
+            await _sync_system_achievements(progression_user)
 
     return {
         "user_id": user_id,
@@ -4054,7 +4868,17 @@ async def list_prizes(user: dict = Depends(get_current_user)):
     if user.get("team_id"):
         scope.append({"team_id": user.get("team_id")})
     prizes = await db.prizes.find({"active": True, "$or": scope}, {"_id": 0}).sort("price", 1).to_list(500)
-    return [PrizeModel(**(await _prize_with_team(prize))) for prize in prizes]
+    result = []
+    discount_available = int(user.get("store_discount_tokens", 0) or 0) > 0
+    for prize in prizes:
+        item = await _prize_with_team(prize)
+        current_price = max(0, int(item.get("effective_price", item.get("price", 0)) or 0))
+        level_discount = max(1, math.ceil(current_price * 0.05)) if discount_available and current_price > 0 else 0
+        item["level_discount_points"] = min(current_price, level_discount)
+        item["level_discount_active"] = level_discount > 0
+        item["effective_price"] = max(0, current_price - level_discount)
+        result.append(PrizeModel(**item))
+    return result
 
 
 @api.post("/prizes/{prize_id}/buy")
@@ -4092,6 +4916,12 @@ async def buy_prize(
         promotion_id = promotion.get("id")
         price = max(0, base_price - promotion_discount)
 
+    level_discount = 0
+    use_level_discount = int(user.get("store_discount_tokens", 0) or 0) > 0 and price > 0
+    if use_level_discount:
+        level_discount = min(price, max(1, math.ceil(price * 0.05)))
+        price = max(0, price - level_discount)
+
     if expected_price is not None and int(expected_price) != price:
         raise HTTPException(
             status_code=409,
@@ -4114,14 +4944,19 @@ async def buy_prize(
         )
         if not reserved_promotion:
             # Another employee used the final discounted unit between catalog load and checkout.
-            if expected_price is not None and int(expected_price) != base_price:
+            promotion_id = None
+            promotion_discount = 0
+            price = base_price
+            level_discount = 0
+            use_level_discount = int(user.get("store_discount_tokens", 0) or 0) > 0 and price > 0
+            if use_level_discount:
+                level_discount = min(price, max(1, math.ceil(price * 0.05)))
+                price = max(0, price - level_discount)
+            if expected_price is not None and int(expected_price) != price:
                 raise HTTPException(
                     status_code=409,
                     detail="Акційні одиниці щойно закінчилися. Оновіть магазин і підтвердьте звичайну ціну.",
                 )
-            promotion_id = None
-            promotion_discount = 0
-            price = base_price
         elif int(reserved_promotion.get("quantity_remaining") or 0) <= 0:
             await db.prize_promotions.update_one(
                 {"id": promotion_id, "quantity_remaining": {"$lte": 0}},
@@ -4168,10 +5003,14 @@ async def buy_prize(
             operation["$inc"] = {"balance": -price}
     else:
         operation = {"$inc": {"balance": -price}} if price else {"$set": {"updated_at": current_time}}
+    if use_level_discount:
+        operation.setdefault("$inc", {})["store_discount_tokens"] = -1
 
     user_query = {"id": user["id"]}
     if price:
         user_query["balance"] = {"$gte": price}
+    if use_level_discount:
+        user_query["store_discount_tokens"] = {"$gte": 1}
     fresh = await db.users.find_one_and_update(
         user_query,
         operation,
@@ -4193,6 +5032,7 @@ async def buy_prize(
         "price": price,
         "base_price": base_price,
         "discount_points": promotion_discount,
+        "level_discount_points": level_discount,
         "promotion_id": promotion_id,
         "team_id": user.get("team_id"),
         "team_name": await _resolve_team_name(user.get("team_id")),
@@ -4215,17 +5055,29 @@ async def buy_prize(
                 "order_id": order["id"],
                 "base_price": base_price,
                 "discount_points": promotion_discount,
+                "level_discount_points": level_discount,
                 "promotion_id": promotion_id,
             },
         })
     order.pop("_id", None)
+    if stock_reserved and int((reserved_prize or {}).get("stock", 0) or 0) <= 0:
+        await db.users.update_one({"id": user["id"]}, {"$inc": {"last_prize_buys": 1}})
+    progression_user = await db.users.find_one({"id": user["id"]}, {"_id": 0}) or fresh
+    await _sync_system_achievements(progression_user)
+    fresh = await db.users.find_one({"id": user["id"]}, {"_id": 0}) or fresh
     current_prize = await db.prizes.find_one({"id": prize_id}, {"_id": 0}) or prize
+    current_prize = await _prize_with_team(current_prize)
+    current_price = max(0, int(current_prize.get("effective_price", current_prize.get("price", 0)) or 0))
+    next_discount = max(1, math.ceil(current_price * 0.05)) if int(fresh.get("store_discount_tokens", 0) or 0) > 0 and current_price > 0 else 0
+    current_prize["level_discount_points"] = min(current_price, next_discount)
+    current_prize["level_discount_active"] = next_discount > 0
+    current_prize["effective_price"] = max(0, current_price - next_discount)
     return {
         "order": OrderModel(**order),
         "user": _user_with_progress(fresh),
         "equipped": is_avatar,
         "already_owned": owned,
-        "prize": PrizeModel(**(await _prize_with_team(current_prize))),
+        "prize": PrizeModel(**current_prize),
     }
 
 
@@ -4236,8 +5088,14 @@ async def get_team_bank(user: dict = Depends(get_current_user)):
     return await _team_bank_response(user["team_id"], user["id"])
 
 
-@api.post("/team-bank/contribute")
-async def contribute_team_bank(body: TeamBankContributionBody, user: dict = Depends(get_current_user)):
+@api.get("/team-banks", response_model=List[TeamBankModel])
+async def get_team_banks(user: dict = Depends(get_current_user)):
+    if not user.get("team_id"):
+        raise HTTPException(status_code=400, detail="Для цієї функції потрібно бути в команді")
+    return await _team_banks_response(user["team_id"], user["id"])
+
+
+async def _contribute_to_team_bank(bank_id: str, body: TeamBankContributionBody, user: dict):
     team_id = user.get("team_id")
     if not team_id:
         raise HTTPException(status_code=400, detail="Для внеску потрібно бути в команді")
@@ -4245,8 +5103,17 @@ async def contribute_team_bank(body: TeamBankContributionBody, user: dict = Depe
     if amount <= 0:
         raise HTTPException(status_code=400, detail="Сума внеску має бути більшою за нуль")
 
-    bank_before = await _ensure_team_bank(team_id)
+    bank_before = await db.team_banks.find_one({"id": bank_id}, {"_id": 0})
+    if not bank_before:
+        raise HTTPException(status_code=404, detail="Банку не знайдено")
+    if str(bank_before.get("team_id") or "") != str(team_id):
+        raise HTTPException(status_code=403, detail="Ця банка належить іншій команді")
+    if bank_before.get("active", True) is False:
+        raise HTTPException(status_code=400, detail="Ця банка зараз неактивна")
+
     team_name = bank_before.get("team_name") or (await _resolve_team_name(team_id)) or "Команда"
+    bank_title = bank_before.get("title") or TEAM_BANK_TITLE
+    reward_title = bank_before.get("reward_title") or TEAM_BANK_REWARD_TITLE
     fresh_user = await db.users.find_one_and_update(
         {"id": user["id"], "balance": {"$gte": amount}},
         {"$inc": {"balance": -amount}},
@@ -4262,17 +5129,19 @@ async def contribute_team_bank(body: TeamBankContributionBody, user: dict = Depe
     updated_current_points = previous_points + amount
     bank_updates = {
         "$inc": {"current_points": amount},
-        "$set": {"team_name": team_name, "updated_at": current_time, "goal_points": goal_points, "reward_title": TEAM_BANK_REWARD_TITLE, "description": TEAM_BANK_DESCRIPTION},
+        "$set": {"team_name": team_name, "updated_at": current_time},
     }
     reached_goal_now = previous_points < goal_points <= updated_current_points and not bank_before.get("unlocked_at")
     if reached_goal_now:
         bank_updates.setdefault("$set", {})["unlocked_at"] = current_time
-    await db.team_banks.update_one({"team_id": team_id}, bank_updates, upsert=True)
+    await db.team_banks.update_one({"id": bank_id}, bank_updates)
 
     contribution_id = str(uuid.uuid4())
     cycle_number = max(1, int(bank_before.get("cycle_number") or 1))
     await db.team_bank_contributions.insert_one({
         "id": contribution_id,
+        "bank_id": bank_id,
+        "bank_title": bank_title,
         "team_id": team_id,
         "cycle_number": cycle_number,
         "team_name": team_name,
@@ -4281,42 +5150,80 @@ async def contribute_team_bank(body: TeamBankContributionBody, user: dict = Depe
         "amount": amount,
         "created_at": current_time,
     })
+    contribution_xp = min(20, max(5, math.ceil(amount / 50)))
+    await _award_xp(
+        user["id"],
+        contribution_xp,
+        "team_bank",
+        f"team-bank:{contribution_id}",
+        f"Внесок у банку «{bank_title}»",
+        {"bank_id": bank_id, "cycle_number": cycle_number, "amount": amount},
+    )
     await db.transactions.insert_one({
         "id": str(uuid.uuid4()),
         "user_id": user["id"],
         "kind": "team_bank_contribution",
         "amount": -amount,
-        "description": f"Внесок у Банку Команди: {team_name}",
+        "description": f"Внесок у банку «{bank_title}»: {team_name}",
         "created_at": current_time,
-        "meta": {"source": "team_bank", "team_id": team_id, "cycle_number": cycle_number, "contribution_id": contribution_id},
+        "meta": {"source": "team_bank", "bank_id": bank_id, "team_id": team_id, "cycle_number": cycle_number, "contribution_id": contribution_id},
     })
 
     await _notify_team(
         team_id,
         "team_bank",
-        f"{user.get('name') or 'Учасник'} поповнив Банку Команди",
-        f"+{amount} Point до спільної цілі «{TEAM_BANK_REWARD_TITLE}».",
+        f"{user.get('name') or 'Учасник'} поповнив банку «{bank_title}»",
+        f"+{amount} Point до спільної цілі. Нагорода: «{reward_title}».",
         "/store",
         "gift",
         "prizes",
-        {"team_id": team_id, "amount": amount},
+        {"bank_id": bank_id, "team_id": team_id, "amount": amount},
         False,
     )
     if reached_goal_now:
+        contributor_ids = await db.team_bank_contributions.distinct("user_id", {
+            "bank_id": bank_id,
+            "cycle_number": cycle_number,
+        })
+        for contributor_id in contributor_ids:
+            await _award_xp(
+                str(contributor_id),
+                20,
+                "team_goal",
+                f"team-goal:{bank_id}:{cycle_number}",
+                f"Командна ціль «{bank_title}» виконана",
+                {"bank_id": bank_id, "cycle_number": cycle_number, "goal_points": goal_points},
+            )
         await _notify_team(
             team_id,
             "team_bank_goal",
-            "Банка Команди зібрана!",
-            f"Команда зібрала {goal_points} Point і отримує нагороду: {TEAM_BANK_REWARD_TITLE}.",
+            f"Банка «{bank_title}» зібрана!",
+            f"Команда зібрала {goal_points} Point і отримує нагороду: {reward_title}.",
             "/store",
             "gift",
             "prizes",
-            {"team_id": team_id, "goal_points": goal_points},
+            {"bank_id": bank_id, "team_id": team_id, "goal_points": goal_points},
             True,
         )
 
-    bank = await _team_bank_response(team_id, user["id"])
+    refreshed_bank = await db.team_banks.find_one({"id": bank_id}, {"_id": 0}) or bank_before
+    bank = await _team_bank_model(refreshed_bank, user["id"])
+    fresh_user = await db.users.find_one({"id": user["id"]}, {"_id": 0}) or fresh_user
+    await _sync_system_achievements(fresh_user)
+    fresh_user = await db.users.find_one({"id": user["id"]}, {"_id": 0}) or fresh_user
     return {"bank": bank, "user": _user_with_progress(fresh_user)}
+
+
+@api.post("/team-banks/{bank_id}/contribute")
+async def contribute_selected_team_bank(bank_id: str, body: TeamBankContributionBody, user: dict = Depends(get_current_user)):
+    return await _contribute_to_team_bank(bank_id, body, user)
+
+
+@api.post("/team-bank/contribute")
+async def contribute_team_bank(body: TeamBankContributionBody, user: dict = Depends(get_current_user)):
+    """Backward-compatible contribution to the original default bank."""
+    bank = await _ensure_team_bank(user.get("team_id"))
+    return await _contribute_to_team_bank(str(bank["id"]), body, user)
 
 
 @api.get("/admin/team-banks", response_model=List[TeamBankModel])
@@ -4324,17 +5231,84 @@ async def admin_list_team_banks(admin: dict = Depends(get_current_admin)):
     teams = await db.teams.find({}, {"_id": 0, "id": 1, "name": 1}).sort("name", 1).to_list(500)
     result = []
     for team in teams:
-        result.append(await _team_bank_response(team["id"]))
+        result.extend(await _team_banks_response(team["id"], include_inactive=True))
     return result
 
 
-@api.post("/admin/team-banks/{team_id}/reset", response_model=TeamBankModel)
-async def admin_reset_team_bank(team_id: str, admin: dict = Depends(get_current_admin)):
-    bank = await _ensure_team_bank(team_id)
+@api.post("/admin/team-banks", response_model=TeamBankModel)
+async def admin_create_team_bank(body: TeamBankCreateBody, admin: dict = Depends(get_current_admin)):
+    team_id = body.team_id.strip()
+    team = await db.teams.find_one({"id": team_id}, {"_id": 0, "id": 1, "name": 1})
+    if not team:
+        raise HTTPException(status_code=404, detail="Команду не знайдено")
+    title = body.title.strip()
+    description = body.description.strip()
+    reward_title = body.reward_title.strip()
+    if min(len(title), len(description), len(reward_title)) < 2:
+        raise HTTPException(status_code=422, detail="Заповніть назву, опис і винагороду")
+    current_time = now_iso()
+    doc = {
+        "id": f"team-bank-{uuid.uuid4()}",
+        "team_id": team_id,
+        "team_name": team.get("name") or "Команда",
+        "title": title,
+        "active": bool(body.active),
+        "goal_points": int(body.goal_points),
+        "current_points": 0,
+        "reward_title": reward_title,
+        "description": description,
+        "cycle_number": 1,
+        "unlocked_at": None,
+        "last_reset_at": None,
+        "last_reset_by": None,
+        "created_by": admin.get("id"),
+        "created_at": current_time,
+        "updated_at": current_time,
+    }
+    await db.team_banks.insert_one(doc)
+    doc.pop("_id", None)
+    return await _team_bank_model(doc)
+
+
+@api.patch("/admin/team-banks/{bank_id}", response_model=TeamBankModel)
+async def admin_update_team_bank(bank_id: str, body: TeamBankUpdateBody, admin: dict = Depends(get_current_admin)):
+    bank = await db.team_banks.find_one({"id": bank_id}, {"_id": 0})
+    if not bank:
+        raise HTTPException(status_code=404, detail="Банку не знайдено")
+    if any(getattr(body, field) is None for field in body.model_fields_set):
+        raise HTTPException(status_code=422, detail="Поля банки не можуть бути null")
+    updates = body.model_dump(exclude_unset=True)
+    for field in ("title", "description", "reward_title"):
+        if field in updates and updates[field] is not None:
+            updates[field] = updates[field].strip()
+            if len(updates[field]) < 2:
+                raise HTTPException(status_code=422, detail="Назва, опис і винагорода мають містити щонайменше 2 символи")
+    if not updates:
+        return await _team_bank_model(bank)
+    updates["updated_at"] = now_iso()
+    updates["updated_by"] = admin.get("id")
+    await db.team_banks.update_one({"id": bank_id}, {"$set": updates})
+    updated = await db.team_banks.find_one({"id": bank_id}, {"_id": 0}) or {**bank, **updates}
+    return await _team_bank_model(updated)
+
+
+@api.post("/admin/team-banks/{bank_id}/reset", response_model=TeamBankModel)
+async def admin_reset_team_bank(bank_id: str, admin: dict = Depends(get_current_admin)):
+    bank = await db.team_banks.find_one({"id": bank_id}, {"_id": 0})
+    if not bank:
+        # Compatibility with the old endpoint, where this path segment was team_id.
+        team = await db.teams.find_one({"id": bank_id}, {"_id": 0, "id": 1})
+        if not team:
+            raise HTTPException(status_code=404, detail="Банку не знайдено")
+        bank = await _ensure_team_bank(bank_id)
+    resolved_bank_id = str(bank.get("id"))
+    team_id = str(bank.get("team_id"))
     previous_cycle = max(1, int(bank.get("cycle_number") or 1))
     current_time = now_iso()
     await db.team_bank_cycles.insert_one({
         "id": str(uuid.uuid4()),
+        "bank_id": resolved_bank_id,
+        "bank_title": bank.get("title") or TEAM_BANK_TITLE,
         "team_id": team_id,
         "team_name": bank.get("team_name") or "Команда",
         "cycle_number": previous_cycle,
@@ -4348,7 +5322,7 @@ async def admin_reset_team_bank(team_id: str, admin: dict = Depends(get_current_
         "closed_by_name": admin.get("name") or admin.get("email") or "Адміністратор",
     })
     await db.team_banks.update_one(
-        {"team_id": team_id},
+        {"id": resolved_bank_id},
         {
             "$set": {
                 "current_points": 0,
@@ -4356,9 +5330,6 @@ async def admin_reset_team_bank(team_id: str, admin: dict = Depends(get_current_
                 "updated_at": current_time,
                 "last_reset_at": current_time,
                 "last_reset_by": admin.get("id"),
-                "goal_points": TEAM_BANK_GOAL_POINTS,
-                "reward_title": TEAM_BANK_REWARD_TITLE,
-                "description": TEAM_BANK_DESCRIPTION,
             },
             "$inc": {"cycle_number": 1},
         },
@@ -4366,15 +5337,16 @@ async def admin_reset_team_bank(team_id: str, admin: dict = Depends(get_current_
     await _notify_team(
         team_id,
         "team_bank_reset",
-        "Банку Команди скинуто",
-        f"Розпочато новий збір: {TEAM_BANK_GOAL_POINTS} Point на нагороду «{TEAM_BANK_REWARD_TITLE}».",
+        f"Банку «{bank.get('title') or TEAM_BANK_TITLE}» скинуто",
+        f"Розпочато новий збір: {int(bank.get('goal_points') or TEAM_BANK_GOAL_POINTS)} Point на нагороду «{bank.get('reward_title') or TEAM_BANK_REWARD_TITLE}».",
         "/store",
         "gift",
         "prizes",
-        {"team_id": team_id, "cycle_number": previous_cycle + 1},
+        {"bank_id": resolved_bank_id, "team_id": team_id, "cycle_number": previous_cycle + 1},
         True,
     )
-    return await _team_bank_response(team_id)
+    refreshed = await db.team_banks.find_one({"id": resolved_bank_id}, {"_id": 0}) or bank
+    return await _team_bank_model(refreshed)
 
 
 @api.get("/orders", response_model=List[OrderModel])
@@ -4438,8 +5410,20 @@ def _store_purchase_exclusion() -> dict:
         "$nor": [
             {"meta.source": "store"},
             {"meta.source": "team_bank"},
+            {"meta.source": "pet"},
             {"kind": "purchase", "description": {"$regex": r"^Купівля:"}},
             {"kind": "team_bank_contribution"},
+            {"kind": "pet_gift"},
+        ]
+    }
+
+
+def _pet_reward_exclusion() -> dict:
+    """Match transactions that are not personal-pet economic rewards."""
+    return {
+        "$nor": [
+            {"meta.source": "pet"},
+            {"kind": "pet_gift"},
         ]
     }
 
@@ -4477,6 +5461,29 @@ async def _store_spending_by_user() -> dict[str, int]:
     return {str(row["_id"]): int(row.get("spent", 0) or 0) for row in rows}
 
 
+async def _pet_rewards_by_user() -> dict[str, int]:
+    """Return all-time positive pet rewards excluded from competition.
+
+    Pet gifts remain spendable wallet Point, but they must not change battle or
+    leaderboard positions. Older rows are matched by both the structured source
+    and the legacy transaction kind.
+    """
+    pipeline = [
+        {
+            "$match": {
+                "$or": [
+                    {"meta.source": "pet"},
+                    {"kind": "pet_gift"},
+                ],
+                "amount": {"$gt": 0},
+            }
+        },
+        {"$group": {"_id": "$user_id", "awarded": {"$sum": "$amount"}}},
+    ]
+    rows = await db.transactions.aggregate(pipeline).to_list(5000)
+    return {str(row["_id"]): int(row.get("awarded", 0) or 0) for row in rows}
+
+
 async def _leaderboard_for_period(
     period: Literal["day", "week", "month", "all"],
     current_id: str,
@@ -4499,13 +5506,24 @@ async def _leaderboard_for_period(
             "avatar_rarity": 1,
             "department": 1,
             "balance": 1,
+            "pet_reward_points_total": 1,
         },
     ).to_list(5000)
 
     if period == "all":
-        store_spending = await _store_spending_by_user()
+        store_spending, pet_rewards = await asyncio.gather(
+            _store_spending_by_user(),
+            _pet_rewards_by_user(),
+        )
         scores = {
-            str(item["id"]): int(item.get("balance", 0) or 0) + store_spending.get(str(item["id"]), 0)
+            str(item["id"]): (
+                int(item.get("balance", 0) or 0)
+                + store_spending.get(str(item["id"]), 0)
+                - max(
+                    pet_rewards.get(str(item["id"]), 0),
+                    int(item.get("pet_reward_points_total", 0) or 0),
+                )
+            )
             for item in users
         }
     else:
@@ -4585,13 +5603,23 @@ async def team_leaderboard(
     teams = await db.teams.find({}, {"_id": 0}).to_list(500)
     players = await db.users.find(
         {"role": {"$in": PLAYER_ROLES}},
-        {"_id": 0, "id": 1, "team_id": 1, "balance": 1},
+        {"_id": 0, "id": 1, "team_id": 1, "balance": 1, "pet_reward_points_total": 1},
     ).to_list(5000)
 
     if period == "all":
-        store_spending = await _store_spending_by_user()
+        store_spending, pet_rewards = await asyncio.gather(
+            _store_spending_by_user(),
+            _pet_rewards_by_user(),
+        )
         user_scores = {
-            str(item["id"]): int(item.get("balance", 0) or 0) + store_spending.get(str(item["id"]), 0)
+            str(item["id"]): (
+                int(item.get("balance", 0) or 0)
+                + store_spending.get(str(item["id"]), 0)
+                - max(
+                    pet_rewards.get(str(item["id"]), 0),
+                    int(item.get("pet_reward_points_total", 0) or 0),
+                )
+            )
             for item in players
         }
     else:
@@ -4662,6 +5690,8 @@ PREDICTIONS_UK = [
 # remains free. Default probabilities preserve the original 37/28/20/10/4/1
 # economy and add up to exactly 100%.
 DEFAULT_CUBE_SPIN_COST = 20
+DEFAULT_CUBE_GENEROSITY_DAY_CHANCE_PERCENT = 35.0
+CUBE_GENEROSITY_QUEST_TARGET = 3
 CUBE_FACE_META = [
     (1, 37, "one"),
     (2, 28, "two"),
@@ -4746,9 +5776,15 @@ async def _cube_settings() -> dict:
     except (TypeError, ValueError):
         paid_spin_cost = DEFAULT_CUBE_SPIN_COST
     paid_spin_cost = max(0, min(100000, paid_spin_cost))
+    try:
+        generosity_day_chance = float(doc.get("generosity_day_chance_percent", DEFAULT_CUBE_GENEROSITY_DAY_CHANCE_PERCENT))
+    except (TypeError, ValueError):
+        generosity_day_chance = DEFAULT_CUBE_GENEROSITY_DAY_CHANCE_PERCENT
+    generosity_day_chance = max(0.0, min(100.0, round(generosity_day_chance, 2)))
     return {
         "id": "generous_cube",
         "paid_spin_cost": paid_spin_cost,
+        "generosity_day_chance_percent": generosity_day_chance,
         "rewards": _normalize_cube_reward_ranges(doc.get("rewards")),
         "probabilities": _normalize_cube_probabilities(doc.get("probabilities")),
         "updated_at": doc.get("updated_at"),
@@ -4771,6 +5807,55 @@ def _cube_roll_table(settings: dict) -> List[tuple]:
     return table
 
 
+def _cube_generosity_selected(user_id: str, date_key: str, chance_percent: float) -> bool:
+    """Stable random choice for one player/day, unaffected by page reloads."""
+    chance = max(0.0, min(100.0, float(chance_percent or 0)))
+    digest = hashlib.sha256(f"cube-generosity::{user_id}::{date_key}".encode()).hexdigest()
+    bucket = (int(digest[:8], 16) % 10_000) / 100
+    return bucket < chance
+
+
+async def _completed_daily_quest_count(user_id: str, date_key: str) -> int:
+    """Approved daily tasks are the employee-facing quests used by /tasks."""
+    return await db.daily_task_reviews.count_documents({
+        "user_id": user_id,
+        "date": date_key,
+        "status": "approved",
+    })
+
+
+async def _cube_day_context(user_id: str, doc: dict, settings: dict) -> dict:
+    date_key = str(doc.get("date") or kyiv_today_key())
+    generosity_event = doc.get("cube_generosity_event")
+    if not isinstance(generosity_event, bool):
+        chance = float(settings.get("generosity_day_chance_percent", DEFAULT_CUBE_GENEROSITY_DAY_CHANCE_PERCENT))
+        generosity_event = _cube_generosity_selected(user_id, date_key, chance)
+        await db.daily_games.update_one(
+            {"user_id": user_id, "date": date_key},
+            {"$set": {
+                "cube_generosity_event": generosity_event,
+                "cube_generosity_chance_percent": chance,
+                "cube_generosity_selected_at": now_iso(),
+            }},
+        )
+        doc["cube_generosity_event"] = generosity_event
+
+    completed_quests = await _completed_daily_quest_count(user_id, date_key)
+    bonus_unlocked = completed_quests >= CUBE_GENEROSITY_QUEST_TARGET
+    spin_count = int(doc.get("cube_spin_count") or (1 if doc.get("cube_spun") else 0))
+    free_spins_total = 1 + (1 if generosity_event and bonus_unlocked else 0)
+    free_spins_remaining = max(0, free_spins_total - spin_count) if generosity_event else max(0, 1 - spin_count)
+    return {
+        "cube_generosity_event": generosity_event,
+        "cube_generosity_bonus_unlocked": bonus_unlocked,
+        "completed_quests_today": completed_quests,
+        "cube_generosity_quest_target": CUBE_GENEROSITY_QUEST_TARGET,
+        "cube_free_spins_total": free_spins_total,
+        "cube_free_spins_remaining": free_spins_remaining,
+        "cube_can_spin": free_spins_remaining > 0 if generosity_event else True,
+    }
+
+
 class CubeSpinResult(BaseModel):
     reward: int
     face: int
@@ -4780,6 +5865,14 @@ class CubeSpinResult(BaseModel):
     next_spin_cost: int
     new_balance: int
     total_xp: int
+    cube_generosity_event: bool = False
+    cube_generosity_bonus_unlocked: bool = False
+    completed_quests_today: int = 0
+    cube_generosity_quest_target: int = CUBE_GENEROSITY_QUEST_TARGET
+    cube_free_spins_total: int = 1
+    cube_free_spins_remaining: int = 0
+    cube_can_spin: bool = True
+    bonus_cube_spins: int = 0
 
 
 class GamesStatus(BaseModel):
@@ -4792,6 +5885,14 @@ class GamesStatus(BaseModel):
     next_spin_cost: int = 0
     paid_spin_cost: int = DEFAULT_CUBE_SPIN_COST
     cube_reward_ranges: List[CubeRewardRangeBody] = Field(default_factory=list)
+    cube_generosity_event: bool = False
+    cube_generosity_bonus_unlocked: bool = False
+    completed_quests_today: int = 0
+    cube_generosity_quest_target: int = CUBE_GENEROSITY_QUEST_TARGET
+    cube_free_spins_total: int = 1
+    cube_free_spins_remaining: int = 1
+    cube_can_spin: bool = True
+    bonus_cube_spins: int = 0
     prediction_revealed: bool
     prediction_text: Optional[str] = None
 
@@ -4802,7 +5903,7 @@ class PredictionResult(BaseModel):
 
 
 async def _get_or_create_games_doc(user_id: str) -> dict:
-    key = _today_key()
+    key = kyiv_today_key()
     doc = await db.daily_games.find_one({"user_id": user_id, "date": key}, {"_id": 0})
     if doc:
         return doc
@@ -4828,6 +5929,11 @@ async def admin_update_cube_settings(body: CubeSettingsUpdateBody, admin: dict =
             raise HTTPException(status_code=400, detail=f"Для грані {item['face']} мінімальний виграш не може бути більшим за максимальний")
 
     current = await _cube_settings()
+    generosity_day_chance = (
+        current["generosity_day_chance_percent"]
+        if body.generosity_day_chance_percent is None
+        else round(float(body.generosity_day_chance_percent), 2)
+    )
     if body.probabilities is None:
         probabilities = current["probabilities"]
     else:
@@ -4849,6 +5955,7 @@ async def admin_update_cube_settings(body: CubeSettingsUpdateBody, admin: dict =
     payload = {
         "id": "generous_cube",
         "paid_spin_cost": int(body.paid_spin_cost),
+        "generosity_day_chance_percent": generosity_day_chance,
         "rewards": sorted(rewards, key=lambda item: item["face"]),
         "probabilities": sorted(probabilities, key=lambda item: item["face"]),
         "updated_at": now_iso(),
@@ -4864,6 +5971,7 @@ async def games_status(user: dict = Depends(get_current_user)):
     doc = await _get_or_create_games_doc(user["id"])
     settings = await _cube_settings()
     spin_count = int(doc.get("cube_spin_count") or (1 if doc.get("cube_spun") else 0))
+    day_context = await _cube_day_context(user["id"], doc, settings)
     return GamesStatus(
         date=doc["date"],
         cube_spun=spin_count > 0,
@@ -4871,9 +5979,11 @@ async def games_status(user: dict = Depends(get_current_user)):
         cube_reward=doc.get("cube_reward"),
         cube_face=doc.get("cube_face"),
         cube_tier=doc.get("cube_tier"),
-        next_spin_cost=0 if spin_count == 0 else settings["paid_spin_cost"],
+        next_spin_cost=0 if day_context["cube_generosity_event"] or spin_count == 0 or int(user.get("bonus_cube_spins", 0) or 0) > 0 else settings["paid_spin_cost"],
         paid_spin_cost=settings["paid_spin_cost"],
         cube_reward_ranges=settings["rewards"],
+        **day_context,
+        bonus_cube_spins=int(user.get("bonus_cube_spins", 0) or 0),
         prediction_revealed=doc.get("prediction_revealed", False),
         prediction_text=doc.get("prediction_text"),
     )
@@ -4887,7 +5997,30 @@ async def cube_spin(user: dict = Depends(get_current_user)):
     settings = await _cube_settings()
     cube_table = _cube_roll_table(settings)
     spin_count = int(doc.get("cube_spin_count") or (1 if doc.get("cube_spun") else 0))
-    cost = 0 if spin_count == 0 else settings["paid_spin_cost"]
+    day_context = await _cube_day_context(user["id"], doc, settings)
+    generosity_event = day_context["cube_generosity_event"]
+    use_level_bonus_spin = spin_count > 0 and int(user.get("bonus_cube_spins", 0) or 0) > 0
+    if generosity_event and not day_context["cube_can_spin"] and not use_level_bonus_spin:
+        raise HTTPException(
+            status_code=400,
+            detail="Безкоштовні кидки Куба Щедрості на сьогодні використано",
+        )
+    cost = 0 if generosity_event or spin_count == 0 or use_level_bonus_spin else settings["paid_spin_cost"]
+    next_count = spin_count + 1
+
+    # A special-day free slot is reserved atomically so parallel requests
+    # cannot use the same limited throw twice.
+    if generosity_event:
+        reservation = await db.daily_games.update_one(
+            {
+                "user_id": user["id"],
+                "date": kyiv_today_key(),
+                "$expr": {"$eq": [{"$ifNull": ["$cube_spin_count", 0]}, spin_count]},
+            },
+            {"$set": {"cube_spin_count": next_count}},
+        )
+        if reservation.modified_count != 1:
+            raise HTTPException(status_code=409, detail="Куб уже кинуто в іншій вкладці. Оновіть сторінку")
 
     # Weighted face selection uses the current administrator-defined odds.
     # The settings endpoint enforces a 100% total, while the dynamic total below
@@ -4906,26 +6039,27 @@ async def cube_spin(user: dict = Depends(get_current_user)):
 
     face, _weight, reward_min, reward_max, tier = picked
     reward = _rand.randint(reward_min, reward_max)
-    xp_reward = reward // 3
+    xp_reward = 5
 
     # One atomic balance update prevents parallel paid spins from overspending.
     user_filter = {"id": user["id"]}
     if cost:
         user_filter["balance"] = {"$gte": cost}
+    if use_level_bonus_spin:
+        user_filter["bonus_cube_spins"] = {"$gte": 1}
+    user_increments = {
+        "balance": reward - cost,
+        "total_earned": reward,
+    }
+    if use_level_bonus_spin:
+        user_increments["bonus_cube_spins"] = -1
     update_result = await db.users.update_one(
         user_filter,
-        {
-            "$inc": {
-                "balance": reward - cost,
-                "total_earned": reward,
-                "total_xp": xp_reward,
-            }
-        },
+        {"$inc": user_increments},
     )
     if update_result.modified_count != 1:
         raise HTTPException(status_code=400, detail=f"Недостатньо Point для кидка. Потрібно {cost} Point")
 
-    next_count = spin_count + 1
     spin_record = {
         "face": face,
         "reward": reward,
@@ -4937,7 +6071,7 @@ async def cube_spin(user: dict = Depends(get_current_user)):
         "spun_at": now_iso(),
     }
     await db.daily_games.update_one(
-        {"user_id": user["id"], "date": _today_key()},
+        {"user_id": user["id"], "date": kyiv_today_key()},
         {
             "$set": {
                 "cube_spun": True,
@@ -4970,26 +6104,43 @@ async def cube_spin(user: dict = Depends(get_current_user)):
     })
     await _notify_points_awarded(user["id"], reward, f"Щедрий Куб: випала грань {face}")
 
-    fresh = await db.users.find_one({"id": user["id"]}, {"_id": 0})
+    await _award_xp(
+        user["id"],
+        xp_reward,
+        "cube",
+        f"cube-daily:{kyiv_today_key()}",
+        "Участь у Щедрому кубі (денний ліміт)",
+        {"date": kyiv_today_key(), "face": face},
+    )
+    progression_user = await db.users.find_one({"id": user["id"]}, {"_id": 0}) or user
+    await _sync_system_achievements(progression_user)
+    fresh = await db.users.find_one({"id": user["id"]}, {"_id": 0}) or progression_user
+    free_spins_remaining = max(0, int(day_context["cube_free_spins_total"]) - next_count)
+    result_day_context = {
+        **day_context,
+        "cube_free_spins_remaining": free_spins_remaining,
+        "cube_can_spin": free_spins_remaining > 0 if generosity_event else True,
+    }
     return CubeSpinResult(
         reward=reward,
         face=face,
         tier=tier,
         cost=cost,
         spin_count=next_count,
-        next_spin_cost=settings["paid_spin_cost"],
+        next_spin_cost=0 if generosity_event or int(fresh.get("bonus_cube_spins", 0) or 0) > 0 else settings["paid_spin_cost"],
         new_balance=fresh["balance"],
         total_xp=fresh["total_xp"],
+        bonus_cube_spins=int(fresh.get("bonus_cube_spins", 0) or 0),
+        **result_day_context,
     )
 
 
 @api.post("/games/prediction/reveal", response_model=PredictionResult)
 async def prediction_reveal(user: dict = Depends(get_current_user)):
-    import hashlib
     doc = await _get_or_create_games_doc(user["id"])
     if doc.get("prediction_revealed") and doc.get("prediction_text"):
         return PredictionResult(text=doc["prediction_text"], date=doc["date"])
-    key = _today_key()
+    key = kyiv_today_key()
     seed = int(hashlib.sha256(f"{user['id']}::{key}".encode()).hexdigest(), 16)
     text = PREDICTIONS_UK[seed % len(PREDICTIONS_UK)]
     await db.daily_games.update_one(
@@ -5061,7 +6212,7 @@ BONUS_MATCH_DAILY_POINT_CAP = None  # No daily Point cap for Bonus Match
 BONUS_MATCH_SYMBOLS = ["coin", "star", "gift", "cube", "zap", "trophy"]
 BONUS_MATCH_SPECIALS = {"rocket_row", "rocket_col", "bomb", "color_bomb"}
 BONUS_MATCH_FIRST_CLEAR_POINTS = 2
-BONUS_MATCH_FIRST_CLEAR_XP = 10
+BONUS_MATCH_FIRST_CLEAR_XP = 15
 BONUS_MATCH_REPLAY_XP = 5
 BONUS_MATCH_BOSS_LEVELS = {25: 2, 40: 2, 50: 3, 60: 2, 70: 2, 80: 2, 90: 2, 100: 3, 110: 3, 120: 3, 130: 3, 140: 3, 150: 4}
 BONUS_MATCH_OBSTACLE_ORDER = [
@@ -6640,9 +7791,8 @@ async def _bonus_match_reward_win(
 ) -> dict:
     """Award deterministic Bonus Match rewards.
 
-    First clear of a level: +2 Point and +10 XP.
-    Every replay clear: +0 Point and +5 XP.
-    There is intentionally no daily Point cap.
+    First clear of a level: +2 Point and +15 XP.
+    Replays: +0 Point and at most +5 XP once per day.
     """
     level = int(session["level"])
     now = now_iso()
@@ -6693,8 +7843,17 @@ async def _bonus_match_reward_win(
     await db.bonus_match_profiles.update_one({"user_id": user["id"]}, profile_updates)
 
     points_awarded = BONUS_MATCH_FIRST_CLEAR_POINTS if first_completion else 0
-    xp_awarded = BONUS_MATCH_FIRST_CLEAR_XP if first_completion else BONUS_MATCH_REPLAY_XP
     date_key = kyiv_today_key()
+    xp_event_key = f"bonus-match:first:{level}" if first_completion else f"bonus-match:replay:{date_key}"
+    xp_result = await _award_xp(
+        user["id"],
+        BONUS_MATCH_FIRST_CLEAR_XP if first_completion else BONUS_MATCH_REPLAY_XP,
+        "bonus_match",
+        xp_event_key,
+        f"Bonus Match: {'перше проходження рівня ' + str(level) if first_completion else 'денна активність'}",
+        {"level": level, "stars": stars, "first_completion": first_completion, "date": date_key},
+    )
+    xp_awarded = int(xp_result.get("amount", 0) or 0)
 
     # Daily rows remain useful for analytics, but they do not limit rewards.
     await db.bonus_match_daily.update_one(
@@ -6716,7 +7875,6 @@ async def _bonus_match_reward_win(
         {"$inc": {
             "balance": points_awarded,
             "total_earned": points_awarded,
-            "total_xp": xp_awarded,
         }},
     )
     await db.transactions.insert_one({
@@ -6734,7 +7892,7 @@ async def _bonus_match_reward_win(
             "stars": stars,
             "xp": xp_awarded,
             "first_completion": first_completion,
-            "reward_policy": "v139_first_2_points_10_xp_replay_5_xp",
+            "reward_policy": "v164_first_2_points_15_xp_replay_5_xp_daily_cap",
         },
     })
     if points_awarded:
@@ -6742,7 +7900,9 @@ async def _bonus_match_reward_win(
     if first_completion and unlocked_level > level:
         await _notify(user["id"], "game_level", "Відкрито новий рівень Bonus Match", f"Рівень {unlocked_level} уже доступний.", "/games/bonus-match", "gamepad-2", "games", {"game": "bonus_match", "level": unlocked_level})
 
-    fresh_user = await db.users.find_one({"id": user["id"]}, {"_id": 0})
+    progression_user = await db.users.find_one({"id": user["id"]}, {"_id": 0}) or user
+    await _sync_system_achievements(progression_user)
+    fresh_user = await db.users.find_one({"id": user["id"]}, {"_id": 0}) or progression_user
     fresh_profile = await _bonus_match_profile(user["id"])
     return {
         "first_completion": first_completion,
@@ -8238,12 +9398,22 @@ async def get_feed(limit: int = 40, user: dict = Depends(get_current_user)):
     Sorted by created_at desc. Level-ups derived from cumulative XP crossings.
     """
     # 1) Load recent transactions and explicit showcase events across all employees.
-    txs = await db.transactions.find({}, {"_id": 0}).sort("created_at", -1).to_list(limit * 3)
+    # Personal pet rewards stay private in the owner's journal. They do not
+    # turn an individual companion into a team competition.
+    txs = await db.transactions.find(
+        {"kind": {"$ne": "pet_gift"}, "meta.source": {"$ne": "pet"}},
+        {"_id": 0},
+    ).sort("created_at", -1).to_list(limit * 3)
     showcase_events = await db.feed_events.find({}, {"_id": 0}).sort("created_at", -1).to_list(limit * 2)
+    level_docs = await db.level_up_events.find({}, {"_id": 0}).sort("created_at", -1).to_list(limit * 2)
 
     # Fetch user info for participants. Explicit showcase events carry a frozen
     # avatar snapshot, but their owners are included for department/name fallback.
-    user_ids = list({t["user_id"] for t in txs} | {e["user_id"] for e in showcase_events if e.get("user_id")})
+    user_ids = list(
+        {t["user_id"] for t in txs}
+        | {e["user_id"] for e in showcase_events if e.get("user_id")}
+        | {e["user_id"] for e in level_docs if e.get("user_id")}
+    )
     users_map = {}
     async for u in db.users.find(
         {"id": {"$in": user_ids}, "role": {"$in": PLAYER_ROLES}},
@@ -8253,49 +9423,29 @@ async def get_feed(limit: int = 40, user: dict = Depends(get_current_user)):
 
     events: List[FeedEvent] = []
 
-    # 2) Detect level-ups by replaying XP per user in chronological order
-    # Get positive-XP transactions per user (quests + admin_adjust positive + cube — all award XP)
-    per_user_txs = {}
-    for t in txs:
-        if t["user_id"] not in users_map:
-            continue
-        per_user_txs.setdefault(t["user_id"], []).append(t)
-
+    # 2) Level-ups come from the exact XP ledger crossing, not from a Point-based estimate.
     level_up_events: List[FeedEvent] = []
-    for uid, u in users_map.items():
-        user_txs = sorted(per_user_txs.get(uid, []), key=lambda t: t["created_at"])
-        # Approx: use amount // 2 as xp gain (matches claim_quest logic)
-        cumulative_xp = 0
-        current_level = 1
-        for t in user_txs:
-            gain = 0
-            if t.get("amount", 0) > 0 and t.get("kind") in ("quest", "admin_adjust", "signup_bonus"):
-                gain = t["amount"] // 2 if t.get("kind") != "quest" or not t.get("description", "").startswith("Щедрий Куб") else t["amount"] // 3
-            if gain <= 0:
-                continue
-            prev_level = current_level
-            cumulative_xp += gain
-            # Recompute level from cumulative
-            lvl, _, _ = level_from_total_xp(cumulative_xp)
-            if lvl > prev_level:
-                current_level = lvl
-                level_up_events.append(FeedEvent(
-                    id=f"lvlup-{uid}-{lvl}-{t['created_at']}",
-                    kind="level_up",
-                    user_id=uid,
-                    user_name=u["name"],
-                    avatar_initials=u.get("avatar_initials", "?"),
-                    avatar_color=u.get("avatar_color", "#FFB800"),
-                    avatar_url=u.get("avatar_url"),
-                    avatar_rarity=u.get("avatar_rarity", "basic"),
-                    department=u.get("department", ""),
-                    title="досягнув нового рівня",
-                    subtitle=f"Рівень {lvl}",
-                    level=lvl,
-                    created_at=t["created_at"],
-                ))
-            else:
-                current_level = lvl
+    for item in level_docs:
+        uid = item.get("user_id")
+        u = users_map.get(uid)
+        if not u:
+            continue
+        lvl = int(item.get("level") or 1)
+        level_up_events.append(FeedEvent(
+            id=item.get("id") or f"lvlup-{uid}-{lvl}",
+            kind="level_up",
+            user_id=uid,
+            user_name=u["name"],
+            avatar_initials=u.get("avatar_initials", "?"),
+            avatar_color=u.get("avatar_color", "#FFB800"),
+            avatar_url=u.get("avatar_url"),
+            avatar_rarity=u.get("avatar_rarity", "basic"),
+            department=u.get("department", ""),
+            title="досягнув нового рівня",
+            subtitle=f"Рівень {lvl} · {item.get('level_title') or profile_level_title(lvl)}",
+            level=lvl,
+            created_at=item.get("created_at") or now_iso(),
+        ))
 
     # 3) Transaction events
     for t in txs:
@@ -8556,12 +9706,10 @@ async def admin_adjust_points(user_id: str, body: PointsAdjustBody, admin: dict 
 
     if delta:
         inc = {"balance": delta}
-        # A regular positive award keeps the legacy XP behaviour. An exact
-        # balance correction changes Point only, otherwise fixing a typo would
-        # silently create XP and distort the progression system.
+        # Point and XP are independent currencies. XP is adjusted through the
+        # dedicated XP endpoint so balance corrections never distort levels.
         if body.mode == "delta" and delta > 0:
             inc["total_earned"] = delta
-            inc["total_xp"] = delta // 2
         await db.users.update_one({"id": user_id}, {"$inc": inc})
 
         await db.transactions.insert_one(
@@ -8581,6 +9729,59 @@ async def admin_adjust_points(user_id: str, body: PointsAdjustBody, admin: dict 
             await _notify_points_awarded(user_id, delta, body.description or "Нарахування адміністратора")
 
     fresh = await db.users.find_one({"id": user_id}, {"_id": 0})
+    return _user_with_progress(fresh)
+
+
+@api.get("/admin/xp-ledger")
+async def admin_xp_ledger(
+    team_id: Optional[str] = None,
+    source: Optional[str] = None,
+    limit: int = 100,
+    admin: dict = Depends(get_current_admin),
+):
+    query: dict = {}
+    if team_id:
+        query["team_id"] = team_id
+    if source:
+        query["source"] = source
+    safe_limit = max(1, min(500, int(limit)))
+    items = await db.xp_ledger.find(query, {"_id": 0}).sort("created_at", -1).limit(safe_limit).to_list(safe_limit)
+    totals = await db.xp_ledger.aggregate([
+        {"$match": query},
+        {"$group": {"_id": "$source", "amount": {"$sum": "$amount"}, "events": {"$sum": 1}}},
+        {"$sort": {"amount": -1}},
+    ]).to_list(100)
+    return {
+        "items": items,
+        "summary": {
+            "amount": sum(int(item.get("amount", 0) or 0) for item in totals),
+            "events": sum(int(item.get("events", 0) or 0) for item in totals),
+            "sources": [
+                {"source": item.get("_id") or "activity", "amount": item.get("amount", 0), "events": item.get("events", 0)}
+                for item in totals
+            ],
+        },
+    }
+
+
+@api.post("/admin/users/{user_id}/xp", response_model=UserWithProgress)
+async def admin_award_xp(user_id: str, body: XPAdjustBody, admin: dict = Depends(get_current_admin)):
+    target = await db.users.find_one({"id": user_id}, {"_id": 0})
+    if not target:
+        raise HTTPException(status_code=404, detail="Користувача не знайдено")
+    manual_id = str(uuid.uuid4())
+    await _award_xp(
+        user_id,
+        body.amount,
+        "admin_manual",
+        f"admin:{manual_id}",
+        body.description,
+        {"manual_id": manual_id, "admin_name": admin.get("name")},
+        admin.get("id"),
+    )
+    fresh = await db.users.find_one({"id": user_id}, {"_id": 0}) or target
+    await _sync_system_achievements(fresh)
+    fresh = await db.users.find_one({"id": user_id}, {"_id": 0}) or fresh
     return _user_with_progress(fresh)
 
 
@@ -8636,6 +9837,11 @@ async def admin_delete_user(user_id: str, admin: dict = Depends(get_current_admi
         db.bonus_match_completions,
         db.bonus_match_daily,
         db.announcement_reads,
+        db.pet_profiles,
+        db.pet_events,
+        db.pet_minigame_sessions,
+        db.pet_reward_claims,
+        db.pet_commands,
     )
     for collection in user_collections:
         await collection.delete_many({"user_id": user_id})
@@ -8881,8 +10087,18 @@ async def admin_analytics(
         user_query["team_id"] = team_id
     scoped_users = await db.users.find(
         user_query,
-        {"_id": 0, "id": 1, "name": 1, "total_earned": 1, "avatar_color": 1, "avatar_initials": 1, "team_id": 1},
+        {"_id": 0, "id": 1, "name": 1, "total_earned": 1, "pet_reward_points_total": 1, "avatar_color": 1, "avatar_initials": 1, "team_id": 1},
     ).sort("total_earned", -1).to_list(5000)
+    pet_rewards = await _pet_rewards_by_user()
+    for scoped_user in scoped_users:
+        scoped_user["total_earned"] = max(
+            0,
+            int(scoped_user.get("total_earned", 0) or 0) - max(
+                pet_rewards.get(str(scoped_user["id"]), 0),
+                int(scoped_user.get("pet_reward_points_total", 0) or 0),
+            ),
+        )
+    scoped_users.sort(key=lambda item: (-int(item.get("total_earned", 0) or 0), str(item.get("name") or "").casefold()))
     scoped_user_ids = [row["id"] for row in scoped_users]
     user_match = {"user_id": {"$in": scoped_user_ids}} if team_id else {}
 
@@ -8895,7 +10111,7 @@ async def admin_analytics(
     order_query = {"status": "processing", **user_match}
     orders_processing = await db.orders.count_documents(order_query)
 
-    earned_match = {"amount": {"$gt": 0}, **user_match}
+    earned_match = {"amount": {"$gt": 0}, **user_match, **_pet_reward_exclusion()}
     spent_match = {"amount": {"$lt": 0}, **user_match}
     earned = await db.transactions.aggregate([
         {"$match": earned_match},
@@ -9033,8 +10249,19 @@ async def bot_user_quests(telegram_id: str):
 @bot_router.get("/leaderboard")
 async def bot_leaderboard(limit: int = 20):
     docs = await db.users.find(
-        {"role": {"$in": PLAYER_ROLES}}, {"_id": 0, "id": 1, "name": 1, "total_earned": 1, "avatar_initials": 1}
-    ).sort("total_earned", -1).limit(limit).to_list(limit)
+        {"role": {"$in": PLAYER_ROLES}}, {"_id": 0, "id": 1, "name": 1, "total_earned": 1, "pet_reward_points_total": 1, "avatar_initials": 1}
+    ).to_list(5000)
+    pet_rewards = await _pet_rewards_by_user()
+    for doc in docs:
+        doc["total_earned"] = max(
+            0,
+            int(doc.get("total_earned", 0) or 0) - max(
+                pet_rewards.get(str(doc["id"]), 0),
+                int(doc.get("pet_reward_points_total", 0) or 0),
+            ),
+        )
+    docs.sort(key=lambda item: (-int(item.get("total_earned", 0) or 0), str(item.get("name") or "").casefold()))
+    docs = docs[:max(1, min(100, int(limit)))]
     return [{"rank": i + 1, **d} for i, d in enumerate(docs)]
 
 
@@ -9049,7 +10276,6 @@ async def bot_adjust(body: BotAdjustBody):
     inc = {"balance": body.amount}
     if body.amount > 0:
         inc["total_earned"] = body.amount
-        inc["total_xp"] = body.amount // 2
     await db.users.update_one({"id": user["id"]}, {"$inc": inc})
     await db.transactions.insert_one(
         {
@@ -9071,6 +10297,9 @@ async def bot_adjust(body: BotAdjustBody):
 async def _announcement_with_stats(doc: dict) -> dict:
     item = {**doc}
     item.pop("_id", None)
+    team_id = str(item.get("team_id") or "").strip() or None
+    item["team_id"] = team_id
+    item["team_name"] = item.get("team_name") or (await _resolve_team_name(team_id) if team_id else None)
     item["dismissed_count"] = await db.announcement_reads.count_documents({"announcement_id": item["id"]})
     return item
 
@@ -9080,7 +10309,11 @@ async def pending_announcement(user: dict = Depends(get_current_user)):
     if user.get("role") == "admin":
         return None
     seen_ids = await db.announcement_reads.distinct("announcement_id", {"user_id": user["id"]})
-    query = {"active": True}
+    user_team_id = str(user.get("team_id") or "").strip() or None
+    audience = [{"team_id": None}, {"team_id": {"$exists": False}}]
+    if user_team_id:
+        audience.append({"team_id": user_team_id})
+    query = {"active": True, "$or": audience}
     if seen_ids:
         query["id"] = {"$nin": seen_ids}
     doc = await db.announcements.find_one(query, {"_id": 0}, sort=[("created_at", 1)])
@@ -9092,8 +10325,12 @@ async def pending_announcement(user: dict = Depends(get_current_user)):
 
 @api.post("/announcements/{announcement_id}/dismiss")
 async def dismiss_announcement(announcement_id: str, user: dict = Depends(get_current_user)):
-    exists = await db.announcements.find_one({"id": announcement_id}, {"_id": 0, "id": 1})
+    exists = await db.announcements.find_one({"id": announcement_id}, {"_id": 0, "id": 1, "team_id": 1})
     if not exists:
+        raise HTTPException(status_code=404, detail="Повідомлення не знайдено")
+    target_team_id = str(exists.get("team_id") or "").strip() or None
+    user_team_id = str(user.get("team_id") or "").strip() or None
+    if target_team_id and target_team_id != user_team_id:
         raise HTTPException(status_code=404, detail="Повідомлення не знайдено")
     await db.announcement_reads.update_one(
         {"announcement_id": announcement_id, "user_id": user["id"]},
@@ -9112,19 +10349,45 @@ async def dismiss_announcement(announcement_id: str, user: dict = Depends(get_cu
 
 
 @api.get("/admin/announcements", response_model=List[AnnouncementModel])
-async def admin_list_announcements(admin: dict = Depends(get_current_admin)):
-    docs = await db.announcements.find({}, {"_id": 0}).sort("created_at", -1).to_list(200)
+async def admin_list_announcements(
+    team_id: Optional[str] = None,
+    admin: dict = Depends(get_current_admin),
+):
+    selected_team_id = str(team_id or "").strip() or None
+    query = {}
+    if selected_team_id:
+        query["$or"] = [
+            {"team_id": None},
+            {"team_id": {"$exists": False}},
+            {"team_id": selected_team_id},
+        ]
+    docs = await db.announcements.find(query, {"_id": 0}).sort("created_at", -1).to_list(200)
     return [AnnouncementModel(**(await _announcement_with_stats(doc))) for doc in docs]
 
 
 @api.post("/admin/announcements", response_model=AnnouncementModel, status_code=201)
 async def admin_create_announcement(body: AnnouncementCreateBody, admin: dict = Depends(get_current_admin)):
     current_time = now_iso()
+    title = body.title.strip()
+    message = body.message.strip()
+    if len(title) < 2:
+        raise HTTPException(status_code=422, detail="Заголовок має містити щонайменше 2 символи")
+    if len(message) < 2:
+        raise HTTPException(status_code=422, detail="Повідомлення має містити щонайменше 2 символи")
+    team_id = str(body.team_id or "").strip() or None
+    team_name = None
+    if team_id:
+        team = await db.teams.find_one({"id": team_id}, {"_id": 0, "id": 1, "name": 1})
+        if not team:
+            raise HTTPException(status_code=404, detail="Команду не знайдено")
+        team_name = team.get("name")
     doc = {
         "id": str(uuid.uuid4()),
-        "title": body.title.strip(),
-        "message": body.message.strip(),
+        "title": title,
+        "message": message,
         "active": True,
+        "team_id": team_id,
+        "team_name": team_name,
         "created_by": admin["id"],
         "created_by_name": admin.get("name", "Адміністратор"),
         "created_at": current_time,
@@ -9143,11 +10406,17 @@ async def admin_update_announcement(
     admin: dict = Depends(get_current_admin),
 ):
     supplied = body.model_fields_set
+    if any(getattr(body, field) is None for field in supplied):
+        raise HTTPException(status_code=422, detail="Поля повідомлення не можуть бути null")
     updates = {key: value for key, value in body.model_dump().items() if key in supplied}
-    if "title" in updates and updates["title"] is not None:
+    if "title" in updates:
         updates["title"] = updates["title"].strip()
-    if "message" in updates and updates["message"] is not None:
+        if len(updates["title"]) < 2:
+            raise HTTPException(status_code=422, detail="Заголовок має містити щонайменше 2 символи")
+    if "message" in updates:
         updates["message"] = updates["message"].strip()
+        if len(updates["message"]) < 2:
+            raise HTTPException(status_code=422, detail="Повідомлення має містити щонайменше 2 символи")
     if not updates:
         raise HTTPException(status_code=400, detail="Немає полів для оновлення")
     updates["updated_at"] = now_iso()
@@ -9180,6 +10449,19 @@ SEED_QUESTS = [
 ]
 
 AVATAR_PRIZES = [{"title": "Базовий аватар • Чоловічий", "description": "Базовий візуал. Щодня +0 Point", "price": 250, "category": "avatar", "image": "/avatars/male-basic-1.webp", "icon": "user-round", "stock": 999999, "avatar_code": "male-basic-1", "avatar_rarity": "basic", "daily_bonus": 0, "task_replacements": 0}, {"title": "Базовий аватар • Жіночий 1", "description": "Базовий візуал. Щодня +0 Point", "price": 250, "category": "avatar", "image": "/avatars/female-basic-1.webp", "icon": "user-round", "stock": 999999, "avatar_code": "female-basic-1", "avatar_rarity": "basic", "daily_bonus": 0, "task_replacements": 0}, {"title": "Базовий аватар • Жіночий 2", "description": "Базовий візуал. Щодня +0 Point", "price": 250, "category": "avatar", "image": "/avatars/female-basic-2.webp", "icon": "user-round", "stock": 999999, "avatar_code": "female-basic-2", "avatar_rarity": "basic", "daily_bonus": 0, "task_replacements": 0}, {"title": "Базовий аватар • Жіночий 3", "description": "Базовий візуал. Щодня +0 Point", "price": 250, "category": "avatar", "image": "/avatars/female-basic-3.webp", "icon": "user-round", "stock": 999999, "avatar_code": "female-basic-3", "avatar_rarity": "basic", "daily_bonus": 0, "task_replacements": 0}, {"title": "Покращений аватар • Чоловічий", "description": "Покращений візуал. Щодня +5 Point", "price": 500, "category": "avatar", "image": "/avatars/male-improved-1.webp", "icon": "user-round", "stock": 999999, "avatar_code": "male-improved-1", "avatar_rarity": "improved", "daily_bonus": 5, "task_replacements": 0}, {"title": "Покращений аватар • Жіночий 1", "description": "Покращений візуал. Щодня +5 Point", "price": 500, "category": "avatar", "image": "/avatars/female-improved-1.webp", "icon": "user-round", "stock": 999999, "avatar_code": "female-improved-1", "avatar_rarity": "improved", "daily_bonus": 5, "task_replacements": 0}, {"title": "Покращений аватар • Жіночий 2", "description": "Покращений візуал. Щодня +5 Point", "price": 500, "category": "avatar", "image": "/avatars/female-improved-2.webp", "icon": "user-round", "stock": 999999, "avatar_code": "female-improved-2", "avatar_rarity": "improved", "daily_bonus": 5, "task_replacements": 0}, {"title": "Покращений аватар • Жіночий 3", "description": "Покращений візуал. Щодня +5 Point", "price": 500, "category": "avatar", "image": "/avatars/female-improved-3.webp", "icon": "user-round", "stock": 999999, "avatar_code": "female-improved-3", "avatar_rarity": "improved", "daily_bonus": 5, "task_replacements": 0}, {"title": "Рідкісний аватар • Чоловічий", "description": "Рідкісний візуал. Щодня +10 Point", "price": 750, "category": "avatar", "image": "/avatars/male-rare-1.webp", "icon": "user-round", "stock": 999999, "avatar_code": "male-rare-1", "avatar_rarity": "rare", "daily_bonus": 10, "task_replacements": 0}, {"title": "Рідкісний аватар • Жіночий 1", "description": "Рідкісний візуал. Щодня +10 Point", "price": 750, "category": "avatar", "image": "/avatars/female-rare-1.webp", "icon": "user-round", "stock": 999999, "avatar_code": "female-rare-1", "avatar_rarity": "rare", "daily_bonus": 10, "task_replacements": 0}, {"title": "Рідкісний аватар • Жіночий 2", "description": "Рідкісний візуал. Щодня +10 Point", "price": 750, "category": "avatar", "image": "/avatars/female-rare-2.webp", "icon": "user-round", "stock": 999999, "avatar_code": "female-rare-2", "avatar_rarity": "rare", "daily_bonus": 10, "task_replacements": 0}, {"title": "Рідкісний аватар • Жіночий 3", "description": "Рідкісний візуал. Щодня +10 Point", "price": 750, "category": "avatar", "image": "/avatars/female-rare-3.webp", "icon": "user-round", "stock": 999999, "avatar_code": "female-rare-3", "avatar_rarity": "rare", "daily_bonus": 10, "task_replacements": 0}, {"title": "Епічний аватар • Чоловічий", "description": "Епічний візуал. Щодня +15 Point та +1 заміна завдань", "price": 1000, "category": "avatar", "image": "/avatars/male-epic-1.webp", "icon": "user-round", "stock": 999999, "avatar_code": "male-epic-1", "avatar_rarity": "epic", "daily_bonus": 15, "task_replacements": 1}, {"title": "Епічний аватар • Жіночий 1", "description": "Епічний візуал. Щодня +15 Point та +1 заміна завдань", "price": 1000, "category": "avatar", "image": "/avatars/female-epic-1.webp", "icon": "user-round", "stock": 999999, "avatar_code": "female-epic-1", "avatar_rarity": "epic", "daily_bonus": 15, "task_replacements": 1}, {"title": "Епічний аватар • Жіночий 2", "description": "Епічний візуал. Щодня +15 Point та +1 заміна завдань", "price": 1000, "category": "avatar", "image": "/avatars/female-epic-2.webp", "icon": "user-round", "stock": 999999, "avatar_code": "female-epic-2", "avatar_rarity": "epic", "daily_bonus": 15, "task_replacements": 1}, {"title": "Епічний аватар • Жіночий 3", "description": "Епічний візуал. Щодня +15 Point та +1 заміна завдань", "price": 1000, "category": "avatar", "image": "/avatars/female-epic-3.webp", "icon": "user-round", "stock": 999999, "avatar_code": "female-epic-3", "avatar_rarity": "epic", "daily_bonus": 15, "task_replacements": 1}, {"title": "Легендарний аватар • Чоловічий", "description": "Легендарний візуал. Щодня +25 Point та +2 заміна завдань", "price": 2000, "category": "avatar", "image": "/avatars/male-legendary-1.webp", "icon": "user-round", "stock": 999999, "avatar_code": "male-legendary-1", "avatar_rarity": "legendary", "daily_bonus": 25, "task_replacements": 2}, {"title": "Легендарний аватар • Жіночий 1", "description": "Легендарний візуал. Щодня +25 Point та +2 заміна завдань", "price": 2000, "category": "avatar", "image": "/avatars/female-legendary-1.webp", "icon": "user-round", "stock": 999999, "avatar_code": "female-legendary-1", "avatar_rarity": "legendary", "daily_bonus": 25, "task_replacements": 2}, {"title": "Легендарний аватар • Жіночий 2", "description": "Легендарний візуал. Щодня +25 Point та +2 заміна завдань", "price": 2000, "category": "avatar", "image": "/avatars/female-legendary-2.webp", "icon": "user-round", "stock": 999999, "avatar_code": "female-legendary-2", "avatar_rarity": "legendary", "daily_bonus": 25, "task_replacements": 2}, {"title": "Легендарний аватар • Жіночий 3", "description": "Легендарний візуал. Щодня +25 Point та +2 заміна завдань", "price": 2000, "category": "avatar", "image": "/avatars/female-legendary-3.webp", "icon": "user-round", "stock": 999999, "avatar_code": "female-legendary-3", "avatar_rarity": "legendary", "daily_bonus": 25, "task_replacements": 2}]
+
+AVATAR_PRIZES.extend([
+    {"title": "Базовий аватар • Жіночий 4", "description": "Базовий візуал. Щодня +0 Point", "price": 250, "category": "avatar", "image": "/avatars/female-basic-4.png", "icon": "user-round", "stock": 999999, "avatar_code": "female-basic-4", "avatar_rarity": "basic", "daily_bonus": 0, "task_replacements": 0},
+    {"title": "Базовий аватар • Жіночий 5", "description": "Базовий візуал. Щодня +0 Point", "price": 250, "category": "avatar", "image": "/avatars/female-basic-5.png", "icon": "user-round", "stock": 999999, "avatar_code": "female-basic-5", "avatar_rarity": "basic", "daily_bonus": 0, "task_replacements": 0},
+    {"title": "Покращений аватар • Жіночий 4", "description": "Покращений візуал. Щодня +5 Point", "price": 500, "category": "avatar", "image": "/avatars/female-improved-4.png", "icon": "user-round", "stock": 999999, "avatar_code": "female-improved-4", "avatar_rarity": "improved", "daily_bonus": 5, "task_replacements": 0},
+    {"title": "Покращений аватар • Жіночий 5", "description": "Покращений візуал. Щодня +5 Point", "price": 500, "category": "avatar", "image": "/avatars/female-improved-5.png", "icon": "user-round", "stock": 999999, "avatar_code": "female-improved-5", "avatar_rarity": "improved", "daily_bonus": 5, "task_replacements": 0},
+    {"title": "Рідкісний аватар • Жіночий 4", "description": "Рідкісний візуал. Щодня +10 Point", "price": 750, "category": "avatar", "image": "/avatars/female-rare-4.png", "icon": "user-round", "stock": 999999, "avatar_code": "female-rare-4", "avatar_rarity": "rare", "daily_bonus": 10, "task_replacements": 0},
+    {"title": "Рідкісний аватар • Жіночий 5", "description": "Рідкісний візуал. Щодня +10 Point", "price": 750, "category": "avatar", "image": "/avatars/female-rare-5.png", "icon": "user-round", "stock": 999999, "avatar_code": "female-rare-5", "avatar_rarity": "rare", "daily_bonus": 10, "task_replacements": 0},
+    {"title": "Епічний аватар • Жіночий 4", "description": "Епічний візуал. Щодня +15 Point та +1 заміна завдань", "price": 1000, "category": "avatar", "image": "/avatars/female-epic-4.png", "icon": "user-round", "stock": 999999, "avatar_code": "female-epic-4", "avatar_rarity": "epic", "daily_bonus": 15, "task_replacements": 1},
+    {"title": "Епічний аватар • Жіночий 5", "description": "Епічний візуал. Щодня +15 Point та +1 заміна завдань", "price": 1000, "category": "avatar", "image": "/avatars/female-epic-5.png", "icon": "user-round", "stock": 999999, "avatar_code": "female-epic-5", "avatar_rarity": "epic", "daily_bonus": 15, "task_replacements": 1},
+    {"title": "Легендарний аватар • Жіночий 4", "description": "Легендарний візуал. Щодня +25 Point та +2 заміни завдань", "price": 2000, "category": "avatar", "image": "/avatars/female-legendary-4.png", "icon": "user-round", "stock": 999999, "avatar_code": "female-legendary-4", "avatar_rarity": "legendary", "daily_bonus": 25, "task_replacements": 2},
+    {"title": "Легендарний аватар • Жіночий 5", "description": "Легендарний візуал. Щодня +25 Point та +2 заміни завдань", "price": 2000, "category": "avatar", "image": "/avatars/female-legendary-5.png", "icon": "user-round", "stock": 999999, "avatar_code": "female-legendary-5", "avatar_rarity": "legendary", "daily_bonus": 25, "task_replacements": 2},
+])
 
 SEED_PRIZES = [
     {"title": "Худі VPDK Bonus", "description": "Фірмовий чорний худі з логотипом", "price": 2500, "category": "merch", "image": "https://images.pexels.com/photos/28701952/pexels-photo-28701952.jpeg", "icon": "gift", "stock": 12},
@@ -9311,20 +10593,42 @@ async def seed_all():
     await db.achievements.create_index("title", unique=True)
     await db.user_achievements.create_index([("user_id", 1), ("achievement_id", 1)], unique=True)
     await db.user_achievements.create_index("achievement_id")
+    await db.xp_ledger.create_index("id", unique=True)
+    await db.xp_ledger.create_index([("user_id", 1), ("created_at", -1)])
+    await db.xp_ledger.create_index([("team_id", 1), ("created_at", -1)])
+    await db.level_up_events.create_index("id", unique=True)
+    await db.user_level_rewards.create_index("id", unique=True)
+    await db.progression_reports.create_index("user_id", unique=True)
     await db.page_views.create_index([("created_at", -1), ("path", 1)])
     await db.page_views.create_index([("user_id", 1), ("created_at", -1)])
     await db.page_views.create_index([("date", 1), ("user_id", 1), ("path", 1)])
     await db.app_settings.create_index("id", unique=True)
     await db.team_goal_messages.create_index("team_id", unique=True)
-    await db.team_banks.create_index("team_id", unique=True)
+    # v158: one team can own several independently configured banks.
+    bank_indexes = await db.team_banks.index_information()
+    legacy_team_bank_index = bank_indexes.get("team_id_1")
+    if legacy_team_bank_index and legacy_team_bank_index.get("unique"):
+        await db.team_banks.drop_index("team_id_1")
+    cycle_indexes = await db.team_bank_cycles.index_information()
+    legacy_cycle_index = cycle_indexes.get("team_id_1_cycle_number_-1")
+    if legacy_cycle_index:
+        await db.team_bank_cycles.drop_index("team_id_1_cycle_number_-1")
+    await db.team_banks.create_index("id", unique=True)
+    await db.team_banks.create_index([("team_id", 1), ("active", 1), ("created_at", 1)])
     await db.team_bank_contributions.create_index([("team_id", 1), ("created_at", -1)])
     await db.team_bank_contributions.create_index([("user_id", 1), ("team_id", 1)])
+    await db.team_bank_contributions.create_index([("bank_id", 1), ("cycle_number", 1), ("created_at", -1)])
     await db.team_bank_contributions.create_index([("team_id", 1), ("cycle_number", 1), ("created_at", -1)])
-    await db.team_bank_cycles.create_index([("team_id", 1), ("cycle_number", -1)], unique=True)
+    await db.team_bank_cycles.create_index(
+        [("bank_id", 1), ("cycle_number", -1)],
+        unique=True,
+        partialFilterExpression={"bank_id": {"$type": "string"}},
+    )
     await db.prizes.create_index("team_id", sparse=True)
     await db.prize_promotions.create_index([("prize_id", 1), ("active", 1), ("created_at", -1)])
     await db.prize_promotions.create_index("created_at")
-    await db.announcements.create_index([("active", 1), ("created_at", 1)])
+    await db.announcements.create_index("id", unique=True)
+    await db.announcements.create_index([("active", 1), ("team_id", 1), ("created_at", 1)])
     await db.announcement_reads.create_index([("announcement_id", 1), ("user_id", 1)], unique=True)
     await db.announcement_reads.create_index([("user_id", 1), ("dismissed_at", -1)])
 
@@ -9372,9 +10676,21 @@ async def seed_all():
         })
         logger.info("Seeded admin user: %s", ADMIN_EMAIL)
     else:
-        # ADMIN_PASSWORD is a bootstrap secret only. Never overwrite a password
-        # changed from the admin panel during a deploy or process restart.
-        logger.info("Admin user already exists; preserved the stored password")
+        if RESET_LOCAL_ADMIN_PASSWORD_ON_STARTUP:
+            # Explicit opt-in for disposable local environments. Production keeps
+            # the stored password because this flag is false by default.
+            await db.users.update_one(
+                {"email": ADMIN_EMAIL},
+                {"$set": {
+                    "password_hash": hash_password(ADMIN_PASSWORD),
+                    "approved": True,
+                }},
+            )
+            logger.warning("Reset local admin password from backend environment: %s", ADMIN_EMAIL)
+        else:
+            # ADMIN_PASSWORD is a bootstrap secret only. Never overwrite a password
+            # changed from the admin panel during a deploy or process restart.
+            logger.info("Admin user already exists; preserved the stored password")
 
     # Demo users are disabled by default in production.
     # Set SEED_DEMO_USERS=true only for a disposable demo environment.
@@ -9603,6 +10919,10 @@ class ReportPublishedWebhookBody(BaseModel):
     credit_group_summaries: dict = Field(default_factory=dict)
     debit_group_summaries: dict = Field(default_factory=dict)
     deposit_group_summaries: dict = Field(default_factory=dict)
+    deposit_projection_group_summaries: dict = Field(default_factory=dict)
+    activation_pumb_group_summaries: dict = Field(default_factory=dict)
+    activation_cards_group_summaries: dict = Field(default_factory=dict)
+    activation_cards_transformation_group_summaries: dict = Field(default_factory=dict)
 
 
 class ReportMetricSnapshotBody(BaseModel):
@@ -9611,6 +10931,10 @@ class ReportMetricSnapshotBody(BaseModel):
     credit_group_summaries: dict = Field(default_factory=dict)
     debit_group_summaries: dict = Field(default_factory=dict)
     deposit_group_summaries: dict = Field(default_factory=dict)
+    deposit_projection_group_summaries: dict = Field(default_factory=dict)
+    activation_pumb_group_summaries: dict = Field(default_factory=dict)
+    activation_cards_group_summaries: dict = Field(default_factory=dict)
+    activation_cards_transformation_group_summaries: dict = Field(default_factory=dict)
 
 
 class OperatorReportMetricBody(BaseModel):
@@ -9888,7 +11212,7 @@ async def _maybe_notify_rank_change(user_id: str, period: str, rank: Optional[in
 async def _refresh_rank_change_notifications() -> int:
     users = await db.users.find(
         {"role": {"$in": PLAYER_ROLES}, "approved": {"$ne": False}},
-        {"_id": 0, "id": 1, "name": 1, "balance": 1},
+        {"_id": 0, "id": 1, "name": 1, "balance": 1, "pet_reward_points_total": 1},
     ).to_list(5000)
     if not users:
         return 0
@@ -9901,14 +11225,25 @@ async def _refresh_rank_change_notifications() -> int:
     position_updates = []
     notifications = []
     store_spending = None
+    pet_rewards = None
     timestamp = now_iso()
 
     for period in ("day", "week", "month", "all"):
         if period == "all":
-            if store_spending is None:
-                store_spending = await _store_spending_by_user()
+            if store_spending is None or pet_rewards is None:
+                store_spending, pet_rewards = await asyncio.gather(
+                    _store_spending_by_user(),
+                    _pet_rewards_by_user(),
+                )
             scores = {
-                str(item["id"]): int(item.get("balance", 0) or 0) + store_spending.get(str(item["id"]), 0)
+                str(item["id"]): (
+                    int(item.get("balance", 0) or 0)
+                    + store_spending.get(str(item["id"]), 0)
+                    - max(
+                        pet_rewards.get(str(item["id"]), 0),
+                        int(item.get("pet_reward_points_total", 0) or 0),
+                    )
+                )
                 for item in users
             }
         else:
@@ -10249,6 +11584,31 @@ def _report_metric_number(value):
         return None
 
 
+def _summary_team_value(source: dict, raw_key: str, team_key: str) -> dict:
+    if not isinstance(source, dict):
+        return {}
+    return source.get(raw_key) or source.get(team_key) or {}
+
+
+def _period_summary_team_value(source: dict, period: str, raw_key: str, team_key: str) -> dict:
+    period_map = source.get(period) if isinstance(source, dict) else {}
+    return _summary_team_value(period_map or {}, raw_key, team_key)
+
+
+def _summary_keys(source: dict) -> set:
+    return set(source.keys()) if isinstance(source, dict) else set()
+
+
+def _period_summary_keys(source: dict) -> set:
+    result = set()
+    if not isinstance(source, dict):
+        return result
+    for period_map in source.values():
+        if isinstance(period_map, dict):
+            result.update(period_map.keys())
+    return result
+
+
 async def _store_report_metric_snapshots(body: ReportPublishedWebhookBody | ReportMetricSnapshotBody):
     snapshot_version = body.snapshot_version
     snapshot_updated_at = body.snapshot_updated_at or now_iso()
@@ -10257,13 +11617,31 @@ async def _store_report_metric_snapshots(body: ReportPublishedWebhookBody | Repo
     credit = body.credit_group_summaries or {}
     debit = body.debit_group_summaries or {}
     deposit = body.deposit_group_summaries or {}
-    all_keys = set(credit.keys()) | set(debit.keys()) | set(deposit.keys())
+    deposit_projection = body.deposit_projection_group_summaries or {}
+    activation_pumb = body.activation_pumb_group_summaries or {}
+    activation_cards = body.activation_cards_group_summaries or {}
+    activation_cards_transformation = body.activation_cards_transformation_group_summaries or {}
+    all_keys = (
+        _summary_keys(credit)
+        | _summary_keys(debit)
+        | _summary_keys(deposit)
+        | _summary_keys(deposit_projection)
+        | _summary_keys(activation_cards)
+        | _period_summary_keys(activation_pumb)
+        | _period_summary_keys(activation_cards_transformation)
+    )
     for raw_key in all_keys:
         team_key = _normalize_team_report_key(raw_key)
         team = team_by_key.get(team_key) or {}
-        c = credit.get(raw_key) or credit.get(team_key) or {}
-        d = debit.get(raw_key) or debit.get(team_key) or {}
-        dep = deposit.get(raw_key) or deposit.get(team_key) or {}
+        c = _summary_team_value(credit, raw_key, team_key)
+        d = _summary_team_value(debit, raw_key, team_key)
+        dep = _summary_team_value(deposit, raw_key, team_key)
+        dep_projection = _summary_team_value(deposit_projection, raw_key, team_key)
+        pumb_month = _period_summary_team_value(activation_pumb, "month", raw_key, team_key)
+        pumb_yesterday = _period_summary_team_value(activation_pumb, "yesterday", raw_key, team_key)
+        cards_projection = _summary_team_value(activation_cards, raw_key, team_key)
+        cards_month = _period_summary_team_value(activation_cards_transformation, "month", raw_key, team_key)
+        cards_yesterday = _period_summary_team_value(activation_cards_transformation, "yesterday", raw_key, team_key)
         timestamp = now_iso()
         await db.report_metric_snapshots.update_one(
             {"snapshot_version": snapshot_version, "team_key": team_key},
@@ -10277,9 +11655,14 @@ async def _store_report_metric_snapshots(body: ReportPublishedWebhookBody | Repo
                     "credit_overall": _report_metric_number(c.get("overall")),
                     "debit_overall": _report_metric_number(d.get("overall")),
                     "deposit_overall": _report_metric_number(dep.get("overall")),
+                    "deposit_projection_overall": _report_metric_number(dep_projection.get("projective_rate") or dep_projection.get("overall")),
                     "credit": c,
                     "debit": d,
                     "deposit": dep,
+                    "deposit_projection": dep_projection,
+                    "activation_pumb": {"month": pumb_month, "yesterday": pumb_yesterday},
+                    "activation_cards": cards_projection,
+                    "activation_cards_transformation": {"month": cards_month, "yesterday": cards_yesterday},
                     "updated_at": timestamp,
                 },
                 "$setOnInsert": {"created_at": timestamp},
@@ -10455,6 +11838,150 @@ async def operator_report_trends(
     }
 
 
+def _snapshot_date_key(snapshot_updated_at: str, created_at: str = "") -> str:
+    candidates = [str(snapshot_updated_at or "").strip(), str(created_at or "").strip()]
+    for value in candidates:
+        if not value:
+            continue
+        iso_match = re.match(r"^(\d{4})-(\d{2})-(\d{2})", value)
+        if iso_match:
+            return f"{iso_match.group(1)}-{iso_match.group(2)}-{iso_match.group(3)}"
+        ua_match = re.match(r"^(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})", value)
+        if ua_match:
+            return f"{ua_match.group(3)}-{int(ua_match.group(2)):02d}-{int(ua_match.group(1)):02d}"
+    return ""
+
+
+def _team_projection_value(document: dict, report_type: str, period: str) -> Optional[float]:
+    if report_type == "credit":
+        return _report_metric_number((document.get("credit") or {}).get("overall") or document.get("credit_overall"))
+    if report_type == "debit":
+        return _report_metric_number((document.get("debit") or {}).get("overall") or document.get("debit_overall"))
+    if report_type == "deposit":
+        projection = document.get("deposit_projection") or {}
+        return _report_metric_number(projection.get("projective_rate") or projection.get("overall") or document.get("deposit_projection_overall"))
+    if report_type == "activation_pumb":
+        summary = ((document.get("activation_pumb") or {}).get(period) or {})
+        return _report_metric_number(summary.get("projective_rate") or summary.get("overall"))
+    if report_type == "activation_cards":
+        if period == "month":
+            projection = document.get("activation_cards") or {}
+            value = _report_metric_number(projection.get("projective_rate") or projection.get("overall"))
+            if value is not None:
+                return value
+        summary = ((document.get("activation_cards_transformation") or {}).get(period) or {})
+        return _report_metric_number(summary.get("projective_rate") or summary.get("overall"))
+    return None
+
+
+@api.get("/analytics/team-report-trends")
+async def team_report_trends(
+    report_type: Literal["credit", "debit", "deposit", "activation_pumb", "activation_cards"],
+    period: Literal["month", "yesterday"] = "month",
+    team_id: Optional[str] = None,
+    limit: int = 30,
+    user: dict = Depends(get_current_user),
+):
+    settings = await _goals_settings()
+    privileged = user.get("role") in {"admin", "editor"}
+    allow_cross_team = privileged or bool(settings.get("allow_cross_team_reports"))
+    selected_team_id = team_id if team_id and allow_cross_team else user.get("team_id")
+    if not selected_team_id:
+        return {"report_type": report_type, "period": period, "team_id": None, "records": []}
+
+    team = await db.teams.find_one({"id": selected_team_id}, {"_id": 0, "id": 1, "name": 1})
+    if not team:
+        return {"report_type": report_type, "period": period, "team_id": selected_team_id, "records": []}
+    team_key = _normalize_team_report_key(team.get("name"))
+    safe_limit = max(1, min(int(limit or 30), 90))
+    docs = await db.report_metric_snapshots.find(
+        {"$or": [{"team_id": selected_team_id}, {"team_key": team_key}]},
+        {"_id": 0},
+    ).sort("created_at", -1).limit(min(500, safe_limit * 8)).to_list(min(500, safe_limit * 8))
+
+    # Keep one point per Kyiv calendar day. If reports are published several times
+    # during a day, the newest snapshot wins instead of creating hour-based labels.
+    by_day = {}
+    for document in reversed(docs):
+        value = _team_projection_value(document, report_type, period)
+        if value is None:
+            continue
+        date_key = _snapshot_date_key(document.get("snapshot_updated_at"), document.get("created_at"))
+        if not date_key:
+            continue
+        by_day[date_key] = {
+            "date_key": date_key,
+            "snapshot_version": document.get("snapshot_version"),
+            "snapshot_updated_at": date_key,
+            "last_refresh_at": document.get("snapshot_updated_at"),
+            "report_type": report_type,
+            "period": period,
+            "segment": "team",
+            "segment_label": team.get("name") or "Команда",
+            "metrics": [{
+                "key": "projective_rate",
+                "label": "Проекційний підсумок групи",
+                "value": value,
+                "unit": "percent",
+            }],
+            "updated_at": document.get("updated_at") or document.get("created_at"),
+        }
+    records = [by_day[key] for key in sorted(by_day.keys())][-safe_limit:]
+    return {
+        "report_type": report_type,
+        "period": period,
+        "team_id": selected_team_id,
+        "team_name": team.get("name"),
+        "records": records,
+        "storage_mode": "one_team_point_per_day",
+    }
+
+
+REPORT_VIEW_KEYS = {
+    "overview",
+    "credit_leaderboard",
+    "credit_xsell_month", "credit_xsell_yesterday",
+    "credit_web_apps_month", "credit_web_apps_yesterday",
+    "credit_inb_month", "credit_inb_yesterday",
+    "debit_leaderboard", "debit_issuances_month", "debit_issuances_yesterday",
+    "deposit_projection", "deposit_metrics_month", "deposit_metrics_yesterday",
+    "deposit_giving_month", "deposit_giving_yesterday",
+    "activation_pumb_month", "activation_pumb_yesterday",
+    "activation_cards_month", "activation_cards_yesterday",
+}
+
+
+def _report_view_key(path_value: str) -> str:
+    raw = str(path_value or "")
+    pathname, _, query = raw.partition("?")
+    params = parse_qs(query)
+    period = (params.get("period") or ["month"])[0]
+    period = "yesterday" if period == "yesterday" else "month"
+    if pathname == "/goals":
+        return "overview"
+    if pathname == "/goals/credit":
+        return "credit_leaderboard"
+    if pathname == "/goals/credit/me":
+        raw_channel = (params.get("channel") or ["xsell"])[0].lower().replace("-", "_")
+        channel = {"x_sell": "xsell", "xsell": "xsell", "web": "web_apps", "web_apps": "web_apps", "inb": "inb"}.get(raw_channel, "xsell")
+        return f"credit_{channel}_{period}"
+    if pathname == "/goals/debit":
+        return "debit_leaderboard"
+    if pathname == "/goals/debit/me":
+        return f"debit_issuances_{period}"
+    if pathname == "/goals/deposit":
+        return "deposit_projection"
+    if pathname == "/goals/deposit/me":
+        return f"deposit_metrics_{period}"
+    if pathname == "/goals/deposit/issuances":
+        return f"deposit_giving_{period}"
+    if pathname == "/goals/activation/pumb":
+        return f"activation_pumb_{period}"
+    if pathname == "/goals/activation/cards":
+        return f"activation_cards_{period}"
+    return ""
+
+
 # ─── Manager analytics ───
 def _manager_period_bounds(period: str) -> tuple[str, str]:
     now = datetime.now(timezone.utc)
@@ -10496,9 +12023,19 @@ async def manager_analytics(
     views = await db.page_views.find(
         {"user_id": {"$in": member_ids}, "created_at": {"$gte": start, "$lt": end}},
         {"_id": 0, "user_id": 1, "path": 1, "created_at": 1},
-    ).to_list(100000)
+    ).sort("created_at", 1).to_list(100000)
     active_ids = set(view.get("user_id") for view in views)
     report_ids = set(view.get("user_id") for view in views if str(view.get("path") or "").startswith("/goals"))
+    report_views_by_user = {}
+    for view in views:
+        report_key = _report_view_key(view.get("path"))
+        if not report_key or report_key not in REPORT_VIEW_KEYS:
+            continue
+        user_views = report_views_by_user.setdefault(view.get("user_id"), {})
+        created_at = view.get("created_at")
+        previous = user_views.get(report_key)
+        if not previous or str(created_at or "") >= str(previous or ""):
+            user_views[report_key] = created_at
     last_view_pipeline = [
         {"$match": {"user_id": {"$in": member_ids}}},
         {"$group": {"_id": "$user_id", "last_seen": {"$max": "$created_at"}}},
@@ -10507,7 +12044,7 @@ async def manager_analytics(
     last_seen = {row["_id"]: row.get("last_seen") for row in last_seen_rows}
 
     tx_pipeline = [
-        {"$match": {"user_id": {"$in": member_ids}, "created_at": {"$gte": start, "$lt": end}}},
+        {"$match": {"user_id": {"$in": member_ids}, "created_at": {"$gte": start, "$lt": end}, **_pet_reward_exclusion()}},
         {"$group": {"_id": "$user_id", "earned": {"$sum": {"$cond": [{"$gt": ["$amount", 0]}, "$amount", 0]}}, "spent": {"$sum": {"$cond": [{"$lt": ["$amount", 0]}, {"$abs": "$amount"}, 0]}}}},
     ]
     tx_rows = await db.transactions.aggregate(tx_pipeline).to_list(5000)
@@ -10524,11 +12061,11 @@ async def manager_analytics(
     popular_prizes = await db.orders.aggregate(prize_pipeline).to_list(8)
 
     bonus_runs = await db.bonus_match_completions.count_documents({"user_id": {"$in": member_ids}, "updated_at": {"$gte": start, "$lt": end}})
-    sudoku_runs = await db.sudoku_completions.count_documents({"user_id": {"$in": member_ids}, "updated_at": {"$gte": start, "$lt": end}})
+    hidden_object_runs = await db.hidden_object_completions.count_documents({"user_id": {"$in": member_ids}, "updated_at": {"$gte": start, "$lt": end}})
     bonus_profiles = await db.bonus_match_profiles.find({"user_id": {"$in": member_ids}}, {"_id": 0, "current_level": 1}).to_list(5000)
-    sudoku_profiles = await db.sudoku_profiles.find({"user_id": {"$in": member_ids}}, {"_id": 0, "current_level": 1}).to_list(5000)
+    hidden_object_profiles = await db.hidden_object_profiles.find({"user_id": {"$in": member_ids}}, {"_id": 0, "current_level": 1}).to_list(5000)
     average_bonus_level = round(sum(int(item.get("current_level", 1)) for item in bonus_profiles) / len(bonus_profiles), 1) if bonus_profiles else 0
-    average_sudoku_level = round(sum(int(item.get("current_level", 1)) for item in sudoku_profiles) / len(sudoku_profiles), 1) if sudoku_profiles else 0
+    average_hidden_object_level = round(sum(int(item.get("current_level", 1)) for item in hidden_object_profiles) / len(hidden_object_profiles), 1) if hidden_object_profiles else 0
 
     operators = []
     now_utc = datetime.now(timezone.utc)
@@ -10541,10 +12078,14 @@ async def manager_analytics(
             except Exception:
                 pass
         tx = tx_by_user.get(member["id"], {})
+        detailed_views = report_views_by_user.get(member["id"], {})
         operators.append({
             **member,
             "active": member["id"] in active_ids,
             "viewed_reports": member["id"] in report_ids,
+            "report_views": detailed_views,
+            "report_view_count": len(detailed_views),
+            "report_view_total": len(REPORT_VIEW_KEYS),
             "last_seen": seen,
             "days_inactive": days_inactive,
             "earned": int(tx.get("earned", 0)),
@@ -10561,7 +12102,7 @@ async def manager_analytics(
         day_views = sum(1 for view in views if day_start <= str(view.get("created_at", "")) < day_end)
         day_active = len({view.get("user_id") for view in views if day_start <= str(view.get("created_at", "")) < day_end})
         day_tx = await db.transactions.aggregate([
-            {"$match": {"user_id": {"$in": member_ids}, "created_at": {"$gte": day_start, "$lt": day_end}}},
+            {"$match": {"user_id": {"$in": member_ids}, "created_at": {"$gte": day_start, "$lt": day_end}, **_pet_reward_exclusion()}},
             {"$group": {"_id": None, "earned": {"$sum": {"$cond": [{"$gt": ["$amount", 0]}, "$amount", 0]}}, "spent": {"$sum": {"$cond": [{"$lt": ["$amount", 0]}, {"$abs": "$amount"}, 0]}}}},
         ]).to_list(1)
         trend.append({"date": day, "views": day_views, "active_users": day_active, "earned": int(day_tx[0].get("earned", 0)) if day_tx else 0, "spent": int(day_tx[0].get("spent", 0)) if day_tx else 0})
@@ -10578,7 +12119,7 @@ async def manager_analytics(
         if not ids:
             continue
         tx = await db.transactions.aggregate([
-            {"$match": {"user_id": {"$in": ids}, "created_at": {"$gte": start, "$lt": end}}},
+            {"$match": {"user_id": {"$in": ids}, "created_at": {"$gte": start, "$lt": end}, **_pet_reward_exclusion()}},
             {"$group": {"_id": None, "earned": {"$sum": {"$cond": [{"$gt": ["$amount", 0]}, "$amount", 0]}}, "spent": {"$sum": {"$cond": [{"$lt": ["$amount", 0]}, {"$abs": "$amount"}, 0]}}}},
         ]).to_list(1)
         active = await db.page_views.distinct("user_id", {"user_id": {"$in": ids}, "created_at": {"$gte": start, "$lt": end}})
@@ -10638,9 +12179,9 @@ async def manager_analytics(
             "points_earned": total_earned,
             "points_spent": total_spent,
             "bonus_match_activity": bonus_runs,
-            "sudoku_activity": sudoku_runs,
+            "hidden_object_activity": hidden_object_runs,
             "average_bonus_level": average_bonus_level,
-            "average_sudoku_level": average_sudoku_level,
+            "average_hidden_object_level": average_hidden_object_level,
         },
         "operators": operators,
         "popular_prizes": [{"prize_id": row["_id"].get("id"), "title": row["_id"].get("title"), "orders": row.get("orders", 0), "points": row.get("points", 0)} for row in popular_prizes],
@@ -10757,7 +12298,12 @@ async def admin_review_application(app_id: str, body: ReviewBody, admin: dict = 
         xp = int(app_doc.get("xp", 0))
         await db.users.update_one(
             {"id": app_doc["user_id"]},
-            {"$inc": {"balance": reward, "total_earned": reward, "total_xp": xp}},
+            {"$inc": {"balance": reward, "total_earned": reward}},
+        )
+        await _award_xp(
+            app_doc["user_id"], xp, "task", f"application:{app_id}",
+            f"Завдання підтверджено: {app_doc['task_title']}",
+            {"application_id": app_id, "task_id": app_doc.get("task_id")}, admin.get("id"),
         )
         await db.transactions.insert_one({
             "id": str(uuid.uuid4()),
@@ -10778,6 +12324,9 @@ async def admin_review_application(app_id: str, body: ReviewBody, admin: dict = 
             f"{app_doc['task_title']} • +{reward} балів, +{xp} XP", "/tasks", "check-circle-2",
         )
         await _notify_points_awarded(app_doc["user_id"], reward, f"Завдання підтверджено: {app_doc['task_title']}")
+        progression_user = await db.users.find_one({"id": app_doc["user_id"]}, {"_id": 0})
+        if progression_user:
+            await _sync_system_achievements(progression_user)
     else:
         if not body.reason.strip():
             raise HTTPException(status_code=400, detail="Вкажи причину відхилення")
@@ -10828,7 +12377,11 @@ async def admin_approve_user(user_id: str, admin: dict = Depends(get_current_adm
             "id": str(uuid.uuid4()), "user_id": user_id, "kind": "signup_bonus",
             "amount": 100, "description": "Стартовий бонус за реєстрацію", "created_at": now_iso(),
         })
-        await db.users.update_one({"id": user_id}, {"$inc": {"balance": 100, "total_earned": 100, "total_xp": 50}})
+        await db.users.update_one({"id": user_id}, {"$inc": {"balance": 100, "total_earned": 100}})
+        await _award_xp(
+            user_id, 50, "signup", f"signup:{user_id}",
+            "Стартовий XP-бонус за підтвердження акаунта", {"approved_by": admin.get("id")}, admin.get("id"),
+        )
     await _notify(user_id, "account_approved", "Акаунт підтверджено! 🎉",
                   "Ласкаво просимо у VPDK Bonus. +100 стартових балів", "/", "party-popper")
     if not already:
@@ -10840,96 +12393,135 @@ async def admin_approve_user(user_id: str, admin: dict = Depends(get_current_adm
 
 
 # ────────────────────────────────────────────────────────────────────────
-# VPDK Sudoku — 50-level logic campaign
+# VPDK Detective — Hidden Objects campaign
 # ────────────────────────────────────────────────────────────────────────
-SUDOKU_LEVELS_PATH = ROOT_DIR / "sudoku_levels.json"
-SUDOKU_FIRST_CLEAR_POINTS = 2
-SUDOKU_FIRST_CLEAR_XP = 10
-SUDOKU_REPLAY_XP = 5
-SUDOKU_MAX_LEVEL = 50
-SUDOKU_MODES = {"standard", "zen", "timeAttack", "noMistakes"}
+HIDDEN_OBJECT_LEVELS_PATH = ROOT_DIR / "hidden_object_levels.json"
+HIDDEN_OBJECT_FIRST_CLEAR_POINTS = 2
+HIDDEN_OBJECT_FIRST_CLEAR_XP = 15
+HIDDEN_OBJECT_REPLAY_XP = 5
+HIDDEN_OBJECT_REPLAY_REWARDS_PER_DAY = 1
+HIDDEN_OBJECT_V5_LEGACY_LEVEL_MAP = {4: 7, 5: 8, 6: 9}
 
 try:
-    SUDOKU_LEVELS = json.loads(SUDOKU_LEVELS_PATH.read_text(encoding="utf-8"))
-    SUDOKU_LEVELS_BY_ID = {int(item["id"]): item for item in SUDOKU_LEVELS}
+    (
+        HIDDEN_OBJECT_CATALOG,
+        HIDDEN_OBJECT_SCENES_BY_ID,
+        HIDDEN_OBJECT_LEVELS_BY_ID,
+    ) = load_hidden_object_catalog(HIDDEN_OBJECT_LEVELS_PATH)
+    HIDDEN_OBJECT_MAX_LEVEL = len(HIDDEN_OBJECT_LEVELS_BY_ID)
 except (OSError, ValueError, TypeError, KeyError) as exc:
-    logger.error("Could not load Sudoku levels: %s", exc)
-    SUDOKU_LEVELS = []
-    SUDOKU_LEVELS_BY_ID = {}
+    logger.error("Could not load Hidden Objects levels: %s", exc)
+    HIDDEN_OBJECT_CATALOG = {"version": "unavailable", "scenes": [], "levels": []}
+    HIDDEN_OBJECT_SCENES_BY_ID = {}
+    HIDDEN_OBJECT_LEVELS_BY_ID = {}
+    HIDDEN_OBJECT_MAX_LEVEL = 0
 
 
-class SudokuStartBody(BaseModel):
-    level: int = Field(ge=1, le=SUDOKU_MAX_LEVEL)
-    mode: str = "standard"
+class HiddenObjectStartBody(BaseModel):
+    level: int = Field(ge=1, le=1000)
     restart: bool = False
 
 
-class SudokuSessionBody(BaseModel):
-    session_id: str
-    level: int = Field(ge=1, le=SUDOKU_MAX_LEVEL)
-    mode: str = "standard"
-    cells: List[int]
-    notes: List[List[int]] = Field(default_factory=list)
-    selected: Optional[int] = None
-    pencil: bool = False
-    elapsed: int = Field(default=0, ge=0, le=86400)
-    errors: int = Field(default=0, ge=0, le=999)
-    hints_used: int = Field(default=0, ge=0, le=99)
-    notes_used: bool = False
+class HiddenObjectActionBody(BaseModel):
+    session_id: str = Field(min_length=1, max_length=120)
+    sequence: int = Field(ge=1, le=1000000)
+    kind: Literal["find", "hint", "pause", "resume"]
+    x: Optional[float] = Field(default=None, ge=0, le=1)
+    y: Optional[float] = Field(default=None, ge=0, le=1)
 
 
-class SudokuCompleteBody(BaseModel):
-    session_id: str
-    level: int = Field(ge=1, le=SUDOKU_MAX_LEVEL)
-    cells: List[int]
-    elapsed: int = Field(default=0, ge=0, le=86400)
-    errors: int = Field(default=0, ge=0, le=999)
-    hints_used: int = Field(default=0, ge=0, le=99)
-    notes_used: bool = False
-    stars: int = Field(default=1, ge=1, le=3)
+class HiddenObjectCompleteBody(BaseModel):
+    session_id: str = Field(min_length=1, max_length=120)
 
 
-def _sudoku_public_level(level: dict) -> dict:
+def _hidden_object_elapsed(session: dict, moment: Optional[datetime] = None) -> int:
+    elapsed = max(0, int(session.get("elapsed", 0)))
+    if session.get("paused"):
+        return min(86400, elapsed)
+    active_started_at = _parse_iso_datetime(session.get("active_started_at"))
+    if not active_started_at:
+        return min(86400, elapsed)
+    moment = moment or datetime.now(timezone.utc)
+    return min(86400, elapsed + max(0, int((moment - active_started_at).total_seconds())))
+
+
+def _hidden_object_level_parts(level_id: int) -> tuple[dict, dict]:
+    level = HIDDEN_OBJECT_LEVELS_BY_ID.get(int(level_id))
+    if not level:
+        raise HTTPException(status_code=404, detail="Рівень VPDK Детектива не знайдено")
+    scene = HIDDEN_OBJECT_SCENES_BY_ID.get(str(level.get("scene_id")))
+    if not scene:
+        raise HTTPException(status_code=503, detail="Сцена рівня тимчасово недоступна")
+    return level, scene
+
+
+def _hidden_object_catalog_version() -> str:
+    return str(HIDDEN_OBJECT_CATALOG.get("version") or "v1")
+
+
+async def _hidden_object_retire_stale_active_sessions(user_id: str) -> None:
+    """Retire sessions whose target set belongs to an older content manifest."""
+
+    await db.hidden_object_sessions.update_many(
+        {
+            "user_id": user_id,
+            "status": "active",
+            "content_version": {"$ne": _hidden_object_catalog_version()},
+        },
+        {
+            "$set": {"status": "replaced", "updated_at": now_iso()},
+            "$unset": {"slot_key": ""},
+        },
+    )
+
+
+def _hidden_object_marker(scene: dict, object_id: str) -> Optional[dict]:
+    item = scene.get("objects_by_id", {}).get(str(object_id))
+    if not item:
+        return None
+    return {"object_id": str(object_id), "x": float(item["x"]), "y": float(item["y"])}
+
+
+def _hidden_object_session_payload(session: Optional[dict]) -> Optional[dict]:
+    if not session:
+        return None
+    level, scene = _hidden_object_level_parts(int(session.get("level", 1)))
+    target_ids = [str(value) for value in session.get("target_ids") or level.get("target_ids") or []]
+    found_set = {str(value) for value in session.get("found_ids") or []}
+    found_ids = [value for value in target_ids if value in found_set]
+    markers = [marker for marker in (_hidden_object_marker(scene, value) for value in found_ids) if marker]
+    mistakes = max(0, int(session.get("mistakes", 0)))
+    mistake_limit = hidden_object_mistake_limit(level)
     return {
-        "id": int(level["id"]),
-        "title": level.get("title", f"Рівень {level['id']}"),
+        "id": session.get("id"),
+        "status": session.get("status", "active"),
+        "level_id": int(level["id"]),
+        "content_version": session.get("content_version") or HIDDEN_OBJECT_CATALOG.get("version", "v1"),
+        "title": level.get("title"),
         "difficulty": level.get("difficulty", "medium"),
-        "type": level.get("type", "classic"),
-        "clues": int(level.get("clues", 0)),
-        "hints": int(level.get("hints", 0)),
-        "accent": level.get("accent", "#8B5CF6"),
+        "image": scene.get("image"),
+        "image_width": int(scene.get("width", 1122)),
+        "image_height": int(scene.get("height", 1402)),
+        "targets": hidden_object_targets(level, scene),
+        "found_ids": found_ids,
+        "found_markers": markers,
+        "mistakes": mistakes,
+        "mistake_limit": mistake_limit,
+        "mistakes_remaining": max(0, mistake_limit - mistakes),
+        "hints_used": max(0, int(session.get("hints_used", 0))),
+        "hints_total": int(level.get("hints", 0)),
+        "elapsed": _hidden_object_elapsed(session),
+        "paused": bool(session.get("paused", False)),
+        "last_sequence": max(0, int(session.get("last_sequence", 0))),
+        "started_at": session.get("started_at"),
+        "failed_at": session.get("failed_at"),
+        "failure_reason": session.get("failure_reason"),
+        "updated_at": session.get("updated_at"),
     }
 
 
-def _sudoku_normalize_cells(cells) -> list[int]:
-    if not isinstance(cells, list) or len(cells) != 81:
-        raise HTTPException(status_code=422, detail="Поле Судоку має містити 81 клітинку")
-    normalized = []
-    for value in cells:
-        try:
-            number = int(value or 0)
-        except (TypeError, ValueError):
-            raise HTTPException(status_code=422, detail="Некоректне значення у полі Судоку")
-        if number < 0 or number > 9:
-            raise HTTPException(status_code=422, detail="Числа Судоку мають бути від 0 до 9")
-        normalized.append(number)
-    return normalized
-
-
-def _sudoku_normalize_notes(notes) -> list[list[int]]:
-    if not isinstance(notes, list) or len(notes) != 81:
-        return [[] for _ in range(81)]
-    result = []
-    for values in notes:
-        if not isinstance(values, list):
-            result.append([])
-            continue
-        result.append(sorted({int(value) for value in values if str(value).isdigit() and 1 <= int(value) <= 9}))
-    return result
-
-
-async def _sudoku_profile(user_id: str) -> dict:
-    profile = await db.sudoku_profiles.find_one({"user_id": user_id}, {"_id": 0})
+async def _hidden_object_profile(user_id: str) -> dict:
+    profile = await db.hidden_object_profiles.find_one({"user_id": user_id}, {"_id": 0})
     if profile:
         return profile
     now = now_iso()
@@ -10937,285 +12529,661 @@ async def _sudoku_profile(user_id: str) -> dict:
         "user_id": user_id,
         "current_level": 1,
         "total_stars": 0,
+        "content_version": _hidden_object_catalog_version(),
         "created_at": now,
         "updated_at": now,
     }
-    await db.sudoku_profiles.update_one(
+    await db.hidden_object_profiles.update_one(
         {"user_id": user_id},
         {"$setOnInsert": profile},
         upsert=True,
     )
-    return await db.sudoku_profiles.find_one({"user_id": user_id}, {"_id": 0}) or profile
+    return await db.hidden_object_profiles.find_one({"user_id": user_id}, {"_id": 0}) or profile
 
 
-async def _sudoku_reconcile_level(user_id: str, profile: dict) -> int:
-    completed = await db.sudoku_completions.find(
+async def _hidden_object_migrate_campaign_progress(user_id: str, profile: dict) -> dict:
+    """Move legacy hard clears behind the new medium chapter exactly once.
+
+    Catalogs through v4 placed the three hard panoramas at levels 4–6.  In v5
+    those same cases live at levels 7–9, while 4–6 are new medium cases.  The
+    dedicated migration marker makes this copy/delete migration idempotent.
+    ``content_version`` cannot be that marker because profile creation and normal
+    completions also advance it to the current catalog version.
+    """
+
+    catalog_version = _hidden_object_catalog_version()
+    profile_version = str(profile.get("content_version") or "")
+    if catalog_version == "v5" and profile.get("v5_progress_migrated") is True:
+        return profile
+    if catalog_version != "v5" and profile_version == catalog_version:
+        return profile
+
+    if catalog_version == "v5":
+        legacy_levels = sorted(HIDDEN_OBJECT_V5_LEGACY_LEVEL_MAP)
+        legacy_filter = {
+            "user_id": user_id,
+            "level": {"$in": legacy_levels},
+            # A current-version completion at 4–6 is one of the new medium
+            # cases.  Never move or delete it, even if a stale profile causes
+            # this migration to be retried.
+            "content_version": {"$ne": catalog_version},
+        }
+        completions = await db.hidden_object_completions.find(
+            legacy_filter,
+            {"_id": 0},
+        ).to_list(len(legacy_levels))
+        for completion in completions:
+            source_level = int(completion.get("level", 0))
+            target_level = HIDDEN_OBJECT_V5_LEGACY_LEVEL_MAP.get(source_level)
+            if not target_level:
+                continue
+            migrated = dict(completion)
+            migrated.update({
+                "id": str(uuid.uuid4()),
+                "user_id": user_id,
+                "level": target_level,
+                "content_version": catalog_version,
+                "migrated_from_level": source_level,
+                "migrated_from_content_version": str(
+                    completion.get("content_version") or profile_version or "legacy"
+                ),
+            })
+            await db.hidden_object_completions.update_one(
+                {"user_id": user_id, "level": target_level},
+                {"$setOnInsert": migrated},
+                upsert=True,
+            )
+        if completions:
+            # Delete only the legacy rows copied above.  The version predicate
+            # protects a concurrently-created v5 medium completion.
+            await db.hidden_object_completions.delete_many(legacy_filter)
+
+    now = now_iso()
+    profile_fields = {"content_version": catalog_version, "updated_at": now}
+    if catalog_version == "v5":
+        profile_fields.update({"v5_progress_migrated": True, "v5_progress_migrated_at": now})
+    await db.hidden_object_profiles.update_one(
+        {"user_id": user_id},
+        {"$set": profile_fields},
+    )
+    return {**profile, **profile_fields}
+
+
+async def _hidden_object_reconcile_level(user_id: str, profile: dict) -> int:
+    completed = await db.hidden_object_completions.find(
         {"user_id": user_id}, {"_id": 0, "level": 1}
-    ).sort("level", 1).to_list(SUDOKU_MAX_LEVEL)
+    ).sort("level", 1).to_list(max(1, HIDDEN_OBJECT_MAX_LEVEL))
     completed_levels = {int(item.get("level", 0)) for item in completed}
     unlocked = 1
-    while unlocked in completed_levels and unlocked < SUDOKU_MAX_LEVEL:
+    while unlocked in completed_levels and unlocked < HIDDEN_OBJECT_MAX_LEVEL:
         unlocked += 1
-    unlocked = max(1, min(SUDOKU_MAX_LEVEL, unlocked))
+    unlocked = max(1, min(max(1, HIDDEN_OBJECT_MAX_LEVEL), unlocked))
     if int(profile.get("current_level", 1)) != unlocked:
-        await db.sudoku_profiles.update_one(
+        await db.hidden_object_profiles.update_one(
             {"user_id": user_id},
             {"$set": {"current_level": unlocked, "updated_at": now_iso()}},
         )
     return unlocked
 
 
-def _sudoku_session_payload(session: Optional[dict]) -> Optional[dict]:
-    if not session:
-        return None
-    return {
-        "id": session.get("id"),
-        "level_id": int(session.get("level", 1)),
-        "mode": session.get("mode", "standard"),
-        "cells": _sudoku_normalize_cells(session.get("cells", [])),
-        "notes": _sudoku_normalize_notes(session.get("notes", [])),
-        "selected": session.get("selected"),
-        "pencil": bool(session.get("pencil", False)),
-        "elapsed": int(session.get("elapsed", 0)),
-        "errors": int(session.get("errors", 0)),
-        "hints_used": int(session.get("hints_used", 0)),
-        "notes_used": bool(session.get("notes_used", False)),
-        "started_at": session.get("started_at"),
-        "updated_at": session.get("updated_at"),
-    }
-
-
-async def _sudoku_status_payload(user_id: str) -> dict:
-    profile = await _sudoku_profile(user_id)
-    unlocked = await _sudoku_reconcile_level(user_id, profile)
-    completions = await db.sudoku_completions.find(
+async def _hidden_object_status_payload(user_id: str) -> dict:
+    await _hidden_object_retire_stale_active_sessions(user_id)
+    profile = await _hidden_object_profile(user_id)
+    profile = await _hidden_object_migrate_campaign_progress(user_id, profile)
+    unlocked = await _hidden_object_reconcile_level(user_id, profile)
+    completions = await db.hidden_object_completions.find(
         {"user_id": user_id}, {"_id": 0}
-    ).sort("level", 1).to_list(SUDOKU_MAX_LEVEL)
-    active = await db.sudoku_sessions.find_one(
-        {"user_id": user_id, "status": "active"},
+    ).sort("level", 1).to_list(max(1, HIDDEN_OBJECT_MAX_LEVEL))
+    active = await db.hidden_object_sessions.find_one(
+        {
+            "user_id": user_id,
+            "status": "active",
+            "content_version": _hidden_object_catalog_version(),
+        },
         {"_id": 0},
         sort=[("updated_at", -1)],
     )
+    public_levels = []
+    for level_id in sorted(HIDDEN_OBJECT_LEVELS_BY_ID):
+        level, scene = _hidden_object_level_parts(level_id)
+        public_levels.append(hidden_object_public_level(level, scene))
     return {
         "unlocked_level": unlocked,
-        "max_level": SUDOKU_MAX_LEVEL,
+        "max_level": HIDDEN_OBJECT_MAX_LEVEL,
         "total_stars": sum(int(item.get("stars", 0)) for item in completions),
+        "content_version": HIDDEN_OBJECT_CATALOG.get("version", "v1"),
         "completions": completions,
-        "active_session": _sudoku_session_payload(active),
-        "levels": [_sudoku_public_level(level) for level in SUDOKU_LEVELS],
+        "active_session": _hidden_object_session_payload(active),
+        "levels": public_levels,
         "reward_policy": {
-            "first_clear_points": SUDOKU_FIRST_CLEAR_POINTS,
-            "first_clear_xp": SUDOKU_FIRST_CLEAR_XP,
-            "replay_xp": SUDOKU_REPLAY_XP,
+            "first_clear_points": HIDDEN_OBJECT_FIRST_CLEAR_POINTS,
+            "first_clear_xp": HIDDEN_OBJECT_FIRST_CLEAR_XP,
+            "replay_xp": HIDDEN_OBJECT_REPLAY_XP,
+            "rewarded_replays_per_level_per_day": HIDDEN_OBJECT_REPLAY_REWARDS_PER_DAY,
         },
     }
 
 
-@api.get("/games/sudoku/status")
-async def sudoku_status(user: dict = Depends(get_current_user)):
-    return await _sudoku_status_payload(user["id"])
+@api.get("/games/hidden-objects/status")
+async def hidden_object_status(user: dict = Depends(get_current_user)):
+    return await _hidden_object_status_payload(user["id"])
 
 
-@api.post("/games/sudoku/start")
-async def sudoku_start(body: SudokuStartBody, user: dict = Depends(get_current_user)):
-    level = SUDOKU_LEVELS_BY_ID.get(int(body.level))
-    if not level:
-        raise HTTPException(status_code=404, detail="Рівень Судоку не знайдено")
-    profile = await _sudoku_profile(user["id"])
-    unlocked = await _sudoku_reconcile_level(user["id"], profile)
+@api.post("/games/hidden-objects/start")
+async def hidden_object_start(body: HiddenObjectStartBody, user: dict = Depends(get_current_user)):
+    if HIDDEN_OBJECT_MAX_LEVEL <= 0:
+        raise HTTPException(status_code=503, detail="Каталог VPDK Детектива недоступний")
+    level, _scene = _hidden_object_level_parts(body.level)
+    profile = await _hidden_object_profile(user["id"])
+    profile = await _hidden_object_migrate_campaign_progress(user["id"], profile)
+    unlocked = await _hidden_object_reconcile_level(user["id"], profile)
     if int(body.level) > unlocked:
-        raise HTTPException(status_code=400, detail="Цей рівень Судоку ще не відкрито")
-    mode = body.mode if body.mode in SUDOKU_MODES else "standard"
-    existing = await db.sudoku_sessions.find_one(
-        {"user_id": user["id"], "status": "active", "level": int(body.level), "mode": mode},
+        raise HTTPException(status_code=400, detail="Цей рівень VPDK Детектива ще не відкрито")
+
+    await _hidden_object_retire_stale_active_sessions(user["id"])
+    existing = await db.hidden_object_sessions.find_one(
+        {
+            "user_id": user["id"],
+            "status": "active",
+            "level": int(body.level),
+            "content_version": _hidden_object_catalog_version(),
+        },
         {"_id": 0},
         sort=[("updated_at", -1)],
     )
     if existing and not body.restart:
-        return {"session": _sudoku_session_payload(existing), "resumed": True}
+        return {"session": _hidden_object_session_payload(existing), "resumed": True}
 
     now = now_iso()
-    await db.sudoku_sessions.update_many(
+    await db.hidden_object_sessions.update_many(
         {"user_id": user["id"], "status": "active"},
-        {"$set": {"status": "replaced", "updated_at": now}},
+        {"$set": {"status": "replaced", "updated_at": now}, "$unset": {"slot_key": ""}},
     )
     session = {
         "id": str(uuid.uuid4()),
         "user_id": user["id"],
-        "level": int(body.level),
-        "mode": mode,
-        "cells": list(level.get("puzzle", [])),
-        "notes": [[] for _ in range(81)],
-        "selected": None,
-        "pencil": False,
-        "elapsed": 0,
-        "errors": 0,
+        "slot_key": user["id"],
+        "level": int(level["id"]),
+        "content_version": HIDDEN_OBJECT_CATALOG.get("version", "v1"),
+        "target_ids": [str(value) for value in level.get("target_ids") or []],
+        "found_ids": [],
+        "hinted_ids": [],
+        "mistakes": 0,
+        "mistake_limit": hidden_object_mistake_limit(level),
         "hints_used": 0,
-        "notes_used": False,
+        "elapsed": 0,
+        "paused": False,
+        "last_sequence": 0,
         "status": "active",
         "started_at": now,
+        "active_started_at": now,
         "updated_at": now,
     }
-    await db.sudoku_sessions.insert_one(session.copy())
-    return {"session": _sudoku_session_payload(session), "resumed": False}
+    try:
+        await db.hidden_object_sessions.insert_one(session.copy())
+    except DuplicateKeyError:
+        active = await db.hidden_object_sessions.find_one(
+            {"user_id": user["id"], "status": "active"}, {"_id": 0}
+        )
+        if active and int(active.get("level", 0)) == int(level["id"]):
+            return {"session": _hidden_object_session_payload(active), "resumed": True}
+        raise HTTPException(status_code=409, detail="Інша справа вже запускається. Спробуйте ще раз")
+    return {"session": _hidden_object_session_payload(session), "resumed": False}
 
 
-@api.patch("/games/sudoku/session")
-async def sudoku_save_session(body: SudokuSessionBody, user: dict = Depends(get_current_user)):
-    level = SUDOKU_LEVELS_BY_ID.get(int(body.level))
-    if not level:
-        raise HTTPException(status_code=404, detail="Рівень Судоку не знайдено")
-    cells = _sudoku_normalize_cells(body.cells)
-    # Given cells can never be changed in a valid saved session.
-    for index, given in enumerate(level.get("puzzle", [])):
-        if given and cells[index] != int(given):
-            raise HTTPException(status_code=422, detail="Початкові числа Судоку змінювати не можна")
-    mode = body.mode if body.mode in SUDOKU_MODES else "standard"
-    now = now_iso()
-    update = {
-        "level": int(body.level),
-        "mode": mode,
-        "cells": cells,
-        "notes": _sudoku_normalize_notes(body.notes),
-        "selected": body.selected if isinstance(body.selected, int) and 0 <= body.selected < 81 else None,
-        "pencil": bool(body.pencil),
-        "elapsed": int(body.elapsed),
-        "errors": int(body.errors),
-        "hints_used": int(body.hints_used),
-        "notes_used": bool(body.notes_used),
-        "status": "active",
-        "updated_at": now,
-    }
-    result = await db.sudoku_sessions.update_one(
-        {"id": body.session_id, "user_id": user["id"], "status": "active"},
-        {"$set": update, "$setOnInsert": {"id": body.session_id, "user_id": user["id"], "started_at": now}},
-        upsert=True,
+@api.post("/games/hidden-objects/action")
+async def hidden_object_action(body: HiddenObjectActionBody, user: dict = Depends(get_current_user)):
+    for _attempt in range(3):
+        session = await db.hidden_object_sessions.find_one(
+            {
+                "id": body.session_id,
+                "user_id": user["id"],
+                "content_version": _hidden_object_catalog_version(),
+            },
+            {"_id": 0},
+        )
+        if not session:
+            raise HTTPException(status_code=404, detail="Активну сесію не знайдено")
+
+        last_sequence = int(session.get("last_sequence", 0))
+        if int(body.sequence) <= last_sequence:
+            return {"session": _hidden_object_session_payload(session), "duplicate": True, "event": None}
+        if session.get("status") != "active":
+            raise HTTPException(status_code=409, detail="Цю сесію вже завершено")
+
+        level, scene = _hidden_object_level_parts(int(session.get("level", 1)))
+        now_dt = datetime.now(timezone.utc)
+        now = now_dt.isoformat()
+        elapsed = _hidden_object_elapsed(session, now_dt)
+        update = {
+            "elapsed": elapsed,
+            "last_sequence": int(body.sequence),
+            "updated_at": now,
+        }
+        event = {"kind": body.kind}
+
+        if body.kind == "pause":
+            update.update({"paused": True, "active_started_at": None})
+            if session.get("paused"):
+                event.update({"paused": True, "unchanged": True})
+            else:
+                event["paused"] = True
+        elif body.kind == "resume":
+            update.update({"paused": False, "active_started_at": now})
+            if not session.get("paused"):
+                event.update({"paused": False, "unchanged": True})
+            else:
+                event["paused"] = False
+        else:
+            if session.get("paused"):
+                raise HTTPException(status_code=409, detail="Спочатку продовжіть гру")
+            update["active_started_at"] = now
+            target_ids = [str(value) for value in session.get("target_ids") or level.get("target_ids") or []]
+            found_ids = [str(value) for value in session.get("found_ids") or []]
+            found_set = set(found_ids)
+            remaining_ids = [value for value in target_ids if value not in found_set]
+
+            if body.kind == "hint":
+                hints_used = int(session.get("hints_used", 0))
+                if hints_used >= int(level.get("hints", 0)):
+                    raise HTTPException(status_code=400, detail="Підказки цього рівня закінчилися")
+                if not remaining_ids:
+                    raise HTTPException(status_code=400, detail="Усі предмети вже знайдено")
+                hinted_ids = [str(value) for value in session.get("hinted_ids") or []]
+                hint_id = next((value for value in remaining_ids if value not in hinted_ids), remaining_ids[0])
+                if hint_id not in hinted_ids:
+                    hinted_ids.append(hint_id)
+                update.update({"hints_used": hints_used + 1, "hinted_ids": hinted_ids})
+                event.update({"object_id": hint_id, "marker": _hidden_object_marker(scene, hint_id)})
+            else:
+                if body.x is None or body.y is None:
+                    raise HTTPException(status_code=422, detail="Для пошуку потрібні координати натискання")
+                objects = scene.get("objects_by_id", {})
+                hits = [
+                    objects[object_id]
+                    for object_id in remaining_ids
+                    if object_id in objects and hidden_object_contains(objects[object_id], body.x, body.y)
+                ]
+                hit = min(hits, key=lambda item: float(item["rx"]) * float(item["ry"])) if hits else None
+                duplicate_hit = next(
+                    (
+                        object_id for object_id in found_ids
+                        if object_id in objects and hidden_object_contains(objects[object_id], body.x, body.y)
+                    ),
+                    None,
+                )
+                if hit:
+                    hit_id = str(hit["id"])
+                    found_ids.append(hit_id)
+                    update["found_ids"] = found_ids
+                    event.update({
+                        "hit": True,
+                        "object": {"id": hit_id, "label": hit["label"], "icon": hit.get("icon", "search")},
+                        "marker": _hidden_object_marker(scene, hit_id),
+                        "remaining": max(0, len(target_ids) - len(found_ids)),
+                    })
+                elif duplicate_hit:
+                    event.update({"hit": True, "duplicate": True, "object_id": duplicate_hit})
+                else:
+                    mistakes, mistakes_remaining, failed = hidden_object_apply_miss(
+                        level, session.get("mistakes", 0)
+                    )
+                    update["mistakes"] = mistakes
+                    event.update({
+                        "hit": False,
+                        "penalty_seconds": 5,
+                        "mistake_limit": hidden_object_mistake_limit(level),
+                        "mistakes_remaining": mistakes_remaining,
+                        "failed": failed,
+                    })
+                    if failed:
+                        update.update({
+                            "status": "failed",
+                            "failed_at": now,
+                            "failure_reason": "mistake_limit",
+                            "paused": False,
+                            "active_started_at": None,
+                        })
+
+        session_update = {"$set": update}
+        if update.get("status") == "failed":
+            session_update["$unset"] = {"slot_key": ""}
+        updated_session = await db.hidden_object_sessions.find_one_and_update(
+            {
+                "id": body.session_id,
+                "user_id": user["id"],
+                "status": "active",
+                "last_sequence": last_sequence,
+            },
+            session_update,
+            projection={"_id": 0},
+            return_document=ReturnDocument.AFTER,
+        )
+        if updated_session:
+            return {
+                "session": _hidden_object_session_payload(updated_session),
+                "duplicate": False,
+                "event": event,
+            }
+
+    latest = await db.hidden_object_sessions.find_one(
+        {
+            "id": body.session_id,
+            "user_id": user["id"],
+            "content_version": _hidden_object_catalog_version(),
+        },
+        {"_id": 0},
     )
-    return {"ok": bool(result.acknowledged), "updated_at": now}
+    if latest and int(body.sequence) <= int(latest.get("last_sequence", 0)):
+        return {"session": _hidden_object_session_payload(latest), "duplicate": True, "event": None}
+    raise HTTPException(status_code=409, detail="Стан гри змінився. Повторіть дію")
 
-
-@api.post("/games/sudoku/complete")
-async def sudoku_complete(body: SudokuCompleteBody, user: dict = Depends(get_current_user)):
-    level = SUDOKU_LEVELS_BY_ID.get(int(body.level))
-    if not level:
-        raise HTTPException(status_code=404, detail="Рівень Судоку не знайдено")
-    cells = _sudoku_normalize_cells(body.cells)
-    if cells != [int(value) for value in level.get("solution", [])]:
-        raise HTTPException(status_code=400, detail="Поле ще не розв’язане правильно")
-
-    prior_run = await db.sudoku_runs.find_one(
+@api.post("/games/hidden-objects/complete")
+async def hidden_object_complete(body: HiddenObjectCompleteBody, user: dict = Depends(get_current_user)):
+    prior_run = await db.hidden_object_runs.find_one(
         {"id": body.session_id, "user_id": user["id"]}, {"_id": 0}
     )
     if prior_run:
+        recovered_at = now_iso()
+        await db.hidden_object_sessions.update_one(
+            {"id": body.session_id, "user_id": user["id"], "status": "completing"},
+            {
+                "$set": {"status": "completed", "completed_at": recovered_at, "updated_at": recovered_at},
+                "$unset": {"slot_key": ""},
+            },
+        )
         return {
             "reward": prior_run.get("reward", {}),
-            "status": await _sudoku_status_payload(user["id"]),
+            "status": await _hidden_object_status_payload(user["id"]),
             "idempotent": True,
         }
 
-    profile = await _sudoku_profile(user["id"])
-    unlocked = await _sudoku_reconcile_level(user["id"], profile)
-    if int(body.level) > unlocked:
+    session = await db.hidden_object_sessions.find_one(
+        {
+            "id": body.session_id,
+            "user_id": user["id"],
+            "status": "active",
+            "content_version": _hidden_object_catalog_version(),
+        },
+        {"_id": 0},
+    )
+    if not session:
+        raise HTTPException(status_code=404, detail="Активну сесію не знайдено")
+    level, _scene = _hidden_object_level_parts(int(session.get("level", 1)))
+    mistake_limit = hidden_object_mistake_limit(level)
+    if max(0, int(session.get("mistakes", 0))) >= mistake_limit:
+        failure_dt = datetime.now(timezone.utc)
+        failed_at = failure_dt.isoformat()
+        failed_elapsed = _hidden_object_elapsed(session, failure_dt)
+        await db.hidden_object_sessions.update_one(
+            {"id": body.session_id, "user_id": user["id"], "status": "active"},
+            {
+                "$set": {
+                    "status": "failed",
+                    "failed_at": failed_at,
+                    "failure_reason": "mistake_limit",
+                    "elapsed": failed_elapsed,
+                    "paused": False,
+                    "active_started_at": None,
+                    "updated_at": failed_at,
+                },
+                "$unset": {"slot_key": ""},
+            },
+        )
+        raise HTTPException(status_code=409, detail="Ліміт неправильних натискань вичерпано")
+    target_ids = {str(value) for value in session.get("target_ids") or level.get("target_ids") or []}
+    found_ids = {str(value) for value in session.get("found_ids") or []}
+    if not target_ids or not target_ids.issubset(found_ids):
+        raise HTTPException(status_code=400, detail="Спочатку знайдіть усі предмети")
+
+    profile = await _hidden_object_profile(user["id"])
+    profile = await _hidden_object_migrate_campaign_progress(user["id"], profile)
+    unlocked = await _hidden_object_reconcile_level(user["id"], profile)
+    level_id = int(level["id"])
+    if level_id > unlocked:
         raise HTTPException(status_code=400, detail="Рівень не був відкритий для цього користувача")
 
-    now = now_iso()
-    existing = await db.sudoku_completions.find_one(
-        {"user_id": user["id"], "level": int(body.level)}, {"_id": 0}
-    )
-    previous_stars = int(existing.get("stars", 0)) if existing else 0
-    previous_time = int(existing.get("best_time", 0)) if existing else 0
-    previous_errors = int(existing.get("best_errors", 999)) if existing else 999
-    best_time = int(body.elapsed) if previous_time <= 0 else min(previous_time, int(body.elapsed))
-    best_errors = min(previous_errors, int(body.errors))
-    best_stars = max(previous_stars, int(body.stars))
-
-    completion_result = await db.sudoku_completions.update_one(
-        {"user_id": user["id"], "level": int(body.level)},
+    claim_dt = datetime.now(timezone.utc)
+    now = claim_dt.isoformat()
+    elapsed = _hidden_object_elapsed(session, claim_dt)
+    claimed_session = await db.hidden_object_sessions.find_one_and_update(
+        {
+            "id": body.session_id,
+            "user_id": user["id"],
+            "status": "active",
+            "last_sequence": int(session.get("last_sequence", 0)),
+        },
         {
             "$set": {
-                "stars": best_stars,
-                "best_time": best_time,
-                "best_errors": best_errors,
+                "status": "completing",
+                "elapsed": elapsed,
+                "active_started_at": None,
                 "updated_at": now,
-            },
-            "$inc": {"attempts_completed": 1},
-            "$setOnInsert": {
-                "id": str(uuid.uuid4()),
-                "user_id": user["id"],
-                "level": int(body.level),
-                "created_at": now,
-            },
+            }
         },
-        upsert=True,
+        projection={"_id": 0},
+        return_document=ReturnDocument.BEFORE,
     )
-    first_completion = completion_result.upserted_id is not None
+    if not claimed_session:
+        prior_run = await db.hidden_object_runs.find_one(
+            {"id": body.session_id, "user_id": user["id"]}, {"_id": 0}
+        )
+        if prior_run:
+            return {
+                "reward": prior_run.get("reward", {}),
+                "status": await _hidden_object_status_payload(user["id"]),
+                "idempotent": True,
+            }
+        raise HTTPException(status_code=409, detail="Завершення цієї справи вже обробляється")
+    session = claimed_session
 
-    next_level = min(SUDOKU_MAX_LEVEL, int(body.level) + 1)
-    star_delta = max(0, best_stars - previous_stars)
-    profile_update = {
-        "$max": {"current_level": next_level},
-        "$set": {"updated_at": now},
-    }
-    if star_delta:
-        profile_update["$inc"] = {"total_stars": star_delta}
-    await db.sudoku_profiles.update_one({"user_id": user["id"]}, profile_update)
+    try:
+        reward_claim = session.get("completion_claim")
+        if isinstance(reward_claim, dict):
+            elapsed = max(0, int(reward_claim.get("elapsed", elapsed)))
+            mistakes = max(0, int(reward_claim.get("mistakes", session.get("mistakes", 0))))
+            hints_used = max(0, int(reward_claim.get("hints_used", session.get("hints_used", 0))))
+            stars = max(1, min(3, int(reward_claim.get("stars", 1))))
+            effective_time = max(0, int(reward_claim.get("effective_time", elapsed)))
+            first_completion = bool(reward_claim.get("first_completion", False))
+            reward_day = str(reward_claim.get("reward_day") or kyiv_today_key())
+            reward_key = str(reward_claim["reward_key"])
+            points_awarded = max(0, int(reward_claim.get("points_awarded", 0)))
+            xp_awarded = max(0, int(reward_claim.get("xp_awarded", 0)))
+        else:
+            mistakes = max(0, int(session.get("mistakes", 0)))
+            hints_used = max(0, int(session.get("hints_used", 0)))
+            stars, effective_time = hidden_object_stars(level, elapsed, mistakes, hints_used)
+            existing_completion = await db.hidden_object_completions.find_one(
+                {"user_id": user["id"], "level": level_id}, {"_id": 0, "id": 1}
+            )
+            first_completion = existing_completion is None
+            reward_day = kyiv_today_key()
+            reward_key = (
+                f"hidden_object:{body.session_id}"
+                if first_completion
+                else f"hidden_object_replay:{user['id']}:{reward_day}"
+            )
+            reward_already_claimed = await db.users.find_one(
+                {"id": user["id"], "game_reward_keys": reward_key}, {"_id": 0, "id": 1}
+            )
+            points_awarded = HIDDEN_OBJECT_FIRST_CLEAR_POINTS if first_completion else 0
+            xp_awarded = HIDDEN_OBJECT_FIRST_CLEAR_XP if first_completion else HIDDEN_OBJECT_REPLAY_XP
+            if reward_already_claimed:
+                points_awarded = 0
+                xp_awarded = 0
+            reward_claim = {
+                "first_completion": first_completion,
+                "reward_day": reward_day,
+                "reward_key": reward_key,
+                "points_awarded": points_awarded,
+                "xp_awarded": xp_awarded,
+                "elapsed": elapsed,
+                "mistakes": mistakes,
+                "hints_used": hints_used,
+                "stars": stars,
+                "effective_time": effective_time,
+            }
+            claim_result = await db.hidden_object_sessions.update_one(
+                {"id": body.session_id, "user_id": user["id"], "status": "completing"},
+                {"$set": {"completion_claim": reward_claim, "updated_at": now}},
+            )
+            if not claim_result.modified_count:
+                raise RuntimeError("Could not persist the Hidden Objects completion claim")
 
-    points_awarded = SUDOKU_FIRST_CLEAR_POINTS if first_completion else 0
-    xp_awarded = SUDOKU_FIRST_CLEAR_XP if first_completion else SUDOKU_REPLAY_XP
-    await db.users.update_one(
-        {"id": user["id"]},
-        {"$inc": {"balance": points_awarded, "total_earned": points_awarded, "total_xp": xp_awarded}},
-    )
-    await db.transactions.insert_one({
-        "id": str(uuid.uuid4()),
-        "user_id": user["id"],
-        "kind": "sudoku",
-        "amount": points_awarded,
-        "description": f"VPDK Sudoku: рівень {body.level}, {body.stars} зірки, +{points_awarded} Point, +{xp_awarded} XP",
-        "created_at": now,
-        "meta": {
-            "level": int(body.level),
-            "stars": int(body.stars),
-            "elapsed": int(body.elapsed),
-            "errors": int(body.errors),
-            "hints_used": int(body.hints_used),
+        await db.hidden_object_completions.update_one(
+            {"user_id": user["id"], "level": level_id},
+            {
+                "$set": {
+                    "content_version": _hidden_object_catalog_version(),
+                    "updated_at": now,
+                },
+                "$max": {"stars": stars},
+                "$min": {"best_time": elapsed, "best_mistakes": mistakes},
+                "$setOnInsert": {
+                    "id": str(uuid.uuid4()),
+                    "user_id": user["id"],
+                    "level": level_id,
+                    "created_at": now,
+                },
+            },
+            upsert=True,
+        )
+        next_level = min(max(1, HIDDEN_OBJECT_MAX_LEVEL), level_id + 1)
+        completion_stars = await db.hidden_object_completions.find(
+            {"user_id": user["id"]}, {"_id": 0, "stars": 1}
+        ).to_list(max(1, HIDDEN_OBJECT_MAX_LEVEL))
+        profile_update = {
+            "$max": {
+                "current_level": next_level,
+                "total_stars": sum(int(item.get("stars", 0)) for item in completion_stars),
+            },
+            "$set": {"content_version": _hidden_object_catalog_version(), "updated_at": now},
+        }
+        await db.hidden_object_profiles.update_one({"user_id": user["id"]}, profile_update)
+    
+        user_result = await db.users.update_one(
+            {"id": user["id"], "game_reward_keys": {"$ne": reward_key}},
+            {
+                "$inc": {"balance": points_awarded, "total_earned": points_awarded},
+                "$addToSet": {"game_reward_keys": reward_key},
+            },
+        )
+        reward_applied_now = bool(user_result.modified_count)
+        if not reward_applied_now and (points_awarded or xp_awarded):
+            rewarded_user = await db.users.find_one(
+                {"id": user["id"], "game_reward_keys": reward_key}, {"_id": 0, "id": 1}
+            )
+            if not rewarded_user:
+                raise RuntimeError("Could not apply the Hidden Objects reward")
+        intended_xp = xp_awarded if reward_applied_now else 0
+        xp_result = await _award_xp(
+            user["id"],
+            intended_xp,
+            "hidden_object",
+            reward_key,
+            f"VPDK Детектив: {'перше проходження' if first_completion else 'денна активність'} рівня {level_id}",
+            {"level": level_id, "stars": stars, "first_completion": first_completion, "date": reward_day},
+        )
+        xp_awarded = int(xp_result.get("amount", 0) or 0)
+    
+        transaction = {
+            "id": str(uuid.uuid4()),
+            "source_key": reward_key,
+            "user_id": user["id"],
+            "kind": "hidden_object",
+            "amount": points_awarded,
+            "description": f"VPDK Детектив: рівень {level_id}, {stars} зірки, +{points_awarded} Point, +{xp_awarded} XP",
+            "created_at": now,
+            "meta": {
+                "level": level_id,
+                "stars": stars,
+                "elapsed": elapsed,
+                "effective_time": effective_time,
+                "mistakes": mistakes,
+                "hints_used": hints_used,
+                "first_completion": first_completion,
+                "reward_day": reward_day,
+                "xp": xp_awarded,
+                "reward_policy": "v164_first_2_points_15_xp_one_replay_5_xp_per_day",
+            },
+        }
+        await db.transactions.update_one(
+            {"source_key": reward_key}, {"$setOnInsert": transaction}, upsert=True
+        )
+    
+        reward = {
             "first_completion": first_completion,
-            "xp": xp_awarded,
-            "reward_policy": "v139_first_2_points_10_xp_replay_5_xp",
-        },
-    })
+            "points_awarded": points_awarded,
+            "xp_awarded": xp_awarded,
+            "stars": stars,
+            "new_level": next_level,
+        }
+        try:
+            await db.hidden_object_runs.insert_one({
+                "id": body.session_id,
+                "user_id": user["id"],
+                "level": level_id,
+                "reward": reward,
+                "created_at": now,
+            })
+        except DuplicateKeyError:
+            prior_run = await db.hidden_object_runs.find_one(
+                {"id": body.session_id, "user_id": user["id"]}, {"_id": 0}
+            )
+            if prior_run:
+                reward = prior_run.get("reward", reward)
+        await db.hidden_object_sessions.update_one(
+            {"id": body.session_id, "user_id": user["id"]},
+            {
+                "$set": {"status": "completed", "elapsed": elapsed, "completed_at": now, "updated_at": now},
+                "$unset": {"slot_key": ""},
+            },
+        )
+        try:
+            if reward_applied_now and points_awarded:
+                await _notify_points_awarded(user["id"], points_awarded, f"VPDK Детектив: рівень {level_id}")
+            if reward_applied_now and first_completion and next_level > level_id:
+                await _notify(
+                    user["id"], "game_level", "Відкрито нову справу VPDK Детектива",
+                    f"Рівень {next_level} уже доступний.", "/games/hidden-objects", "search", "games",
+                    {"game": "hidden_objects", "level": next_level},
+                )
+        except Exception:
+            logger.exception("Could not send Hidden Objects reward notification")
+        progression_user = await db.users.find_one({"id": user["id"]}, {"_id": 0}) or user
+        await _sync_system_achievements(progression_user)
+        return {"reward": reward, "status": await _hidden_object_status_payload(user["id"]), "idempotent": False}
+    
+    
+    except Exception:
+        recovery_now = now_iso()
+        await db.hidden_object_sessions.update_one(
+            {"id": body.session_id, "user_id": user["id"], "status": "completing"},
+            {
+                "$set": {
+                    "status": "active",
+                    "paused": False,
+                    "active_started_at": recovery_now,
+                    "updated_at": recovery_now,
+                }
+            },
+        )
+        raise
 
-    if points_awarded:
-        await _notify_points_awarded(user["id"], points_awarded, f"VPDK Sudoku: перше проходження рівня {body.level}")
-    if first_completion and next_level > int(body.level):
-        await _notify(user["id"], "game_level", "Відкрито новий рівень VPDK Sudoku", f"Рівень {next_level} уже доступний.", "/games/sudoku", "grid-3x3", "games", {"game": "sudoku", "level": next_level})
-
-    reward = {
-        "first_completion": first_completion,
-        "points_awarded": points_awarded,
-        "xp_awarded": xp_awarded,
-        "stars": int(body.stars),
-        "new_level": next_level,
-    }
-    await db.sudoku_runs.insert_one({
-        "id": body.session_id,
-        "user_id": user["id"],
-        "level": int(body.level),
-        "reward": reward,
-        "created_at": now,
-    })
-    await db.sudoku_sessions.update_many(
-        {"user_id": user["id"], "status": "active"},
-        {"$set": {"status": "completed", "completed_at": now, "updated_at": now}},
+async def seed_hidden_objects_v157():
+    await db.hidden_object_profiles.create_index("user_id", unique=True)
+    await db.hidden_object_completions.create_index([("user_id", 1), ("level", 1)], unique=True)
+    await db.hidden_object_sessions.create_index([("user_id", 1), ("status", 1), ("updated_at", -1)])
+    await db.hidden_object_sessions.create_index(
+        [("user_id", 1)],
+        unique=True,
+        partialFilterExpression={"status": "active"},
+        name="hidden_object_one_active_session_per_user",
     )
-    return {"reward": reward, "status": await _sudoku_status_payload(user["id"]), "idempotent": False}
-
-
-async def seed_sudoku_v108():
-    await db.sudoku_profiles.create_index("user_id", unique=True)
-    await db.sudoku_completions.create_index([("user_id", 1), ("level", 1)], unique=True)
-    await db.sudoku_sessions.create_index([("user_id", 1), ("status", 1), ("updated_at", -1)])
-    await db.sudoku_runs.create_index([("id", 1), ("user_id", 1)], unique=True)
+    await db.hidden_object_sessions.create_index("slot_key", unique=True, sparse=True)
+    await db.hidden_object_runs.create_index([("id", 1), ("user_id", 1)], unique=True)
+    await db.transactions.create_index("source_key", unique=True, sparse=True)
 
 
 # ─── Seed sample tasks (Phase 2) ───
@@ -11326,6 +13294,9 @@ async def seed_phase2():
         logger.info("Seeded %d tasks", len(SEED_TASKS))
 
 
+register_pet_routes(api, db, get_current_user, _notify_points_awarded)
+
+
 
 @app.on_event("startup")
 async def on_startup():
@@ -11334,7 +13305,8 @@ async def on_startup():
     await migrate_remove_legacy_demo_teams_v105()
     await migrate_bonus_match_v93_reset()
     await seed_phase2()
-    await seed_sudoku_v108()
+    await seed_pet_v1(db)
+    await seed_hidden_objects_v157()
     await _cleanup_expired_diamond_avatars_once()
     backfilled = await _backfill_active_diamond_feed_events_v136()
     if backfilled:

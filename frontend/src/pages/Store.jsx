@@ -56,7 +56,7 @@ const canBuyPrize = (prize, balance, owned) => {
   return Number(balance || 0) >= effectivePrice && (prize.category === "avatar" || Number(prize.stock || 0) > 0);
 };
 
-const PrizeCard = ({ prize, balance, onBuy }) => {
+const PrizeCard = ({ prize, balance, onView }) => {
   const affordable = canBuyPrize(prize, balance, false);
   const effectivePrice = prizePrice(prize);
   const hasPromotion = Boolean(prize.promotion_active && Number(prize.promotion_quantity_remaining || 0) > 0);
@@ -105,16 +105,12 @@ const PrizeCard = ({ prize, balance, onBuy }) => {
             </div>
           </div>
           <button
-            data-testid={`buy-${prize.id}`}
-            disabled={!affordable}
-            onClick={() => onBuy(prize)}
-            className={`arcade-btn h-10 shrink-0 px-3 text-[10px] font-black uppercase tracking-wider ${
-              affordable
-                ? "border-[#7a5900] bg-[#FFB800] text-[#0A0A0A]"
-                : "cursor-not-allowed border-[#141416] bg-[#27272A] text-zinc-500"
-            }`}
+            type="button"
+            data-testid={`view-${prize.id}`}
+            onClick={() => onView(prize)}
+            className="arcade-btn h-10 shrink-0 border-[#3F3F46] bg-[#27272A] px-3 text-[10px] font-black uppercase tracking-wider text-white"
           >
-            {Number(prize.stock || 0) <= 0 ? "Немає" : affordable ? "Взяти" : "Мало Point"}
+            Деталі
           </button>
         </div>
       </div>
@@ -122,16 +118,14 @@ const PrizeCard = ({ prize, balance, onBuy }) => {
   );
 };
 
-const AvatarPrizeCard = ({ prize, balance, onBuy, owned, active, rarityColor }) => {
+const AvatarPrizeCard = ({ prize, onView, owned, active, rarityColor }) => {
   const effectivePrice = prizePrice(prize, owned);
-  const affordable = canBuyPrize(prize, balance, owned);
   const hasPromotion = !owned && Boolean(prize.promotion_active && Number(prize.promotion_quantity_remaining || 0) > 0);
-  const buttonLabel = active ? "Обрано" : owned ? "Обрати" : affordable ? "Купити" : "Мало Point";
 
   return (
     <article
       data-testid={`prize-${prize.id}`}
-      className={`store-avatar-card w-[136px] shrink-0 rounded-2xl border bg-[#1A1A1E] p-2.5 text-center ${active ? "is-active" : ""}`}
+      className={`store-avatar-card min-w-0 w-full rounded-2xl border bg-[#1A1A1E] p-2.5 text-center ${active ? "is-active" : ""}`}
       style={{ "--avatar-rarity-color": rarityColor }}
     >
       <div className="store-avatar-preview mx-auto flex h-[76px] w-[76px] items-center justify-center rounded-2xl">
@@ -172,62 +166,61 @@ const AvatarPrizeCard = ({ prize, balance, onBuy, owned, active, rarityColor }) 
       </div>
 
       <button
-        data-testid={`buy-${prize.id}`}
-        disabled={!affordable || active}
-        onClick={() => onBuy(prize)}
-        className={`mt-2 h-9 w-full rounded-xl border text-[9px] font-black uppercase tracking-wide transition-transform active:scale-95 ${
-          active
-            ? "cursor-default border-[#39FF14]/35 bg-[#39FF14]/10 text-[#39FF14]"
-            : affordable
-              ? "border-[#FFB800]/50 bg-[#FFB800] text-[#0A0A0A]"
-              : "cursor-not-allowed border-white/10 bg-[#27272A] text-zinc-500"
-        }`}
+        type="button"
+        data-testid={`view-${prize.id}`}
+        onClick={() => onView(prize)}
+        className="mt-2 h-9 w-full rounded-xl border border-white/10 bg-[#27272A] text-[9px] font-black uppercase tracking-wide text-white transition-transform active:scale-95"
       >
-        {buttonLabel}
+        Деталі
       </button>
     </article>
   );
 };
 
-const AvatarCatalog = ({ groups, balance, onBuy, ownedIds, activeId }) => (
-  <div className="space-y-4" data-testid="avatar-catalog">
-    {AVATAR_RARITIES.map((rarity) => {
-      const items = groups[rarity.id] || [];
-      if (!items.length) return null;
-      return (
-        <section key={rarity.id} className="store-avatar-tier rounded-3xl border border-white/10 bg-[#1A1A1E] p-3">
-          <div className="mb-2 flex items-center justify-between gap-3 px-0.5">
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: rarity.color }} />
-                <h2 className="truncate text-xs font-black uppercase tracking-wider text-white">{rarity.label}</h2>
+const AvatarCatalog = ({ groups, selectedRarity, onView, ownedIds, activeId }) => {
+  const visibleRarities = selectedRarity === "all"
+    ? AVATAR_RARITIES
+    : AVATAR_RARITIES.filter((rarity) => rarity.id === selectedRarity);
+
+  return (
+    <div className="space-y-4" data-testid="avatar-catalog">
+      {visibleRarities.map((rarity) => {
+        const items = groups[rarity.id] || [];
+        if (!items.length) return null;
+        return (
+          <section key={rarity.id} className="store-avatar-tier rounded-3xl border border-white/10 bg-[#1A1A1E] p-3">
+            <div className="mb-2 flex items-center justify-between gap-3 px-0.5">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: rarity.color }} />
+                  <h2 className="truncate text-xs font-black uppercase tracking-wider text-white">{rarity.label}</h2>
+                </div>
+                <p className="mt-0.5 truncate pl-[18px] text-[9px] font-bold text-zinc-500">{rarity.hint}</p>
               </div>
-              <p className="mt-0.5 truncate pl-[18px] text-[9px] font-bold text-zinc-500">{rarity.hint}</p>
+              <span className="shrink-0 rounded-full bg-black/25 px-2 py-1 text-[9px] font-black text-zinc-400">{items.length}</span>
             </div>
-            <span className="shrink-0 rounded-full bg-black/25 px-2 py-1 text-[9px] font-black text-zinc-400">{items.length}</span>
-          </div>
-          <div className="store-avatar-row -mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
-            {items.map((prize) => (
-              <AvatarPrizeCard
-                key={prize.id}
-                prize={prize}
-                balance={balance}
-                onBuy={onBuy}
-                owned={ownedIds.includes(prize.id)}
-                active={activeId === prize.id}
-                rarityColor={rarity.color}
-              />
-            ))}
-          </div>
-        </section>
-      );
-    })}
-  </div>
-);
+            <div className="store-avatar-grid grid gap-2">
+              {items.map((prize) => (
+                <AvatarPrizeCard
+                  key={prize.id}
+                  prize={prize}
+                  onView={onView}
+                  owned={ownedIds.includes(prize.id)}
+                  active={activeId === prize.id}
+                  rarityColor={rarity.color}
+                />
+              ))}
+            </div>
+          </section>
+        );
+      })}
+    </div>
+  );
+};
 
 const TEAM_BANK_PRESETS = [50, 100, 250, 500];
 
-const TeamBankPanel = ({ teamBank, user, selectedAmount, onSelectAmount, onContribute, onRetry, loading, submitting, error }) => {
+const TeamBankPanel = ({ teamBanks, teamBank, user, selectedAmount, onSelectAmount, onSelectBank, onContribute, onRetry, loading, submitting, error }) => {
   if (!user?.team_id) {
     return (
       <div className="rounded-3xl border border-white/10 bg-[#1A1A1E] p-8 text-center">
@@ -249,8 +242,8 @@ const TeamBankPanel = ({ teamBank, user, selectedAmount, onSelectAmount, onContr
   if (!teamBank) {
     return (
       <div className="rounded-3xl border border-[#FF5C7A]/20 bg-[#1A1A1E] p-8 text-center">
-        <div className="text-sm font-black text-white">Не вдалося завантажити Банку Команди</div>
-        <div className="mt-2 text-xs leading-relaxed text-zinc-500">{error || "Спробуйте повторити запит або перевірте підключення до backend."}</div>
+        <div className="text-sm font-black text-white">{error ? "Не вдалося завантажити Банки Команди" : "Активних банок поки немає"}</div>
+        <div className="mt-2 text-xs leading-relaxed text-zinc-500">{error || "Адміністратор ще не створив активну банку для вашої команди."}</div>
         <button
           type="button"
           onClick={onRetry}
@@ -269,11 +262,36 @@ const TeamBankPanel = ({ teamBank, user, selectedAmount, onSelectAmount, onContr
 
   return (
     <div className="space-y-4" data-testid="team-bank-panel">
+      {teamBanks.length > 1 && (
+        <section className="rounded-3xl border border-white/10 bg-[#1A1A1E] p-4" data-testid="team-bank-selector">
+          <div className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500">Оберіть банку для внеску</div>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            {teamBanks.map((bank) => {
+              const selected = bank.id === teamBank.id;
+              return (
+                <button
+                  key={bank.id}
+                  type="button"
+                  data-testid={`team-bank-option-${bank.id}`}
+                  onClick={() => onSelectBank(bank.id)}
+                  className={`rounded-2xl border p-3 text-left transition-colors ${selected ? "border-[#B78CFF] bg-[#B78CFF]/10" : "border-white/10 bg-[#111114] hover:border-white/20"}`}
+                >
+                  <div className={`truncate text-sm font-black ${selected ? "text-[#E9D8FF]" : "text-white"}`}>{bank.title || "Банка Команди"}</div>
+                  <div className="mt-1 text-[11px] text-zinc-500">
+                    {Number(bank.current_points || 0).toLocaleString("uk-UA")} / {Number(bank.goal_points || 0).toLocaleString("uk-UA")} Point
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
       <section className="team-bank-hero-card overflow-hidden rounded-[28px] border border-[#B78CFF]/25 bg-[radial-gradient(circle_at_top_left,_rgba(183,140,255,0.18),_transparent_45%),linear-gradient(180deg,_rgba(26,26,30,1),_rgba(12,12,14,1))] p-5">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
             <div className="text-[10px] font-black uppercase tracking-[0.24em] text-[#B78CFF]">Окремо для кожної групи</div>
-            <h2 className="mt-1 text-2xl font-black leading-tight text-white">Банка Команди</h2>
+            <h2 className="mt-1 text-2xl font-black leading-tight text-white">{teamBank.title || "Банка Команди"}</h2>
             <p className="mt-1 text-sm text-zinc-400">{teamBank.team_name || user.team_name || "Ваша команда"} збирає Point на спільну нагороду</p>
           </div>
           <div className={`shrink-0 rounded-full border px-3 py-1 text-[11px] font-black uppercase tracking-wider ${teamBank.unlocked ? "border-[#39FF14]/35 bg-[#39FF14]/10 text-[#39FF14]" : "border-[#00F0FF]/25 bg-[#00F0FF]/10 text-[#00F0FF]"}`}>
@@ -321,7 +339,7 @@ const TeamBankPanel = ({ teamBank, user, selectedAmount, onSelectAmount, onContr
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h3 className="text-lg font-black text-white">Мій внесок</h3>
-            <p className="mt-1 text-xs text-zinc-500">Інші групи не бачать цю банку — кожна команда має власну спільну ціль.</p>
+            <p className="mt-1 text-xs text-zinc-500">Оберіть суму — внесок піде саме до банки «{teamBank.title || "Банка Команди"}».</p>
           </div>
           <button
             disabled={submitting || loading || Number(user.balance || 0) < Number(selectedAmount || 0)}
@@ -445,16 +463,132 @@ const ConfirmSheet = ({ prize, balance, onConfirm, onClose, submitting, owned })
   );
 };
 
+const PrizeDetailsSheet = ({ prize, balance, owned, active, onExchange, onClose }) => {
+  const available = prize?.category === "avatar" || Number(prize?.stock || 0) > 0;
+  const affordable = prize ? canBuyPrize(prize, balance, owned) : false;
+  const effectivePrice = prizePrice(prize, owned);
+  const hasPromotion = !owned && Boolean(prize?.promotion_active && Number(prize?.promotion_quantity_remaining || 0) > 0);
+  const IconFallback = ICONS[prize?.icon] || Gift;
+
+  useEffect(() => {
+    if (!prize) return undefined;
+    const onKeyDown = (event) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onClose, prize]);
+
+  if (!prize) return null;
+
+  const actionLabel = active
+    ? "Вже обрано"
+    : !available
+      ? "Немає в наявності"
+      : !affordable
+        ? "Мало Point"
+        : prize.category === "avatar" && owned
+          ? "Обрати"
+          : "Обміняти";
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center p-1.5 sm:items-center sm:p-4">
+      <button type="button" className="absolute inset-0 bg-black/75 backdrop-blur-sm" onClick={onClose} aria-label="Закрити деталі призу" />
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="prize-details-title"
+        data-testid="prize-details-sheet"
+        className="relative flex max-h-[calc(100dvh-0.75rem)] w-full max-w-[480px] flex-col overflow-hidden rounded-[28px] border border-white/10 bg-[#1A1A1E] shadow-2xl"
+      >
+        <div className="relative h-48 shrink-0 overflow-hidden bg-[#0A0A0A]">
+          {prize.image ? (
+            <img src={prize.image} alt={prize.title} className="h-full w-full object-cover" />
+          ) : (
+            <div className="flex h-full items-center justify-center"><IconFallback size={72} strokeWidth={2} className="text-[#FFB800]" /></div>
+          )}
+          <div className="absolute inset-0 bg-gradient-to-t from-[#1A1A1E] via-transparent to-black/20" />
+          <button
+            type="button"
+            data-testid="prize-details-close"
+            onClick={onClose}
+            className="absolute right-4 top-4 flex h-11 w-11 items-center justify-center rounded-full border border-white/15 bg-black/70 text-white backdrop-blur-sm"
+            aria-label="Закрити приз"
+          >
+            <X size={20} strokeWidth={3} />
+          </button>
+        </div>
+
+        <div className="announcement-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pb-5">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-wider ${available ? "bg-[#39FF14]/10 text-[#39FF14]" : "bg-[#FF5C7A]/10 text-[#FF7D98]"}`}>
+              {prize.category === "avatar" ? "Аватар" : available ? `В наявності: ${prize.stock} шт` : "Немає в наявності"}
+            </span>
+            {prize.team_id && (
+              <span className="rounded-full bg-[#00F0FF]/10 px-2.5 py-1 text-[10px] font-black uppercase text-[#00F0FF]">Лише {prize.team_name || "ваша команда"}</span>
+            )}
+          </div>
+          <h2 id="prize-details-title" className="mt-3 font-display text-2xl leading-tight text-white">{prize.title}</h2>
+          <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-zinc-300">{prize.description || "Опис призу не вказаний."}</p>
+
+          {(Number(prize.daily_bonus || 0) > 0 || Number(prize.task_replacements || 0) > 0) && (
+            <div className="mt-4 flex flex-wrap gap-2">
+              {Number(prize.daily_bonus || 0) > 0 && <span className="rounded-xl bg-[#39FF14]/10 px-3 py-2 text-xs font-black text-[#39FF14]">+{prize.daily_bonus} Point/день</span>}
+              {Number(prize.task_replacements || 0) > 0 && <span className="rounded-xl bg-[#B78CFF]/10 px-3 py-2 text-xs font-black text-[#D8BDFF]">+{prize.task_replacements} заміна завдання</span>}
+            </div>
+          )}
+
+          <div className="mt-5 rounded-2xl border border-white/5 bg-[#0A0A0A] p-4">
+            <div className="flex items-end justify-between gap-3">
+              <div>
+                <div className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Вартість</div>
+                {hasPromotion && <div className="mt-1 text-xs font-black text-zinc-600 line-through">{Number(prize.price || 0).toLocaleString("uk-UA")} Point</div>}
+                <div className="mt-1 flex items-center gap-2 text-[#FFB800]"><Coins size={20} strokeWidth={3} /><span className="font-display text-2xl">{effectivePrice.toLocaleString("uk-UA")}</span><span className="text-xs font-black uppercase">Point</span></div>
+              </div>
+              <div className="text-right">
+                <div className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Ваш баланс</div>
+                <div className="mt-1 text-lg font-black text-white">{Number(balance || 0).toLocaleString("uk-UA")}</div>
+              </div>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            data-testid="prize-details-exchange"
+            disabled={!affordable || !available || active}
+            onClick={onExchange}
+            className={`arcade-btn mt-5 flex h-14 w-full items-center justify-center gap-2 text-sm font-black uppercase tracking-wider ${
+              affordable && available && !active
+                ? "border-[#7a5900] bg-[#FFB800] text-[#0A0A0A]"
+                : "cursor-not-allowed border-[#141416] bg-[#27272A] text-zinc-500"
+            }`}
+          >
+            <Gift size={17} strokeWidth={3} />{actionLabel}
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+};
+
 export default function Store() {
   const { user, prizes, orders, buyPrize, refreshMe } = useApp();
   const [cat, setCat] = useState("all");
+  const [avatarRarity, setAvatarRarity] = useState("all");
+  const [viewingPrize, setViewingPrize] = useState(null);
   const [pending, setPending] = useState(null);
   const [submitting, setSubmitting] = useState(false);
-  const [teamBank, setTeamBank] = useState(null);
+  const [teamBanks, setTeamBanks] = useState([]);
+  const [selectedTeamBankId, setSelectedTeamBankId] = useState("");
   const [teamBankLoading, setTeamBankLoading] = useState(false);
   const [teamBankError, setTeamBankError] = useState("");
   const [teamBankSubmitting, setTeamBankSubmitting] = useState(false);
   const [teamContributionAmount, setTeamContributionAmount] = useState(100);
+
+  const teamBank = useMemo(
+    () => teamBanks.find((bank) => bank.id === selectedTeamBankId) || teamBanks[0] || null,
+    [selectedTeamBankId, teamBanks]
+  );
 
   const storefrontPrizes = useMemo(
     () => (Array.isArray(prizes) ? prizes : []).filter((prize) => !HIDDEN_STORE_CATEGORIES.has(prize.category)),
@@ -479,19 +613,28 @@ export default function Store() {
     return groups;
   }, [storefrontPrizes]);
 
+  const avatarCount = useMemo(
+    () => Object.values(avatarGroups).reduce((total, items) => total + items.length, 0),
+    [avatarGroups]
+  );
+
   const loadTeamBank = async () => {
     if (!user?.team_id) {
-      setTeamBank(null);
+      setTeamBanks([]);
+      setSelectedTeamBankId("");
       return;
     }
     setTeamBankLoading(true);
     setTeamBankError("");
     try {
-      const { data } = await api.get("/team-bank");
-      setTeamBank(data);
+      const { data } = await api.get("/team-banks");
+      const nextBanks = Array.isArray(data) ? data : [];
+      setTeamBanks(nextBanks);
+      setSelectedTeamBankId((current) => nextBanks.some((bank) => bank.id === current) ? current : (nextBanks[0]?.id || ""));
     } catch (error) {
-      setTeamBank(null);
-      setTeamBankError(extractError(error, "Backend не повернув дані Банки Команди"));
+      setTeamBanks([]);
+      setSelectedTeamBankId("");
+      setTeamBankError(extractError(error, "Backend не повернув дані Банок Команди"));
     } finally {
       setTeamBankLoading(false);
     }
@@ -525,6 +668,10 @@ export default function Store() {
   };
 
   const contributeTeamBank = async () => {
+    if (!teamBank?.id) {
+      toast.error("Оберіть банку для внеску");
+      return;
+    }
     const amount = Number(teamContributionAmount || 0);
     if (!amount || amount <= 0) {
       toast.error("Оберіть суму внеску");
@@ -532,12 +679,12 @@ export default function Store() {
     }
     setTeamBankSubmitting(true);
     try {
-      const { data } = await api.post("/team-bank/contribute", { amount });
-      setTeamBank(data.bank);
+      const { data } = await api.post(`/team-banks/${encodeURIComponent(teamBank.id)}/contribute`, { amount });
+      setTeamBanks((current) => current.map((bank) => bank.id === data.bank.id ? data.bank : bank));
       await refreshMe();
       fireConfetti();
       toast.success("Бали зараховано до Банки Команди", {
-        description: `Ви додали ${amount.toLocaleString("uk-UA")} Point до спільної цілі.`,
+        description: `Ви додали ${amount.toLocaleString("uk-UA")} Point до банки «${teamBank.title || "Банка Команди"}».`,
       });
     } catch (error) {
       toast.error(extractError(error, "Не вдалося поповнити Банку Команди"));
@@ -589,19 +736,51 @@ export default function Store() {
       )}
 
       {cat === "avatar" ? (
-        <AvatarCatalog
-          groups={avatarGroups}
-          balance={user.balance}
-          onBuy={setPending}
-          ownedIds={ownedAvatarIds}
-          activeId={user.active_avatar_prize_id}
-        />
+        <div className="space-y-4">
+          <section className="rounded-3xl border border-white/10 bg-[#111114] p-3" data-testid="avatar-rarity-filter">
+            <div className="mb-2 px-1 text-[9px] font-black uppercase tracking-[0.22em] text-zinc-500">Фільтр за рідкістю</div>
+            <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1" data-testid="avatar-rarity-tabs" role="tablist" aria-label="Рідкість аватарок">
+              {[{ id: "all", label: "Усі", color: "#FFB800" }, ...AVATAR_RARITIES].map((rarity) => {
+                const selected = avatarRarity === rarity.id;
+                const count = rarity.id === "all" ? avatarCount : (avatarGroups[rarity.id] || []).length;
+                return (
+                  <button
+                    key={rarity.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={selected}
+                    data-testid={`avatar-rarity-${rarity.id}`}
+                    onClick={() => setAvatarRarity(rarity.id)}
+                    className={`flex h-10 shrink-0 items-center gap-2 rounded-full border-2 px-3 text-[10px] font-black uppercase tracking-wider transition-colors ${
+                      selected ? "bg-white/10" : "border-white/10 bg-[#1A1A1E] text-zinc-400"
+                    }`}
+                    style={selected ? { borderColor: rarity.color, color: rarity.color } : undefined}
+                  >
+                    <span className="h-2 w-2 rounded-full" style={{ backgroundColor: rarity.color }} />
+                    {rarity.label}
+                    <span className={`rounded-full px-1.5 py-0.5 text-[8px] ${selected ? "bg-white/10" : "bg-black/25 text-zinc-500"}`}>{count}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+
+          <AvatarCatalog
+            groups={avatarGroups}
+            selectedRarity={avatarRarity}
+            onView={setViewingPrize}
+            ownedIds={ownedAvatarIds}
+            activeId={user.active_avatar_prize_id}
+          />
+        </div>
       ) : cat === "team_bank" ? (
         <TeamBankPanel
+          teamBanks={teamBanks}
           teamBank={teamBank}
           user={user}
           selectedAmount={teamContributionAmount}
           onSelectAmount={setTeamContributionAmount}
+          onSelectBank={setSelectedTeamBankId}
           onContribute={contributeTeamBank}
           onRetry={loadTeamBank}
           loading={teamBankLoading}
@@ -610,7 +789,7 @@ export default function Store() {
         />
       ) : generalPrizes.length ? (
         <div className="grid grid-cols-2 gap-3" data-testid="prize-grid">
-          {generalPrizes.map((prize) => <PrizeCard key={prize.id} prize={prize} balance={user.balance} onBuy={setPending} />)}
+          {generalPrizes.map((prize) => <PrizeCard key={prize.id} prize={prize} balance={user.balance} onView={setViewingPrize} />)}
         </div>
       ) : (
         <div className="rounded-3xl border border-white/10 bg-[#1A1A1E] p-8 text-center">
@@ -619,6 +798,18 @@ export default function Store() {
           <div className="mt-1 text-xs text-zinc-500">Нові привілеї зʼявляться тут після публікації адміністратором.</div>
         </div>
       )}
+
+      <PrizeDetailsSheet
+        prize={viewingPrize}
+        balance={user.balance}
+        owned={Boolean(viewingPrize && ownedAvatarIds.includes(viewingPrize.id))}
+        active={Boolean(viewingPrize && user.active_avatar_prize_id === viewingPrize.id)}
+        onExchange={() => {
+          setPending(viewingPrize);
+          setViewingPrize(null);
+        }}
+        onClose={() => setViewingPrize(null)}
+      />
 
       <ConfirmSheet
         prize={pending}

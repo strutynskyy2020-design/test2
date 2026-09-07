@@ -118,6 +118,36 @@ export const getScheduleMonths = (schedule) => {
   return keys.sort();
 };
 
+export const remapScheduleToMonth = (schedule, monthKey) => {
+  const match = String(monthKey || "").match(/^(\d{4})-(\d{2})$/);
+  if (!schedule || !match) return schedule;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  if (month < 1 || month > 12) return schedule;
+
+  const daysInTargetMonth = new Date(year, month, 0, 12).getDate();
+  const sourceByDayNumber = new Map();
+  (Array.isArray(schedule.days) ? schedule.days : []).forEach((day) => {
+    const dayNumber = Number(String(day?.date || "").slice(8, 10));
+    if (dayNumber >= 1 && dayNumber <= daysInTargetMonth) {
+      sourceByDayNumber.set(dayNumber, day);
+    }
+  });
+
+  return {
+    ...schedule,
+    display_month: monthKey,
+    source_months: getScheduleMonths(schedule),
+    days: Array.from(sourceByDayNumber.entries())
+      .sort(([left], [right]) => left - right)
+      .map(([dayNumber, day]) => ({
+        ...day,
+        source_date: day.date,
+        date: `${year}-${String(month).padStart(2, "0")}-${String(dayNumber).padStart(2, "0")}`,
+      })),
+  };
+};
+
 export const buildMonthCells = (monthKey, schedule) => {
   const match = String(monthKey || "").match(/^(\d{4})-(\d{2})$/);
   if (!match) return [];

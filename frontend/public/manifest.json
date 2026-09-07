@@ -1,7 +1,7 @@
 {
   "name": "VPDK Bonus",
   "short_name": "VPDK Bonus",
-  "description": "VPDK Bonus — мотивація, розвиток і AI-тренування операторів.",
+  "description": "VPDK Bonus — мотивація, розвиток і персональний віртуальний кіт для кожного працівника.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
@@ -43,9 +43,9 @@
   ],
   "shortcuts": [
     {
-      "name": "AI-тренажер",
-      "short_name": "AI-тренажер",
-      "url": "/ai-trainer",
+      "name": "Мій кіт",
+      "short_name": "Кіт",
+      "url": "/pet/room",
       "icons": [
         {
           "src": "/icon-192.png",

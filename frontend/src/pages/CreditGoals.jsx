@@ -564,7 +564,7 @@ export default function CreditGoals() {
   return (
     <div className="space-y-4 px-5 pb-8 pt-2" data-testid="credit-goals-page">
       <section className="flex items-start gap-3">
-        <button type="button" onClick={() => navigate("/goals/credit")} className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-[#1A1A1E] text-zinc-300 active:scale-95" aria-label="Назад до цілей">
+        <button type="button" onClick={() => navigate("/goals/credit")} className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-[#1A1A1E] text-zinc-300 active:scale-95" aria-label="Назад до проекційних">
           <ArrowLeft size={21} strokeWidth={2.7} />
         </button>
         <div className="min-w-0 flex-1 pt-0.5">

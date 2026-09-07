@@ -6,6 +6,8 @@ import { useDailyGoogleReports } from "@/hooks/useGoogleReports";
 import { useGoalsAccess } from "@/hooks/useGoalsAccess";
 import { enrichReportRowsWithParticipants, normalizeReportLogin, normalizeTeamKey, rowMatchesTeam } from "@/lib/teamReports";
 import AvatarFrame from "@/components/AvatarFrame";
+import OperatorReportTrendChart from "@/components/OperatorReportTrendChart";
+import { useTeamReportTrend } from "@/hooks/useTeamReportTrend";
 
 const parsePercent = (value) => {
   const parsed = Number(
@@ -81,6 +83,12 @@ export default function DepositLeaderboard() {
   const currentLogin = normalizeReportLogin(user?.goals_login);
   const leader = rows[0] || null;
   const currentRow = rows.find((row) => row.login === currentLogin) || null;
+  const { records: groupTrendRecords, loading: groupTrendLoading } = useTeamReportTrend({
+    reportType: "deposit",
+    period: "month",
+    teamId: selectedTeam?.id || "",
+    enabled: Boolean(selectedTeam?.id),
+  });
 
   if (loading && !report) {
     return <div className="p-8 text-center text-sm font-bold text-zinc-500">Завантаження проекційного рейтингу…</div>;
@@ -93,7 +101,7 @@ export default function DepositLeaderboard() {
           type="button"
           onClick={() => navigate("/goals")}
           className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-[#1A1A1E] text-zinc-300 active:scale-95"
-          aria-label="Назад до цілей"
+          aria-label="Назад до проекційних"
         >
           <ArrowLeft size={21} strokeWidth={2.7} />
         </button>
@@ -146,6 +154,18 @@ export default function DepositLeaderboard() {
           </div>
         </div>
       </section>
+          <OperatorReportTrendChart
+            title="Тренд підсумка групи"
+            subtitle={`Як змінюється проекційний підсумок ${selectedTeam?.name || "команди"} по днях.`}
+            color="#39FF14"
+            target={100}
+            metricKey="projective_rate"
+            metricLabel="Проекційний підсумок групи"
+            unit="percent"
+            records={groupTrendRecords}
+            loading={groupTrendLoading}
+          />
+
 
       <div className="grid gap-2.5 sm:grid-cols-2">
         <button
@@ -186,7 +206,7 @@ export default function DepositLeaderboard() {
           <p className="mt-2 text-sm leading-relaxed text-zinc-500">
             {error
               ? "Не вдалося завантажити опублікований звіт."
-              : 'Перевірте таблицю "Deposit" на вкладці «Аркуш2» та натисніть «Оновити звіти».'}
+              : 'Перевірте вкладку "Deposit" у таблиці "Projective" та натисніть «Оновити звіти».'}
           </p>
         </section>
       ) : (

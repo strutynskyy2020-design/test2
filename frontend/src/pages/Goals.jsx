@@ -302,7 +302,7 @@ export default function Goals() {
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="text-[10px] font-black uppercase tracking-[0.25em] text-zinc-500">Персональний результат</div>
-          <h1 className="mt-1 flex items-center gap-2 font-display text-3xl text-white"><Target size={28} strokeWidth={3} color="#B78CFF" />Мої проекції</h1>
+          <h1 className="mt-1 flex items-center gap-2 font-display text-3xl text-white"><Target size={28} strokeWidth={3} color="#B78CFF" />Мої проекційні</h1>
           {access?.current_team?.name && <div className="mt-1 text-[10px] font-black uppercase tracking-wider text-[#00F0FF]">Команда: {access.current_team.name}</div>}
         </div>
         {isTeamLeader && <div className="flex shrink-0 gap-2">

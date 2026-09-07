@@ -6,6 +6,7 @@ import { ThemeProvider, useTheme } from "next-themes";
 import { AppProvider, useApp } from "@/context/AppContext";
 import { GoogleReportsProvider } from "@/context/GoogleReportsContext";
 import AppLayout from "@/components/AppLayout";
+import AppErrorBoundary, { recoverAppAndReload } from "@/components/AppErrorBoundary";
 import Login from "@/pages/Login";
 import Home from "@/pages/Home";
 import Register from "@/pages/Register";
@@ -25,16 +26,37 @@ if (typeof window !== "undefined") {
   }
 }
 
+const lazyWithRetry = (factory, key) => lazy(async () => {
+  try {
+    const module = await factory();
+    try { window.sessionStorage.removeItem(`vpdk-lazy-retry:${key}`); } catch (_) {}
+    return module;
+  } catch (error) {
+    let shouldRetry = false;
+    try {
+      const retryKey = `vpdk-lazy-retry:${key}`;
+      shouldRetry = window.sessionStorage.getItem(retryKey) !== "1";
+      if (shouldRetry) window.sessionStorage.setItem(retryKey, "1");
+      else window.sessionStorage.removeItem(retryKey);
+    } catch (_) {}
+    if (shouldRetry) {
+      recoverAppAndReload();
+      return new Promise(() => {});
+    }
+    throw error;
+  }
+});
+
 const Quests = lazy(() => import("@/pages/Quests"));
 const Store = lazy(() => import("@/pages/Store"));
-const Admin = lazy(() => import("@/pages/Admin"));
+const Admin = lazyWithRetry(() => import("@/pages/Admin"), "admin");
 const Leaderboard = lazy(() => import("@/pages/Leaderboard"));
 const Fun = lazy(() => import("@/pages/Fun"));
 const History = lazy(() => import("@/pages/History"));
 const Feed = lazy(() => import("@/pages/Feed"));
 const Tasks = lazy(() => import("@/pages/Tasks"));
 const Teams = lazy(() => import("@/pages/Teams"));
-const AITrainer = lazy(() => import("@/pages/AITrainer"));
+const Pet = lazy(() => import("@/pages/Pet"));
 const Goals = lazy(() => import("@/pages/Goals"));
 const CreditGoals = lazy(() => import("@/pages/CreditGoals"));
 const CreditLeaderboard = lazy(() => import("@/pages/CreditLeaderboard"));
@@ -46,9 +68,10 @@ const DepositGoals = lazy(() => import("@/pages/DepositGoals"));
 const ActivationPumbGoals = lazy(() => import("@/pages/ActivationPumbGoals"));
 const ActivationCardsGoals = lazy(() => import("@/pages/ActivationCardsGoals"));
 const BonusMatch = lazy(() => import("@/pages/BonusMatch"));
-const Sudoku = lazy(() => import("@/pages/Sudoku"));
+const HiddenObjects = lazy(() => import("@/pages/HiddenObjects"));
 const Schedule = lazy(() => import("@/pages/Schedule"));
 const ManagerAnalytics = lazy(() => import("@/pages/ManagerAnalytics"));
+const Profile = lazy(() => import("@/pages/Profile"));
 
 const Splash = () => (
   <div className="min-h-screen w-full flex items-center justify-center">
@@ -57,9 +80,11 @@ const Splash = () => (
 );
 
 const LazyPage = ({ children }) => (
-  <Suspense fallback={<div className="px-5 py-12 text-center text-sm font-bold text-zinc-500">Завантаження розділу...</div>}>
-    {children}
-  </Suspense>
+  <AppErrorBoundary>
+    <Suspense fallback={<div className="px-5 py-12 text-center text-sm font-bold text-zinc-500">Завантаження розділу...</div>}>
+      {children}
+    </Suspense>
+  </AppErrorBoundary>
 );
 
 
@@ -143,11 +168,13 @@ function App() {
             }
           >
             <Route path="/" element={<Home />} />
+            <Route path="/profile" element={<LazyPage><Profile /></LazyPage>} />
             <Route path="/quests" element={<LazyPage><Quests /></LazyPage>} />
             <Route path="/tasks" element={<LazyPage><Tasks /></LazyPage>} />
             <Route path="/teams" element={<LazyPage><Teams /></LazyPage>} />
             <Route path="/analytics" element={<RequireManager><LazyPage><ManagerAnalytics /></LazyPage></RequireManager>} />
-            <Route path="/ai-trainer" element={<LazyPage><AITrainer /></LazyPage>} />
+            <Route path="/pet/*" element={<LazyPage><Pet /></LazyPage>} />
+            <Route path="/ai-trainer" element={<Navigate to="/pet/room" replace />} />
             <Route path="/goals" element={<LazyPage><Goals /></LazyPage>} />
             <Route path="/goals/credit" element={<LazyPage><CreditLeaderboard /></LazyPage>} />
             <Route path="/goals/credit/me" element={<LazyPage><CreditGoals /></LazyPage>} />
@@ -162,7 +189,7 @@ function App() {
             <Route path="/leaderboard" element={<LazyPage><Leaderboard /></LazyPage>} />
             <Route path="/fun" element={<LazyPage><Fun /></LazyPage>} />
             <Route path="/games/bonus-match" element={<LazyPage><BonusMatch /></LazyPage>} />
-            <Route path="/games/sudoku" element={<LazyPage><Sudoku /></LazyPage>} />
+            <Route path="/games/hidden-objects" element={<LazyPage><HiddenObjects /></LazyPage>} />
             <Route path="/history" element={<LazyPage><History /></LazyPage>} />
             <Route path="/schedule" element={<LazyPage><Schedule /></LazyPage>} />
             <Route path="/feed" element={<LazyPage><Feed /></LazyPage>} />

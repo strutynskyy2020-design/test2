@@ -161,7 +161,7 @@ export default function Fun() {
 
   const load = async () => {
     if (mode === "mock") {
-      setStatus({ date: "-", cube_spun: false, cube_spin_count: 0, next_spin_cost: 0, paid_spin_cost: 20, cube_reward_ranges: DEFAULT_CUBE_REWARD_RANGES, prediction_revealed: false });
+      setStatus({ date: "-", cube_spun: false, cube_spin_count: 0, next_spin_cost: 0, paid_spin_cost: 20, cube_reward_ranges: DEFAULT_CUBE_REWARD_RANGES, cube_generosity_event: false, cube_can_spin: true, cube_free_spins_total: 1, cube_free_spins_remaining: 1, completed_quests_today: 0, cube_generosity_quest_target: 3, prediction_revealed: false });
       setLoadingStatus(false);
       return;
     }
@@ -219,10 +219,16 @@ export default function Fun() {
           cube_face: r.data.face,
           cube_tier: r.data.tier,
           next_spin_cost: r.data.next_spin_cost,
-          paid_spin_cost: r.data.next_spin_cost,
+          cube_generosity_event: r.data.cube_generosity_event,
+          cube_generosity_bonus_unlocked: r.data.cube_generosity_bonus_unlocked,
+          completed_quests_today: r.data.completed_quests_today,
+          cube_generosity_quest_target: r.data.cube_generosity_quest_target,
+          cube_free_spins_total: r.data.cube_free_spins_total,
+          cube_free_spins_remaining: r.data.cube_free_spins_remaining,
+          cube_can_spin: r.data.cube_can_spin,
         }));
         fireConfetti();
-        toast.success(`+${r.data.reward} Point`, { description: r.data.cost ? `Вартість кидка: ${r.data.cost} Point` : Number(r.data.spin_count) === 1 ? "Перший кидок безкоштовний" : "Повторний кидок безкоштовний", duration: 3500 });
+        toast.success(`+${r.data.reward} Point`, { description: r.data.cost ? `Вартість кидка: ${r.data.cost} Point` : r.data.cube_generosity_event && Number(r.data.spin_count) > 1 ? "Бонусний кидок за 3 виконані квести" : "Безкоштовний кидок", duration: 3500 });
         refreshMe();
       }, CUBE_ANIMATION_MS);
     } catch (e) {
@@ -251,6 +257,14 @@ export default function Fun() {
   const paidSpinCost = Number(status?.paid_spin_cost ?? status?.next_spin_cost ?? 20);
   const nextSpinCost = Number(status?.next_spin_cost ?? paidSpinCost);
   const spinCount = Number(status?.cube_spin_count || 0);
+  const generosityEvent = Boolean(status?.cube_generosity_event);
+  const generosityQuestTarget = Number(status?.cube_generosity_quest_target || 3);
+  const completedQuestsToday = Number(status?.completed_quests_today || 0);
+  const generosityBonusUnlocked = Boolean(status?.cube_generosity_bonus_unlocked);
+  const freeSpinsTotal = Number(status?.cube_free_spins_total || 1);
+  const freeSpinsRemaining = Number(status?.cube_free_spins_remaining || 0);
+  const cubeCanSpin = status?.cube_can_spin !== false;
+  const lacksPaidBalance = !generosityEvent && spinCount > 0 && Number(user?.balance || 0) < nextSpinCost;
 
   return (
     <div className="px-5 pt-2 pb-8 space-y-5" data-testid="fun-page">
@@ -325,12 +339,28 @@ export default function Fun() {
           </details>
         </div>
 
+        {generosityEvent && (
+          <div className="relative z-[3] mt-4 overflow-hidden rounded-3xl border border-[#B78CFF]/35 bg-[radial-gradient(circle_at_top_right,_rgba(183,140,255,.22),_transparent_48%),rgba(183,140,255,.08)] p-4" data-testid="cube-generosity-event">
+            <div className="text-base font-black text-white">🎲 Сьогодні Куб Щедрості!</div>
+            <div className="mt-2 text-sm font-bold text-zinc-300">Тобі доступний 1 кидок.</div>
+            <div className="mt-1 text-sm font-bold text-zinc-300">Але якщо сьогодні виконано 3 квести — отримуєш <span className="text-[#C9A7FF]">+1 кидок</span>.</div>
+            <div className={`mt-3 flex items-center justify-between gap-3 rounded-2xl border px-3 py-2.5 ${generosityBonusUnlocked ? "border-[#39FF14]/30 bg-[#39FF14]/10" : "border-white/10 bg-black/20"}`}>
+              <span className={`text-xs font-black ${generosityBonusUnlocked ? "text-[#39FF14]" : "text-zinc-400"}`}>
+                {generosityBonusUnlocked ? "Бонусний кидок відкрито" : "Прогрес до бонусного кидка"}
+              </span>
+              <span className={`font-display text-lg ${generosityBonusUnlocked ? "text-[#39FF14]" : "text-[#C9A7FF]"}`} data-testid="cube-generosity-quest-progress">
+                {Math.min(completedQuestsToday, generosityQuestTarget)} / {generosityQuestTarget}
+              </span>
+            </div>
+          </div>
+        )}
+
         <div className="generous-cube-meta-grid">
           <div className="generous-cube-meta">
             <Gift size={18} />
             <span>
-              <small>Перший кидок</small>
-              <strong>{spinCount === 0 ? "Безкоштовний" : "Використано"}</strong>
+              <small>{generosityEvent ? "Кидки сьогодні" : "Перший кидок"}</small>
+              <strong>{generosityEvent ? `${freeSpinsRemaining} з ${freeSpinsTotal} доступно` : spinCount === 0 ? "Безкоштовний" : "Використано"}</strong>
             </span>
           </div>
           <div className="generous-cube-meta generous-cube-meta--balance">
@@ -375,26 +405,34 @@ export default function Fun() {
         <button
           data-testid="spin-cube"
           onClick={spin}
-          disabled={rolling || loadingStatus || (spinCount > 0 && Number(user?.balance || 0) < nextSpinCost)}
+          disabled={rolling || loadingStatus || !cubeCanSpin || lacksPaidBalance}
           className="generous-cube-button"
         >
           <Zap size={20} strokeWidth={3} />
           {rolling
             ? "КУБ НАБИРАЄ ЕНЕРГІЮ..."
-            : spinCount === 0
+            : generosityEvent && !cubeCanSpin
+              ? "КИДКИ НА СЬОГОДНІ ВИКОРИСТАНО"
+              : generosityEvent
+                ? `КИНУТИ БЕЗКОШТОВНО · ЗАЛИШИЛОСЬ ${freeSpinsRemaining}`
+                : spinCount === 0
               ? "КИНУТИ БЕЗКОШТОВНО"
               : nextSpinCost === 0 ? "КИНУТИ БЕЗКОШТОВНО" : `КИНУТИ ЗА ${nextSpinCost} POINT`}
         </button>
 
-        {spinCount > 0 && Number(user?.balance || 0) < nextSpinCost && (
+        {lacksPaidBalance && (
           <div className="mt-3 text-center text-xs font-black text-[#FF5C00]">Недостатньо Point для наступної спроби</div>
         )}
-        <div className="generous-cube-attempts">Спроб сьогодні: <b>{spinCount}</b></div>
+        <div className="generous-cube-attempts">
+          {generosityEvent ? <>Використано: <b>{spinCount}</b> · залишилось: <b>{freeSpinsRemaining}</b></> : <>Спроб сьогодні: <b>{spinCount}</b></>}
+        </div>
       </section>
 
       <div className="text-[11px] text-zinc-500 text-center font-black">
         <Coins size={12} strokeWidth={3} className="inline -mt-0.5 mr-1" />
-        Передбачення безкоштовне раз на добу. Перший кидок куба безкоштовний, наступні — {paidSpinCost === 0 ? "також безкоштовні" : `по ${paidSpinCost} Point`}.
+        {generosityEvent
+          ? "Сьогодні діє Куб Щедрості: 1 безкоштовний кидок і ще 1 після трьох виконаних квестів. Платні кидки сьогодні недоступні."
+          : <>Передбачення безкоштовне раз на добу. Перший кидок куба безкоштовний, наступні — {paidSpinCost === 0 ? "також безкоштовні" : `по ${paidSpinCost} Point`}.</>}
       </div>
     </div>
   );

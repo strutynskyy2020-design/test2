@@ -1,10 +1,10 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
   Users, Swords, Gift, ShoppingBag, BarChart3, Plus, Pencil, Trash2, X, Minus, Check, Coins, Trophy, ChevronRight,
   UserCog, ShieldCheck, Crown, UsersRound, Inbox, UserCheck, ClipboardList, CheckCircle2, XCircle,
-  ArrowUp, ArrowDown, FileText, BrainCircuit, Clock3, TrendingUp, Search, CalendarDays, Target, Save, ChevronDown,
-  KeyRound, Award, Medal, Star, Sparkles, Send, Gamepad2, Dice5, RotateCcw, PiggyBank, Gem, BadgePercent, Megaphone, MessageSquareText,
+  ArrowUp, ArrowDown, FileText, BrainCircuit, Clock3, TrendingUp, Search, CalendarDays, Target, Save, ChevronDown, ChevronLeft,
+  KeyRound, Award, Medal, Star, Sparkles, Send, Gamepad2, Dice5, RotateCcw, PiggyBank, Gem, BadgePercent, Megaphone, MessageSquareText, History,
 } from "lucide-react";
 import api, { extractError, API_BASE, getToken } from "@/lib/api";
 import { useApp } from "@/context/AppContext";
@@ -16,11 +16,13 @@ const TABS = [
   { id: "analytics", label: "Огляд", icon: BarChart3 },
   { id: "ai-team", label: "AI команда", icon: BrainCircuit },
   { id: "daily-tasks", label: "Завдання дня", icon: CalendarDays },
+  { id: "schedule-settings", label: "Календар", icon: CalendarDays },
   { id: "goals", label: "Проекції", icon: Target },
   { id: "moderation", label: "Модерація", icon: UserCheck },
   { id: "applications", label: "Заявки", icon: Inbox },
   { id: "users", label: "Юзери", icon: Users },
   { id: "points", label: "Бали та баланс", icon: Coins },
+  { id: "xp-journal", label: "Журнал XP", icon: History },
   { id: "teams", label: "Команди", icon: UsersRound },
   { id: "achievements", label: "Досягнення", icon: Award },
   { id: "bonus-match", label: "Bonus Match", icon: Gamepad2 },
@@ -54,6 +56,7 @@ const CATEGORIES = ["avatar", "merch", "privilege", "certificate"];
 const CUBE_FACE_GLYPHS = ["⚀", "⚁", "⚂", "⚃", "⚄", "⚅"];
 const DEFAULT_CUBE_SETTINGS = {
   paid_spin_cost: 20,
+  generosity_day_chance_percent: 35,
   rewards: [
     { face: 1, min_reward: 1, max_reward: 10 },
     { face: 2, min_reward: 11, max_reward: 20 },
@@ -350,31 +353,43 @@ const DailyTasksManager = ({ teamFilter }) => {
     const key = `${operator.id}:${task.id}`;
     const decided = task.status !== "pending";
     if (decided) {
+      if (compact) {
+        return (
+          <div className={`mt-1.5 flex h-8 items-center justify-center gap-1 rounded-lg border px-1 text-[9px] font-black uppercase ${task.status === "approved" ? "border-[#39FF14]/30 bg-[#39FF14]/10 text-[#39FF14]" : "border-[#FF3B30]/30 bg-[#FF3B30]/10 text-[#FF3B30]"}`}>
+            {task.status === "approved" ? <CheckCircle2 size={12} strokeWidth={3} /> : <XCircle size={12} strokeWidth={3} />}
+            {task.status === "approved" ? `+${task.reward}` : "Відх."}
+          </div>
+        );
+      }
       return (
         <div className={`flex items-center justify-between rounded-xl border px-3 py-2 ${task.status === "approved" ? "border-[#39FF14]/30 bg-[#39FF14]/10" : "border-[#FF3B30]/30 bg-[#FF3B30]/10"}`}>
           <div className={`flex items-center gap-2 text-[10px] font-black uppercase tracking-wider ${task.status === "approved" ? "text-[#39FF14]" : "text-[#FF3B30]"}`}>
             {task.status === "approved" ? <CheckCircle2 size={14} strokeWidth={3} /> : <XCircle size={14} strokeWidth={3} />}
             {task.status === "approved" ? `Нараховано +${task.reward}` : "Відхилено"}
           </div>
-          {!compact && <div className="text-[9px] font-bold text-zinc-500">{task.reviewed_by_name || "Адмін"}</div>}
+          <div className="text-[9px] font-bold text-zinc-500">{task.reviewed_by_name || "Адмін"}</div>
         </div>
       );
     }
     return (
-      <div className={`grid grid-cols-2 gap-2 ${compact ? "mt-2" : "mt-3"}`}>
+      <div className={`grid grid-cols-2 ${compact ? "mt-1.5 gap-1" : "mt-3 gap-2"}`}>
         <button
           onClick={() => decide(operator, task, "approve")}
           disabled={busyKey === key}
-          className="min-h-10 touch-manipulation rounded-xl border border-[#39FF14]/50 bg-[#39FF14]/15 px-2 text-[10px] font-black uppercase tracking-wide text-[#39FF14] active:scale-95 disabled:opacity-50"
+          title={compact ? "Нарахувати" : undefined}
+          aria-label="Нарахувати"
+          className={`${compact ? "h-8 rounded-lg px-1" : "min-h-10 rounded-xl px-2"} touch-manipulation border border-[#39FF14]/50 bg-[#39FF14]/15 text-[10px] font-black uppercase tracking-wide text-[#39FF14] active:scale-95 disabled:opacity-50`}
         >
-          <span className="inline-flex items-center gap-1"><CheckCircle2 size={14} strokeWidth={3} /> Нарахувати</span>
+          <span className="inline-flex items-center justify-center gap-1"><CheckCircle2 size={compact ? 13 : 14} strokeWidth={3} />{!compact && " Нарахувати"}</span>
         </button>
         <button
           onClick={() => decide(operator, task, "reject")}
           disabled={busyKey === key}
-          className="min-h-10 touch-manipulation rounded-xl border border-[#FF3B30]/50 bg-[#FF3B30]/10 px-2 text-[10px] font-black uppercase tracking-wide text-[#FF3B30] active:scale-95 disabled:opacity-50"
+          title={compact ? "Відхилити" : undefined}
+          aria-label="Відхилити"
+          className={`${compact ? "h-8 rounded-lg px-1" : "min-h-10 rounded-xl px-2"} touch-manipulation border border-[#FF3B30]/50 bg-[#FF3B30]/10 text-[10px] font-black uppercase tracking-wide text-[#FF3B30] active:scale-95 disabled:opacity-50`}
         >
-          <span className="inline-flex items-center gap-1"><XCircle size={14} strokeWidth={3} /> Відхилити</span>
+          <span className="inline-flex items-center justify-center gap-1"><XCircle size={compact ? 13 : 14} strokeWidth={3} />{!compact && " Відхилити"}</span>
         </button>
       </div>
     );
@@ -447,7 +462,7 @@ const DailyTasksManager = ({ teamFilter }) => {
 
       {/* Laptop and desktop: dynamic task grid (3 activation tasks or 7 sales categories). */}
       <div className="admin-desktop-task-table overflow-hidden rounded-3xl border border-white/10 bg-[#121318] shadow-2xl shadow-black/30">
-        <div className="grid grid-cols-[230px_minmax(0,1fr)_160px] items-center border-b border-white/10 bg-white/[0.025] px-5 py-4 text-[10px] font-black uppercase tracking-[0.14em] text-zinc-500">
+        <div className="grid grid-cols-[180px_minmax(0,1fr)_110px] items-center border-b border-white/10 bg-white/[0.025] px-3 py-3 text-[9px] font-black uppercase tracking-[0.12em] text-zinc-500">
           <div>Оператор</div>
           <div className="px-4">Завдання</div>
           <div className="text-center">Статус</div>
@@ -457,8 +472,8 @@ const DailyTasksManager = ({ teamFilter }) => {
             const total = operator.tasks.length;
             const complete = total > 0 && operator.decided_count === total;
             return (
-              <div key={operator.id} className="diamond-card-auto grid grid-cols-[230px_minmax(0,1fr)_160px] items-stretch px-5 transition-colors hover:bg-white/[0.02]">
-                <div className="flex items-center gap-3 border-r border-white/5 py-5 pr-4">
+              <div key={operator.id} className="diamond-card-auto grid grid-cols-[180px_minmax(0,1fr)_110px] items-stretch px-3 transition-colors hover:bg-white/[0.02]">
+                <div className="flex items-center gap-2 border-r border-white/5 py-3 pr-2">
                   <AvatarFrame
                     src={operator.avatar_url}
                     alt={operator.name}
@@ -474,19 +489,19 @@ const DailyTasksManager = ({ teamFilter }) => {
                   </div>
                 </div>
 
-                <div className="overflow-x-auto py-3">
-                  <div className="grid min-w-max gap-2 px-3" style={{ gridTemplateColumns: `repeat(${Math.max(total, 1)}, minmax(210px, 230px))` }}>
+                <div className="min-w-0 py-2">
+                  <div className="grid min-w-0 gap-1.5 px-2" style={{ gridTemplateColumns: `repeat(${Math.max(total, 1)}, minmax(0, 1fr))` }}>
                     {operator.tasks.map((task) => {
                       const difficulty = dailyTaskStyle(task);
                       return (
-                        <div key={task.id} className="rounded-2xl border border-white/5 bg-black/15 p-3" data-testid={`admin-desktop-task-${operator.id}-${task.id}`}>
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="rounded-full px-2 py-0.5 text-[8px] font-black uppercase tracking-wider text-[#0A0A0A]" style={{ backgroundColor: difficulty.color }}>{difficulty.label}</span>
-                            <span className="text-[10px] font-black text-[#FFB800]">{task.reward} Point</span>
-                            <span className="text-[10px] font-black text-[#B78CFF]">+{task.xp} XP</span>
+                        <div key={task.id} className="min-w-0 rounded-xl border border-white/5 bg-black/15 p-2" data-testid={`admin-desktop-task-${operator.id}-${task.id}`} title={`${task.title} — ${task.text}`}>
+                          <div className="flex min-w-0 items-center justify-between gap-1">
+                            <span className="truncate rounded-full px-1.5 py-0.5 text-[7px] font-black uppercase tracking-wide text-[#0A0A0A]" style={{ backgroundColor: difficulty.color }}>{difficulty.label}</span>
+                            <span className="shrink-0 text-[8px] font-black text-[#FFB800]">{task.reward}P</span>
+                            <span className="shrink-0 text-[8px] font-black text-[#B78CFF]">+{task.xp}XP</span>
                           </div>
-                          <div className="mt-2 line-clamp-1 text-xs font-black text-white" title={task.title}>{task.title}</div>
-                          <div className="mt-1 line-clamp-2 min-h-9 text-[10px] font-semibold leading-relaxed text-zinc-500" title={task.text}>{task.text}</div>
+                          <div className="mt-1.5 line-clamp-2 min-h-7 text-[9px] font-black leading-tight text-white">{task.title}</div>
+                          <div className="mt-1 line-clamp-1 text-[8px] font-semibold leading-tight text-zinc-600">{task.text}</div>
                           {taskActions(operator, task, true)}
                         </div>
                       );
@@ -494,11 +509,11 @@ const DailyTasksManager = ({ teamFilter }) => {
                   </div>
                 </div>
 
-                <div className="flex flex-col items-center justify-center gap-2 border-l border-white/5 py-5 pl-4 text-center">
-                  <div className={`rounded-full px-3 py-1.5 text-[10px] font-black uppercase tracking-wider ${complete ? "bg-[#39FF14]/10 text-[#39FF14]" : operator.decided_count > 0 ? "bg-[#FFB800]/10 text-[#FFB800]" : "bg-white/5 text-zinc-500"}`}>
+                <div className="flex flex-col items-center justify-center gap-1.5 border-l border-white/5 py-3 pl-2 text-center">
+                  <div className={`rounded-full px-2 py-1 text-[8px] font-black uppercase tracking-wide ${complete ? "bg-[#39FF14]/10 text-[#39FF14]" : operator.decided_count > 0 ? "bg-[#FFB800]/10 text-[#FFB800]" : "bg-white/5 text-zinc-500"}`}>
                     {complete ? "Готово" : operator.decided_count > 0 ? "В роботі" : "Не перевірено"}
                   </div>
-                  <div className="font-display text-2xl text-white">{operator.decided_count}/{total}</div>
+                  <div className="font-display text-xl text-white">{operator.decided_count}/{total}</div>
                 </div>
               </div>
             );
@@ -568,7 +583,7 @@ const UsersView = ({ teamFilter }) => {
           data-testid="users-search"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="Пошук за ім’ям, email, командою або логіном цілей"
+          placeholder="Пошук за ім’ям, email, командою або логіном звітів"
           className="h-11 w-full rounded-2xl border border-white/10 bg-[#1A1A1E] pl-10 pr-4 text-sm font-bold text-white outline-none placeholder:text-zinc-600 focus:border-[#00F0FF]/60"
         />
       </label>
@@ -596,7 +611,7 @@ const UsersView = ({ teamFilter }) => {
             <div className="text-[10px] text-zinc-600 mt-0.5 flex items-center gap-2">
               <span>LVL {u.level} • {u.balance.toLocaleString("uk-UA")} б.</span>
               {u.team_name && <span className="text-[#00F0FF] truncate">{u.team_name}</span>}
-              {u.goals_login && <span className="text-[#B78CFF] truncate">Цілі: {u.goals_login}</span>}
+              {u.goals_login && <span className="text-[#B78CFF] truncate">Звіти: {u.goals_login}</span>}
               <span className={u.report_profile === "activation" ? "text-[#39FF14] truncate" : "text-[#FFB800] truncate"}>{u.report_profile === "activation" ? "Активатор" : "Продажник"}</span>
               {u.diamond_avatar_active && <span className="inline-flex items-center gap-1 truncate text-[#7DD3FC]"><Gem size={10} /> Алмазний до {formatDiamondExpiry(u.diamond_avatar_expires_at)}</span>}
             </div>
@@ -912,7 +927,7 @@ const UserEditSheet = ({ user, teams, onClose, onDone }) => {
           </div>
         </div>
         <div>
-          <label className="block text-[11px] font-black uppercase text-zinc-500 mb-1">Ключ Google цілей</label>
+          <label className="block text-[11px] font-black uppercase text-zinc-500 mb-1">Ключ звітів (goals_login)</label>
           <input
             data-testid="user-edit-goals-login"
             value={f.goals_login}
@@ -930,7 +945,7 @@ const UserEditSheet = ({ user, teams, onClose, onDone }) => {
             <option value="sales">Продажник · кредити, дебет, депозити</option>
             <option value="activation">Активатор · ПУМБ Online і картки</option>
           </select>
-          <div className="mt-1 text-[10px] leading-4 text-zinc-600">Визначає, які сторінки та показники бачить оператор у розділі «Цілі».</div>
+          <div className="mt-1 text-[10px] leading-4 text-zinc-600">Визначає, які сторінки та показники бачить оператор у розділі «Проекційні».</div>
         </div>
         <div>
           <label className="block text-[11px] font-black uppercase text-zinc-500 mb-1">Роль</label>
@@ -978,6 +993,64 @@ const UserEditSheet = ({ user, teams, onClose, onDone }) => {
   );
 };
 
+// ─────────────── XP ledger ───────────────
+const XP_SOURCE_LABELS = {
+  quest: "Квест", daily_quest: "Завдання дня", daily_bonus: "Денний бонус",
+  projection: "Проекції", projection_goal: "Цілі", login_streak: "Серія входів",
+  team_bank: "Банка", team_goal: "Командна ціль", cube: "Щедрий куб",
+  bonus_match: "Bonus Match", hidden_object: "VPDK Детектив",
+  achievement: "Досягнення", signup: "Реєстрація", admin_manual: "Адміністратор",
+};
+
+const XPJournalView = ({ teamFilter }) => {
+  const [data, setData] = useState({ items: [], summary: { amount: 0, events: 0, sources: [] } });
+  const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [form, setForm] = useState({ user_id: "", amount: 25, description: "Ручне нарахування XP" });
+  const [busy, setBusy] = useState(false);
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [ledgerResponse, usersResponse] = await Promise.all([
+        api.get(withTeamQuery("/admin/xp-ledger?limit=200", teamFilter)),
+        api.get("/admin/users"),
+      ]);
+      setData(ledgerResponse.data || { items: [], summary: {} });
+      setUsers(filterRowsByTeam(usersResponse.data, teamFilter));
+    } catch (error) { toast.error(extractError(error)); }
+    finally { setLoading(false); }
+  }, [teamFilter]);
+  useEffect(() => { load(); }, [load]);
+
+  const award = async () => {
+    if (!form.user_id) return toast.error("Оберіть працівника");
+    setBusy(true);
+    try {
+      await api.post(`/admin/users/${form.user_id}/xp`, { amount: Number(form.amount), description: form.description });
+      toast.success(`Нараховано ${Number(form.amount)} XP`);
+      await load();
+    } catch (error) { toast.error(extractError(error)); }
+    finally { setBusy(false); }
+  };
+
+  return <div className="space-y-4" data-testid="xp-journal-view">
+    <section className="rounded-3xl border border-[#39FF14]/25 bg-[#39FF14]/[.05] p-4">
+      <div className="flex items-center gap-2"><Sparkles size={18} className="text-[#39FF14]" /><div><div className="font-display text-xl text-white">Ручне нарахування XP</div><div className="text-[10px] font-bold text-zinc-500">Point не змінюються. Подія одразу потрапить у журнал.</div></div></div>
+      <div className="mt-4 grid gap-2 sm:grid-cols-[1fr_110px]">
+        <select value={form.user_id} onChange={(event) => setForm({ ...form, user_id: event.target.value })} className="h-11 min-w-0 rounded-xl border border-white/10 bg-[#101114] px-3 text-sm font-bold text-white outline-none focus:border-[#39FF14]"><option value="">Оберіть працівника</option>{users.map((item) => <option key={item.id} value={item.id}>{item.name} · LVL {item.level}</option>)}</select>
+        <input type="number" min="1" max="100000" value={form.amount} onChange={(event) => setForm({ ...form, amount: event.target.value })} className="h-11 rounded-xl border border-white/10 bg-[#101114] px-3 text-sm font-black text-[#39FF14] outline-none focus:border-[#39FF14]" />
+      </div>
+      <input value={form.description} maxLength={240} onChange={(event) => setForm({ ...form, description: event.target.value })} className="mt-2 h-11 w-full rounded-xl border border-white/10 bg-[#101114] px-3 text-sm text-white outline-none focus:border-[#39FF14]" placeholder="Причина нарахування" />
+      <button type="button" onClick={award} disabled={busy} className="arcade-btn mt-3 flex h-11 w-full items-center justify-center gap-2 border-[#197A0E] bg-[#39FF14] text-xs font-black uppercase text-[#071006] disabled:opacity-50"><Plus size={16} />{busy ? "Нарахування..." : "Нарахувати XP"}</button>
+    </section>
+    <section className="grid grid-cols-2 gap-3"><StatBox label="Нараховано XP" value={Number(data.summary?.amount || 0).toLocaleString("uk-UA")} accent="#39FF14" /><StatBox label="Операцій" value={Number(data.summary?.events || 0).toLocaleString("uk-UA")} accent="#00F0FF" /></section>
+    <section className="rounded-3xl border border-white/10 bg-[#1A1A1E] p-4">
+      <div className="flex items-center justify-between gap-3"><div><div className="font-display text-xl text-white">Усі нарахування</div><div className="mt-1 text-[10px] font-bold text-zinc-500">Кожна подія має унікальний ключ і не може бути зарахована повторно.</div></div><History size={19} className="text-[#00F0FF]" /></div>
+      {loading ? <div className="py-8 text-center text-sm text-zinc-500">Завантаження...</div> : <div className="mt-4 space-y-2">{(data.items || []).map((event) => <article key={event.id} className="rounded-2xl border border-white/8 bg-black/25 p-3"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="truncate text-sm font-black text-white">{event.user_name || "Користувач"}</div><div className="mt-1 text-[10px] font-bold leading-relaxed text-zinc-500">{event.description}</div></div><div className="shrink-0 font-display text-xl text-[#39FF14]">+{event.amount}</div></div><div className="mt-2 flex flex-wrap items-center gap-2 text-[8px] font-black uppercase tracking-wider text-zinc-600"><span className="rounded-full bg-white/5 px-2 py-1 text-[#B78CFF]">{XP_SOURCE_LABELS[event.source] || event.source}</span><span>{new Date(event.created_at).toLocaleString("uk-UA")}</span>{event.level_after > event.level_before && <span className="text-[#FFB800]">LVL {event.level_after}</span>}</div></article>)}{!data.items?.length && <div className="py-8 text-center text-sm text-zinc-500">XP ще не нараховували.</div>}</div>}
+    </section>
+  </div>;
+};
+
 // ─────────────── Achievements admin ───────────────
 const ACHIEVEMENT_ICON_OPTIONS = [
   { value: "trophy", label: "Кубок", Icon: Trophy },
@@ -990,7 +1063,7 @@ const ACHIEVEMENT_ICON_OPTIONS = [
 const achievementIcon = (name) => ACHIEVEMENT_ICON_OPTIONS.find((item) => item.value === name)?.Icon || Award;
 
 const AchievementsView = ({ teamFilter }) => {
-  const [data, setData] = useState({ achievements: [], users: [] });
+  const [data, setData] = useState({ achievements: [], system_achievements: [], users: [] });
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(null);
   const [granting, setGranting] = useState(null);
@@ -999,13 +1072,14 @@ const AchievementsView = ({ teamFilter }) => {
     setLoading(true);
     try {
       const { data: dashboard } = await api.get(withTeamQuery("/admin/achievements-dashboard", teamFilter));
-      setData({ achievements: dashboard.achievements || [], users: dashboard.users || [] });
+      setData({ achievements: dashboard.achievements || [], system_achievements: dashboard.system_achievements || [], users: dashboard.users || [] });
     } catch (e) { toast.error(extractError(e)); }
     finally { setLoading(false); }
   };
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [teamFilter]);
 
   return <div className="space-y-3" data-testid="achievements-admin-view">
+    <div className="rounded-2xl border border-[#B78CFF]/25 bg-[#B78CFF]/[.06] p-4"><div className="flex items-center justify-between gap-3"><div><div className="font-display text-xl text-white">Автоматична система</div><div className="mt-1 text-[10px] font-bold text-zinc-500">Базові досягнення рахуються з реальних квестів, звітів, банок, покупок та ігор.</div></div><div className="font-display text-3xl text-[#B78CFF]">{data.system_achievements.length}</div></div></div>
     <button type="button" onClick={() => setEditing({ isNew: true })} className="arcade-btn flex h-11 w-full items-center justify-center gap-2 border-[#7a5900] bg-[#FFB800] text-xs font-black uppercase tracking-wider text-[#0A0A0A]">
       <Plus size={16} strokeWidth={3}/> Створити досягнення
     </button>
@@ -1019,7 +1093,7 @@ const AchievementsView = ({ teamFilter }) => {
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2"><div className="font-black text-white">{achievement.title}</div><span className={`rounded-full px-2 py-0.5 text-[8px] font-black uppercase ${achievement.active ? "bg-[#39FF14]/10 text-[#39FF14]" : "bg-white/5 text-zinc-500"}`}>{achievement.active ? "Активне" : "Приховане"}</span></div>
             <div className="mt-1 text-xs leading-relaxed text-zinc-500">{achievement.description || "Без опису"}</div>
-            <div className="mt-2 text-[10px] font-black uppercase tracking-wider text-[#B78CFF]">Видано: {achievement.granted_count || 0}</div>
+            <div className="mt-2 flex flex-wrap gap-2 text-[10px] font-black uppercase tracking-wider"><span className="text-[#B78CFF]">Видано: {achievement.granted_count || 0}</span><span className="text-[#39FF14]">+{achievement.xp_reward || 50} XP</span><span className="text-zinc-600">{achievement.category || "Особливе"} · {achievement.rarity || "silver"}</span></div>
           </div>
         </div>
         <div className="mt-3 grid grid-cols-2 gap-2">
@@ -1040,6 +1114,9 @@ const AchievementEditSheet = ({ achievement, onClose, onDone }) => {
     description: isNew ? "" : achievement.description || "",
     icon: isNew ? "trophy" : achievement.icon || "trophy",
     color: isNew ? "#FFB800" : achievement.color || "#FFB800",
+    category: isNew ? "Особливе" : achievement.category || "Особливе",
+    rarity: isNew ? "silver" : achievement.rarity || "silver",
+    xp_reward: isNew ? 50 : achievement.xp_reward || 50,
     active: isNew ? true : achievement.active !== false,
   });
   const [busy, setBusy] = useState(false);
@@ -1063,6 +1140,11 @@ const AchievementEditSheet = ({ achievement, onClose, onDone }) => {
       <div><label className="mb-1 block text-[11px] font-black uppercase text-zinc-500">Іконка</label><select value={form.icon} onChange={(e)=>setForm({...form,icon:e.target.value})} className="h-12 w-full rounded-xl border-2 border-white/10 bg-[#0A0A0A] px-3 text-white outline-none focus:border-[#B78CFF]">{ACHIEVEMENT_ICON_OPTIONS.map((item)=><option key={item.value} value={item.value}>{item.label}</option>)}</select></div>
       <div><label className="mb-1 block text-[11px] font-black uppercase text-zinc-500">Колір</label><input type="color" value={form.color} onChange={(e)=>setForm({...form,color:e.target.value})} className="h-12 w-full rounded-xl border-2 border-white/10 bg-[#0A0A0A] p-1"/></div>
     </div>
+    <div className="mt-3 grid grid-cols-2 gap-3">
+      <div><label className="mb-1 block text-[11px] font-black uppercase text-zinc-500">Категорія</label><input value={form.category} onChange={(e)=>setForm({...form,category:e.target.value})} maxLength={40} className="h-12 w-full rounded-xl border-2 border-white/10 bg-[#0A0A0A] px-3 text-white outline-none focus:border-[#B78CFF]"/></div>
+      <div><label className="mb-1 block text-[11px] font-black uppercase text-zinc-500">Рідкість</label><select value={form.rarity} onChange={(e)=>setForm({...form,rarity:e.target.value})} className="h-12 w-full rounded-xl border-2 border-white/10 bg-[#0A0A0A] px-3 text-white outline-none focus:border-[#B78CFF]"><option value="bronze">Бронза</option><option value="silver">Срібло</option><option value="gold">Золото</option><option value="diamond">Діамант</option></select></div>
+    </div>
+    <label className="mb-1 mt-3 block text-[11px] font-black uppercase text-zinc-500">Нагорода XP · 25–250</label><input type="number" min="25" max="250" value={form.xp_reward} onChange={(e)=>setForm({...form,xp_reward:Number(e.target.value)})} className="h-12 w-full rounded-xl border-2 border-white/10 bg-[#0A0A0A] px-4 font-black text-[#39FF14] outline-none focus:border-[#39FF14]"/>
     <label className="mt-4 flex cursor-pointer items-center gap-2"><input type="checkbox" checked={form.active} onChange={(e)=>setForm({...form,active:e.target.checked})} className="h-5 w-5 accent-[#39FF14]"/><span className="text-sm font-black text-white">Показувати працівникам після видачі</span></label>
     <button type="button" onClick={save} disabled={busy} className="arcade-btn mt-5 flex h-12 w-full items-center justify-center gap-2 border-[#7a5900] bg-[#FFB800] text-sm font-black uppercase tracking-wider text-[#0A0A0A] disabled:opacity-50"><Save size={16}/>{busy ? "Зберігаємо..." : "Зберегти"}</button>
   </BottomSheet>;
@@ -1728,10 +1810,102 @@ const PromotionEditor = ({ prize, onClose, onSaved }) => {
   );
 };
 
-const TeamBanksAdminView = ({ teamFilter }) => {
+const TeamBankEditor = ({ bank, teams, defaultTeamId, onClose, onSaved }) => {
+  const isNew = !bank?.id;
+  const [form, setForm] = useState({
+    team_id: bank?.team_id || defaultTeamId || teams[0]?.id || "",
+    title: bank?.title || "",
+    goal_points: bank?.goal_points ?? 15000,
+    description: bank?.description || "",
+    reward_title: bank?.reward_title || "",
+    active: bank?.active ?? true,
+  });
+  const [busy, setBusy] = useState(false);
+
+  const setField = (field, value) => setForm((current) => ({ ...current, [field]: value }));
+  const save = async () => {
+    if (!form.team_id) { toast.error("Оберіть команду"); return; }
+    if (!form.title.trim()) { toast.error("Вкажіть назву банки"); return; }
+    if (Number(form.goal_points) < 1) { toast.error("Ціль має бути більшою за 0 Point"); return; }
+    if (!form.description.trim()) { toast.error("Додайте опис банки"); return; }
+    if (!form.reward_title.trim()) { toast.error("Вкажіть винагороду"); return; }
+    const payload = {
+      title: form.title.trim(),
+      goal_points: Number(form.goal_points),
+      description: form.description.trim(),
+      reward_title: form.reward_title.trim(),
+      active: Boolean(form.active),
+      ...(isNew ? { team_id: form.team_id } : {}),
+    };
+    setBusy(true);
+    try {
+      const { data } = isNew
+        ? await api.post("/admin/team-banks", payload)
+        : await api.patch(`/admin/team-banks/${encodeURIComponent(bank.id)}`, payload);
+      toast.success(isNew ? "Банку створено" : "Банку оновлено", { description: data.title });
+      onSaved(data);
+      onClose();
+    } catch (error) {
+      toast.error(extractError(error, "Не вдалося зберегти банку"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const fieldClass = "mt-1 h-12 w-full rounded-xl border-2 border-white/10 bg-[#0A0A0A] px-3 text-sm font-bold text-white outline-none focus:border-[#B78CFF] disabled:opacity-60";
+  return (
+    <BottomSheet onClose={onClose} title={isNew ? "Нова банка" : "Редагування банки"}>
+      <div className="space-y-4 pb-2" data-testid="team-bank-editor">
+        <label className="block">
+          <span className="text-[10px] font-black uppercase tracking-wider text-zinc-500">Команда</span>
+          <select data-testid="team-bank-team" value={form.team_id} disabled={!isNew} onChange={(event) => setField("team_id", event.target.value)} className={fieldClass}>
+            <option value="">Оберіть команду</option>
+            {teams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
+          </select>
+        </label>
+
+        <label className="block">
+          <span className="text-[10px] font-black uppercase tracking-wider text-zinc-500">Назва банки</span>
+          <input data-testid="team-bank-title" value={form.title} maxLength={120} onChange={(event) => setField("title", event.target.value)} placeholder="Наприклад: Командний тімбілдинг" className={fieldClass} />
+        </label>
+
+        <label className="block">
+          <span className="text-[10px] font-black uppercase tracking-wider text-zinc-500">Ціль, Point</span>
+          <input data-testid="team-bank-goal" type="number" min="1" max="10000000" value={form.goal_points} onChange={(event) => setField("goal_points", event.target.value)} className={fieldClass} />
+        </label>
+
+        <label className="block">
+          <span className="text-[10px] font-black uppercase tracking-wider text-zinc-500">Опис</span>
+          <textarea data-testid="team-bank-description" value={form.description} maxLength={2000} onChange={(event) => setField("description", event.target.value)} placeholder="На що збирає команда та важливі деталі" className="mt-1 min-h-28 w-full resize-y rounded-xl border-2 border-white/10 bg-[#0A0A0A] p-3 text-sm font-bold text-white outline-none focus:border-[#B78CFF]" />
+        </label>
+
+        <label className="block">
+          <span className="text-[10px] font-black uppercase tracking-wider text-zinc-500">Винагорода</span>
+          <input data-testid="team-bank-reward" value={form.reward_title} maxLength={240} onChange={(event) => setField("reward_title", event.target.value)} placeholder="Що отримає команда після досягнення цілі" className={fieldClass} />
+        </label>
+
+        <label className="flex items-center justify-between gap-4 rounded-2xl border border-white/10 bg-black/20 p-4">
+          <span>
+            <span className="block text-sm font-black text-white">Активна банка</span>
+            <span className="mt-1 block text-[11px] text-zinc-500">Неактивні банки приховані від працівників, але зберігають прогрес.</span>
+          </span>
+          <input data-testid="team-bank-active" type="checkbox" checked={form.active} onChange={(event) => setField("active", event.target.checked)} className="h-5 w-5 shrink-0 accent-[#B78CFF]" />
+        </label>
+
+        <button type="button" data-testid="team-bank-save" onClick={save} disabled={busy} className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-[#7650B5] bg-[#B78CFF] text-sm font-black uppercase tracking-wider text-[#140A22] disabled:opacity-60">
+          <Save size={17} strokeWidth={3} /> {busy ? "Зберігаємо…" : isNew ? "Створити банку" : "Зберегти зміни"}
+        </button>
+      </div>
+    </BottomSheet>
+  );
+};
+
+
+const TeamBanksAdminView = ({ teamFilter, teams = [] }) => {
   const [banks, setBanks] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [resettingTeamId, setResettingTeamId] = useState(null);
+  const [resettingBankId, setResettingBankId] = useState(null);
+  const [editingBank, setEditingBank] = useState(null);
 
   const load = async () => {
     setLoading(true);
@@ -1747,26 +1921,34 @@ const TeamBanksAdminView = ({ teamFilter }) => {
 
   useEffect(() => { load(); }, []);
 
+  const saveBank = (saved) => {
+    setBanks((current) => {
+      const exists = current.some((bank) => bank.id === saved.id);
+      const next = exists ? current.map((bank) => bank.id === saved.id ? saved : bank) : [saved, ...current];
+      return next.sort((a, b) => String(a.team_name || "").localeCompare(String(b.team_name || ""), "uk") || String(a.title || "").localeCompare(String(b.title || ""), "uk"));
+    });
+  };
+
   const resetBank = async (bank) => {
     const message = [
-      `Скинути Банку Команди «${bank.team_name}»?`,
+      `Скинути банку «${bank.title}» команди «${bank.team_name}»?`,
       "",
       `Поточний прогрес ${Number(bank.current_points || 0).toLocaleString("uk-UA")} Point буде закрито,`,
-      "розпочнеться новий збір з 0 / 15 000 Point.",
+      `розпочнеться новий збір з 0 / ${Number(bank.goal_points || 0).toLocaleString("uk-UA")} Point.`,
       "Внесені бали користувачам не повертаються.",
     ].join("\n");
     if (!window.confirm(message)) return;
-    setResettingTeamId(bank.team_id);
+    setResettingBankId(bank.id);
     try {
-      const { data } = await api.post(`/admin/team-banks/${bank.team_id}/reset`);
-      setBanks((current) => current.map((item) => item.team_id === data.team_id ? data : item));
-      toast.success(`Банку «${bank.team_name}» скинуто`, {
-        description: "Розпочато новий збір на 15 000 Point.",
+      const { data } = await api.post(`/admin/team-banks/${encodeURIComponent(bank.id)}/reset`);
+      setBanks((current) => current.map((item) => item.id === data.id ? data : item));
+      toast.success(`Банку «${bank.title}» скинуто`, {
+        description: `Розпочато новий збір на ${Number(bank.goal_points || 0).toLocaleString("uk-UA")} Point.`,
       });
     } catch (error) {
       toast.error(extractError(error, "Не вдалося скинути банку"));
     } finally {
-      setResettingTeamId(null);
+      setResettingBankId(null);
     }
   };
 
@@ -1782,34 +1964,36 @@ const TeamBanksAdminView = ({ teamFilter }) => {
           <div>
             <div className="text-sm font-black uppercase tracking-wider text-white">Керування Банками Команд</div>
             <div className="mt-1 text-xs leading-relaxed text-zinc-400">
-              Кожна команда має окрему банку. Скидання закриває поточний цикл і запускає новий збір з 0 до 15 000 Point.
+              Створюйте кілька банок для однієї команди, задавайте окрему ціль, опис і винагороду. Неактивну банку працівники не бачать.
             </div>
           </div>
         </div>
       </div>
 
-      <button
-        type="button"
-        onClick={load}
-        className="flex h-11 w-full items-center justify-center gap-2 rounded-2xl border border-white/10 bg-[#1A1A1E] text-xs font-black uppercase tracking-wider text-white"
-      >
-        <RotateCcw size={15} strokeWidth={3} /> Оновити дані
-      </button>
+      <div className="grid grid-cols-2 gap-2">
+        <button type="button" data-testid="create-team-bank" onClick={() => setEditingBank({})} className="flex h-12 items-center justify-center gap-2 rounded-2xl border border-[#7650B5] bg-[#B78CFF] px-3 text-xs font-black uppercase tracking-wider text-[#140A22]">
+          <Plus size={16} strokeWidth={3} /> Створити банку
+        </button>
+        <button type="button" onClick={load} className="flex h-12 items-center justify-center gap-2 rounded-2xl border border-white/10 bg-[#1A1A1E] px-3 text-xs font-black uppercase tracking-wider text-white">
+          <RotateCcw size={15} strokeWidth={3} /> Оновити
+        </button>
+      </div>
 
       <div className="grid gap-3 xl:grid-cols-2">
         {filterRowsByTeam(banks, teamFilter).map((bank) => {
           const progress = Math.max(0, Math.min(100, Number(bank.progress_percent || 0)));
-          const isResetting = resettingTeamId === bank.team_id;
+          const isResetting = resettingBankId === bank.id;
           return (
-            <section key={bank.team_id} className="rounded-3xl border border-white/10 bg-[#1A1A1E] p-4" data-testid={`admin-team-bank-${bank.team_id}`}>
+            <section key={bank.id} className={`rounded-3xl border bg-[#1A1A1E] p-4 ${bank.active ? "border-white/10" : "border-white/5 opacity-70"}`} data-testid={`admin-team-bank-${bank.id}`}>
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <div className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500">Цикл #{Number(bank.cycle_number || 1)}</div>
-                  <h2 className="mt-1 truncate text-xl font-black text-white">{bank.team_name}</h2>
-                  <div className="mt-1 text-xs text-zinc-500">{bank.reward_title || "Групова зустріч на 30 хв"}</div>
+                  <div className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500">{bank.team_name} · цикл #{Number(bank.cycle_number || 1)}</div>
+                  <h2 className="mt-1 truncate text-xl font-black text-white">{bank.title || "Банка Команди"}</h2>
+                  <div className="mt-1 text-xs font-bold text-[#C9A7FF]">Нагорода: {bank.reward_title}</div>
+                  <div className="mt-1 line-clamp-2 text-xs leading-relaxed text-zinc-500">{bank.description}</div>
                 </div>
-                <div className={`shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-wider ${bank.unlocked ? "border-[#39FF14]/35 bg-[#39FF14]/10 text-[#39FF14]" : "border-[#00F0FF]/25 bg-[#00F0FF]/10 text-[#00F0FF]"}`}>
-                  {bank.unlocked ? "Ціль досягнута" : `${progress}%`}
+                <div className={`shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-wider ${!bank.active ? "border-white/10 bg-white/5 text-zinc-500" : bank.unlocked ? "border-[#39FF14]/35 bg-[#39FF14]/10 text-[#39FF14]" : "border-[#00F0FF]/25 bg-[#00F0FF]/10 text-[#00F0FF]"}`}>
+                  {!bank.active ? "Неактивна" : bank.unlocked ? "Ціль досягнута" : `${progress}%`}
                 </div>
               </div>
 
@@ -1836,24 +2020,28 @@ const TeamBanksAdminView = ({ teamFilter }) => {
                 <span>Оновлено {bank.updated_at ? new Date(bank.updated_at).toLocaleString("uk-UA") : "—"}</span>
               </div>
 
-              <button
-                type="button"
-                disabled={isResetting}
-                onClick={() => resetBank(bank)}
-                className="mt-4 flex h-11 w-full items-center justify-center gap-2 rounded-2xl border border-[#FF5C00]/40 bg-[#FF5C00]/10 text-xs font-black uppercase tracking-wider text-[#FF7D36] disabled:opacity-60"
-              >
-                <RotateCcw size={15} strokeWidth={3} /> {isResetting ? "Скидаємо…" : "Скинути ціль банки"}
-              </button>
+              <div className="mt-4 grid grid-cols-2 gap-2">
+                <button type="button" data-testid={`edit-team-bank-${bank.id}`} onClick={() => setEditingBank(bank)} className="flex h-11 items-center justify-center gap-2 rounded-2xl border border-[#B78CFF]/35 bg-[#B78CFF]/10 text-xs font-black uppercase tracking-wider text-[#C9A7FF]">
+                  <Pencil size={15} strokeWidth={3} /> Редагувати
+                </button>
+                <button type="button" disabled={isResetting} onClick={() => resetBank(bank)} className="flex h-11 items-center justify-center gap-2 rounded-2xl border border-[#FF5C00]/40 bg-[#FF5C00]/10 text-xs font-black uppercase tracking-wider text-[#FF7D36] disabled:opacity-60">
+                  <RotateCcw size={15} strokeWidth={3} /> {isResetting ? "Скидаємо…" : "Скинути"}
+                </button>
+              </div>
               <div className="mt-2 text-center text-[10px] text-zinc-600">Старий цикл зберігається в історії. Point не повертаються на особисті баланси.</div>
             </section>
           );
         })}
       </div>
 
-      {!banks.length && (
+      {!filterRowsByTeam(banks, teamFilter).length && (
         <div className="rounded-3xl border border-dashed border-white/10 bg-[#1A1A1E] p-8 text-center text-sm font-bold text-zinc-500">
-          Команд ще немає. Створіть команду, і для неї автоматично з’явиться окрема банка.
+          Для вибраної команди банок ще немає. Натисніть «Створити банку».
         </div>
+      )}
+
+      {editingBank !== null && (
+        <TeamBankEditor bank={editingBank} teams={teams} defaultTeamId={teamFilter} onClose={() => setEditingBank(null)} onSaved={saveBank} />
       )}
     </div>
   );
@@ -1947,21 +2135,21 @@ const PrizeEditor = ({ prize, teams, onClose, onSaved }) => {
 };
 
 // ─────────────── One-time employee announcements ───────────────
-const AnnouncementsView = () => {
+const AnnouncementsView = ({ teamFilter = "", teams = [] }) => {
   const [items, setItems] = useState([]);
   const [editing, setEditing] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     try {
-      const { data } = await api.get("/admin/announcements");
+      const { data } = await api.get(withTeamQuery("/admin/announcements", teamFilter));
       setItems(Array.isArray(data) ? data : []);
     } catch (error) {
       toast.error(extractError(error, "Не вдалося завантажити повідомлення"));
     } finally { setLoading(false); }
-  };
-  useEffect(() => { load(); }, []);
+  }, [teamFilter]);
+  useEffect(() => { load(); }, [load]);
 
   const toggle = async (item) => {
     try {
@@ -1986,8 +2174,8 @@ const AnnouncementsView = () => {
         <div className="flex items-start gap-3">
           <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-[#7DD3FC]/30 bg-black/20 text-[#7DD3FC]"><Megaphone size={22} strokeWidth={2.8} /></div>
           <div>
-            <div className="text-sm font-black uppercase tracking-wider text-white">Разове повідомлення всім працівникам</div>
-            <div className="mt-1 text-xs leading-relaxed text-zinc-400">Після публікації працівник побачить модальне вікно під час першого входу. Натиснувши «Зрозуміло», він більше не побачить саме це повідомлення.</div>
+            <div className="text-sm font-black uppercase tracking-wider text-white">Разове повідомлення працівникам</div>
+            <div className="mt-1 text-xs leading-relaxed text-zinc-400">Надішліть повідомлення всім командам або лише одній. Працівник побачить його під час першого входу, а після натискання «Зрозуміло» це повідомлення більше не зʼявиться.</div>
           </div>
         </div>
       </section>
@@ -1996,12 +2184,17 @@ const AnnouncementsView = () => {
 
       {loading && <div className="py-8 text-center text-sm font-black text-zinc-500">Завантаження…</div>}
       {!loading && !items.length && <div className="rounded-3xl border border-dashed border-white/10 bg-[#1A1A1E] p-8 text-center text-sm font-black text-zinc-500">Повідомлень ще немає</div>}
-      {items.map((item) => (
+      {items.map((item) => {
+        const audienceName = item.team_id
+          ? (item.team_name || teams.find((team) => String(team.id) === String(item.team_id))?.name || "Команда")
+          : "Усі команди";
+        return (
         <article key={item.id} className={`admin-announcement-list-card rounded-3xl border bg-[#1A1A1E] p-4 ${item.active ? "border-[#7DD3FC]/30" : "border-white/10 opacity-65"}`}>
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
                 <span className={`rounded-full px-2 py-1 text-[9px] font-black uppercase tracking-wider ${item.active ? "bg-[#39FF14]/10 text-[#39FF14]" : "bg-white/5 text-zinc-500"}`}>{item.active ? "Активне" : "Вимкнене"}</span>
+                <span className="inline-flex items-center gap-1 rounded-full bg-[#7DD3FC]/10 px-2 py-1 text-[9px] font-black uppercase tracking-wider text-[#7DD3FC]"><UsersRound size={11} strokeWidth={3} /> {audienceName}</span>
                 <span className="text-[10px] font-bold text-zinc-600">Закрили: {Number(item.dismissed_count || 0)}</span>
               </div>
               <h3 className="mt-2 text-base font-black text-white">{item.title}</h3>
@@ -2015,25 +2208,29 @@ const AnnouncementsView = () => {
             </div>
           </div>
         </article>
-      ))}
+        );
+      })}
 
-      {editing !== null && <AnnouncementEditor item={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />}
+      {editing !== null && <AnnouncementEditor item={editing} teams={teams} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />}
     </div>
   );
 };
 
-const AnnouncementEditor = ({ item, onClose, onSaved }) => {
+const AnnouncementEditor = ({ item, onClose, onSaved, teams = [] }) => {
   const isNew = !item.id;
   const [title, setTitle] = useState(item.title || "");
   const [message, setMessage] = useState(item.message || "");
+  const [teamId, setTeamId] = useState(item.team_id || "");
   const [busy, setBusy] = useState(false);
+  const targetTeam = teams.find((team) => String(team.id) === String(teamId));
+  const targetLabel = teamId ? (targetTeam?.name || item.team_name || "Обрана команда") : "Усі команди";
 
   const save = async () => {
     if (title.trim().length < 2) return toast.error("Вкажіть заголовок");
     if (message.trim().length < 2) return toast.error("Напишіть текст повідомлення");
     setBusy(true);
     try {
-      if (isNew) await api.post("/admin/announcements", { title: title.trim(), message: message.trim() });
+      if (isNew) await api.post("/admin/announcements", { title: title.trim(), message: message.trim(), team_id: teamId || null });
       else await api.patch(`/admin/announcements/${item.id}`, { title: title.trim(), message: message.trim() });
       toast.success(isNew ? "Повідомлення опубліковано" : "Повідомлення оновлено");
       onSaved();
@@ -2046,6 +2243,21 @@ const AnnouncementEditor = ({ item, onClose, onSaved }) => {
     <BottomSheet onClose={onClose} title={isNew ? "Нове повідомлення" : "Редагування повідомлення"}>
       <div className="space-y-3">
         <label>
+          <span className="mb-1 block text-[10px] font-black uppercase tracking-wider text-zinc-500">Кому показати</span>
+          <select
+            value={teamId}
+            onChange={(event) => setTeamId(event.target.value)}
+            disabled={!isNew}
+            className="h-12 w-full rounded-xl border-2 border-white/10 bg-[#0A0A0A] px-3 font-black text-white outline-none focus:border-[#00F0FF] disabled:cursor-not-allowed disabled:opacity-60"
+            data-testid="announcement-team"
+          >
+            <option value="">Усі команди</option>
+            {teamId && !targetTeam && <option value={teamId}>{item.team_name || "Команда"}</option>}
+            {teams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
+          </select>
+          {!isNew && <span className="mt-1 block text-[10px] font-bold text-zinc-600">Адресата опублікованого повідомлення змінити не можна.</span>}
+        </label>
+        <label>
           <span className="mb-1 block text-[10px] font-black uppercase tracking-wider text-zinc-500">Заголовок</span>
           <input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={120} className="h-12 w-full rounded-xl border-2 border-white/10 bg-[#0A0A0A] px-3 font-black text-white outline-none focus:border-[#00F0FF]" placeholder="Що змінилося у VPDK Bonus?" data-testid="announcement-title" />
         </label>
@@ -2055,11 +2267,12 @@ const AnnouncementEditor = ({ item, onClose, onSaved }) => {
         </label>
         <div className="rounded-2xl border border-[#7DD3FC]/20 bg-[#7DD3FC]/10 p-4">
           <div className="flex items-center gap-2 text-[9px] font-black uppercase tracking-wider text-[#7DD3FC]"><MessageSquareText size={14} strokeWidth={3} /> Попередній перегляд</div>
+          <div className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-[#7DD3FC]/20 bg-black/20 px-2.5 py-1 text-[9px] font-black uppercase tracking-wider text-[#7DD3FC]"><UsersRound size={12} strokeWidth={3} /> {targetLabel}</div>
           <div className="mt-2 text-lg font-black text-white">{title || "Заголовок повідомлення"}</div>
           <div className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-zinc-400">{message || "Тут працівник побачить ваш текст."}</div>
         </div>
       </div>
-      <button onClick={save} disabled={busy} className="mt-5 flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-[#0E7490] bg-[#00F0FF] text-sm font-black uppercase tracking-wider text-[#071317] disabled:opacity-60"><Send size={17} strokeWidth={3} /> {busy ? "Публікуємо…" : isNew ? "Опублікувати для всіх" : "Зберегти"}</button>
+      <button onClick={save} disabled={busy} className="mt-5 flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-[#0E7490] bg-[#00F0FF] text-sm font-black uppercase tracking-wider text-[#071317] disabled:opacity-60"><Send size={17} strokeWidth={3} /> {busy ? "Публікуємо…" : isNew ? (teamId ? "Опублікувати для команди" : "Опублікувати для всіх") : "Зберегти"}</button>
     </BottomSheet>
   );
 };
@@ -2142,23 +2355,43 @@ const OrdersView = ({ teamFilter }) => {
 
 // ─────────────── Shared bottom sheet ───────────────
 const BottomSheet = ({ children, onClose, title }) => (
-  <div className="fixed inset-0 z-50 flex items-end justify-center">
+  <div className="fixed inset-0 z-50 flex items-end justify-center overflow-hidden">
     <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
-    <div className="relative w-full max-w-[480px] bg-[#1A1A1E] border-t border-white/10 rounded-t-3xl p-6 pb-24 max-h-[90vh] overflow-y-auto" style={{ animation: "slide-in-right 300ms ease-out" }}>
-      <div className="flex justify-center mb-4">
-        <div className="w-12 h-1.5 rounded-full bg-white/20" />
+    <section
+      role="dialog"
+      aria-modal="true"
+      aria-label={title || "Панель редагування"}
+      onKeyDown={(event) => { if (event.key === "Escape") onClose(); }}
+      className="relative flex max-h-[calc(100dvh-0.75rem)] min-h-0 w-full max-w-[480px] flex-col overflow-hidden rounded-t-3xl border-t border-white/10 bg-[#1A1A1E]"
+      style={{ animation: "slide-in-right 300ms ease-out" }}
+    >
+      <div className="relative shrink-0 px-6 pb-3 pt-4">
+        <div className="mb-4 flex justify-center">
+          <div className="h-1.5 w-12 rounded-full bg-white/20" />
+        </div>
+        {title && <div className="pr-12 font-display text-xl text-white">{title}</div>}
       </div>
-      {title && <div className="font-display text-xl text-white mb-3">{title}</div>}
       <button
+        type="button"
+        autoFocus
         onClick={onClose}
         data-testid="sheet-close"
-        className="absolute top-5 right-5 w-9 h-9 rounded-full bg-[#0A0A0A] border border-white/10 flex items-center justify-center text-zinc-400"
+        className="absolute right-5 top-4 z-30 flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-[#0A0A0A] text-zinc-400 transition hover:border-white/25 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00F0FF]"
         aria-label="Закрити"
+        title="Закрити"
       >
         <X size={16} strokeWidth={3} />
       </button>
-      {children}
-    </div>
+      <div
+        role="region"
+        aria-label="Вміст панелі"
+        tabIndex={0}
+        data-testid="sheet-scroll-body"
+        className="announcement-scrollbar min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-contain px-6 pb-[calc(6rem+env(safe-area-inset-bottom))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#00F0FF]"
+      >
+        {children}
+      </div>
+    </section>
   </div>
 );
 
@@ -3065,6 +3298,97 @@ const BonusMatchLevelsView = ({ teamFilter }) => {
   </div>;
 };
 
+// ─────────────── Work schedule calendar ───────────────
+const SCHEDULE_MONTHS = [
+  "Січень", "Лютий", "Березень", "Квітень", "Травень", "Червень",
+  "Липень", "Серпень", "Вересень", "Жовтень", "Листопад", "Грудень",
+];
+
+const ScheduleSettingsView = () => {
+  const kyivNow = new Date(new Date().toLocaleString("en-US", { timeZone: "Europe/Kyiv" }));
+  const [settings, setSettings] = useState({ year: kyivNow.getFullYear(), month: kyivNow.getMonth() + 1 });
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    api.get("/admin/schedule-settings")
+      .then(({ data }) => {
+        if (active) setSettings(data);
+      })
+      .catch((error) => toast.error(extractError(error, "Не вдалося завантажити календар")))
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => { active = false; };
+  }, []);
+
+  const selectCurrentMonth = () => {
+    const now = new Date(new Date().toLocaleString("en-US", { timeZone: "Europe/Kyiv" }));
+    setSettings((current) => ({ ...current, year: now.getFullYear(), month: now.getMonth() + 1 }));
+  };
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const { data } = await api.patch("/admin/schedule-settings", {
+        year: Number(settings.year),
+        month: Number(settings.month),
+      });
+      setSettings(data);
+      toast.success(`Календар перемкнено: ${SCHEDULE_MONTHS[data.month - 1]} ${data.year}`);
+    } catch (error) {
+      toast.error(extractError(error, "Не вдалося зберегти календар"));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const year = Number(settings.year) || kyivNow.getFullYear();
+  const month = Math.min(12, Math.max(1, Number(settings.month) || 1));
+  const daysInMonth = new Date(year, month, 0, 12).getDate();
+  const firstWeekday = new Intl.DateTimeFormat("uk-UA", { weekday: "long" })
+    .format(new Date(year, month - 1, 1, 12));
+
+  if (loading) return <div className="py-10 text-center text-sm font-bold text-zinc-500">Завантаження календаря...</div>;
+
+  return <div className="space-y-4" data-testid="schedule-settings-view">
+    <section className="rounded-3xl border border-[#6D3DF5]/35 bg-[linear-gradient(135deg,rgba(109,61,245,.14),rgba(26,26,30,1))] p-5">
+      <div className="flex items-start gap-4">
+        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-[#8B5CF6]/35 bg-[#8B5CF6]/15 text-[#B78CFF]"><CalendarDays size={23} strokeWidth={2.8} /></div>
+        <div><h2 className="font-display text-xl text-white">Активний місяць графіка</h2><p className="mt-1 text-xs font-bold leading-relaxed text-zinc-500">Вибраний місяць бачать усі працівники. Дні тижня та числа перебудовуються автоматично, а тип зміни переноситься з Google-графіка за номером дня.</p></div>
+      </div>
+    </section>
+
+    <section className="rounded-3xl border border-white/10 bg-[#1A1A1E] p-5">
+      <div className="flex items-center justify-between gap-3">
+        <button type="button" onClick={() => setSettings((current) => ({ ...current, year: Math.max(2020, year - 1) }))} className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-black/25 text-zinc-300 active:scale-95" aria-label="Попередній рік"><ChevronLeft size={19} /></button>
+        <label className="min-w-0 flex-1 text-center"><span className="block text-[9px] font-black uppercase tracking-widest text-zinc-600">Рік</span><input data-testid="schedule-year" type="number" min="2020" max="2100" value={year} onChange={(event) => setSettings((current) => ({ ...current, year: event.target.value }))} className="mt-1 w-full bg-transparent text-center font-display text-3xl text-white outline-none" /></label>
+        <button type="button" onClick={() => setSettings((current) => ({ ...current, year: Math.min(2100, year + 1) }))} className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-black/25 text-zinc-300 active:scale-95" aria-label="Наступний рік"><ChevronRight size={19} /></button>
+      </div>
+
+      <div className="mt-5 grid grid-cols-3 gap-2 sm:grid-cols-4" data-testid="schedule-month-grid">
+        {SCHEDULE_MONTHS.map((label, index) => {
+          const value = index + 1;
+          const selected = value === month;
+          return <button key={label} type="button" data-testid={`schedule-month-${value}`} onClick={() => setSettings((current) => ({ ...current, month: value }))} className={`min-h-12 rounded-2xl border px-2 text-[11px] font-black uppercase transition-colors active:scale-95 ${selected ? "border-[#FFB800] bg-[#FFB800] text-[#0A0A0A]" : "border-white/10 bg-black/20 text-zinc-400"}`}>{label}</button>;
+        })}
+      </div>
+    </section>
+
+    <section className="rounded-3xl border border-[#00F0FF]/25 bg-[#00F0FF]/[.06] p-4" data-testid="schedule-calendar-preview">
+      <div className="text-[9px] font-black uppercase tracking-widest text-[#00F0FF]">Попередній перегляд</div>
+      <div className="mt-1 font-display text-2xl text-white">{SCHEDULE_MONTHS[month - 1]} {year}</div>
+      <div className="mt-2 text-xs font-bold text-zinc-500">{daysInMonth} днів · перший день місяця — {firstWeekday}</div>
+    </section>
+
+    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+      <div className="text-[10px] font-bold text-zinc-600">{settings.updated_at ? `Останнє оновлення: ${new Date(settings.updated_at).toLocaleString("uk-UA")}${settings.updated_by_name ? ` · ${settings.updated_by_name}` : ""}` : "Ще не змінювався вручну"}</div>
+      <div className="flex gap-2"><button type="button" onClick={selectCurrentMonth} className="h-12 rounded-2xl border border-white/10 px-4 text-xs font-black uppercase text-zinc-300">Поточний</button><button type="button" data-testid="save-schedule-settings" onClick={save} disabled={saving} className="arcade-btn flex h-12 flex-1 items-center justify-center gap-2 border-[#5B21B6] bg-[#8B5CF6] px-5 text-xs font-black uppercase text-white disabled:opacity-60"><Save size={16} strokeWidth={3} />{saving ? "Збереження..." : "Зберегти місяць"}</button></div>
+    </div>
+  </div>;
+};
+
 // ─────────────── Generous Cube settings ───────────────
 const CubeSettingsView = () => {
   const [settings, setSettings] = useState(DEFAULT_CUBE_SETTINGS);
@@ -3077,6 +3401,7 @@ const CubeSettingsView = () => {
       const { data } = await api.get("/admin/cube-settings");
       setSettings({
         paid_spin_cost: Number(data?.paid_spin_cost ?? DEFAULT_CUBE_SETTINGS.paid_spin_cost),
+        generosity_day_chance_percent: Number(data?.generosity_day_chance_percent ?? DEFAULT_CUBE_SETTINGS.generosity_day_chance_percent),
         rewards: Array.isArray(data?.rewards) && data.rewards.length === 6
           ? data.rewards.map((item) => ({
               face: Number(item.face),
@@ -3127,6 +3452,7 @@ const CubeSettingsView = () => {
 
   const save = async () => {
     const paidSpinCost = Math.max(0, Math.min(100000, Number(settings.paid_spin_cost || 0)));
+    const generosityDayChance = Math.round(Math.max(0, Math.min(100, Number(settings.generosity_day_chance_percent || 0))) * 100) / 100;
     const rewards = settings.rewards.map((item) => ({
       face: Number(item.face),
       min_reward: Math.max(0, Math.min(100000, Number(item.min_reward || 0))),
@@ -3151,11 +3477,13 @@ const CubeSettingsView = () => {
     try {
       const { data } = await api.patch("/admin/cube-settings", {
         paid_spin_cost: paidSpinCost,
+        generosity_day_chance_percent: generosityDayChance,
         rewards,
         probabilities,
       });
       setSettings({
         paid_spin_cost: Number(data.paid_spin_cost),
+        generosity_day_chance_percent: Number(data.generosity_day_chance_percent),
         rewards: data.rewards,
         probabilities: data.probabilities,
         updated_at: data.updated_at,
@@ -3183,11 +3511,11 @@ const CubeSettingsView = () => {
         <div className="min-w-0 flex-1">
           <div className="text-[10px] font-black uppercase tracking-[.2em] text-[#39FF14]">Економіка гри</div>
           <h2 className="mt-1 font-display text-xl text-white">Налаштування Щедрого куба</h2>
-          <p className="mt-2 text-xs font-bold leading-relaxed text-zinc-400">Перший кидок працівника за день залишається безкоштовним. Тут змінюється вартість кожного наступного кидка, діапазон виграшу та відсоток випадіння кожної грані.</p>
+          <p className="mt-2 text-xs font-bold leading-relaxed text-zinc-400">Перший кидок працівника за день залишається безкоштовним. Тут змінюється шанс Дня щедрості, вартість повторного кидка, діапазон виграшу та відсоток випадіння кожної грані.</p>
         </div>
       </div>
 
-      <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+      <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <label className="rounded-2xl border border-[#FFB800]/25 bg-black/25 p-4">
           <span className="block text-[10px] font-black uppercase tracking-widest text-zinc-500">Вартість повторного кидка</span>
           <div className="mt-2 flex items-center gap-2">
@@ -3203,6 +3531,24 @@ const CubeSettingsView = () => {
             <span className="text-xs font-black uppercase text-zinc-500">Point</span>
           </div>
           <div className="mt-2 text-[10px] font-bold text-zinc-600">Значення 0 робить усі повторні кидки безкоштовними.</div>
+        </label>
+
+        <label className="rounded-2xl border border-[#B78CFF]/25 bg-[#B78CFF]/[.07] p-4">
+          <span className="block text-[10px] font-black uppercase tracking-widest text-zinc-500">Шанс Куба Щедрості</span>
+          <div className="mt-2 flex items-center gap-2">
+            <input
+              data-testid="cube-generosity-day-chance"
+              type="number"
+              min="0"
+              max="100"
+              step="0.01"
+              value={settings.generosity_day_chance_percent}
+              onChange={(event) => setSettings((current) => ({ ...current, generosity_day_chance_percent: Math.max(0, Math.min(100, Number(event.target.value || 0))) }))}
+              className="h-12 min-w-0 flex-1 rounded-xl border border-[#B78CFF]/25 bg-[#0F1012] px-3 text-lg font-black text-[#C9A7FF] outline-none focus:border-[#B78CFF]"
+            />
+            <span className="text-xs font-black text-zinc-500">%</span>
+          </div>
+          <div className="mt-2 text-[10px] font-bold text-zinc-600">0% вимикає подію, 100% вмикає її щодня. Вибір фіксується для кожного працівника на весь день.</div>
         </label>
 
         <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
@@ -3306,7 +3652,8 @@ export default function Admin() {
     );
   }
 
-  const V = { analytics: AnalyticsView, "ai-team": AITeamDashboard, "daily-tasks": DailyTasksManager, points: PointsManager, goals: GoalsManager, moderation: ModerationView, applications: ApplicationsView, users: UsersView, teams: TeamsView, achievements: AchievementsView, "bonus-match": BonusMatchLevelsView, "cube-settings": CubeSettingsView, announcements: AnnouncementsView, prizes: PrizesView, "team-banks": TeamBanksAdminView, orders: OrdersView }[tab];
+  const views = { analytics: AnalyticsView, "ai-team": AITeamDashboard, "daily-tasks": DailyTasksManager, "schedule-settings": ScheduleSettingsView, points: PointsManager, "xp-journal": XPJournalView, goals: GoalsManager, moderation: ModerationView, applications: ApplicationsView, users: UsersView, teams: TeamsView, achievements: AchievementsView, "bonus-match": BonusMatchLevelsView, "cube-settings": CubeSettingsView, announcements: AnnouncementsView, prizes: PrizesView, "team-banks": TeamBanksAdminView, orders: OrdersView };
+  const V = views[tab] || views[availableTabs[0]?.id] || AnalyticsView;
 
   return (
     <div className="px-5 pt-2 pb-8 lg:px-7 lg:pt-6" data-testid="admin-page">

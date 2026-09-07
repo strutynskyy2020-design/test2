@@ -97,6 +97,10 @@ export const GoogleReportsProvider = ({ children }) => {
             credit_group_summaries: data?.credit_group_summaries || {},
             debit_group_summaries: data?.debit_group_summaries || {},
             deposit_group_summaries: data?.deposit_group_summaries?.month || {},
+            deposit_projection_group_summaries: data?.deposit_projection_group_summaries || {},
+            activation_pumb_group_summaries: data?.activation_pumb_group_summaries || {},
+            activation_cards_group_summaries: data?.activation_cards_group_summaries || {},
+            activation_cards_transformation_group_summaries: data?.activation_cards_transformation_group_summaries || {},
           }).catch(() => {
             reportedSnapshotRef.current.delete(snapshotVersion);
           });

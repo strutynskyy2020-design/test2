@@ -24,6 +24,7 @@ import {
   getScheduleStatus,
   kyivTodayIso,
   monthKeyFromIso,
+  remapScheduleToMonth,
 } from "@/lib/workSchedule";
 
 const WEEKDAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Нд"];
@@ -109,6 +110,7 @@ export default function Schedule() {
   const [selectedDate, setSelectedDate] = useState("");
   const [activeMonth, setActiveMonth] = useState("");
   const [participants, setParticipants] = useState([]);
+  const [calendarSettings, setCalendarSettings] = useState(null);
   const [scheduleLogin, setScheduleLogin] = useState(() => (
     typeof window !== "undefined" ? localStorage.getItem(ADMIN_SCHEDULE_LOGIN_KEY) || "" : ""
   ));
@@ -119,9 +121,26 @@ export default function Schedule() {
     error: reportsError,
     refresh,
   } = useDailyGoogleReports({ scheduleLogin: isPrivileged ? scheduleLogin : "" });
-  const schedule = report?.schedule || null;
-  const loading = reportsLoading && !schedule;
+  const sourceSchedule = report?.schedule || null;
+  const calendarMonth = calendarSettings?.month_key || "";
+  const schedule = useMemo(
+    () => (calendarMonth ? remapScheduleToMonth(sourceSchedule, calendarMonth) : sourceSchedule),
+    [calendarMonth, sourceSchedule],
+  );
+  const loading = (reportsLoading && !sourceSchedule) || (!calendarSettings && !!user);
   const error = reportsError?.message || "";
+
+  useEffect(() => {
+    let cancelled = false;
+    api.get("/schedule-settings")
+      .then(({ data }) => {
+        if (!cancelled) setCalendarSettings(data || {});
+      })
+      .catch(() => {
+        if (!cancelled) setCalendarSettings({});
+      });
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     if (!isPrivileged) return undefined;
@@ -152,22 +171,36 @@ export default function Schedule() {
 
   useEffect(() => {
     const dates = Array.isArray(schedule?.days) ? schedule.days.map((day) => day.date).filter(Boolean) : [];
-    const preferred = dates.includes(todayIso) ? todayIso : dates[0] || "";
+    if (calendarMonth) {
+      const preferred = dates.includes(todayIso) ? todayIso : dates[0] || `${calendarMonth}-01`;
+      setSelectedDate((current) => (
+        current && monthKeyFromIso(current) === calendarMonth ? current : preferred
+      ));
+      setActiveMonth(calendarMonth);
+      return;
+    }
+    const currentMonth = monthKeyFromIso(todayIso);
+    const preferred = dates.includes(todayIso)
+      ? todayIso
+      : dates.find((date) => monthKeyFromIso(date) === currentMonth) || dates[0] || "";
     setSelectedDate((current) => (current && dates.includes(current) ? current : preferred));
     setActiveMonth((current) => {
       const currentStillExists = current && dates.some((date) => monthKeyFromIso(date) === current);
       return currentStillExists ? current : monthKeyFromIso(preferred);
     });
-  }, [schedule, todayIso]);
+  }, [calendarMonth, schedule, todayIso]);
 
   const changeScheduleLogin = (nextLogin) => {
     setScheduleLogin(nextLogin);
     localStorage.setItem(ADMIN_SCHEDULE_LOGIN_KEY, nextLogin);
   };
 
-  const days = Array.isArray(schedule?.days) ? schedule.days : [];
+  const days = useMemo(() => (Array.isArray(schedule?.days) ? schedule.days : []), [schedule?.days]);
   const byDate = useMemo(() => new Map(days.map((day) => [day.date, day])), [days]);
-  const months = useMemo(() => getScheduleMonths(schedule), [schedule]);
+  const months = useMemo(
+    () => (calendarMonth ? [calendarMonth] : getScheduleMonths(schedule)),
+    [calendarMonth, schedule],
+  );
   const currentMonthIndex = Math.max(0, months.indexOf(activeMonth));
   const monthCells = useMemo(() => buildMonthCells(activeMonth, schedule), [activeMonth, schedule]);
   const selectedDay = byDate.get(selectedDate) || null;
@@ -382,7 +415,7 @@ export default function Schedule() {
           })()}
 
           <div className="px-1 text-center text-[10px] font-bold text-zinc-500">
-            Оновлено: {schedule.updated_at || "щойно"}. Порожня клітинка у таблиці відображається як вихідний.
+            Оновлено: {schedule.updated_at || "щойно"}. Місяць і календарні числа задає адміністратор; зміни беруться з Google Таблиці за відповідним числом.
           </div>
         </>
       )}
