@@ -248,6 +248,8 @@ export const getRoomLayers = (snapshot, layoutOverride) => {
     .sort((first, second) => (first.room.z_index || 0) - (second.room.z_index || 0));
 };
 
+export const groundLayerIndex = (y) => Math.round(30 + (y - 55) * .8);
+
 export const roomLayerStyle = (room, rotation = 0) => ({
   left: `${room.x}%`,
   top: `${room.y}%`,

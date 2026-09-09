@@ -1,5 +1,17 @@
+import { useState } from "react";
 import { Lightbulb, Search } from "lucide-react";
 import ObjectIcon from "@/components/hidden-objects/ObjectIcon";
+
+function TargetPicture({ target }) {
+  const [failed, setFailed] = useState(false);
+  return (
+    <div className="hidden-target-picture">
+      {target.image && !failed ? (
+        <img src={target.image} alt={target.label} width="76" height="68" draggable="false" onError={() => setFailed(true)} />
+      ) : <ObjectIcon name={target.icon} size={36} />}
+    </div>
+  );
+}
 
 export default function TargetTray({ session, busy, onHint }) {
   const found = new Set(session.found_ids || []);
@@ -24,8 +36,8 @@ export default function TargetTray({ session, busy, onHint }) {
         {session.targets?.map((target) => {
           const isFound = found.has(target.id);
           return (
-            <div key={target.id} role="listitem" className={`hidden-target-chip ${isFound ? "is-found" : ""}`} data-testid={`hidden-object-target-${target.id}`}>
-              <ObjectIcon name={target.icon} size={23} />
+            <div key={target.id} role="listitem" title={target.label} className={`hidden-target-chip ${isFound ? "is-found" : ""}`} data-testid={`hidden-object-target-${target.id}`}>
+              <TargetPicture key={target.image || target.id} target={target} />
               <span>{target.label}</span>
               {isFound && <b aria-label="Знайдено">✓</b>}
             </div>

@@ -1,6 +1,9 @@
 import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { PixelGameReward } from "@/components/PixelGameBridge";
 import {
+  Armchair,
+  BookOpen,
   ArrowLeft,
   Bomb,
   Box,
@@ -16,8 +19,6 @@ import {
   Heart,
   Home,
   Lock,
-  Maximize2,
-  Minimize2,
   Plus,
   Rocket,
   RotateCcw,
@@ -37,17 +38,20 @@ import AvatarFrame from "@/components/AvatarFrame";
 import BonusMatchErrorBoundary from "@/components/BonusMatchErrorBoundary";
 import BonusMatchDebugOverlay from "@/components/BonusMatchDebugOverlay";
 import { bonusMatchDiagnostics } from "@/lib/bonusMatchDiagnostics";
+import "@/styles/bonus-match-pixel.css";
 import authoredBonusMatchLevels from "@/data/bonusMatchLevels.json";
 import {
   BONUS_MATCH_OBSTACLE_SPRITES,
   BONUS_MATCH_PIECE_SPRITES,
-  BONUS_MATCH_CELL_IMAGE,
   BONUS_MATCH_HIT_BADGES,
+  BONUS_MATCH_SPECIAL_SPRITES,
+  BONUS_MATCH_BOOSTER_SPRITES,
+  BONUS_MATCH_FEATHER_SPRITE,
   preloadBonusMatchArtwork,
 } from "@/lib/bonusMatchAssets";
 
-const ROWS = 7;
-const COLS = 7;
+const ROWS = 8;
+const COLS = 8;
 const MAX_LEVEL = 200;
 const SYMBOLS = ["coin", "star", "gift", "cube", "zap", "trophy"];
 const BOSS_LEVELS = { 25: 2, 40: 2, 50: 3, 60: 2, 70: 2, 80: 2, 90: 2, 100: 3, 110: 3, 120: 3, 130: 3, 140: 3, 150: 4 };
@@ -71,13 +75,7 @@ const MATCH_COLLAPSE_LEAD_MS = 100;
 const OBSTACLE_TURN_MS = 240;
 const RESHUFFLE_MS = 330;
 const CASCADE_STEP_MS = [320, 230, 165];
-const BOARD_SHAPES = {
-  full: ["1111111", "1111111", "1111111", "1111111", "1111111", "1111111", "1111111"],
-  rounded: ["0111110", "1111111", "1111111", "1111111", "1111111", "1111111", "0111110"],
-  diamond: ["0011100", "0111110", "1111111", "1111111", "1111111", "0111110", "0011100"],
-  cross: ["0011100", "0011100", "1111111", "1111111", "1111111", "0011100", "0011100"],
-  staircase: ["1111100", "1111110", "1111111", "1111111", "1111111", "0111111", "0011111"],
-};
+const BOARD_SHAPES = {"full": ["11111111", "11111111", "11111111", "11111111", "11111111", "11111111", "11111111", "11111111"], "rounded": ["01111110", "11111111", "11111111", "11111111", "11111111", "11111111", "11111111", "01111110"], "diamond": ["00111100", "01111110", "11111111", "11111111", "11111111", "11111111", "01111110", "00111100"], "cross": ["00111100", "00111100", "11111111", "11111111", "11111111", "11111111", "00111100", "00111100"], "staircase": ["11111000", "11111100", "11111110", "11111111", "11111111", "01111111", "00111111", "00011111"]};
 const boardShapeForLevel = (level = 1) => {
   const safeLevel = Math.max(1, Math.min(MAX_LEVEL, Number(level || 1)));
   if (safeLevel <= 4) return "full";
@@ -416,6 +414,22 @@ const collapseMockBoard = (board) => {
   return { board: result, spawned };
 };
 
+const remainingMockConfig = (config, board) => ({
+  ...config, obstacles: [], obstacle_count: 0,
+  obstacle_layout: board.flatMap((line, row) => line.flatMap((cell, col) => cell?.obstacle
+    ? [{ row, col, obstacle: cell.obstacle, hits: cell.obstacle_hits }] : [])),
+});
+
+const mockSpecialTargets = (board, row, col, symbol) => {
+  const special = board[row]?.[col]?.special;
+  return board.flatMap((line, r) => line.flatMap((cell, c) => {
+    if (!cell || cell.void) return [];
+    const hit = special === "rocket_row" ? r === row : special === "rocket_col" ? c === col
+      : special === "bomb" ? Math.abs(r - row) <= 1 && Math.abs(c - col) <= 1
+        : special === "color_bomb" ? cell.symbol === symbol || (r === row && c === col) : false;
+    return hit ? [coordKey(r, c)] : [];
+  }));
+};
 
 const runMockMove = (game, from, to) => {
   const original = cloneBoard(game.board);
@@ -444,15 +458,29 @@ const runMockMove = (game, from, to) => {
   }
 
   const steps = [];
+  if (first.special) matches.add(coordKey(to.row, to.col));
+  if (second.special) matches.add(coordKey(from.row, from.col));
   let scoreGain = 0;
   let coinsGain = 0;
   let combo = 0;
   while (matches.size && combo < 8) {
     combo += 1;
+    const activatedSpecials = [];
+    const strongHits = new Set();
+    const triggered = new Set();
+    for (const key of matches) {
+      const [row, col] = key.split(":").map(Number);
+      if (!board[row]?.[col]?.special || triggered.has(key)) continue;
+      triggered.add(key);
+      const targets = mockSpecialTargets(board, row, col, first.symbol || second.symbol || "star");
+      targets.forEach(target => { matches.add(target); strongHits.add(target); });
+      activatedSpecials.push({ row, col, special: board[row][col].special, id: board[row][col].id, targets: targets.map(target => { const [r, c] = target.split(":").map(Number); return { row: r, col: c }; }) });
+    }
     const cells = [...matches].map((key) => key.split(":").map(Number));
     const boardBeforeClear = cloneBoard(board);
     const createdSpecials = [];
-    const anchor = cells.find(([row, col]) => row === to.row && col === to.col) || cells[Math.floor(cells.length / 2)];
+    const ordinary = cells.filter(([row, col]) => board[row]?.[col] && !board[row][col].obstacle && !board[row][col].special);
+    const anchor = activatedSpecials.length ? null : ordinary.find(([row, col]) => row === to.row && col === to.col) || ordinary[Math.floor(ordinary.length / 2)];
     let protectedKey = null;
     if (cells.length >= 5 && anchor) {
       board[anchor[0]][anchor[1]].special = "color_bomb";
@@ -466,7 +494,20 @@ const runMockMove = (game, from, to) => {
       createdSpecials.push({ row: anchor[0], col: anchor[1], special, id: board[anchor[0]][anchor[1]].id });
     }
 
-    const clearedCells = cells.filter(([row, col]) => coordKey(row, col) !== protectedKey);
+    const obstacleChanges = [];
+    board.forEach((line, row) => line.forEach((cell, col) => {
+      if (!cell?.obstacle) return;
+      const key = coordKey(row, col);
+      const nearby = cells.some(([r, c]) => Math.abs(r - row) + Math.abs(c - col) === 1);
+      const direct = matches.has(key);
+      if (["metal", "core"].includes(cell.obstacle) ? !strongHits.has(key) : !nearby && !direct) return;
+      const hits = Math.max(0, cell.obstacle_hits - 1);
+      obstacleChanges.push({ row, col, id: cell.id, obstacle: cell.obstacle, hits_before: cell.obstacle_hits, hits_after: hits, destroyed: hits === 0 });
+      if (hits) cell.obstacle_hits = hits;
+      else if (OVERLAY_OBSTACLES.has(cell.obstacle)) { cell.obstacle = null; cell.obstacle_hits = 0; }
+      else board[row][col] = null;
+    }));
+    const clearedCells = cells.filter(([row, col]) => coordKey(row, col) !== protectedKey && !board[row]?.[col]?.obstacle);
     const coinsThisStep = clearedCells.filter(([row, col]) => board[row][col]?.symbol === "coin").length;
     const stepScore = Math.floor((clearedCells.length * 100 + Math.max(0, cells.length - 3) * 120) * (1 + (combo - 1) * 0.25));
     scoreGain += stepScore;
@@ -482,8 +523,8 @@ const runMockMove = (game, from, to) => {
       matched_cells: cells.map(([row, col]) => ({ row, col })),
       cleared_cells: clearedCells.map(([row, col]) => ({ row, col })),
       created_specials: createdSpecials,
-      activated_specials: [],
-      obstacle_changes: [],
+      activated_specials: activatedSpecials,
+      obstacle_changes: obstacleChanges,
       board_before_clear: boardBeforeClear,
       board_after_clear: boardAfterClear,
       board_after_collapse: cloneBoard(board),
@@ -494,7 +535,7 @@ const runMockMove = (game, from, to) => {
 
   let reshuffled = false;
   if (!hasPossibleMove(board)) {
-    const fresh = makeMockBoard(game.level, game.config);
+    const fresh = makeMockBoard(game.level, remainingMockConfig(game.config, board));
     fresh.forEach((row, rowIndex) => row.forEach((cell, colIndex) => { board[rowIndex][colIndex] = cell; }));
     reshuffled = true;
   }
@@ -502,7 +543,9 @@ const runMockMove = (game, from, to) => {
   const score = game.score + scoreGain;
   const coins = game.coins_collected + coinsGain;
   const moves = Math.max(0, game.moves_left - 1);
-  const won = score >= game.config.target_score && coins >= game.config.target_coins;
+  const won = game.config.objective?.kind === "clear_obstacles"
+    ? !board.flat().some(cell => cell?.obstacle === game.config.objective.obstacle)
+    : score >= game.config.target_score && coins >= game.config.target_coins;
   const status = won ? "won" : moves === 0 ? "lost" : "active";
   const stars = won ? (score >= game.config.star_thresholds[2] ? 3 : score >= game.config.star_thresholds[1] ? 2 : 1) : 0;
   const session = { ...game, board, score, coins_collected: coins, moves_left: moves, status };
@@ -517,7 +560,7 @@ const runMockMove = (game, from, to) => {
     result: status === "active" ? null : {
       stars,
       points_awarded: won ? 2 : 0,
-      xp_awarded: won ? 10 : 0,
+      xp_awarded: won ? 15 : 0,
       first_win_bonus: 0,
       lives: won ? 5 : 4,
       current_level: won ? Math.min(MAX_LEVEL, game.level + 1) : game.level,
@@ -582,21 +625,6 @@ const obstacleImageMotion = (obstacle, impact, reducedMotion) => {
   };
 };
 
-const specialIconMotion = (special, activated, reducedMotion) => {
-  if (!special) return undefined;
-  if (reducedMotion) return { scale: activated ? 1.12 : 1 };
-  if (activated) {
-    if (special === "rocket_row") return { scale: [1, 0.82, 1.24], x: [0, -5, 9], rotate: [45, 40, 45] };
-    if (special === "rocket_col") return { scale: [1, 0.82, 1.24], y: [0, 5, -9], rotate: [-45, -50, -45] };
-    if (special === "bomb") return { scale: [1, 1.18, 0.9, 1.36], rotate: [0, -8, 8, 0] };
-    return { scale: [1, 0.76, 1.28], rotate: [0, 140, 320], opacity: [1, 0.9, 1] };
-  }
-  if (special === "rocket_row") return { x: [0, 2, 0], scale: [0.96, 1.04, 0.96] };
-  if (special === "rocket_col") return { y: [0, -2, 0], scale: [0.96, 1.04, 0.96] };
-  if (special === "bomb") return { scale: [0.94, 1.07, 0.94], rotate: [0, 2, 0] };
-  return { rotate: [0, 360], scale: [0.94, 1.04, 0.94] };
-};
-
 function Piece({
   cell,
   selected,
@@ -647,10 +675,6 @@ function Piece({
     : cell.obstacle === "core" || cell.obstacle === "slime"
       ? { duration: cell.obstacle === "core" ? 1.75 : 1.45, repeat: Infinity, ease: "easeInOut" }
       : { duration: 0.2 };
-  const specialMotion = specialIconMotion(cell.special, activated, reducedMotion);
-  const specialTransition = activated
-    ? { duration: reducedMotion ? 0.05 : (cell.special === "color_bomb" ? 0.34 : 0.28) * pieceTempo, ease: [0.22, 1, 0.36, 1] }
-    : { duration: cell.special === "color_bomb" ? 2.8 : 1.2, repeat: Infinity, ease: "easeInOut" };
   const fallDuration = reducedMotion ? 0.05 : Math.max(0.12, Math.min(0.34, cascadeDurationMs / 1000 * 0.68));
   const removalDuration = reducedMotion ? 0.05 : Math.max(0.11, Math.min(0.27, cascadeDurationMs / 1000 * 0.72));
   const anticipationDuration = reducedMotion ? 0.05 : SQUASH_ANTICIPATION_MS / 1000;
@@ -767,9 +791,9 @@ function Piece({
     <div
       className="absolute left-1.5 top-1.5 p-0.5"
       style={{
-        width: "calc((100% - 36px) / 7)",
-        height: "calc((100% - 36px) / 7)",
-        transform: `translate3d(calc(${col * 100}% + ${col * 4}px), calc(${row * 100}% + ${row * 4}px), 0)`,
+        width: "calc((100% - 12px) / 8)",
+        height: "calc((100% - 12px) / 8)",
+        transform: `translate3d(${col * 100}%, ${row * 100}%, 0)`,
         transition: fall || reducedMotion
           ? "none"
           : `transform ${positionDurationMs}ms cubic-bezier(.2,.82,.25,1)`,
@@ -848,7 +872,7 @@ function Piece({
           }}
         />
       )}
-      {(!obstacle || overlayObstacle) && piece.sprite && !artworkFailed && (
+      {(!obstacle || overlayObstacle) && !special && piece.sprite && !artworkFailed && (
         <motion.div
           aria-hidden="true"
           className="pointer-events-none absolute inset-[3%] z-[2] select-none"
@@ -914,45 +938,13 @@ function Piece({
           transition={{ duration: reducedMotion ? 0.06 : 0.28 * pieceTempo }}
         />
       )}
-      {special && (
-        <motion.div
-          className="pointer-events-none absolute inset-[1px] z-[5] rounded-[9px] border-2"
-          style={{ borderColor: special.color }}
-          animate={activated && !reducedMotion
-            ? { opacity: [0.35, 1, 0.7], scale: [1, 1.08, 1] }
-            : reducedMotion ? { opacity: 0.55 } : { opacity: [0.35, 0.85, 0.35] }}
-          transition={activated ? { duration: 0.28 * pieceTempo } : { duration: 1.25, repeat: Infinity, ease: "easeInOut" }}
-        />
-      )}
-      {special && cell.special !== "color_bomb" && SpecialIcon && (
-        <motion.div
-          className="pointer-events-none absolute inset-0 z-[6] flex items-center justify-center"
-          animate={specialMotion}
-          transition={specialTransition}
-        >
-          <span className="flex h-[62%] w-[62%] items-center justify-center rounded-full border border-white/45 bg-black/70 shadow-[0_0_10px_rgba(183,140,255,.45)]">
-            <SpecialIcon
-              size={24}
-              strokeWidth={3.1}
-              color={special.color}
-              style={{ transform: special.rotate ? `rotate(${special.rotate}deg)` : undefined }}
-            />
-          </span>
-        </motion.div>
-      )}
-      {cell.special === "color_bomb" && (
-        <motion.div
-          className="pointer-events-none absolute inset-[6px] z-[6] rounded-full border-2 border-white/80 bg-[conic-gradient(#FFB800,#F64CFF,#00F0FF,#39FF14,#FF5C00,#FFB800)] opacity-85 shadow-[0_0_14px_rgba(246,76,255,.7)]"
-          animate={specialMotion}
-          transition={specialTransition}
-        >
-          <motion.div
-            className="absolute inset-[22%] rounded-full bg-white/75"
-            animate={reducedMotion ? undefined : { scale: [0.7, 1.25, 0.7], opacity: [0.35, 0.9, 0.35] }}
-            transition={{ duration: 0.9, repeat: Infinity, ease: "easeInOut" }}
-          />
-        </motion.div>
-      )}
+      {special && !artworkFailed && <motion.div
+        aria-hidden="true" className={`bm-pixel-special bm-pixel-special-${cell.special} pointer-events-none absolute inset-[3%] z-[6]`}
+        style={BONUS_MATCH_SPECIAL_SPRITES[cell.special]}
+        animate={activated && !reducedMotion ? { scale: [1, 1.25, 0.7], opacity: [1, 1, 0] } : { scale: 1 }}
+        transition={{ duration: 0.3 }}
+      />}
+      {special && artworkFailed && <SpecialIcon className="absolute inset-[18%] h-[64%] w-[64%]" color={special.color} />}
       <AnimatePresence>
         {hinted && !selected && (
           <motion.div
@@ -986,19 +978,14 @@ function Piece({
           </motion.div>
         )}
       </AnimatePresence>
-      {obstacle && (
+      {obstacle && cell.obstacle_hits > 1 && (
         <motion.div
           className="pointer-events-none absolute bottom-[-3px] right-[-3px] z-[9] flex h-[22px] w-[22px] items-center justify-center"
           animate={impact && !reducedMotion ? { scale: [1, 1.35, 0.92, 1] } : { scale: 1 }}
           transition={{ duration: 0.34 * pieceTempo }}
         >
           {BONUS_MATCH_HIT_BADGES[cell.obstacle_hits] ? (
-            <img
-              src={BONUS_MATCH_HIT_BADGES[cell.obstacle_hits]}
-              alt=""
-              className="h-full w-full object-contain"
-              draggable="false"
-            />
+            <span aria-hidden="true" className="h-full w-full bg-contain bg-center bg-no-repeat" style={{ backgroundImage: `url("${BONUS_MATCH_HIT_BADGES[cell.obstacle_hits]}")` }} />
           ) : (
             <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-[#171222] px-1 text-[8px] font-black text-white">{cell.obstacle_hits}</span>
           )}
@@ -1455,23 +1442,10 @@ function FxSpecialCharge({ effect, reducedMotion }) {
 }
 
 const lightningPath = (fromRow, fromCol, toRow, toCol, index = 0) => {
-  const x1 = fromCol + 0.5;
-  const y1 = fromRow + 0.5;
-  const x2 = toCol + 0.5;
-  const y2 = toRow + 0.5;
-  const dx = x2 - x1;
-  const dy = y2 - y1;
-  const length = Math.max(0.001, Math.sqrt(dx * dx + dy * dy));
-  const px = -dy / length;
-  const py = dx / length;
-  const wobble = 0.11 + (index % 3) * 0.035;
-  const p1x = x1 + dx * 0.32 + px * wobble;
-  const p1y = y1 + dy * 0.32 + py * wobble;
-  const p2x = x1 + dx * 0.58 - px * wobble * 1.15;
-  const p2y = y1 + dy * 0.58 - py * wobble * 1.15;
-  const p3x = x1 + dx * 0.8 + px * wobble * 0.7;
-  const p3y = y1 + dy * 0.8 + py * wobble * 0.7;
-  return `M ${x1} ${y1} L ${p1x} ${p1y} L ${p2x} ${p2y} L ${p3x} ${p3y} L ${x2} ${y2}`;
+  const x = fromCol + .5, y = fromRow + .5;
+  const tx = toCol + .5, ty = toRow + .5;
+  const bend = index % 2 ? .8 : -.8;
+  return `M ${x} ${y} Q ${(x+tx)/2+bend} ${(y+ty)/2-bend} ${tx} ${ty}`;
 };
 
 function FxColorBomb({ effect, reducedMotion }) {
@@ -1492,11 +1466,10 @@ function FxColorBomb({ effect, reducedMotion }) {
             key={`lightning-${target.row}-${target.col}-${index}`}
             d={lightningPath(effect.row, effect.col, target.row, target.col, index)}
             fill="none"
-            stroke={index % 3 === 0 ? "#FFFFFF" : index % 3 === 1 ? "#F64CFF" : "#00F0FF"}
+            stroke={["#ffd476", "#f779d1", "#77d5ff", "#a9ed6c"][index % 4]}
             strokeWidth={index % 3 === 0 ? 0.09 : 0.065}
             strokeLinecap="round"
             strokeLinejoin="round"
-            vectorEffect="non-scaling-stroke"
             initial={{ pathLength: 0, opacity: 0 }}
             animate={{ pathLength: 1, opacity: [0, 1, 0.85, 0] }}
             transition={{ duration: reducedMotion ? 0.12 : fxDuration(0.36, tempo, 0.14), delay: reducedMotion ? 0 : fxDelay(Math.floor(index / 5) * 0.07, tempo), ease: "easeOut" }}
@@ -1521,75 +1494,29 @@ function FxColorBomb({ effect, reducedMotion }) {
 }
 
 function FxRocket({ effect, reducedMotion }) {
-  const tempo = effect.tempo || 1;
   const rowRocket = effect.special === "rocket_row";
-  const color = rowRocket ? "#FFB800" : "#00F0FF";
-  const targets = (effect.targets || []).slice(0, 14);
-  return (
-    <>
-      <motion.div
-        className={`pointer-events-none absolute z-30 rounded-full ${rowRocket ? "left-0 right-0 h-[9px]" : "bottom-0 top-0 w-[9px]"}`}
-        style={rowRocket
-          ? { top: `${((effect.row + 0.5) / ROWS) * 100}%`, background: `linear-gradient(90deg,transparent,${color},#FFFFFF,${color},transparent)` }
-          : { left: `${((effect.col + 0.5) / COLS) * 100}%`, background: `linear-gradient(180deg,transparent,${color},#FFFFFF,${color},transparent)` }}
-        initial={rowRocket ? { scaleX: 0, opacity: 0 } : { scaleY: 0, opacity: 0 }}
-        animate={rowRocket ? { scaleX: 1, opacity: [0, 1, 1, 0] } : { scaleY: 1, opacity: [0, 1, 1, 0] }}
-        transition={{ duration: reducedMotion ? 0.14 : fxDuration(0.42, tempo, 0.16), ease: [0.22, 1, 0.36, 1] }}
-      />
-      <motion.div
-        className="pointer-events-none absolute z-40 flex items-center justify-center"
-        style={cellBoxStyle(effect.row, effect.col, 1.05)}
-        initial={{ opacity: 1, scale: 0.7, x: 0, y: 0 }}
-        animate={rowRocket
-          ? { opacity: [1, 1, 0], scale: [0.7, 1.2, 0.8], x: [0, reducedMotion ? 0 : 130] }
-          : { opacity: [1, 1, 0], scale: [0.7, 1.2, 0.8], y: [0, reducedMotion ? 0 : -130] }}
-        transition={{ duration: reducedMotion ? 0.14 : fxDuration(0.42, tempo, 0.16), ease: "easeIn" }}
-      >
-        <Rocket size={28} color={color} strokeWidth={3.2} style={{ transform: `rotate(${rowRocket ? 45 : -45}deg)` }} />
-      </motion.div>
-      {targets.map((target, index) => (
-        <FxCellFlash
-          key={`rocket-target-${target.row}-${target.col}-${index}`}
-          row={target.row}
-          col={target.col}
-          color={color}
-          delay={reducedMotion ? 0 : index * 0.022}
-          reducedMotion={reducedMotion}
-          tempo={tempo}
-        />
-      ))}
-    </>
-  );
+  const duration = reducedMotion ? .12 : fxDuration(.55, effect.tempo);
+  return <>
+    <motion.div className={`bm-pixel-rocket-trail pointer-events-none absolute z-30 ${rowRocket ? "left-0 right-0" : "top-0 bottom-0"}`}
+      style={rowRocket ? { top: `${(effect.row + .5) / ROWS * 100}%`, height: "7%", background: "linear-gradient(0deg,transparent,#ff9b32a0,#fff5c4,#ff9b32a0,transparent)" } : { left: `${(effect.col + .5) / COLS * 100}%`, width: "7%", background: "linear-gradient(90deg,transparent,#ff9b32a0,#fff5c4,#ff9b32a0,transparent)" }}
+      initial={{ opacity: 0 }} animate={{ opacity: [0,.9,0] }} transition={{ duration }} />
+    {[-1,1].map(direction => <motion.div key={direction} className="pointer-events-none absolute z-40"
+      style={{ ...cellBoxStyle(effect.row,effect.col,1.2), ...BONUS_MATCH_SPECIAL_SPRITES.rocket_row, rotate: rowRocket ? direction === 1 ? 0 : 180 : direction === 1 ? 90 : -90 }}
+      initial={{ opacity: 1, x: 0, y: 0, scale: .9 }}
+      animate={{ opacity: [1,1,0], x: rowRocket && !reducedMotion ? `${direction * 750}%` : 0, y: !rowRocket && !reducedMotion ? `${direction * 750}%` : 0, scale: 1.15 }}
+      transition={{ duration, ease: "easeIn" }} />)}
+    {(effect.targets || []).map((target,index) => <FxCellFlash key={index} {...target} color="#ffd17d" delay={reducedMotion ? 0 : Math.abs(rowRocket ? target.col-effect.col : target.row-effect.row)*.025} reducedMotion={reducedMotion} tempo={effect.tempo} />)}
+  </>;
 }
 
 function FxBomb({ effect, reducedMotion }) {
-  const tempo = effect.tempo || 1;
-  const targets = (effect.targets || []).slice(0, 12);
-  return (
-    <>
-      <motion.div
-        className="pointer-events-none absolute z-30 rounded-full bg-white"
-        style={cellBoxStyle(effect.row, effect.col, 0.75)}
-        initial={{ scale: 0.15, opacity: 1 }}
-        animate={{ scale: reducedMotion ? 1 : [0.15, 1.2, 0.25], opacity: [1, 0.95, 0] }}
-        transition={{ duration: reducedMotion ? 0.12 : fxDuration(0.34, tempo, 0.13), ease: "easeOut" }}
-      />
-      <FxRing row={effect.row} col={effect.col} color="#FFB800" size={2.15} duration={0.46} reducedMotion={reducedMotion} border={4} tempo={tempo} />
-      <FxRing row={effect.row} col={effect.col} color="#FF5C00" size={3.25} delay={0.05} duration={0.52} reducedMotion={reducedMotion} border={5} tempo={tempo} />
-      <FxParticles row={effect.row} col={effect.col} color="#FF5C00" count={12} distance={54} reducedMotion={reducedMotion} square tempo={tempo} />
-      {targets.map((target, index) => (
-        <FxCellFlash
-          key={`bomb-target-${target.row}-${target.col}-${index}`}
-          row={target.row}
-          col={target.col}
-          color={index % 2 ? "#FFB800" : "#FF5C00"}
-          delay={reducedMotion ? 0 : (Math.abs(target.row - effect.row) + Math.abs(target.col - effect.col)) * 0.045}
-          reducedMotion={reducedMotion}
-          tempo={tempo}
-        />
-      ))}
-    </>
-  );
+  const duration = reducedMotion ? .12 : fxDuration(.6,effect.tempo);
+  return <>
+    <motion.div className="pointer-events-none absolute z-40" style={{ ...cellBoxStyle(effect.row,effect.col,1.2), ...BONUS_MATCH_SPECIAL_SPRITES.bomb }} initial={{ scale: 1 }} animate={{ scale: [1,1.3,.1], opacity: [1,1,0] }} transition={{ duration: duration*.5 }} />
+    <motion.div className="pointer-events-none absolute z-30 rounded-full" style={{ ...cellBoxStyle(effect.row,effect.col,3.8), background: "radial-gradient(circle,#fff4bc 0%,#ffc56cc7 15%,#fca33c4d 40%,transparent 70%)" }} initial={{ scale: .1, opacity: 0 }} animate={{ scale: reducedMotion ? 1 : [0.1,1.1,1.4], opacity: [0,.9,0] }} transition={{ duration }} />
+    {[0,1].map(index => <FxRing key={index} row={effect.row} col={effect.col} color={index ? "#ffe6a8" : "#ffb54c"} size={index ? 3.6 : 2.8} delay={index*.07} duration={duration} border={index ? 2 : 4} reducedMotion={reducedMotion} />)}
+    {(effect.targets || []).map((target,index) => <FxCellFlash key={index} {...target} color="#ffe4a6" delay={reducedMotion ? 0 : .08+index*.012} reducedMotion={reducedMotion} tempo={effect.tempo} />)}
+  </>;
 }
 
 function FxObstacle({ effect, reducedMotion }) {
@@ -1817,9 +1744,9 @@ function SpecialEffects({ effects = [], reducedMotion = false }) {
                 animate={{ y: [reducedMotion ? 0 : -65, 0, -6], rotate: [-28, 12, 0], scale: [1.25, 0.9, 1], opacity: [0, 1, 0] }}
                 transition={{ duration: reducedMotion ? 0.14 : 0.42, ease: "easeIn" }}
               >
-                <Hammer size={34} color="#B78CFF" strokeWidth={3.2} />
+                <span className="h-full w-full" style={BONUS_MATCH_BOOSTER_SPRITES.hammer} />
               </motion.div>
-              <FxRing row={effect.row} col={effect.col} color="#B78CFF" size={1.8} delay={0.14} duration={0.34} reducedMotion={reducedMotion} border={4} />
+              <FxRing row={effect.row} col={effect.col} color="#ffd393" size={1.8} delay={0.14} duration={0.34} reducedMotion={reducedMotion} border={4} />
             </motion.div>
           );
         }
@@ -1866,6 +1793,7 @@ function SpecialEffects({ effects = [], reducedMotion = false }) {
 
 function BonusMatchScreen() {
   const navigate = useNavigate();
+  const fromPixel = true;
   const reducedMotion = useReducedMotion();
   const { user, mode, refreshMe } = useApp();
   const boardRef = useRef(null);
@@ -1900,6 +1828,23 @@ function BonusMatchScreen() {
   const [bossPrompt, setBossPrompt] = useState(null);
   const [activeBooster, setActiveBooster] = useState(null);
   const [buyingBooster, setBuyingBooster] = useState(null);
+  const [boosterShopOpen, setBoosterShopOpen] = useState(false);
+  useEffect(() => {
+    if (!boosterShopOpen) return undefined;
+    const previous = document.activeElement;
+    const dialog = document.querySelector('.bm-pixel-modal [role="dialog"]');
+    const keydown = event => {
+      if (event.key === "Escape") { event.preventDefault(); setBoosterShopOpen(false); }
+      if (event.key === "Tab" && dialog) {
+        const buttons = [...dialog.querySelectorAll('button:not(:disabled)')];
+        const first = buttons[0], last = buttons.at(-1);
+        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+      }
+    };
+    document.addEventListener("keydown", keydown);
+    return () => { document.removeEventListener("keydown", keydown); previous?.focus?.({ preventScroll: true }); };
+  }, [boosterShopOpen]);
   const [buyingLife, setBuyingLife] = useState(false);
   const [restarting, setRestarting] = useState(false);
   const [nativeFullscreenElement, setNativeFullscreenElement] = useState(
@@ -1915,7 +1860,6 @@ function BonusMatchScreen() {
   const fullscreenScrollRef = useRef(0);
 
   const isAdmin = user?.role === "admin";
-  const isFullscreen = Boolean(nativeFullscreenElement || pseudoFullscreen);
   const visualPieces = useMemo(() => flattenVisualPieces(displayBoard), [displayBoard]);
   const selectedKey = selected ? coordKey(selected.row, selected.col) : null;
   diagnosticsStateRef.current = {
@@ -2006,9 +1950,6 @@ function BonusMatchScreen() {
       bodyWidth: document.body.style.width,
       bodyTouchAction: document.body.style.touchAction,
     };
-    const preventViewportScroll = (event) => {
-      if (event.cancelable) event.preventDefault();
-    };
     document.documentElement.style.overflow = "hidden";
     document.documentElement.style.overscrollBehavior = "none";
     document.body.style.overflow = "hidden";
@@ -2016,12 +1957,8 @@ function BonusMatchScreen() {
     document.body.style.position = "fixed";
     document.body.style.top = `-${fullscreenScrollRef.current}px`;
     document.body.style.width = "100%";
-    document.body.style.touchAction = "none";
-    document.addEventListener("touchmove", preventViewportScroll, { passive: false });
-    document.addEventListener("wheel", preventViewportScroll, { passive: false });
+    document.body.style.touchAction = "manipulation";
     return () => {
-      document.removeEventListener("touchmove", preventViewportScroll);
-      document.removeEventListener("wheel", preventViewportScroll);
       document.documentElement.style.overflow = previous.htmlOverflow;
       document.documentElement.style.overscrollBehavior = previous.htmlOverscroll;
       document.body.style.overflow = previous.bodyOverflow;
@@ -2048,33 +1985,9 @@ function BonusMatchScreen() {
     }
   };
 
-  const toggleFullscreen = async () => {
-    if (!game) return;
-    if (isFullscreen) {
-      await exitGameFullscreen();
-      return;
-    }
-
-    const target = gameFullscreenRef.current;
-    const request = target?.requestFullscreen || target?.webkitRequestFullscreen;
-    if (typeof request === "function") {
-      try {
-        await request.call(target);
-        bonusMatchDiagnostics.log("fullscreen_native_entered", { target: "bonus-game-surface" });
-        return;
-      } catch (error) {
-        bonusMatchDiagnostics.log("fullscreen_native_failed_fallback", { error }, "warn");
-      }
-    }
-
-    setPseudoFullscreen(true);
-    bonusMatchDiagnostics.log("fullscreen_pseudo_entered", {
-      reason: typeof request === "function" ? "native-request-failed" : "fullscreen-api-unavailable",
-    });
-  };
 
   useEffect(() => {
-    if (!isAdmin || !game || game.status !== "active") {
+    if (!isAdmin || game?.status !== "active") {
       bonusMatchDiagnostics.stopWatch();
       return undefined;
     }
@@ -2233,6 +2146,8 @@ function BonusMatchScreen() {
     }
     return boardMaskForShape(config?.board_shape || boardShapeForLevel(game?.level || selectedLevel));
   }, [config?.board_mask, config?.board_shape, displayBoard, game, selectedLevel]);
+  const remainingObstacles = displayBoard.flat().filter(cell => cell?.obstacle === config.objective?.obstacle).length;
+  const objectiveNoun = ({ crate: "ящиків", ice: "крижин", chain: "ланцюгів", web: "павутин", stone: "каменів", crystal: "кристалів", shield: "щитів", slime: "згустків", metal: "блоків", core: "ядер" })[config.objective?.obstacle] || "перешкод";
   const lowMoves = Boolean(game?.status === "active" && Number(game?.moves_left) <= 3);
   const boosterInventory = status?.profile?.boosters || {};
   const boosterPrices = useMemo(() => {
@@ -2244,7 +2159,6 @@ function BonusMatchScreen() {
   }, [status?.booster_catalog, status?.profile?.booster_prices]);
   const lifePrice = Number(status?.profile?.life_price || 10);
   const scoreProgress = Math.min(100, Math.round(((animatedScore || 0) / Math.max(1, config.target_score)) * 100));
-  const coinProgress = Math.min(100, Math.round(((game?.coins_collected || 0) / Math.max(1, config.target_coins)) * 100));
 
   const startGame = async (level = selectedLevel, confirmed = false) => {
     autoResumeSessionRef.current = true;
@@ -2616,6 +2530,7 @@ function BonusMatchScreen() {
 
       if (frame.phase === "reshuffle" && frame.board) {
         const shuffleStartedAt = performance.now();
+        setBoardFx("shuffle");
         setFlash(animation.reason === "manual" ? "ПЕРЕМІШУЄМО" : "ХОДІВ НЕМАЄ");
         await waitUntil(shuffleStartedAt + (reducedMotion ? 20 : 55));
         setFlash("ПЕРЕМІШУЄМО");
@@ -2623,6 +2538,7 @@ function BonusMatchScreen() {
         setDisplayBoard(shuffledBoard);
         currentBoard = shuffledBoard;
         await waitUntil(shuffleStartedAt + (reducedMotion ? 80 : RESHUFFLE_MS));
+        setBoardFx("");
         setFlash("");
       }
     }
@@ -2733,7 +2649,7 @@ function BonusMatchScreen() {
       if (mode === "mock") {
         let nextBoard = cloneBoard(startingBoard);
         if (booster === "shuffle") {
-          nextBoard = makeMockBoard(game.level);
+          nextBoard = makeMockBoard(game.level, remainingMockConfig(game.config, nextBoard));
         } else if (row !== null && col !== null) {
           if (booster === "hammer") nextBoard[row][col] = null;
           if (booster === "rocket") {
@@ -2752,10 +2668,18 @@ function BonusMatchScreen() {
           nextBoard = collapseMockBoard(nextBoard).board;
         }
         const nextScore = Number(game.score || 0) + (booster === "shuffle" ? 0 : 500);
+        const won = game.config.objective?.kind === "clear_obstacles"
+          ? !nextBoard.flat().some(cell => cell?.obstacle === game.config.objective.obstacle)
+          : nextScore >= game.config.target_score && game.coins_collected >= game.config.target_coins;
         setDisplayBoard(normalizeBoard(nextBoard));
-        setGame((current) => ({ ...current, board: normalizeBoard(nextBoard), score: nextScore }));
+        setGame((current) => ({ ...current, board: normalizeBoard(nextBoard), score: nextScore, status: won ? "won" : "active" }));
         setAnimatedScore(nextScore);
         patchBoosterProfile({ ...boosterInventory, [booster]: Math.max(0, Number(boosterInventory[booster] || 0) - 1) });
+        if (won) {
+          setResult({ stars: 1, points_awarded: 2, xp_awarded: 15, first_completion: true });
+          setStatus(current => ({ ...current, profile: { ...current.profile, current_level: Math.min(150, game.level + 1) } }));
+          await playWinCelebration();
+        }
         toast.success(`${BOOSTERS[booster].label} використано`);
         return;
       }
@@ -2979,48 +2903,15 @@ function BonusMatchScreen() {
   }
 
   return (
-    <div className="bonus-match-light-theme space-y-4 px-4 pb-8 pt-2" data-testid="bonus-match-page">
+    <div className="bm-pixel-page" data-testid="bonus-match-page">
       {isAdmin && <BonusMatchDebugOverlay getState={() => diagnosticsStateRef.current} />}
-      <section className="flex items-center gap-3">
-        <button
-          type="button"
-          onClick={() => (game ? leaveBoard() : navigate("/"))}
-          className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-[#1A1A1E] text-zinc-300 active:scale-95"
-          aria-label="Назад"
-        >
-          <ArrowLeft size={21} strokeWidth={2.8} />
-        </button>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <h1 className="font-display text-[23px] leading-none text-white">BONUS MATCH</h1>
-            <Zap size={20} color="#FFB800" fill="#FFB800" />
-          </div>
-          <div className="mt-1 text-xs font-bold text-zinc-500">Збирай 3+ фішки та отримуй нагороди</div>
-        </div>
-        {game && (
-          <button
-            type="button"
-            onClick={toggleFullscreen}
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-[#1A1A1E] text-zinc-300 active:scale-95"
-            aria-label={isFullscreen ? "Вийти з повноекранного режиму" : "Відкрити гру на повний екран"}
-            title={isFullscreen ? "Вийти з повноекранного режиму" : "Відкрити тільки гру на повний екран"}
-          >
-            {isFullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
-          </button>
-        )}
-        <div className="flex items-center gap-1 rounded-2xl border border-[#FFB800]/25 bg-[#FFB800]/10 px-2.5 py-2 text-[#FFB800]">
-          <Coins size={15} />
-          <span className="text-sm font-black tabular-nums">{formatNumber(status?.profile?.balance ?? user?.balance)}</span>
-        </div>
-      </section>
-
-
+      {!game && <header className="bm-pixel-menu-header"><button type="button" onClick={() => navigate("/pet/room")}><ChevronLeft />До кімнати</button><h1>Bonus Match</h1><p>Нова пригода з Пікселем</p></header>}
       {!game ? (
         <>
-          <section className="overflow-hidden rounded-3xl border border-[#7C3AED]/45 bg-gradient-to-br from-[#24103F] via-[#17131F] to-[#111114] p-5 shadow-[0_18px_50px_rgba(124,58,237,.18)]">
+          <section className="bm-pixel-catalog overflow-hidden rounded-3xl border border-[#7C3AED]/45 bg-gradient-to-br from-[#24103F] via-[#17131F] to-[#111114] p-5 shadow-[0_18px_50px_rgba(124,58,237,.18)]">
             <div className="flex items-center justify-between">
               <div>
-                <div className="text-[10px] font-black uppercase tracking-[.18em] text-[#B78CFF]">ОБЕРИ РІВЕНЬ</div>
+                <div className="text-[10px] font-black uppercase tracking-[.18em] text-[#B78CFF]">150 НОВИХ РІВНІВ · КІМНАТА ПІКСЕЛЯ</div>
                 <div className="mt-1 text-xs font-bold text-zinc-500">Відкрито до {status?.profile?.current_level || 1} рівня</div>
               </div>
               <div className="flex items-center gap-2">
@@ -3083,8 +2974,8 @@ function BonusMatchScreen() {
 
             <div className="mt-5 grid grid-cols-3 gap-2">
               <div className="rounded-2xl border border-white/10 bg-black/25 px-2 py-3 text-center"><div className="text-[9px] font-black uppercase text-zinc-600">ХОДИ</div><div className="mt-1 text-lg font-black text-white">{selectedConfig.moves}</div></div>
-              <div className="rounded-2xl border border-[#FFB800]/20 bg-[#FFB800]/[.06] px-2 py-3 text-center"><div className="text-[9px] font-black uppercase text-zinc-600">МОНЕТИ</div><div className="mt-1 text-lg font-black text-[#FFB800]">{selectedConfig.target_coins}</div></div>
-              <div className="rounded-2xl border border-[#B78CFF]/20 bg-[#B78CFF]/[.06] px-2 py-3 text-center"><div className="text-[9px] font-black uppercase text-zinc-600">ЦІЛЬ</div><div className="mt-1 text-lg font-black text-[#B78CFF]">{formatNumber(selectedConfig.target_score)}</div></div>
+              <div className="rounded-2xl border border-[#FFB800]/20 bg-[#FFB800]/[.06] px-2 py-3 text-center"><div className="text-[9px] font-black uppercase text-zinc-600">ПРИБРАТИ</div><div className="mt-1 text-lg font-black text-[#FFB800]">{selectedConfig.objective?.count || selectedConfig.target_coins} {selectedConfig.objective ? OBSTACLE_NAMES[selectedConfig.objective.obstacle] : "монет"}</div></div>
+              <div className="rounded-2xl border border-[#B78CFF]/20 bg-[#B78CFF]/[.06] px-2 py-3 text-center"><div className="text-[9px] font-black uppercase text-zinc-600">ЗА ЗІРКУ</div><div className="mt-1 text-lg font-black text-[#B78CFF]">{formatNumber(selectedConfig.target_score)}</div></div>
             </div>
 
             <button
@@ -3139,107 +3030,28 @@ function BonusMatchScreen() {
           </section>
         </>
       ) : (
-        <div
-          ref={gameFullscreenRef}
-          data-bonus-game-surface="v97"
+        <div ref={gameFullscreenRef} data-bonus-game-surface="pixel-room"
           data-fullscreen-mode={nativeFullscreenElement ? "native" : pseudoFullscreen ? "viewport" : "off"}
-          className={isFullscreen
-            ? "bonus-match-fullscreen fixed inset-0 z-[140] overflow-hidden overscroll-none bg-[#08070D] px-0"
-            : ""}
-          style={isFullscreen ? {
-            width: "100vw",
-            height: "100dvh",
-            minHeight: "100vh",
-            paddingTop: "max(8px, env(safe-area-inset-top))",
-            paddingBottom: "max(10px, env(safe-area-inset-bottom))",
-            WebkitOverflowScrolling: "auto",
-            touchAction: "none",
-          } : undefined}
-        >
-          <div className={isFullscreen ? "mx-auto min-h-full w-full max-w-[560px] px-2 sm:px-4" : ""}>
-            {isFullscreen && (
-              <div className="sticky top-0 z-[180] mb-2 flex justify-end pt-1">
-                <button
-                  type="button"
-                  onClick={toggleFullscreen}
-                  className="flex h-10 items-center gap-2 rounded-xl border border-white/15 bg-black/85 px-3 text-[10px] font-black text-white shadow-lg backdrop-blur"
-                >
-                  <Minimize2 size={16} />ВИЙТИ З ПОВНОГО ЕКРАНА
-                </button>
+          className="bm-pixel-scene">
+          <div className="bm-pixel-composition">
+            <header className="bm-pixel-header">
+              <button type="button" disabled={moving || celebrating} onClick={async () => { await exitGameFullscreen(); navigate("/pet/room"); }}><ChevronLeft aria-hidden="true" />До кімнати</button>
+              <h1>Bonus Match</h1>
+              <button type="button" className="bm-pixel-level-menu" disabled={moving || celebrating} onClick={leaveBoard} aria-label="Рівні та налаштування"><span aria-hidden="true">•••</span></button>
+            </header>
+            <motion.section className="bm-pixel-play" animate={boardFx === "lost" && !reducedMotion ? { x: [0, -4, 4, 0] } : { x: 0 }}>
+              <div className="bm-pixel-hud">
+                <strong>Рівень {game.level}</strong>
+                <span className={lowMoves ? "is-low" : ""}>Ходи: <b>{game.moves_left}</b></span>
+                <span className="bm-pixel-objective" aria-live="polite">
+                  <i aria-hidden="true" style={config.objective ? BONUS_MATCH_OBSTACLE_SPRITES[config.objective.obstacle] : BONUS_MATCH_PIECE_SPRITES.coin} />
+                  {config.objective ? <span>Прибери <b>{remainingObstacles}</b> {objectiveNoun}</span> : <span>{game.coins_collected}/{config.target_coins} монет</span>}
+                </span>
               </div>
-            )}
-          <motion.section
-            className="rounded-3xl border border-[#7C3AED]/40 bg-gradient-to-br from-[#201139] to-[#111114] p-3 shadow-[0_18px_45px_rgba(124,58,237,.18)]"
-            animate={
-              boardFx === "lost" && !reducedMotion
-                ? { x: [0, -8, 8, -6, 6, 0], opacity: 0.58 }
-                : { x: 0, opacity: 1 }
-            }
-            transition={{ duration: boardFx === "lost" ? 0.48 : 0.2 }}
-          >
-            {(config.is_milestone || config.is_boss) && (
-              <div className="mb-3 flex items-center justify-between rounded-2xl border border-[#FF5C00]/25 bg-[#FF5C00]/[.07] px-3 py-2">
-                <div className="text-[9px] font-black uppercase tracking-[.16em] text-[#FF8A3D]">{config.is_boss ? "БОС-РІВЕНЬ" : "РІВЕНЬ-ВИКЛИК"}</div>
-                {config.reward_multiplier > 1 && <div className="rounded-full bg-[#FFB800]/15 px-2 py-1 text-[9px] font-black text-[#FFB800]">НАГОРОДА ×{config.reward_multiplier}</div>}
-              </div>
-            )}
-
-            <div className="grid grid-cols-3 gap-2">
-              <div className="rounded-2xl border border-white/10 bg-black/25 px-2 py-2.5 text-center"><div className="text-[8px] font-black uppercase tracking-wider text-zinc-600">РІВЕНЬ</div><div className="mt-0.5 text-lg font-black text-white">{game.level}</div></div>
-              <motion.div
-                className={`rounded-2xl border px-2 py-2.5 text-center ${lowMoves ? "border-[#FF4D55]/70 bg-[#FF4D55]/[.12]" : "border-[#FFB800]/20 bg-[#FFB800]/[.06]"}`}
-                animate={lowMoves && !reducedMotion ? {
-                  scale: [1, 1.055, 1],
-                  borderColor: ["rgba(255,77,85,.5)", "rgba(255,77,85,1)", "rgba(255,77,85,.5)"],
-                  boxShadow: ["0 0 0 rgba(255,77,85,0)", "0 0 20px rgba(255,77,85,.42)", "0 0 0 rgba(255,77,85,0)"],
-                } : { scale: 1 }}
-                transition={{ duration: 0.82, repeat: lowMoves && !reducedMotion ? Infinity : 0, ease: "easeInOut" }}
-              >
-                <div className={`text-[8px] font-black uppercase tracking-wider ${lowMoves ? "text-[#FF9CA2]" : "text-zinc-600"}`}>ХОДИ</div>
-                <div className={`mt-0.5 text-lg font-black ${lowMoves ? "text-[#FF4D55]" : "text-[#FFB800]"}`}>{game.moves_left}</div>
-              </motion.div>
-              <motion.div
-                ref={scoreRef}
-                className="rounded-2xl border border-[#B78CFF]/20 bg-[#B78CFF]/[.06] px-2 py-2.5 text-center"
-                animate={{ scale: scorePulse ? 1.08 : 1 }}
-                transition={{ type: "spring", stiffness: 420, damping: 22 }}
-              >
-                <div className="text-[8px] font-black uppercase tracking-wider text-zinc-600">РАХУНОК</div>
-                <div className="mt-0.5 text-lg font-black text-[#B78CFF]">{formatNumber(animatedScore)}</div>
-              </motion.div>
-            </div>
-
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={leaveBoard}
-                disabled={moving || restarting}
-                className="flex h-10 items-center justify-center gap-2 rounded-xl border border-white/10 bg-black/25 text-[10px] font-black text-zinc-300 disabled:opacity-40"
-              >
-                <Home size={15} />МЕНЮ ГРИ
-              </button>
-              <button
-                type="button"
-                onClick={restartLevel}
-                disabled={moving || restarting || game.status !== "active"}
-                className="flex h-10 items-center justify-center gap-2 rounded-xl border border-[#FF5C00]/30 bg-[#FF5C00]/10 text-[10px] font-black text-[#FF8A3D] disabled:opacity-40"
-              >
-                <RotateCcw size={15} className={restarting ? "animate-spin" : ""} />{restarting ? "ПЕРЕЗАПУСК…" : "ЗДАТИСЬ / ПЕРЕГРАТИ"}
-              </button>
-            </div>
-
-            <div className="mt-3 grid grid-cols-[1fr_auto] items-center gap-3 rounded-2xl border border-white/[.08] bg-black/25 p-3">
-              <div>
-                <div className="flex items-center justify-between text-[10px] font-black"><span className="text-zinc-500">Ціль: {formatNumber(config.target_score)}</span><span className="text-[#B78CFF]">{scoreProgress}%</span></div>
-                <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-[#0A0A0A]"><motion.div className="h-full rounded-full bg-gradient-to-r from-[#7C3AED] to-[#B78CFF]" animate={{ width: `${scoreProgress}%` }} transition={{ duration: reducedMotion ? 0.05 : 0.25 }} /></div>
-              </div>
-              <div className="flex min-w-[72px] items-center justify-center gap-1.5 rounded-xl border border-[#FFB800]/25 bg-[#FFB800]/10 px-2 py-2 text-[#FFB800]"><Coins size={15} /><span className="text-sm font-black">{game.coins_collected}/{config.target_coins}</span></div>
-            </div>
-
             <AnimatePresence>
               {game.status !== "active" && !celebrating && (
                 <motion.div
-                  className={`mt-3 rounded-2xl border p-3 text-center ${game.status === "won" ? "border-[#22C55E]/35 bg-[#22C55E]/[.08]" : "border-[#EF5350]/35 bg-[#EF5350]/[.08]"}`}
+                  className={`bm-pixel-result mt-3 rounded-2xl border p-3 text-center ${game.status === "won" ? "border-[#22C55E]/35 bg-[#22C55E]/[.08]" : "border-[#EF5350]/35 bg-[#EF5350]/[.08]"}`}
                   initial={{ opacity: 0, y: -10, scale: 0.98 }}
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: -8 }}
@@ -3271,13 +3083,14 @@ function BonusMatchScreen() {
                       <ChevronRight size={15} className="ml-1" />
                     </button>
                   </div>
+                  {game.status === "won" && result && <PixelGameReward enabled={fromPixel && mode !== "mock"} game="bonus_match" sessionId={game.id} onReturn={async () => { await exitGameFullscreen(); navigate("/pet/room"); }} />}
                 </motion.div>
               )}
             </AnimatePresence>
 
             <motion.div
               ref={boardRef}
-              className="bonus-match-board relative isolate mt-3 overflow-hidden rounded-[24px] bg-[#B4AFF1] p-1.5 shadow-[0_0_18px_rgba(124,58,237,.26),inset_0_0_20px_rgba(255,255,255,.28)]"
+              className="bonus-match-board bm-pixel-board relative isolate overflow-hidden p-1.5"
               data-render-engine="v97"
               animate={boardMotionForFx(boardFx, reducedMotion)}
               transition={{
@@ -3288,7 +3101,7 @@ function BonusMatchScreen() {
                 ease: "easeOut",
               }}
             >
-              <div className="grid grid-cols-7 gap-1" aria-hidden="true">
+              <div className="bm-pixel-slots grid grid-cols-8 gap-0" aria-hidden="true">
                 {Array.from({ length: ROWS * COLS }, (_, index) => {
                   const row = Math.floor(index / COLS);
                   const col = index % COLS;
@@ -3297,7 +3110,7 @@ function BonusMatchScreen() {
                     <div
                       key={`slot-${index}`}
                       className={`aspect-square min-w-0 rounded-[11px] ${active ? "bg-cover bg-center" : "pointer-events-none bg-transparent opacity-0"}`}
-                      style={active ? { backgroundImage: `url("${BONUS_MATCH_CELL_IMAGE}")` } : undefined}
+                      data-active={active ? "true" : "false"}
                     />
                   );
                 })}
@@ -3326,6 +3139,7 @@ function BonusMatchScreen() {
               />
 
               <SpecialEffects effects={specialEffects} reducedMotion={reducedMotion} />
+              {boardFx === "shuffle" && <motion.div aria-hidden="true" className="pointer-events-none absolute inset-[24%] z-40" style={{ ...BONUS_MATCH_BOOSTER_SPRITES.shuffle, filter: "drop-shadow(0 0 18px #ffcf7b)" }} initial={{ opacity: 0, scale: .45 }} animate={{ opacity: [0, 1, 0], scale: [0.45, 1.15, 1.4], rotate: reducedMotion ? 0 : [0, 180] }} transition={{ duration: reducedMotion ? .12 : .4 }} />}
               <BoardEffectsCanvas ref={effectsCanvasRef} effects={specialEffects} reducedMotion={reducedMotion} />
 
               <AnimatePresence>
@@ -3374,49 +3188,38 @@ function BonusMatchScreen() {
               )}
             </motion.div>
 
-            <div className="mt-3 rounded-2xl border border-white/[.08] bg-black/25 p-2.5">
-              <div className="mb-2 flex items-center justify-between gap-2 px-1">
-                <div>
-                  <div className="text-[9px] font-black uppercase tracking-[.16em] text-zinc-500">БОНУСИ</div>
-                  <div className="mt-0.5 text-[8px] font-bold text-zinc-700">Ціна вказана на кожному бонусі</div>
-                </div>
-                {activeBooster && <button type="button" onClick={() => setActiveBooster(null)} className="rounded-full border border-[#FF4D55]/30 bg-[#FF4D55]/10 px-2 py-1 text-[8px] font-black uppercase text-[#FF686F]">СКАСУВАТИ</button>}
+            <div className="bm-pixel-below">
+              <img className={`bm-pixel-cat ${celebrating ? "is-happy" : ""}`} src="/pet/room/v6/rig/sit-poster.webp" alt="Піксель вболіває за тебе" draggable="false" />
+              <div className="bm-pixel-boosters" aria-label="Бонуси">
+                {["hammer", "shuffle", "color_bomb"].map(id => <div className="bm-pixel-booster-wrap" key={id}>
+                  <button type="button" className={`bm-pixel-booster ${activeBooster === id ? "is-selected" : ""}`}
+                    aria-label={`${BOOSTERS[id].label}, залишилось ${Number(boosterInventory[id] || 0)}`} aria-pressed={activeBooster === id}
+                    disabled={moving || game.status !== "active"} onClick={() => selectBooster(id)}>
+                    <i style={BONUS_MATCH_BOOSTER_SPRITES[id]} aria-hidden="true" /><b>{Number(boosterInventory[id] || 0)}</b>
+                  </button>
+                </div>)}
               </div>
-              <div className="grid grid-cols-4 gap-2">
-                {Object.entries(BOOSTERS).map(([id, item]) => {
-                  const Icon = item.Icon;
-                  const count = Number(boosterInventory[id] || 0);
-                  const active = activeBooster === id;
-                  return <div key={id} className={`relative rounded-xl border p-1.5 text-center transition-colors ${active ? "border-[#B78CFF] bg-[#B78CFF]/15" : "border-white/10 bg-[#11101A]"}`}>
-                    <button type="button" disabled={moving || game.status !== "active"} onClick={() => selectBooster(id)} className="flex w-full flex-col items-center gap-1 py-1 disabled:opacity-40" aria-label={item.label}>
-                      <motion.div animate={active && !reducedMotion ? { scale: [1, 1.12, 1] } : { scale: 1 }} transition={{ duration: 0.8, repeat: active ? Infinity : 0 }} className="flex h-9 w-9 items-center justify-center rounded-xl border" style={{ borderColor: `${item.color}66`, background: `${item.color}18` }}>
-                        <Icon size={20} color={item.color} strokeWidth={2.8} />
-                      </motion.div>
-                      <span className="max-w-full truncate text-[7px] font-black uppercase text-zinc-400">{item.label}</span>
-                      <span className="text-[8px] font-black text-[#FFB800]">{boosterPrices[id] ?? item.price} Point</span>
-                    </button>
-                    <div className="absolute -right-1.5 -top-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#7C3AED] px-1 text-[9px] font-black text-white">{count}</div>
-                    <button type="button" disabled={buyingBooster === id || moving} onClick={(event) => { event.stopPropagation(); purchaseBooster(id); }} className="absolute -bottom-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full border border-[#FFB800]/50 bg-[#2C2100] text-[#FFB800] disabled:opacity-50" aria-label={`Придбати ${item.label}`}>
-                      {buyingBooster === id ? <span className="text-[8px]">…</span> : <Plus size={12} strokeWidth={3} />}
-                    </button>
-                  </div>;
-                })}
-              </div>
-              {activeBooster && <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} className="mt-2 rounded-xl border border-[#B78CFF]/25 bg-[#B78CFF]/10 px-3 py-2 text-center text-[9px] font-black text-[#D8C1FF]">ОБЕРИ КЛІТИНКУ: {BOOSTERS[activeBooster].short}</motion.div>}
+              <div className="bm-pixel-reward"><span>Нагорода за перемогу</span><strong title="10 пір’їнок за перше або сюжетне проходження. Повтор: 2 раз на день."><i aria-hidden="true" style={BONUS_MATCH_FEATHER_SPRITE} />{completionsByLevel.has(game.level) && <small>до</small>}+10</strong><button type="button" aria-label="Облаштувати кімнату" disabled={moving} onClick={async () => { await exitGameFullscreen(); navigate("/pet/room?panel=decorate"); }}><img src="/pet/story/v1/lamp.webp" alt="Лампа для кімнати" /></button></div>
             </div>
-
-            <div className="mt-3 flex items-center justify-between px-1 text-[10px] font-bold text-zinc-600"><span>{activeBooster ? "Торкнися цільової клітинки" : "Свайпни фішку або використай два тапи"}</span><span>{coinProgress}% монет</span></div>
+            <div className="bm-pixel-game-tools">
+              <span ref={scoreRef} className={scorePulse ? "is-score-pulse" : ""}>{formatNumber(animatedScore)} очок · <Star size={11} aria-hidden="true" /> {scoreProgress}%</span>
+              <button type="button" onClick={() => setBoosterShopOpen(true)} disabled={moving}>Бонуси <Plus size={12} /></button>
+              <button type="button" onClick={restartLevel} disabled={moving || restarting || game.status !== "active"}><RotateCcw size={12} /> Переграти</button>
+            </div>
+            {activeBooster && <div className="bm-pixel-target-prompt" role="status">{BOOSTERS[activeBooster].short}: обери клітинку <button type="button" onClick={() => setActiveBooster(null)}>Скасувати</button></div>}
           </motion.section>
-
-
+          <nav className="bm-pixel-nav" aria-label="Кімната Пікселя">
+            {[{ id: "room", Icon: Home, label: "Кімната" }, { id: "decorate", Icon: Armchair, label: "Облаштувати" }, { id: "journal", Icon: BookOpen, label: "Щоденник" }].map(({ id, Icon, label }) => <button type="button" key={id} className={id === "room" ? "is-current" : ""} disabled={moving || celebrating} onClick={async () => { await exitGameFullscreen(); navigate(`/pet/room?panel=${id}`); }}><Icon aria-hidden="true" /><span>{label}</span></button>)}
+          </nav>
           </div>
         </div>
       )}
+      {boosterShopOpen && <div className="bm-pixel-modal" onClick={() => setBoosterShopOpen(false)}><section role="dialog" aria-modal="true" aria-label="Бонуси" onClick={event => event.stopPropagation()}><h2>Маленька допомога</h2><p>Бонуси для складних комбінацій</p>{Object.entries(BOOSTERS).map(([id, item]) => <div className="bm-pixel-shop-item" key={id}><i style={BONUS_MATCH_BOOSTER_SPRITES[id]} /><span><b>{item.label}</b><small>{item.short} · у запасі {boosterInventory[id] || 0}</small></span><button type="button" disabled={buyingBooster === id || moving} onClick={() => purchaseBooster(id)}>+1 · {boosterPrices[id]} Point</button>{id === "rocket" && <button type="button" disabled={!boosterInventory[id] || moving} onClick={() => { selectBooster(id); setBoosterShopOpen(false); }}>Використати</button>}</div>)}<button className="bm-pixel-close" type="button" autoFocus onClick={() => setBoosterShopOpen(false)}>До гри</button></section></div>}
 
       <AnimatePresence>
         {bossPrompt && (
           <motion.div
-            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/75 px-5 backdrop-blur-sm"
+            className="fixed inset-0 z-[240] flex items-center justify-center bg-black/75 px-5 backdrop-blur-sm"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}

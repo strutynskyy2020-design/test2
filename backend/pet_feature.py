@@ -13,6 +13,7 @@ import hashlib
 import json
 import math
 import uuid
+import sys
 from datetime import datetime, timedelta, timezone
 from typing import Awaitable, Callable, Literal, Optional
 from zoneinfo import ZoneInfo
@@ -21,10 +22,15 @@ from fastapi import Depends, Header, HTTPException
 from pydantic import BaseModel, ConfigDict, Field, FiniteFloat, field_validator
 from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError, OperationFailure
+import pet_life
+from pet_life_routes import register_life_routes
+from pet_playroom import register_play_routes, public_care_availability
+from pet_care_rules import care_refusal, settle_sleep, sleep_overlap_hours, sleeping, start_sleep, wake_sleep
+from pet_life_events import enrich_events
 
 
 KYIV_TZ = ZoneInfo("Europe/Kyiv")
-PET_RULES_VERSION = "pet-v3-narrative"
+PET_RULES_VERSION = "pet-v4-living-shop"
 PET_MAX_LEVEL = 10
 PET_SURVIVAL_VERSION = 1
 PET_STORY_VERSION = 1
@@ -39,7 +45,6 @@ DEFAULT_EQUIPPED = {
     "wall": "wall-neon",
     "floor": None,
     "decor": None,
-    "collar": None,
     "shelf": None,
 }
 
@@ -71,28 +76,18 @@ PET_ITEMS = [
         "room": {"asset": "/pet/room/v2/items/rug-cyan.webp", "x": 50, "y": 72, "width": 68, "z_index": 20, "anchor": "center", "move_bounds": {"min_x": 38, "max_x": 62, "min_y": 65, "max_y": 80}},
     },
     {
-        "id": "collar-violet", "name": "Фіолетовий нашийник", "slot": "collar", "rarity": "improved", "icon": "badge",
-        "unlock_level": 3, "description": "Косметичний нашийник без бонусів до призів.",
-        "room": {"asset": "/pet/room/v2/items/collar-violet.webp", "attach_to": "cat", "z_index": 45},
-    },
-    {
         "id": "plant-moon", "name": "Місячна рослина", "slot": "decor", "rarity": "rare", "icon": "sprout",
         "unlock_level": 4, "description": "Іноді Піксель спостерігає, як коливається листя.",
         "room": {"asset": "/pet/room/v2/items/plant-moon.webp", "x": 14, "y": 66, "width": 20, "z_index": 28, "anchor": "bottom", "move_bounds": {"min_x": 7, "max_x": 34, "min_y": 52, "max_y": 77}},
     },
     {
         "id": "fort-cardboard", "name": "Картонна фортеця", "slot": "decor", "rarity": "epic", "icon": "castle",
-        "unlock_level": 99, "description": "Нагорода за завершення тижневого проєкту.",
+        "unlock_level": 1, "description": "Придбайте за матеріали або побудуйте в тижневому проєкті.",
         "room": {"asset": "/pet/room/v2/items/fort-cardboard.webp", "x": 23, "y": 71, "width": 31, "z_index": 28, "anchor": "bottom", "move_bounds": {"min_x": 10, "max_x": 42, "min_y": 57, "max_y": 79}},
     },
     {
-        "id": "camera-retro", "name": "Ретро-фотоапарат", "slot": "expedition", "rarity": "rare", "icon": "camera",
-        "unlock_level": 5, "description": "Відкриває більше фотоспогадів в експедиціях.",
-        "room": {"asset": "/pet/room/v2/items/camera-retro.webp", "slot": "shelf", "x": 18, "y": 27, "width": 10, "z_index": 14, "anchor": "bottom", "move_bounds": {"min_x": 8, "max_x": 31, "min_y": 20, "max_y": 31}},
-    },
-    {
         "id": "pillow-starlight", "name": "Подушка «Зоряне світло»", "slot": "bed", "rarity": "legendary", "icon": "moon",
-        "unlock_level": 8, "description": "Рідкісний подарунок від кота.",
+        "unlock_level": 1, "description": "Легендарна подушка: доступна за матеріали або як рідкісний подарунок.",
         "room": {"asset": "/pet/room/v2/items/pillow-starlight.webp", "x": 50, "y": 77, "width": 56, "z_index": 30, "anchor": "bottom", "move_bounds": {"min_x": 34, "max_x": 66, "min_y": 70, "max_y": 84}},
     },
 ]
@@ -111,17 +106,11 @@ PET_ROOM_SCENE = {
             },
         },
     },
-    "collar_poses": {
-        "sit": {"x": 50, "y": 47, "width": 13, "rotate": 0},
-        "sleep": {"x": 39, "y": 59, "width": 11, "rotate": -12},
-        "eat": {"x": 29, "y": 61, "width": 11, "rotate": 8},
-        "play": {"x": 73, "y": 54, "width": 11, "rotate": -8},
-    },
 }
 
 PET_EXPEDITIONS = {
     "yard": {"id": "yard", "name": "Подвір'я", "duration_minutes": 120, "energy_cost": 12, "accent": "amber", "description": "Картон, мотузка й знайомі сліди."},
-    "park": {"id": "park", "name": "Парк", "duration_minutes": 240, "energy_cost": 18, "accent": "green", "description": "Листя, пір'їнки та шанс на фото."},
+    "park": {"id": "park", "name": "Парк", "duration_minutes": 240, "energy_cost": 18, "accent": "green", "description": "Листя, пір'їнки та маленькі скарби."},
     "rooftop": {"id": "rooftop", "name": "Дах", "duration_minutes": 480, "energy_cost": 24, "accent": "purple", "description": "Рідкісний краєвид і незвичайна історія."},
 }
 
@@ -134,7 +123,7 @@ PET_TRICKS = {
 PET_GAMES = [
     {
         "id": "memory", "mode": "sequence", "input": "moves", "name": "Лапки-пам'ятки",
-        "description": "Запам'ятай серверну послідовність кольорових лапок і повтори її.",
+        "description": "Запам'ятай послідовність кольорових лапок і повтори її.",
         "duration_seconds": 25, "icon": "brain", "reward": "+3 довіри",
     },
     {
@@ -177,8 +166,8 @@ PET_STORY_SCENES = [
             {
                 "id": "study-clue", "label": "Спочатку вивчити нитку",
                 "hint": "Діяти обережно й шукати закономірність у сигналі.",
-                "impact": [{"label": "Кмітливість +3", "tone": "trait"}, {"label": "Фотоспогад +1", "tone": "positive"}, {"label": "Шлях мислителя", "tone": "story"}],
-                "effects": {"traits": {"intelligence": 3}, "materials": {"photo": 1}, "xp": 8, "path": {"thinker": 2}, "flags_add": ["decoded_signal"]},
+                "impact": [{"label": "Кмітливість +3", "tone": "trait"}, {"label": "Листок +1", "tone": "positive"}, {"label": "Шлях мислителя", "tone": "story"}],
+                "effects": {"traits": {"intelligence": 3}, "materials": {"leaf": 1}, "xp": 8, "path": {"thinker": 2}, "flags_add": ["decoded_signal"]},
                 "outcome": {"title": "У спалахах є ритм", "text": "На фото стало видно: три спалахи повторюють старий знак притулку для тварин.", "reaction_text": "Тут точно є закономірність.", "pose": "sit", "next_hint": "Наступний слід відкриється на 3 рівні дружби."},
             },
             {
@@ -215,7 +204,7 @@ PET_STORY_SCENES = [
                 "id": "decode-photo", "label": "Зіставити фото й сигнал",
                 "hint": "Повільніше, зате {name} краще запам’ятає схему.",
                 "impact": [{"label": "Кмітливість +3", "tone": "trait"}, {"label": "Енергія −5", "tone": "cost"}, {"label": "Фотоспогад +1", "tone": "positive"}],
-                "effects": {"stats": {"energy": -5, "mood": 5}, "traits": {"intelligence": 3}, "materials": {"photo": 1}, "trust": 1, "xp": 10, "path": {"thinker": 2}, "flags_add": ["mapped_rooftop"]},
+                "effects": {"stats": {"energy": -5, "mood": 5}, "traits": {"intelligence": 3}, "materials": {"leaf": 1}, "trust": 1, "xp": 10, "path": {"thinker": 2}, "flags_add": ["mapped_rooftop"]},
                 "outcome": {"title": "Карта ожила", "text": "Старе фото виявилося картою: світлові точки позначають безпечний шлях до саду.", "reaction_text": "Тепер я розумію цей знак.", "pose": "sit", "next_hint": "Фінал відкриється на 5 рівні дружби й за довіри 8."},
             },
             {
@@ -245,21 +234,21 @@ PET_STORY_SCENES = [
                 "id": "restore-garden", "label": "Відновити стежки саду",
                 "hint": "Піксель стане сміливим дослідником і частіше прагнутиме пригод.",
                 "impact": [{"label": "Настрій +10", "tone": "positive"}, {"label": "Енергія −10 · чистота −5", "tone": "cost"}, {"label": "Фінал: дослідник", "tone": "story"}],
-                "effects": {"stats": {"mood": 10, "energy": -10, "cleanliness": -5}, "traits": {"curiosity": 5}, "trust": 2, "xp": 15, "materials": {"photo": 1}, "path": {"explorer": 4}, "ending": "explorer", "badge": "Хранитель стежок", "flags_add": ["garden_restored"]},
+                "effects": {"stats": {"mood": 10, "energy": -10, "cleanliness": -5}, "traits": {"curiosity": 5}, "trust": 2, "xp": 15, "materials": {"leaf": 1}, "path": {"explorer": 4}, "ending": "explorer", "badge": "Хранитель стежок", "flags_add": ["garden_restored"]},
                 "outcome": {"title": "Хранитель стежок", "text": "Піксель відновив шлях до саду й тепер першим помічає нові пригоди.", "reaction_text": "Наступний слід я знайду першим!", "pose": "play", "next_hint": "Сюжет завершено. Випадкові події тепер частіше підтримують шлях дослідника."},
             },
             {
                 "id": "repair-beacon", "label": "Полагодити світловий маяк",
                 "hint": "Піксель стане мислителем і частіше обиратиме головоломки.",
                 "impact": [{"label": "Настрій +9", "tone": "positive"}, {"label": "Енергія −8", "tone": "cost"}, {"label": "Фінал: мислитель", "tone": "story"}],
-                "effects": {"stats": {"mood": 9, "energy": -8}, "traits": {"intelligence": 5}, "trust": 2, "xp": 15, "materials": {"photo": 1}, "path": {"thinker": 4}, "ending": "thinker", "badge": "Хранитель сигналу", "flags_add": ["beacon_repaired"]},
+                "effects": {"stats": {"mood": 9, "energy": -8}, "traits": {"intelligence": 5}, "trust": 2, "xp": 15, "materials": {"leaf": 1}, "path": {"thinker": 4}, "ending": "thinker", "badge": "Хранитель сигналу", "flags_add": ["beacon_repaired"]},
                 "outcome": {"title": "Хранитель сигналу", "text": "Маяк знову працює, а Піксель навчився розрізняти кожен його світловий ритм.", "reaction_text": "Я розгадав нічну пошту!", "pose": "sit", "next_hint": "Сюжет завершено. Випадкові події тепер частіше підтримують шлях мислителя."},
             },
             {
                 "id": "make-safe-home", "label": "Зробити сад безпечним домом",
                 "hint": "Піксель стане компаньйоном і частіше шукатиме спільні тихі моменти.",
                 "impact": [{"label": "Настрій +10 · енергія −5", "tone": "cost"}, {"label": "Лагідність +5", "tone": "trait"}, {"label": "Фінал: компаньйон", "tone": "story"}],
-                "effects": {"stats": {"mood": 10, "energy": -5}, "traits": {"affection": 5}, "trust": 2, "xp": 15, "materials": {"photo": 1}, "path": {"companion": 4}, "ending": "companion", "badge": "Хранитель дому", "flags_add": ["safe_home_created"]},
+                "effects": {"stats": {"mood": 10, "energy": -5}, "traits": {"affection": 5}, "trust": 2, "xp": 15, "materials": {"leaf": 1}, "path": {"companion": 4}, "ending": "companion", "badge": "Хранитель дому", "flags_add": ["safe_home_created"]},
                 "outcome": {"title": "Хранитель дому", "text": "Сад став тихим прихистком. Піксель зрозумів: дім — це місце, де на тебе чекають.", "reaction_text": "Тепер тут усі можуть видихнути.", "pose": "sit", "next_hint": "Сюжет завершено. Випадкові події тепер частіше підтримують шлях компаньйона."},
             },
         ],
@@ -282,7 +271,7 @@ PET_DAILY_EVENTS = [
         "choices": [
             {"id": "watch", "label": "Спостерігати разом", "hint": "Тихий спільний момент посилить довіру.", "impact": [{"label": "Настрій +6", "tone": "positive"}, {"label": "Довіра +1", "tone": "positive"}, {"label": "Лагідність +2", "tone": "trait"}], "effects": {"stats": {"mood": 6}, "trust": 1, "traits": {"affection": 2}, "xp": 3, "path": {"companion": 1}}, "outcome": {"title": "Тиха хвилина", "text": "Ви стежили за метеликом, доки Піксель не притулився до руки.", "reaction_text": "Добре, що ти теж це бачив.", "pose": "sit"}},
             {"id": "imitate", "label": "Зіграти в полювання", "hint": "Весело, але гра забере сили й трохи ситості.", "impact": [{"label": "Настрій +10", "tone": "positive"}, {"label": "Енергія −8 · ситість −2", "tone": "cost"}, {"label": "Допитливість +2", "tone": "trait"}], "effects": {"stats": {"mood": 10, "energy": -8, "satiety": -2}, "traits": {"curiosity": 2}, "xp": 3, "path": {"explorer": 1}}, "outcome": {"title": "Полювання без здобичі", "text": "{name} повторив кожен рух метелика й задоволено впав на килим.", "reaction_text": "Я майже його спіймав!", "pose": "play"}},
-            {"id": "photo", "label": "Зберегти момент на фото", "hint": "Поповнити щоденник і розвинути уважність.", "impact": [{"label": "Фотоспогад +1", "tone": "positive"}, {"label": "Кмітливість +2", "tone": "trait"}], "effects": {"materials": {"photo": 1}, "traits": {"intelligence": 2}, "xp": 3, "path": {"thinker": 1}}, "outcome": {"title": "Кадр із метеликом", "text": "На фото Піксель виглядає серйозним мисливцем.", "reaction_text": "Покажеш мені фото?", "pose": "sit"}},
+            {"id": "photo", "label": "Замалювати метелика", "hint": "Поповнити щоденник і розвинути уважність.", "impact": [{"label": "Листок +1", "tone": "positive"}, {"label": "Кмітливість +2", "tone": "trait"}], "effects": {"materials": {"leaf": 1}, "traits": {"intelligence": 2}, "xp": 3, "path": {"thinker": 1}}, "outcome": {"title": "Метелик у щоденнику", "text": "У щоденнику залишився малюнок метелика, а поруч — знайдений листочок.", "reaction_text": "Він схожий на нашого гостя!", "pose": "sit"}},
         ],
     },
     {
@@ -348,19 +337,23 @@ PET_DAILY_EVENTS = [
     },
 ]
 
+PET_DAILY_EVENTS = enrich_events([event for event in PET_DAILY_EVENTS if event["id"] != "collar-snag"])
+
 MATERIAL_NAMES = {
     "cardboard": "Картон",
     "string": "Мотузка",
     "fabric": "Тканина",
     "feather": "Пір'їнка",
     "leaf": "Листок",
-    "photo": "Фотоспогад",
 }
 
 
 class PetCareBody(BaseModel):
     action: Literal["feed", "pet", "play", "rest", "clean", "heal"]
     option: Optional[str] = Field(default=None, max_length=40)
+    date_key: Optional[str] = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+    generation: Optional[int] = Field(default=None, ge=1, le=1000000)
+    zone: Literal["head", "back", "belly"] = "head"
 
 
 class PetIntentBody(BaseModel):
@@ -369,7 +362,7 @@ class PetIntentBody(BaseModel):
 
 class PetExpeditionBody(BaseModel):
     location_id: Literal["yard", "park", "rooftop"]
-    loadout_id: Literal["backpack", "camera", "bell", "blanket"] = "backpack"
+    loadout_id: Literal["backpack", "bell", "blanket"] = "backpack"
 
 
 class PetProjectBody(BaseModel):
@@ -833,7 +826,8 @@ def _reward_from_card(card: str) -> dict:
     if card == "points-10":
         return {"type": "points", "amount": 10, "title": "+10 Point"}
     if card == "item-collar-violet":
-        return {"type": "item", "item_id": "collar-violet", "title": "Фіолетовий нашийник"}
+        # Preserve the deck order/cursor for existing profiles; retire its item.
+        return {"type": "material", "material": "fabric", "amount": 4, "title": "Тканина ×4"}
     if card == "item-pillow-starlight":
         return {"type": "item", "item_id": "pillow-starlight", "title": "Подушка «Зоряне світло»"}
     material = card.removeprefix("material-")
@@ -918,7 +912,7 @@ def _ensure_story(profile: dict) -> bool:
         if key == "recent_event_ids":
             clean = clean[-7:]
         elif key == "recent_path_choices":
-            clean = [value for value in clean if value in STORY_PATHS][-5:]
+            clean = [value for value in (values or []) if isinstance(value, str) and value in STORY_PATHS][-5:] if isinstance(values, list) else []
         if values != clean:
             story[key] = clean
             changed = True
@@ -1006,6 +1000,9 @@ def _next_story_definition(profile: dict) -> Optional[dict]:
 
 
 def _choice_locked_reason(profile: dict, choice: dict) -> Optional[str]:
+    for skill, required_xp in choice.get("requires_skills", {}).items():
+        if (profile.get("life") or {}).get("skills", {}).get(skill, 0) < required_xp:
+            return f"Потрібно {required_xp} досвіду: {pet_life.SKILLS[skill]['name']}"
     required = choice.get("requires_materials") or {}
     materials = (profile.get("inventory") or {}).get("materials") or {}
     missing = [
@@ -1075,7 +1072,7 @@ def _story_status(profile: dict) -> dict:
         next_hint = f"Фінал: {story.get('badge') or personality['label']}"
     elif resolved_today:
         status = "waiting"
-        next_hint = resolved_today.get("next_hint") or "Наступний розділ буде доступний завтра"
+        next_hint = "Наступний розділ буде доступний завтра" + (f". {reason}" if reason else "")
     elif reason:
         status = "locked" if alive else "ended"
         next_hint = reason
@@ -1100,6 +1097,8 @@ def _story_status(profile: dict) -> dict:
 
 def _event_requirements_met(profile: dict, event: dict) -> bool:
     requirements = event.get("requires") or {}
+    if requirements.get("weather") and pet_life.weather(profile, _now())["id"] != requirements["weather"]:
+        return False
     stats = profile.get("stats") or {}
     survival = profile.get("survival") or {}
     inventory = profile.get("inventory") or {}
@@ -1498,7 +1497,9 @@ def _apply_survival_decay(profile: dict, previous: datetime, now: datetime) -> t
         exact["satiety"] = max(0.0, old_satiety - step)
         exact["mood"] = max(0.0, old_mood - step * 0.65)
         exact["cleanliness"] = max(0.0, old_cleanliness - step * 0.55)
-        exact["energy"] = min(100.0, exact["energy"] + step * 1.4)
+        asleep_hours = sleep_overlap_hours(profile, step_time - timedelta(hours=step), step_time)
+        exact["energy"] = min(100.0, exact["energy"] + max(0, step - asleep_hours) * 1.4)
+        settle_sleep(profile, step_time)
 
         starvation_hours = _hours_below(old_satiety, 1.0, 0, step)
         filthy_hours = _hours_below(old_cleanliness, 0.55, 10, step)
@@ -1542,6 +1543,8 @@ def _apply_survival_decay(profile: dict, previous: datetime, now: datetime) -> t
             survival["ended_at"] = step_time.isoformat()
             survival["end_reason"] = "trust_depleted"
         _update_survival_condition(profile, step_time)
+        if isinstance(profile.get("life"), dict):
+            pet_life.resolve_pending(profile, step_time)
 
     if survival.get("status") in {"runaway", "dead"}:
         expedition = profile.get("expedition")
@@ -1562,6 +1565,15 @@ def _require_alive(profile: dict) -> None:
         raise HTTPException(status_code=409, detail="Котик помер. Прихистіть нового котика, щоб почати спочатку")
     if status == "runaway":
         raise HTTPException(status_code=409, detail="Котик пішов. Прихистіть нового котика, щоб почати спочатку")
+
+
+def _require_care_context(profile: dict, body: PetCareBody) -> None:
+    # Old clients may omit both fields. New gesture clients always send both.
+    if body.date_key is not None or body.generation is not None:
+        if body.date_key != _date_key() or body.generation != profile["survival"]["generation"]:
+            raise HTTPException(409, "Турбота застаріла. Оновіть кімнату")
+    if (profile.get("expedition") or {}).get("status") == "active":
+        raise HTTPException(409, "Котик ще в експедиції")
 
 
 def _new_profile(user: dict) -> dict:
@@ -1587,8 +1599,9 @@ def _new_profile(user: dict) -> dict:
         "traits": {"curiosity": 1, "affection": 1, "intelligence": 1},
         "preferences": {"food": foods[seed % len(foods)], "toy": toys[(seed // 5) % len(toys)]},
         "story": _new_story(1),
+        "life": pet_life.new_life(1),
         "inventory": {
-            "materials": {"cardboard": 2, "string": 1, "fabric": 1, "feather": 0, "leaf": 0, "photo": 0},
+            "materials": {"cardboard": 2, "string": 1, "fabric": 1, "feather": 0, "leaf": 0},
             "items": ["bed-basic", "bowl-amber", "toy-wand", "wall-neon"],
             "equipped": copy.deepcopy(DEFAULT_EQUIPPED),
         },
@@ -1663,16 +1676,28 @@ def _advance_profile(original: dict) -> tuple[dict, bool]:
         materials = {}
         inventory["materials"] = materials
         changed = True
+    # One-time, lossless retirement of the old photo currency.
+    if "photo" in materials:
+        materials["leaf"] = _safe_int(materials.get("leaf"), 0, 0) + _safe_int(materials.pop("photo"), 0, 0)
+        changed = True
     for material in MATERIAL_NAMES:
         amount = _safe_int(materials.get(material), 0, 0)
         if materials.get(material) != amount:
             materials[material] = amount
             changed = True
     equipped = inventory.get("equipped")
+    for item_id in DEFAULT_EQUIPPED.values():
+        if item_id and item_id not in inventory["items"]:
+            inventory["items"].append(item_id)
+            changed = True
     if not isinstance(equipped, dict):
         equipped = {}
         inventory["equipped"] = equipped
         changed = True
+    for slot, item_id in list(equipped.items()):
+        if slot == "collar" or item_id in {"collar-violet", "camera-retro"}:
+            equipped.pop(slot, None)
+            changed = True
     for slot, item_id in DEFAULT_EQUIPPED.items():
         if slot not in equipped:
             equipped[slot] = item_id
@@ -1713,6 +1738,8 @@ def _advance_profile(original: dict) -> tuple[dict, bool]:
         changed = True
 
     previous = _parse_iso(profile.get("last_decay_at"))
+    if pet_life.ensure_life(profile, now):
+        changed = True
     if previous is None or previous > now:
         previous = now
         if profile.get("last_decay_at") != now.isoformat():
@@ -1736,6 +1763,11 @@ def _advance_profile(original: dict) -> tuple[dict, bool]:
         if before_survival != survival:
             changed = True
 
+    if settle_sleep(profile, now):
+        changed = True
+    if pet_life.advance_life(profile, now):
+        changed = True
+        _update_survival_condition(profile, now)
     if _ensure_story(profile):
         changed = True
     if _ensure_daily_event_offer(profile):
@@ -1749,12 +1781,6 @@ def _advance_profile(original: dict) -> tuple[dict, bool]:
             changed = True
 
     profile["friendship_level"] = _level_from_xp(profile.get("friendship_xp", 0))
-    owned = inventory.setdefault("items", [])
-    for item in PET_ITEMS:
-        if item["unlock_level"] <= profile["friendship_level"] and item["id"] not in owned:
-            owned.append(item["id"])
-            changed = True
-
     return profile, changed
 
 
@@ -1785,7 +1811,7 @@ def _current_request(profile: dict) -> dict:
         return {"id": "play", "title": "Хочеться погратися з вудочкою", "action": "Почати гру", "hotspot": "toy"}
     if "pet" not in daily.get("care_actions", []):
         return {"id": "pet", "title": "Саме час трохи помуркотіти", "action": "Погладити", "hotspot": "cat"}
-    return {"id": "photo", "title": "Сьогодні все чудово", "action": "Зробити фото", "hotspot": "cat"}
+    return {"id": "pet", "title": "Сьогодні все чудово", "action": "До котика", "hotspot": "cat"}
 
 
 def _daily_event(profile: dict) -> Optional[dict]:
@@ -1813,6 +1839,7 @@ def _public_profile(profile: dict) -> dict:
     clean.pop("reward_budget", None)
     clean.pop("applied_commands", None)
     clean.pop("applied_minigame_reward_keys", None)
+    clean.pop("life", None)
     story = profile.get("story") if isinstance(profile.get("story"), dict) else _new_story(
         _safe_int((profile.get("survival") or {}).get("generation"), 1, 1)
     )
@@ -1937,8 +1964,10 @@ def _snapshot(profile: dict, recent_journal: Optional[list[dict]] = None) -> dic
         },
         "daily_event": _daily_event(profile),
         "story": _story_status(profile),
+        "life": pet_life.public_life(profile, _now()),
+        "care_availability": public_care_availability(profile, _now()),
         "catalog": {
-            "items": PET_ITEMS,
+            "items": pet_life.shop_catalog(PET_ITEMS),
             "room": PET_ROOM_SCENE,
             "expeditions": list(PET_EXPEDITIONS.values()),
             "tricks": list(PET_TRICKS.values()),
@@ -1946,7 +1975,6 @@ def _snapshot(profile: dict, recent_journal: Optional[list[dict]] = None) -> dic
             "materials": MATERIAL_NAMES,
             "loadout": [
                 {"id": "backpack", "name": "Рюкзачок", "description": "Додатковий звичайний матеріал"},
-                {"id": "camera", "name": "Фотоапарат", "description": "Шанс на фотоспогад", "required_item": "camera-retro"},
                 {"id": "bell", "name": "Дзвіночок", "description": "Більше сюжетних зустрічей"},
                 {"id": "blanket", "name": "Плед", "description": "Більше енергії після повернення"},
             ],
@@ -2247,10 +2275,6 @@ def _choice_result(profile: dict, source: str, subject: dict, choice: dict, appl
 def _apply_progress(profile: dict) -> None:
     previous = int(profile.get("friendship_level", 1))
     profile["friendship_level"] = _level_from_xp(profile.get("friendship_xp", 0))
-    owned = profile["inventory"]["items"]
-    for item in PET_ITEMS:
-        if item["unlock_level"] <= profile["friendship_level"] and item["id"] not in owned:
-            owned.append(item["id"])
     if profile["friendship_level"] > previous:
         profile["last_level_up"] = profile["friendship_level"]
 
@@ -2280,6 +2304,10 @@ def _mark_command_applied(profile: dict, command: dict, kind: str, result: dict)
 
 
 async def seed_pet_v1(db) -> None:
+    await db.pet_social.create_index("id", unique=True)
+    await db.pet_social.create_index("purge_at", expireAfterSeconds=0)
+    await db.pet_social.create_index([("sender", 1), ("created_at", -1)])
+    await db.pet_social.create_index([("target", 1), ("created_at", -1)])
     await db.pet_profiles.create_index("user_id", unique=True)
     await db.pet_events.create_index("id", unique=True)
     await db.pet_events.create_index([("user_id", 1), ("occurred_at", -1), ("id", -1)])
@@ -2341,6 +2369,8 @@ def register_pet_routes(
     get_current_user: Callable[..., Awaitable[dict]],
     notify_points_awarded: Callable[[str, int, str], Awaitable[None]],
 ) -> None:
+    register_life_routes(api, db, get_current_user, sys.modules[__name__])
+    register_play_routes(api, db, get_current_user, sys.modules[__name__])
     def command_identity(user_id: str, key: str, payload: dict) -> tuple[str, str, str]:
         normalized = str(key or "").strip()
         if len(normalized) < 8 or len(normalized) > 160:
@@ -2487,6 +2517,8 @@ def register_pet_routes(
                 expected = profile["revision"]
                 profile["trust"] = min(20, int(profile.get("trust", 0)) + 3)
                 profile["friendship_xp"] = int(profile.get("friendship_xp", 0)) + 6
+                pet_life.ensure_life(profile, _now())
+                pet_life.gain_skill(profile, "hunter" if session.get("game_id") == "laser" else "thinker", 5)
                 materials = profile.setdefault("inventory", {}).setdefault("materials", {})
                 materials["feather"] = int(materials.get("feather", 0)) + 1
                 if daily.get("date") == reward_date:
@@ -2610,6 +2642,7 @@ def register_pet_routes(
             profile["traits"] = {"curiosity": 1, "affection": 1, "intelligence": 1}
             profile["preferences"] = {"food": foods[seed % len(foods)], "toy": toys[(seed // 5) % len(toys)]}
             profile["story"] = _new_story(generation)
+            profile["life"] = pet_life.new_life(generation, profile.get("life"))
             profile["tricks"] = {key: {"mastery": 0, "practices": 0, "mastered_at": None} for key in PET_TRICKS}
             profile["daily"] = _fresh_daily()
             # A fresh cat can receive care immediately, but a same-day adoption
@@ -2679,7 +2712,7 @@ def register_pet_routes(
                 "ball": {"satiety": -3, "mood": 24, "energy": -18, "cleanliness": -3},
                 "puzzle": {"satiety": -2, "mood": 14, "energy": -10, "cleanliness": -2},
             },
-            "rest": {"default": {"satiety": -2, "mood": 5, "energy": 28, "cleanliness": -1}},
+            "rest": {"default": {"satiety": -2, "mood": 5, "energy": 0, "cleanliness": -1}},
             "clean": {"default": {"satiety": 0, "mood": 3, "energy": -3, "cleanliness": 55}},
             "heal": {"default": {"satiety": 0, "mood": -3, "energy": -6, "health": 40, "cleanliness": 8}},
         }
@@ -2696,6 +2729,9 @@ def register_pet_routes(
         if not selected:
             raise HTTPException(status_code=400, detail="Цей варіант дії недоступний")
         command_payload = {"kind": "care", "action": body.action, "option": option}
+        if body.zone != "head":
+            command_payload["zone"] = body.zone
+        _require_care_context(await _load_profile(db, user), body)
         command = await find_command(user["id"], idempotency_key, command_payload)
         if not command:
             preflight_profile = await _load_profile(db, user)
@@ -2723,6 +2759,7 @@ def register_pet_routes(
         for _ in range(4):
             profile = await _load_profile(db, user)
             daily = profile["daily"]
+            _require_care_context(profile, body)
             marker = _command_marker(profile, command["id"])
             if marker:
                 saved = marker.get("result") or {}
@@ -2768,20 +2805,19 @@ def register_pet_routes(
                     source_key=source,
                 )
                 return {**_snapshot(profile, await _recent_events(db, user["id"])), "idempotent": True, "message": "Цю турботу вже зараховано сьогодні"}
-            if body.action == "play" and profile["stats"].get("energy", 0) < 15:
-                raise HTTPException(status_code=409, detail=f"{profile['name']} спочатку потрібно відпочити")
-            if body.action == "feed" and profile["stats"].get("satiety", 0) > 92:
-                raise HTTPException(status_code=409, detail=f"{profile['name']} зараз ситий")
-            if body.action == "clean" and profile["stats"].get("cleanliness", 0) > 92:
-                raise HTTPException(status_code=409, detail="У кімнаті вже чисто")
+            refusal = care_refusal(profile, body.action, option, _now(), body.zone)
+            if refusal and not (body.action == "pet" and refusal["reaction"] == "refuse"):
+                expected = profile["revision"]
+                saved = {"interaction": refusal, "accepted": False, "message": refusal["message"]}
+                _mark_command_applied(profile, command, "care", saved)
+                if not await _save_profile(db, profile, expected):
+                    continue
+                await complete_command(command, result=saved)
+                return {**_snapshot(profile), **saved}
             if body.action == "heal" and not profile.get("survival", {}).get("illness") and profile["stats"].get("health", 100) >= 75:
                 raise HTTPException(status_code=409, detail=f"{profile['name']} зараз не потребує лікування")
 
-            if body.action == "pet" and (
-                profile.get("survival", {}).get("mood_state") == "do_not_touch"
-                or profile["stats"].get("mood", 0) < 25
-                or profile.get("survival", {}).get("illness")
-            ):
+            if body.action == "pet" and refusal:
                 expected = profile["revision"]
                 _apply_stat(profile, "mood", -7)
                 profile["trust"] = max(0, int(profile.get("trust", 0)) - 2)
@@ -2793,6 +2829,7 @@ def register_pet_routes(
                 survival["touch_cooldown_until"] = (_now() + timedelta(hours=2)).isoformat()
                 survival["reaction"] = "do_not_touch"
                 survival["reaction_until"] = survival["touch_cooldown_until"]
+                pet_life.record_care(profile, "pet", option, _now(), rejected=True)
                 _update_survival_condition(profile)
                 saved = {
                     "date": daily["date"],
@@ -2803,6 +2840,7 @@ def register_pet_routes(
                     "ritual_completed": False,
                     "reaction": "do_not_touch",
                     "rejected": True,
+                    "interaction": refusal,
                 }
                 _mark_command_applied(profile, command, "care", saved)
                 if not await _save_profile(db, profile, expected):
@@ -2824,7 +2862,14 @@ def register_pet_routes(
 
             expected = profile["revision"]
             previous_action = daily.get("last_action")
+            care_before_stats = copy.deepcopy(profile["stats"])
             applied_effects = copy.deepcopy(selected)
+            if body.action == "pet":
+                applied_effects["mood"] = {"head": 12, "back": 9, "belly": 14}[body.zone]
+            if body.action == "rest":
+                start_sleep(profile, _now())
+            elif sleeping(profile, _now()) and body.action in {"feed", "heal"}:
+                wake_sleep(profile, _now(), urgent=True)
             survival = profile["survival"]
             reaction = None
             if body.action == "feed":
@@ -2851,6 +2896,8 @@ def register_pet_routes(
 
             for stat, delta in applied_effects.items():
                 _apply_stat(profile, stat, delta)
+            if body.action == "clean":
+                pet_life.clear_scene_mess(profile)
             trust_gain = {"feed": 2, "pet": 3, "play": 3, "rest": 1, "clean": 1, "heal": 2}[body.action]
             if reaction in {"picky", "bored", "exhausted"}:
                 trust_gain = 0
@@ -2897,6 +2944,11 @@ def register_pet_routes(
                 profile["friendship_xp"] += 5
 
             trust_gained = trust_gain + (2 if combo else 0) + (2 if ritual_just_completed else 0)
+            before_routine_trust = profile["trust"]
+            routine_note = pet_life.record_care(profile, body.action, option, _now(), reaction=reaction, before_stats=care_before_stats)
+            if body.action == "clean":
+                pet_life.clear_scene_mess(profile)
+            trust_gained += profile["trust"] - before_routine_trust
             _update_survival_condition(profile)
             saved = {
                 "date": daily["date"],
@@ -2904,9 +2956,11 @@ def register_pet_routes(
                 "option": option,
                 "combo": combo,
                 "trust_gained": trust_gained,
+                "life_note": routine_note,
                 "ritual_completed": ritual_just_completed,
                 "reaction": reaction,
                 "rejected": False,
+                "zone": body.zone if body.action == "pet" else None,
             }
             _mark_command_applied(profile, command, "care", saved)
             _apply_progress(profile)
@@ -2947,20 +3001,7 @@ def register_pet_routes(
 
     @api.post("/pet/photo")
     async def take_photo(user: dict = Depends(get_current_user)):
-        for _ in range(3):
-            profile = await _load_profile(db, user)
-            _require_alive(profile)
-            if profile["daily"].get("photo_taken"):
-                return {**_snapshot(profile), "idempotent": True, "message": "Сьогоднішнє фото вже в щоденнику"}
-            expected = profile["revision"]
-            profile["daily"]["photo_taken"] = True
-            profile["inventory"]["materials"]["photo"] = int(profile["inventory"]["materials"].get("photo", 0)) + 1
-            profile["friendship_xp"] += 2
-            _apply_progress(profile)
-            if await _save_profile(db, profile, expected):
-                await _record_event(db, user["id"], "memory", "Фото разом", f"Новий момент із {profile['name']} додано до спогадів.", {"photo_key": f"daily-{_date_key()}"}, source_key=f"pet-photo:{user['id']}:{_date_key()}", important=True)
-                return {**_snapshot(profile, await _recent_events(db, user["id"])), "message": "Фото додано у щоденник"}
-        raise HTTPException(status_code=409, detail="Не вдалося зберегти фото")
+        raise HTTPException(status_code=410, detail="Функцію фото прибрано. Попередні спогади збережено.")
 
     @api.post("/pet/events/choose")
     async def choose_daily_event(body: PetEventChoiceBody, user: dict = Depends(get_current_user)):
@@ -3006,6 +3047,7 @@ def register_pet_routes(
                 raise HTTPException(status_code=409, detail=locked_reason)
             expected = profile["revision"]
             applied = _apply_narrative_effects(profile, choice.get("effects") or {})
+            pet_life.record_choice(profile, event_def["id"], choice, _now())
             result = _choice_result(profile, "event", event_def, choice, applied)
             daily["event_resolved"] = True
             daily["event_result"] = result
@@ -3080,6 +3122,7 @@ def register_pet_routes(
 
             expected = profile["revision"]
             applied = _apply_narrative_effects(profile, choice.get("effects") or {})
+            pet_life.record_choice(profile, scene["id"], choice, _now())
             story = profile["story"]
             story.setdefault("completed_scenes", []).append(scene["id"])
             story.setdefault("decisions", {})[scene["id"]] = choice["id"]
@@ -3088,6 +3131,7 @@ def register_pet_routes(
             result = _choice_result(profile, "story", scene, choice, applied)
             daily["story_resolved"] = True
             daily["story_result"] = result
+            result["next_hint"] = _story_status(profile)["next_hint"]
             daily["narrative_pose"] = result["pose"]
             daily["narrative_reaction_at"] = result["resolved_at"]
             if await _save_profile(db, profile, expected):
@@ -3115,6 +3159,8 @@ def register_pet_routes(
         for _ in range(3):
             profile = await _load_profile(db, user)
             _require_alive(profile)
+            if sleeping(profile, _now()):
+                raise HTTPException(409, "Спершу розбудіть котика лампою")
             existing = profile.get("expedition")
             if existing and existing.get("status") in {"active", "ready"}:
                 await _record_event(
@@ -3132,7 +3178,7 @@ def register_pet_routes(
             if profile["stats"].get("energy", 0) < definition["energy_cost"]:
                 raise HTTPException(status_code=409, detail=f"{profile['name']} потрібно відпочити перед експедицією")
             if body.loadout_id == "camera" and "camera-retro" not in profile["inventory"].get("items", []):
-                raise HTTPException(status_code=403, detail="Спочатку відкрийте ретро-фотоапарат на 5 рівні дружби")
+                raise HTTPException(status_code=403, detail="Спочатку придбайте ретро-фотоапарат у магазині")
 
             expected = profile["revision"]
             started = _now()
@@ -3194,9 +3240,10 @@ def register_pet_routes(
             amount = int(outcome.get("amount", 1))
             profile["inventory"]["materials"][material] = int(profile["inventory"]["materials"].get(material, 0)) + amount
             if outcome.get("photo"):
-                profile["inventory"]["materials"]["photo"] = int(profile["inventory"]["materials"].get("photo", 0)) + 1
+                profile["inventory"]["materials"]["leaf"] = int(profile["inventory"]["materials"].get("leaf", 0)) + 1
             _apply_stat(profile, "energy", int(outcome.get("energy_back", 3)))
             profile["friendship_xp"] += 10 + (3 if outcome.get("story") else 0)
+            pet_life.gain_skill(profile, "explorer", 6)
             expedition["status"] = "claimed"
             expedition["claimed_at"] = _now_iso()
             expedition["result"] = {"material": material, "amount": amount, "photo": bool(outcome.get("photo")), "story": bool(outcome.get("story"))}
@@ -3217,6 +3264,8 @@ def register_pet_routes(
         for _ in range(3):
             profile = await _load_profile(db, user)
             _require_alive(profile)
+            if sleeping(profile, _now()):
+                raise HTTPException(409, "Спершу розбудіть котика лампою")
             if profile["daily"].get("focus_used"):
                 raise HTTPException(status_code=409, detail="Фокус дня вже використано")
             if profile["stats"].get("energy", 0) < definition["energy_cost"]:
@@ -3227,6 +3276,7 @@ def register_pet_routes(
             before = int(progress.get("mastery", 0))
             progress["mastery"] = min(100, before + gain)
             progress["practices"] = int(progress.get("practices", 0)) + 1
+            pet_life.gain_skill(profile, "actor", 5)
             mastered = progress["mastery"] == 100 and before < 100
             if mastered:
                 progress["mastered_at"] = _now_iso()
@@ -3280,6 +3330,9 @@ def register_pet_routes(
             raise HTTPException(status_code=404, detail="Гру не знайдено")
         profile = await _load_profile(db, user)
         _require_alive(profile)
+        refusal = care_refusal(profile, "play", "minigame", _now())
+        if refusal:
+            raise HTTPException(409, refusal["message"])
         generation = _safe_int((profile.get("survival") or {}).get("generation"), 1, 1)
         now = _now()
         await db.pet_minigame_sessions.update_many(

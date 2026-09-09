@@ -865,6 +865,7 @@ const UserEditSheet = ({ user, teams, onClose, onDone }) => {
   const [busy, setBusy] = useState(false);
 
   const save = async () => {
+    if (f.objective && !f.obstacle_layout.some(cell => cell.obstacle === f.objective.obstacle)) return toast.error("Додайте цільову перешкоду на поле");
     setBusy(true);
     try {
       const payload = {
@@ -2666,6 +2667,7 @@ const TaskEditor = ({ task, onClose, onSaved }) => {
     }
     const keys = f.fields.map((x) => x.key);
     if (new Set(keys).size !== keys.length) { toast.error("Ключі полів мають бути унікальні"); return; }
+    if (f.objective && !f.obstacle_layout.some(cell => cell.obstacle === f.objective.obstacle)) return toast.error("Додайте цільову перешкоду на поле");
     setBusy(true);
     try {
       const payload = {
@@ -3040,7 +3042,8 @@ const BonusMatchLevelEditor = ({ level, obstacleCatalog, boardShapeCatalog = [],
     board_shape: level?.board_shape || "full",
     moves: Number(level?.moves || 20),
     target_score: Number(level?.target_score || 2500),
-    target_coins: Number(level?.target_coins || 10),
+    target_coins: Number(level?.target_coins ?? 10),
+    objective: level?.objective || null,
     star_thresholds: Array.isArray(level?.star_thresholds) && level.star_thresholds.length === 3
       ? level.star_thresholds.map(Number)
       : [2500, 3400, 4300],
@@ -3086,8 +3089,8 @@ const BonusMatchLevelEditor = ({ level, obstacleCatalog, boardShapeCatalog = [],
     });
   };
 
-  const selectedShape = boardShapeCatalog.find((item) => item.id === f.board_shape) || boardShapeCatalog[0] || { id: "full", label: "Повне 7×7", mask: Array.from({ length: 7 }, () => Array(7).fill(true)) };
-  const boardMask = selectedShape.mask || Array.from({ length: 7 }, () => Array(7).fill(true));
+  const selectedShape = boardShapeCatalog.find((item) => item.id === f.board_shape) || boardShapeCatalog[0] || { id: "full", label: "Повне 8×8", mask: Array.from({ length: 8 }, () => Array(8).fill(true)) };
+  const boardMask = selectedShape.mask || Array.from({ length: 8 }, () => Array(8).fill(true));
   const layoutMap = new Map(f.obstacle_layout.map((item) => [`${item.row}:${item.col}`, item]));
 
   const save = async () => {
@@ -3095,11 +3098,13 @@ const BonusMatchLevelEditor = ({ level, obstacleCatalog, boardShapeCatalog = [],
     if (f.star_thresholds.some((value) => Number(value) < Number(f.target_score))) {
       return toast.error("Пороги зірок не можуть бути нижчими за цільовий рахунок");
     }
+    if (f.objective && !f.obstacle_layout.some(cell => cell.obstacle === f.objective.obstacle)) return toast.error("Додайте цільову перешкоду на поле");
     setBusy(true);
     try {
       const payload = {
         ...f,
         star_thresholds: f.star_thresholds.map(Number),
+        objective: f.objective ? { ...f.objective, count: f.obstacle_layout.filter(cell => cell.obstacle === f.objective.obstacle).length } : null,
         new_obstacle: f.new_obstacle || null,
       };
       if (isNew) await api.post("/admin/bonus-match/levels", payload);
@@ -3115,6 +3120,11 @@ const BonusMatchLevelEditor = ({ level, obstacleCatalog, boardShapeCatalog = [],
 
   return <BottomSheet onClose={onClose} title={isNew ? "НОВИЙ РІВЕНЬ" : `РІВЕНЬ ${f.level}`}>
     <div className="space-y-5">
+      <label className="block text-xs text-zinc-400">Умова перемоги
+        <select value={f.objective?.obstacle || ""} onChange={event => setF(current => ({ ...current, objective: event.target.value ? { kind: "clear_obstacles", obstacle: event.target.value, count: 1 } : null }))} className="mt-2 h-11 w-full rounded-xl bg-[#121318] px-3 text-white">
+          <option value="">Рахунок і монети</option>{obstacleCatalog.map(item => <option key={item.id} value={item.id}>Прибрати: {item.label}</option>)}
+        </select>
+      </label>
       <div className="grid grid-cols-2 gap-3">
         <label className="text-[9px] font-black uppercase text-zinc-600">Номер рівня
           <input type="number" min="1" max="200" disabled={!isNew} value={f.level} onChange={(e) => setNumber("level", e.target.value, 1)} className="mt-1 h-11 w-full rounded-xl border border-white/10 bg-[#121318] px-3 text-white outline-none disabled:opacity-50" />
@@ -3142,7 +3152,7 @@ const BonusMatchLevelEditor = ({ level, obstacleCatalog, boardShapeCatalog = [],
           }}
           className="mt-1 h-11 w-full rounded-xl border border-white/10 bg-[#121318] px-3 text-white outline-none focus:border-[#B78CFF]"
         >
-          {(boardShapeCatalog.length ? boardShapeCatalog : [{ id: "full", label: "Повне 7×7" }]).map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+          {(boardShapeCatalog.length ? boardShapeCatalog : [{ id: "full", label: "Повне 8×8" }]).map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
         </select>
       </label>
 
@@ -3199,7 +3209,7 @@ const BonusMatchLevelEditor = ({ level, obstacleCatalog, boardShapeCatalog = [],
 
       <div className="rounded-2xl border border-white/10 bg-black/25 p-3">
         <div className="flex items-start justify-between gap-3">
-          <div><div className="text-[10px] font-black uppercase text-white">СХЕМА ПЕРЕШКОД 7×7</div><div className="mt-1 text-[9px] text-zinc-600">Якщо схема заповнена, вона має пріоритет над випадковою генерацією.</div></div>
+          <div><div className="text-[10px] font-black uppercase text-white">СХЕМА ПЕРЕШКОД 8×8</div><div className="mt-1 text-[9px] text-zinc-600">Якщо схема заповнена, вона має пріоритет над випадковою генерацією.</div></div>
           <div className="text-[10px] font-black text-[#B78CFF]">{f.obstacle_layout.length}/35</div>
         </div>
         <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
@@ -3212,10 +3222,10 @@ const BonusMatchLevelEditor = ({ level, obstacleCatalog, boardShapeCatalog = [],
             </button>;
           })}
         </div>
-        <div className="mt-3 grid grid-cols-7 gap-1">
-          {Array.from({ length: 49 }, (_, index) => {
-            const row = Math.floor(index / 7);
-            const col = index % 7;
+        <div className="mt-3 grid grid-cols-8 gap-1">
+          {Array.from({ length: 64 }, (_, index) => {
+            const row = Math.floor(index / 8);
+            const col = index % 8;
             const activeCell = Boolean(boardMask[row]?.[col]);
             const item = activeCell ? layoutMap.get(`${row}:${col}`) : null;
             const style = item ? BONUS_MATCH_OBSTACLE_STYLE[item.obstacle] : null;
@@ -3284,7 +3294,7 @@ const BonusMatchLevelsView = ({ teamFilter }) => {
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-1.5"><div className="truncate text-sm font-black text-white">{level.title || `Рівень ${level.level}`}</div>{level.is_boss && <span className="rounded-full bg-[#FF5C00]/15 px-2 py-0.5 text-[8px] font-black text-[#FF7D36]">БОС</span>}{level.custom && <span className="rounded-full bg-[#00F0FF]/10 px-2 py-0.5 text-[8px] font-black text-[#00F0FF]">ЗМІНЕНО</span>}</div>
             <div className="mt-1 text-[10px] font-bold text-zinc-500">{level.moves} ходів · {Number(level.target_score).toLocaleString("uk-UA")} очок · {level.target_coins} монет</div>
-            <div className="mt-1 text-[9px] text-zinc-600">Форма: {data.board_shapes?.find((item) => item.id === level.board_shape)?.label || level.board_shape || "Повне 7×7"} · перешкоди: {level.obstacle_layout?.length ? `схема ${level.obstacle_layout.length}` : level.obstacle_count ? `${level.obstacle_count} випадково` : "немає"} · нагорода ×{level.reward_multiplier}</div>
+            <div className="mt-1 text-[9px] text-zinc-600">Форма: {data.board_shapes?.find((item) => item.id === level.board_shape)?.label || level.board_shape || "Повне 8×8"} · перешкоди: {level.obstacle_layout?.length ? `схема ${level.obstacle_layout.length}` : level.obstacle_count ? `${level.obstacle_count} випадково` : "немає"} · нагорода ×{level.reward_multiplier}</div>
           </div>
           <div className="flex shrink-0 gap-1.5">
             <button type="button" onClick={() => setEditing(level)} className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-black/30 text-white"><Pencil size={14} /></button>

@@ -1,4 +1,8 @@
 /* VPDK Bonus — Service Worker
+ * v176 adds the Flappy Pixel campaign on the home screen.
+ * v175 bounds runtime assets and protects network responses from quota failures.
+ * v174 adds real pet frames, physical toys and persistent server sleep.
+ * v173 adds the visual-first pet playroom.
  * v171 adds the personal story and consequence-driven random encounters.
  * v169 adds the strict personal-pet survival state, warnings and recovery actions.
  * v168 improves the completed daily-ritual card.
@@ -42,9 +46,36 @@
  * never be cached as index.html, otherwise browsers can render a giant broken
  * image element over the board.
  */
-const VERSION = "vpdk-v171";
+const VERSION = "vpdk-v176";
 const STATIC_CACHE = `${VERSION}-static`;
 const RUNTIME_CACHE = `${VERSION}-runtime`;
+
+// Asset optimisation, not offline pet gameplay. Never let quota failures
+// replace a successful network response. Serial writes keep eviction bounded.
+const RUNTIME_MAX_ENTRIES = 96;
+const RUNTIME_MAX_BYTES = 12 * 1024 * 1024;
+const RUNTIME_MAX_ENTRY_BYTES = 2 * 1024 * 1024;
+let cacheWrites = Promise.resolve();
+function cacheRuntime(request, response) {
+  cacheWrites = cacheWrites.then(async () => {
+    const body = await response.blob();
+    if (body.size > RUNTIME_MAX_ENTRY_BYTES) return;
+    const headers = new Headers(response.headers);
+    headers.set("x-vpdk-cache-bytes", String(body.size));
+    headers.delete("content-encoding");
+    headers.delete("content-length");
+    const cache = await caches.open(RUNTIME_CACHE);
+    await cache.delete(request);
+    await cache.put(request, new Response(body, { status: response.status, statusText: response.statusText, headers }));
+    const keys = await cache.keys();
+    const sizes = await Promise.all(keys.map(async (key) => Number((await cache.match(key))?.headers.get("x-vpdk-cache-bytes")) || RUNTIME_MAX_ENTRY_BYTES));
+    let bytes = sizes.reduce((sum, size) => sum + size, 0), count = keys.length;
+    for (let i = 0; i < keys.length && (count > RUNTIME_MAX_ENTRIES || bytes > RUNTIME_MAX_BYTES); i++) {
+      await cache.delete(keys[i]); bytes -= sizes[i]; count--;
+    }
+  }).catch(() => {});
+  return cacheWrites;
+}
 
 const PRECACHE_URLS = [
   "/",
@@ -52,15 +83,6 @@ const PRECACHE_URLS = [
   "/icon-192.png",
   "/icon-512.png",
   "/apple-touch-icon.png",
-  "/pet/room/v2/background.webp",
-  "/pet/room/v2/cat/cat-sit.webp",
-  "/pet/room/v2/cat/cat-sleep.webp",
-  "/pet/room/v2/cat/cat-eat.webp",
-  "/pet/room/v2/cat/cat-play.webp",
-  "/pet/room/v2/items/bed-basic.webp",
-  "/pet/room/v2/items/bowl-amber.webp",
-  "/pet/room/v2/items/toy-wand.webp",
-  "/pet/room/v2/items/wall-neon.webp",
   "/bonus-match/v90/cell.png?v=90",
   "/bonus-match/v90/board-frame.png?v=90",
   "/bonus-match/v90/coin.png?v=90",
@@ -123,7 +145,7 @@ self.addEventListener("activate", (event) => {
       .keys()
       .then((keys) => Promise.all(
         keys
-          .filter((key) => key !== STATIC_CACHE && key !== RUNTIME_CACHE)
+          .filter((key) => key.startsWith("vpdk-") && key !== STATIC_CACHE && key !== RUNTIME_CACHE)
           .map((key) => caches.delete(key)),
       ))
       .then(() => self.clients.claim())
@@ -194,8 +216,7 @@ self.addEventListener("fetch", (event) => {
       try {
         const response = await fetch(request, { cache: "no-store" });
         if (response.ok) {
-          const cache = await caches.open(RUNTIME_CACHE);
-          await cache.put("/", response.clone());
+          event.waitUntil(cacheRuntime("/", response.clone()));
         }
         return response;
       } catch (_) {
@@ -216,7 +237,7 @@ self.addEventListener("fetch", (event) => {
         .then((response) => {
           if (response.ok) {
             const copy = response.clone();
-            caches.open(RUNTIME_CACHE).then((cache) => cache.put(request, copy));
+            event.waitUntil(cacheRuntime(request, copy));
           }
           return response;
         })
@@ -227,19 +248,17 @@ self.addEventListener("fetch", (event) => {
 
   if (isImageRequest(request, url)) {
     event.respondWith((async () => {
-      const cached = await caches.match(request);
+      const cached = await caches.match(request).catch(() => undefined);
       if (hasImageContentType(cached)) return cached;
       if (cached) {
-        const cache = await caches.open(RUNTIME_CACHE);
-        await cache.delete(request);
+        await caches.open(RUNTIME_CACHE).then((cache) => cache.delete(request)).catch(() => {});
       }
       try {
         const response = await fetch(request, { cache: "no-cache" });
         if (!hasImageContentType(response)) return transparentImage();
         if (isSameOrigin) {
           try {
-            const cache = await caches.open(RUNTIME_CACHE);
-            await cache.put(request, response.clone());
+            event.waitUntil(cacheRuntime(request, response.clone()));
           } catch (_) {
             // A full/disabled browser cache must never replace a valid image
             // response with the transparent offline placeholder.
@@ -254,13 +273,12 @@ self.addEventListener("fetch", (event) => {
   }
 
   event.respondWith((async () => {
-    const cached = await caches.match(request);
+    const cached = await caches.match(request).catch(() => undefined);
     if (cached) return cached;
     try {
       const response = await fetch(request);
       if (response.ok && isSameOrigin) {
-        const cache = await caches.open(RUNTIME_CACHE);
-        await cache.put(request, response.clone());
+        event.waitUntil(cacheRuntime(request, response.clone()));
       }
       return response;
     } catch (_) {

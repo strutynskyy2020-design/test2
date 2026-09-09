@@ -41,6 +41,17 @@ export default function SceneViewport({ session, hintMarker, missMarker, disable
   const clampPan = (next, nextZoom = zoom) => clampToBounds(next, panBounds(nextZoom));
 
   useEffect(() => {
+    if (!hintMarker) return;
+    const rect = viewportRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const bounds = getPanBounds(rect, sceneWidthMultiplier, zoom);
+    setPan(clampToBounds({
+      x: (0.5 - hintMarker.x) * rect.width * sceneWidthMultiplier * zoom,
+      y: (0.5 - hintMarker.y) * rect.height * zoom,
+    }, bounds));
+  }, [hintMarker, sceneWidthMultiplier, zoom]);
+
+  useEffect(() => {
     const viewport = viewportRef.current;
     if (!viewport || typeof ResizeObserver === "undefined") return undefined;
     const observer = new ResizeObserver(() => {

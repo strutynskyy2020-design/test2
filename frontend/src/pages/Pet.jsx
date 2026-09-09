@@ -19,20 +19,26 @@ import {
 } from "@/components/ui/drawer";
 import { useApp } from "@/context/AppContext";
 import api, { extractError } from "@/lib/api";
+import { LifeSummary, LivingActivities, PetNeighborhood, RoomLivingSettings, ShopPanel, usePetAmbience } from "./PetLiving";
+import { livingSceneState } from "./petLivingState";
+import PetPlayRoom from "./PetPlayRoom";
+import PetCatSprite from "./PetCatSprite";
+import { careHint } from "./petCareView";
 import {
   derivePetLifeView, derivePetPose, getKyivLight, getRoomLayers, petRefetchInterval,
-  isUsablePetImage, roomLayerStyle, ROOM_GRID_PERCENT, ROOM_REACTIONS, snapRoomPlacement,
+  roomLayerStyle, ROOM_GRID_PERCENT, ROOM_REACTIONS, snapRoomPlacement,
 } from "./petRoom";
 import {
   activeLaserTargets, eventFinishPayload, laserTargetPosition, memoryFinishPayload,
   normalizeGameId, publicGameChallenge, withClientDuration,
 } from "./petGames";
+import "@/styles/petPolish.css";
 
 const TAB_ITEMS = [
   { id: "room", label: "Кімната", icon: Home },
   { id: "games", label: "Ігри", icon: Gamepad2 },
   { id: "journal", label: "Щоденник", icon: BookOpen },
-  { id: "collection", label: "Колекція", icon: Package },
+  { id: "collection", label: "Магазин", icon: Package },
 ];
 
 const INTENTS = [
@@ -226,79 +232,6 @@ function SceneHotspot({ hotspot, active, disabled, onClick }) {
   );
 }
 
-function ResilientCatSprite({ pose, poses, collar, collarPoses, reducedMotion, onCollarError, collarFailed }) {
-  const requestedPose = poses?.[pose]?.asset ? pose : "sit";
-  const [displayedPose, setDisplayedPose] = useState(requestedPose);
-  const [spriteFailed, setSpriteFailed] = useState(false);
-  const [retryToken, setRetryToken] = useState(0);
-  const [poseRetryAttempt, setPoseRetryAttempt] = useState(0);
-  const [spriteRetryAttempt, setSpriteRetryAttempt] = useState(0);
-  const displayedConfig = poses?.[displayedPose] || poses?.sit || poses?.[requestedPose];
-
-  useEffect(() => setPoseRetryAttempt(0), [requestedPose]);
-
-  useEffect(() => {
-    const requestedAsset = poses?.[requestedPose]?.asset;
-    if (!requestedAsset || requestedPose === displayedPose) return undefined;
-    let active = true;
-    let retryTimer;
-    const retry = () => {
-      if (!active || poseRetryAttempt >= 3) return;
-      retryTimer = window.setTimeout(() => setPoseRetryAttempt((current) => current + 1), 3_500);
-    };
-    const preloader = new Image();
-    preloader.onload = () => {
-      if (!active) return;
-      if (!isUsablePetImage(preloader)) { retry(); return; }
-      setDisplayedPose(requestedPose);
-      setSpriteFailed(false);
-      setSpriteRetryAttempt(0);
-    };
-    preloader.onerror = retry;
-    preloader.src = requestedAsset;
-    return () => { active = false; if (retryTimer) window.clearTimeout(retryTimer); };
-  }, [displayedPose, poseRetryAttempt, poses, requestedPose]);
-
-  useEffect(() => {
-    if (!spriteFailed || !displayedConfig?.asset || spriteRetryAttempt >= 4) return undefined;
-    let active = true;
-    const timer = window.setTimeout(() => {
-      const preloader = new Image();
-      preloader.onload = () => {
-        if (!active) return;
-        if (!isUsablePetImage(preloader)) { setSpriteRetryAttempt((current) => current + 1); return; }
-        setSpriteFailed(false);
-        setSpriteRetryAttempt(0);
-        setRetryToken((current) => current + 1);
-      };
-      preloader.onerror = () => active && setSpriteRetryAttempt((current) => current + 1);
-      preloader.src = displayedConfig.asset;
-    }, 3_500);
-    return () => { active = false; window.clearTimeout(timer); };
-  }, [displayedConfig?.asset, retryToken, spriteFailed, spriteRetryAttempt]);
-
-  useEffect(() => {
-    const retryOnline = () => {
-      setSpriteRetryAttempt(0);
-      setPoseRetryAttempt(0);
-      setRetryToken((current) => current + 1);
-    };
-    window.addEventListener("online", retryOnline);
-    return () => window.removeEventListener("online", retryOnline);
-  }, []);
-
-  if (!displayedConfig) return <div className="pet-room-layer pet-room-cat pet-room-cat--fallback" style={roomLayerStyle({ x: 50, y: 74, width: 37, z_index: 40, anchor: "bottom" })}><Cat size={74} /></div>;
-  const movement = reducedMotion ? { opacity: 1, y: 0 } : { opacity: 1, y: [0, -3, 0] };
-  const transition = reducedMotion ? { duration: 0 } : { duration: 2.7, repeat: Infinity, ease: "easeInOut" };
-  const collarPose = collarPoses?.[displayedPose] || collarPoses?.sit;
-  return <>
-    <div className={`pet-room-layer pet-room-cat ${spriteFailed ? "pet-room-cat--fallback" : ""}`} style={roomLayerStyle(displayedConfig)}>
-      {!spriteFailed ? <motion.img key={`${displayedConfig.asset}-${retryToken}`} src={displayedConfig.asset} alt="" decoding="async" initial={false} animate={movement} transition={transition} onLoad={(event) => { if (!isUsablePetImage(event.currentTarget)) setSpriteFailed(true); }} onError={() => setSpriteFailed(true)} /> : <motion.span role="img" aria-label="Кіт" initial={false} animate={movement} transition={transition}><Cat size={74} /></motion.span>}
-    </div>
-    {collar?.room?.asset && collarPose && !collarFailed && <div className="pet-room-layer pet-room-collar" style={roomLayerStyle({ ...collarPose, z_index: collar.room.z_index, anchor: "center" }, collarPose.rotate)}><motion.img src={collar.room.asset} alt="" decoding="async" initial={false} animate={movement} transition={transition} onError={onCollarError} /></div>}
-  </>;
-}
-
 function PetScene({
   snapshot, onHotspot, busy, reducedMotion, editing = false, roomLayout,
   selectedItemId, onSelectItem, onPlacementChange, onCancelEditing, narrativeReplay,
@@ -321,13 +254,10 @@ function PetScene({
   }, [snapshot.server_time]);
   const sceneNowMs = nowMs + serverOffset;
   const life = derivePetLifeView(pet, sceneNowMs);
-  const catPoses = room.appearances?.[pet.appearance_id]?.poses || {};
   const roomLayers = getRoomLayers(snapshot, editing ? roomLayout : undefined);
   const layers = roomLayers.filter((item) => !failedAssets.has(item.room.asset));
   const selectedItem = layers.find((item) => item.id === selectedItemId);
-  const collar = (snapshot.catalog?.items || []).find((item) => item.slot === "collar" && pet.inventory?.equipped?.collar === item.id);
-  const light = getKyivLight(sceneNowMs);
-  const visibleSignature = [...roomLayers.map((item) => item.id), ...(collar ? [collar.id] : [])].sort().join("|");
+  const visibleSignature = roomLayers.map((item) => item.id).sort().join("|");
   const previousVisible = useRef(visibleSignature);
   const markAssetFailed = (asset) => setFailedAssets((current) => new Set(current).add(asset));
   const narrativeResult = [pet.daily?.story_result, pet.daily?.event_result]
@@ -340,7 +270,9 @@ function PetScene({
   const activeNarrative = replayActive ? narrativeReplay : storedNarrativeActive ? narrativeResult : null;
   const narrativeReaction = activeNarrative?.reaction_text || "";
   const narrativePose = ["sit", "sleep", "eat", "play"].includes(activeNarrative?.pose) ? activeNarrative.pose : null;
-  const pose = narrativePose || derivePetPose(pet, sceneNowMs);
+  const livingScene = livingSceneState(snapshot, sceneNowMs, { editing, reducedMotion, narrativePose });
+  const pose = livingScene.pose;
+  const light = livingScene.night ? "night" : getKyivLight(sceneNowMs);
   const visibleReaction = narrativeReaction || roomReaction;
 
   useEffect(() => {
@@ -459,14 +391,16 @@ function PetScene({
 
   return (
     <div className="pet-scene-wrap" data-testid="pet-scene">
-      <div ref={sceneRef} className={`pet-scene ${editing ? "pet-scene--editing" : ""}`} data-mood={pet.stats?.energy < 35 ? "sleepy" : "happy"} data-condition={life.condition} data-status={life.status} data-pose={pose} data-light={light} role="region" aria-label={editing ? `Редагування кімнати ${pet.name}` : `${pet.name} у своїй кімнаті`}>
-        <div className="pet-scene-art" aria-hidden={editing ? undefined : "true"}>
+      <div ref={sceneRef} className={`pet-scene ${editing ? "pet-scene--editing" : ""}`} data-theme={snapshot.life?.theme || "cyber"} data-mood={pet.stats?.energy < 35 ? "sleepy" : "happy"} data-condition={life.condition} data-status={life.status} data-pose={pose} data-light={light} role="region" aria-label={editing ? `Редагування кімнати ${pet.name}` : `${pet.name} у своїй кімнаті`}>
+        <div className="pet-scene-art">
           {!backgroundFailed && room.background_asset && <img src={room.background_asset} alt="" className="pet-scene-background" width="1024" height="1024" decoding="async" fetchPriority="high" onLoad={(event) => { if (event.currentTarget.naturalWidth <= 1) setBackgroundFailed(true); }} onError={() => setBackgroundFailed(true)} data-testid="pet-scene-image" />}
-          {layers.map((item) => <div key={item.id} className={`pet-room-layer pet-room-layer--${item.slot} ${editing ? "pet-room-layer--editable" : ""} ${selectedItemId === item.id ? "pet-room-layer--selected" : ""}`} style={roomLayerStyle(item.room)} data-room-item={item.id}><motion.img src={item.room.asset} alt="" draggable="false" decoding="async" initial={editing || reducedMotion ? false : { opacity: 0, scale: .82, y: 10 }} animate={{ opacity: 1, scale: 1, y: 0 }} transition={editing ? { duration: 0 } : { type: "spring", stiffness: 260, damping: 22 }} onError={() => markAssetFailed(item.room.asset)} />{editing && <button type="button" className="pet-room-drag-handle" aria-label={`Перемістити «${item.name}». X ${item.room.x}, Y ${item.room.y}`} aria-describedby="pet-room-edit-help" aria-pressed={selectedItemId === item.id} disabled={busy} onClick={() => onSelectItem?.(item.id)} onFocus={() => onSelectItem?.(item.id)} onKeyDown={(event) => moveWithKeyboard(event, item)} onPointerDown={(event) => startPointerDrag(event, item)} onPointerMove={movePointerDrag} onPointerUp={finishPointerDrag} onPointerCancel={cancelPointerDrag} onLostPointerCapture={cancelPointerDrag} data-testid={`pet-room-drag-${item.id}`}><span>{item.name}</span></button>}</div>)}
-          {pose !== "away" && <ResilientCatSprite pose={pose} poses={catPoses} collar={collar} collarPoses={room.collar_poses} reducedMotion={reducedMotion} collarFailed={Boolean(collar?.room?.asset && failedAssets.has(collar.room.asset))} onCollarError={() => collar?.room?.asset && markAssetFailed(collar.room.asset)} />}
+          {layers.map((item) => <div key={item.id} className={`pet-room-layer pet-room-layer--${item.slot} ${editing ? "pet-room-layer--editable" : ""} ${selectedItemId === item.id ? "pet-room-layer--selected" : ""}`} style={roomLayerStyle(item.room)} data-room-item={item.id} data-condition={(snapshot.life?.condition?.[item.id] ?? 100) < 40 ? "dirty" : (snapshot.life?.condition?.[item.id] ?? 100) < 75 ? "worn" : "good"}><motion.img src={item.room.asset} alt="" draggable="false" decoding="async" initial={editing || reducedMotion ? false : { opacity: 0, scale: .82, y: 10 }} animate={{ opacity: 1, scale: 1, y: 0 }} transition={editing ? { duration: 0 } : { type: "spring", stiffness: 260, damping: 22 }} onError={() => markAssetFailed(item.room.asset)} />{!editing && life.alive && <button type="button" className="living-object-target" aria-label={`Взаємодія: ${item.name}`} disabled={busy} onClick={() => onHotspot(({ bed: "bed", bowl: "bowl", toy: "toy", wall: "window", floor: "cat", decor: "shelf", expedition: "shelf" })[item.slot] || "shelf")}>{(story?.current_scene?.hotspot === (({ bed: "bed", bowl: "bowl", toy: "toy", wall: "window", floor: "cat" })[item.slot] || "shelf") || dailyEvent?.hotspot === (({ bed: "bed", bowl: "bowl", toy: "toy", wall: "window", floor: "cat" })[item.slot] || "shelf")) && <span>!</span>}</button>}{editing && <button type="button" className="pet-room-drag-handle" aria-label={`Перемістити «${item.name}». X ${item.room.x}, Y ${item.room.y}`} aria-describedby="pet-room-edit-help" aria-pressed={selectedItemId === item.id} disabled={busy} onClick={() => onSelectItem?.(item.id)} onFocus={() => onSelectItem?.(item.id)} onKeyDown={(event) => moveWithKeyboard(event, item)} onPointerDown={(event) => startPointerDrag(event, item)} onPointerMove={movePointerDrag} onPointerUp={finishPointerDrag} onPointerCancel={cancelPointerDrag} onLostPointerCapture={cancelPointerDrag} data-testid={`pet-room-drag-${item.id}`}><span>{item.name}</span></button>}</div>)}
+          {pose !== "away" && <PetCatSprite pose={pose} snapshot={{ ...snapshot, pet: { ...pet, room_layout: editing ? roomLayout : pet.room_layout } }} zone="bed" quiet={true} preview={true} disabled={true} />}
         </div>
         {backgroundFailed && <div className="pet-scene-fallback" role="img" aria-label={`${pet.name} у своїй кімнаті`}><Cat size={74} /><span>Фон кімнати завантажиться після відновлення мережі</span></div>}
         <div className="pet-scene-lighting" aria-hidden="true" />
+        <div className="living-theme-decor" aria-hidden="true" />
+        {!editing && <><div className="living-weather" data-weather={snapshot.life?.weather?.id} aria-hidden="true" /><span className="living-weather-label">Ігрова погода: {snapshot.life?.weather?.label || "Ясно"}</span></>}
         <div className="pet-scene-vignette" aria-hidden="true" />
         {editing && <div className="pet-room-edit-grid" aria-hidden="true" />}
         {editing && <div id="pet-room-edit-help" className="pet-room-edit-instruction"><Crosshair size={15} /><span>{selectedItem ? `Рухаємо: ${selectedItem.name}` : "Оберіть і перетягніть предмет"}</span></div>}
@@ -474,7 +408,7 @@ function PetScene({
         {!editing && life.alive && <AnimatePresence>{visibleReaction && pose !== "away" && <motion.div key={visibleReaction} className="pet-scene-reaction" initial={reducedMotion ? false : { opacity: 0, y: 8, scale: .92 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -5 }} role="status">{visibleReaction}</motion.div>}</AnimatePresence>}
         {!editing && life.alive && life.debuffs[0] && <div className={`pet-scene-debuff pet-scene-debuff--${life.tone}`} role="status"><AlertCircle size={14} />{life.debuffs[0]}</div>}
         {!editing && !life.alive && <div className="pet-scene-ended" role="status"><span><Cat size={34} /></span><strong>{life.label}</strong><small>Кімната збережена</small></div>}
-        {!editing && <div className="pet-scene-topline"><span><span className="pet-live-dot" /> {!life.alive ? "Кімната порожня" : pose === "away" ? "В експедиції" : pose === "sleep" ? "Дрімає" : pose === "eat" ? "Смакує" : pose === "play" ? "Грається" : "У кімнаті"}</span><span>{life.alive ? `${light === "evening" ? "Вечір" : "День"} · довіра ${Math.min(10, pet.trust || 0)}/10` : "Історія завершена"}</span></div>}
+        {!editing && <div className="pet-scene-topline"><span><span className="pet-live-dot" /> {!life.alive ? "Кімната порожня" : pose === "away" ? "В експедиції" : pose === "sleep" ? "Дрімає" : pose === "eat" ? "Смакує" : pose === "play" ? "Грається" : "У кімнаті"}</span><span>{life.alive ? `${light === "night" ? "Ніч" : light === "evening" ? "Вечір" : "День"} · довіра ${Math.min(10, pet.trust || 0)}/10` : "Історія завершена"}</span></div>}
         {!editing && life.alive && <div className="pet-hotspot-row" role="group" aria-label="Дії в кімнаті">{HOTSPOTS.map((hotspot) => <SceneHotspot key={hotspot.id} hotspot={hotspot} active={request?.hotspot === hotspot.id || story?.current_scene?.hotspot === hotspot.id || dailyEvent?.hotspot === hotspot.id || (hotspot.id === "gift" && gift?.available)} disabled={busy} onClick={onHotspot} />)}</div>}
         <div className="pet-sr-status" role="status" aria-live="polite">{moveAnnouncement}</div>
       </div>
@@ -568,7 +502,7 @@ function StoryArcCard({ story, onOpen, busy }) {
   return <section className={`pet-story-card pet-story-card--${story.status || "waiting"}`} data-testid="pet-story-card">
     <div className="pet-story-heading"><div className="pet-story-icon"><BookOpen size={21} /></div><div><span>Особистий сюжет · {completed}/{total}</span><strong>{story.title || "Нічна пошта"}</strong></div><span className="pet-story-status">{statusLabel}</span></div>
     <div className="pet-story-progress" role="progressbar" aria-label="Прогрес сюжету" aria-valuemin="0" aria-valuemax="100" aria-valuenow={Math.max(0, Math.min(100, Number(story.progress) || 0))}><i style={{ width: `${Math.max(0, Math.min(100, Number(story.progress) || 0))}%` }} /></div>
-    {scene ? <><div className="pet-story-chapter"><small>Розділ {scene.chapter}</small><h2 className="font-display">{scene.title}</h2><p>{scene.text}</p></div><button type="button" className="pet-story-open" onClick={onOpen} disabled={busy}><Sparkles size={17} /> Зробити важливий вибір <ChevronRight size={17} /></button></> : <div className="pet-story-wait"><span>{result?.title || story.badge || story.personality?.label}</span><p>{result?.next_hint || story.next_hint}</p>{result?.impact?.length ? <ImpactChips items={result.impact} compact /> : null}</div>}
+    {scene ? <><div className="pet-story-chapter"><small>Розділ {scene.chapter}</small><h2 className="font-display">{scene.title}</h2><p>{scene.text}</p></div><button type="button" className="pet-story-open" onClick={onOpen} disabled={busy}><Sparkles size={17} /> Зробити важливий вибір <ChevronRight size={17} /></button></> : <div className="pet-story-wait"><span>{result?.title || story.badge || story.personality?.label}</span><p>{story.next_hint || result?.next_hint}</p>{result?.impact?.length ? <ImpactChips items={result.impact} compact /> : null}</div>}
     <div className="pet-personality-row"><PawPrint size={15} /><span>{story.personality?.formed ? "Характер" : "Характер формується"}</span><strong>{story.personality?.label || "Ваш напарник"}</strong></div>
   </section>;
 }
@@ -583,11 +517,16 @@ function DailyEventCard({ event, onOpen }) {
   return <button type="button" className="pet-event-card" onClick={onOpen} data-testid="pet-daily-event"><div className="pet-event-glow"><Sparkles size={21} /></div><div><span>Випадкова подія · {event.choices?.length || 0} варіанти</span><strong>{event.title}</strong><p>{event.text}</p></div><ChevronRight size={19} /></button>;
 }
 
-function RoomPanel({ snapshot, perform, busy, setSheet, setReward, reducedMotion, narrativeReplay }) {
+function RoomPanel({ snapshot, perform, busy, setSheet, setReward, reducedMotion, narrativeReplay, editorOnly = false }) {
   const { pet, request, daily_event: dailyEvent, story } = snapshot;
   const storyScene = story?.current_scene;
   const life = derivePetLifeView(pet, new Date(snapshot.server_time || "").getTime() || Date.now());
-  const [roomEdit, setRoomEdit] = useState(null);
+  const [roomEdit, setRoomEdit] = useState(() => {
+    if (!editorOnly) return null;
+    const draft = roomDraftFromSnapshot(snapshot);
+    return { draft, initialSignature: roomLayoutSignature(draft), selectedItemId: Object.keys(draft)[0] || null };
+  });
+  usePetAmbience(!editorOnly && snapshot.life?.sound === "ambient");
   const [savingLayout, setSavingLayout] = useState(false);
   const editingRoom = Boolean(roomEdit);
   const roomEditBusy = busy || savingLayout;
@@ -648,7 +587,7 @@ function RoomPanel({ snapshot, perform, busy, setSheet, setReward, reducedMotion
     const result = await perform({ url: "/pet/care", body: { action, option }, idempotent: true });
     if (!result) return;
     const rejected = result.accepted === false || result.rejected || result.outcome === "rejected" || Number(result.trust_gained) < 0;
-    const message = result.message || (result.combo ? `Комбо: ${result.combo}` : result.idempotent ? "Цю дію вже зараховано" : `+${result.trust_gained || 1} довіри`);
+    const message = result.life_note || result.message || (result.combo ? `Комбо: ${result.combo}` : result.idempotent ? "Цю дію вже зараховано" : `+${result.trust_gained || 1} довіри`);
     if (rejected) toast.warning(message); else toast.success(message);
     setSheet(null);
   };
@@ -669,7 +608,7 @@ function RoomPanel({ snapshot, perform, busy, setSheet, setReward, reducedMotion
   const handleHotspot = (id) => {
     if (storyScene?.hotspot === id) return setSheet("story");
     if (dailyEvent?.hotspot === id) return setSheet("event");
-    if (id === "cat" && request?.id === "photo") return perform({ url: "/pet/photo", body: {} }).then((result) => result && toast.success(result.message));
+
     if (id === "cat" && request?.id === "heal") return care("heal", "default");
     if (id === "cat") return care("pet", "default");
     if (id === "bowl" && request?.id === "clean") return care("clean", "default");
@@ -688,12 +627,14 @@ function RoomPanel({ snapshot, perform, busy, setSheet, setReward, reducedMotion
     else if (request?.id === "pet") care("pet", "default");
     else if (request?.id === "clean") care("clean", "default");
     else if (request?.id === "heal") care("heal", "default");
-    else perform({ url: "/pet/photo", body: {} }).then((result) => result && toast.success(result.message));
+    else setSheet("pet");
   };
   return <div className="pet-panel" data-testid="pet-panel-room">
     <PetScene snapshot={snapshot} onHotspot={handleHotspot} busy={roomEditBusy} reducedMotion={reducedMotion} editing={editingRoom} roomLayout={roomEdit?.draft} selectedItemId={roomEdit?.selectedItemId} onSelectItem={(itemId) => setRoomEdit((current) => current ? { ...current, selectedItemId: itemId } : current)} onPlacementChange={updateRoomPlacement} onCancelEditing={cancelRoomEdit} narrativeReplay={narrativeReplay} />
     {life.alive && (!editingRoom ? <button type="button" className="pet-room-edit-start" onClick={beginRoomEdit} disabled={busy} data-testid="pet-room-edit-start"><Edit3 size={17} /> Редагувати кімнату</button> : <section className="pet-room-edit-toolbar" aria-label="Редагування розташування предметів" data-testid="pet-room-edit-toolbar"><div className="pet-room-edit-copy"><span>Режим редагування</span><strong>{selectedRoomItem ? selectedRoomItem.name : "Оберіть предмет"}</strong><small>Стрілки — 2%, Shift + стрілка — 10%</small></div><div className="pet-room-edit-actions"><button type="button" onClick={resetRoomDraft} disabled={roomEditBusy || !differsFromDefault} data-testid="pet-room-edit-default"><RotateCcw size={16} /> За замовчуванням</button><button type="button" onClick={cancelRoomEdit} disabled={savingLayout} data-testid="pet-room-edit-cancel"><X size={16} /> Скасувати</button><button type="button" className="primary" onClick={saveRoomLayout} disabled={roomEditBusy || !roomEditDirty} data-testid="pet-room-edit-save">{savingLayout ? <LoaderCircle className="spin" size={16} /> : <Check size={16} />} Зберегти</button></div></section>)}
+    {!editorOnly && <>{!editingRoom && <RoomLivingSettings snapshot={snapshot} perform={perform} busy={busy} />}
     <div className="pet-stats" aria-label={`Стан ${pet.name}`}><StatCard label="Ситість" value={pet.stats?.satiety} color="#FFB800" icon={Utensils} testId="pet-stat-hunger" /><StatCard label="Настрій" value={pet.stats?.mood} color="#39FF14" icon={Heart} testId="pet-stat-mood" /><StatCard label="Енергія" value={pet.stats?.energy} color="#00F0FF" icon={Sparkles} testId="pet-stat-energy" /></div>
+    <LifeSummary snapshot={snapshot} />
     <SurvivalCard pet={pet} serverTime={snapshot.server_time} onCare={care} busy={busy} />
     {!life.alive ? <PetLifeEndedCard life={life} onAdopt={adopt} busy={busy} /> : <>
       <button type="button" className="pet-request-card" onClick={handleRequest} disabled={busy}><span className="pet-request-icon"><PawPrint size={22} /></span><span><small>Актуальне бажання</small><strong>{request?.title || "Провести час разом"}</strong></span><b>{request?.action || "Дія"}<ChevronRight size={16} /></b></button>
@@ -702,7 +643,9 @@ function RoomPanel({ snapshot, perform, busy, setSheet, setReward, reducedMotion
       <NarrativeResultCard result={pet.daily?.event_result} />
       <RitualCard snapshot={snapshot} onClaim={claimGift} busy={busy} />
       <FocusCard snapshot={snapshot} onIntent={(intent) => perform({ url: "/pet/intent", body: { intent } }).then((result) => result && toast.success(result.message))} onOpenActivity={setSheet} onClaimExpedition={claimExpedition} busy={busy} />
+      <LivingActivities snapshot={snapshot} perform={perform} busy={busy} />
     </>}
+    <PetNeighborhood snapshot={snapshot} perform={perform} busy={busy} /></>}
   </div>;
 }
 
@@ -954,11 +897,12 @@ function GamesPanel({ snapshot, perform, busy, onGoRoom }) {
   const [session, setSession] = useState(null);
   const [result, setResult] = useState(null);
   const life = derivePetLifeView(snapshot.pet, new Date(snapshot.server_time || "").getTime() || Date.now());
-  const start = async (gameId) => { setResult(null); const payload = await perform({ url: `/pet/minigames/${gameId}/start`, body: {}, updateSnapshot: false }); if (payload?.session) setSession(payload.session); };
+  const gameHint = careHint(snapshot, "play", Date.parse(snapshot.server_time) || Date.now());
+  const start = async (gameId) => { if (gameHint.blocked) return; setResult(null); const payload = await perform({ url: `/pet/minigames/${gameId}/start`, body: {}, updateSnapshot: false }); if (payload?.session) setSession(payload.session); };
   const finish = async (finishBody) => { if (!session) return false; const payload = await perform({ url: `/pet/minigames/sessions/${session.id}/finish`, body: finishBody }); if (!payload) return false; setSession(null); setResult({ score: payload.score ?? payload.session?.score ?? 0, rewarded: payload.rewarded ?? payload.session?.rewarded }); return true; };
   if (!life.alive) return <div className="pet-panel" data-testid="pet-panel-games"><section className="pet-life-locked"><span><Lock size={28} /></span><h2 className="font-display">ІГРИ НЕДОСТУПНІ</h2><p>{life.label}. Спочатку поверніться до кімнати та прихистіть нового котика.</p><button type="button" className="pet-primary-button" onClick={onGoRoom}><Home size={18} /> До кімнати</button></section></div>;
   if (session) return <MiniGame session={session} onFinish={finish} onClose={() => setSession(null)} busy={busy} reducedMotion={reducedMotion} />;
-  return <div className="pet-panel" data-testid="pet-panel-games"><div className="pet-panel-hero pet-panel-hero--games"><div><span>Три різні механіки</span><h2 className="font-display">ІГРИ З {snapshot.pet.name}</h2><p>Пам’ять, реакція та сортування. Результат перевіряє сервер за власним сценарієм, а не за балами клієнта.</p></div><Gamepad2 size={42} /></div>{result && <motion.div className="pet-game-result" initial={reducedMotion ? false : { scale:.92, opacity:0 }} animate={{ scale:1, opacity:1 }} data-testid="pet-game-result"><Star size={24} fill="currentColor" /><div><span>Результат {result.score}%</span><strong>{result.rewarded ? "+3 довіри · +1 пір'їнка" : result.score >= 50 ? "Денну нагороду вже отримано" : "Наберіть 50% для денної нагороди"}</strong></div></motion.div>}<div className="pet-game-list" data-testid="pet-games-list">{(snapshot.catalog?.games || []).map((game,index) => { const Icon = game.id === "memory" ? Brain : game.id === "sorting" ? Package : Crosshair; return <article key={game.id} className={`pet-game-card pet-game-card--${index % 2 ? "cyan" : "amber"}`} data-testid={`pet-game-card-${game.id}`}><div className="pet-game-art"><Icon size={42} /><span><PawPrint size={18} /></span></div><div className="pet-game-info"><div className="pet-game-meta"><span><Clock3 size={13} /> {game.duration_seconds} сек</span><span>{game.reward}</span></div><h3 className="font-display">{game.name}</h3><p>{game.description}</p><button type="button" onClick={() => start(game.id)} disabled={busy} data-testid={`pet-game-start-${game.id}`}>{busy ? <LoaderCircle className="spin" size={17} /> : <Gamepad2 size={17} />} Грати</button></div></article>; })}</div><div className="pet-fair-play-note"><Heart size={17} /><p><strong>Без фарму Point.</strong> Майстерність у грі впливає лише на дружбу та косметичні матеріали.</p></div></div>;
+  return <div className="pet-panel" data-testid="pet-panel-games"><div className="pet-panel-hero pet-panel-hero--games"><div><span>Три різні механіки</span><h2 className="font-display">ГРАЄМО РАЗОМ</h2><p>Обери пригоду: запам’ятовуй, лови вогник або сортуй скарби.</p></div><Gamepad2 size={42} /></div>{result && <motion.div className="pet-game-result" initial={reducedMotion ? false : { scale:.92, opacity:0 }} animate={{ scale:1, opacity:1 }} data-testid="pet-game-result"><Star size={24} fill="currentColor" /><div><span>Результат {result.score}%</span><strong>{result.rewarded ? "+3 довіри · +1 пір'їнка" : result.score >= 50 ? "Денну нагороду вже отримано" : "Наберіть 50% для денної нагороди"}</strong></div></motion.div>}{gameHint.blocked && <p className="living-warning" role="status">{gameHint.text}</p>}<div className="pet-game-list" data-testid="pet-games-list">{(snapshot.catalog?.games || []).map((game,index) => { const Icon = game.id === "memory" ? Brain : game.id === "sorting" ? Package : Crosshair; return <article key={game.id} className={`pet-game-card pet-game-card--${index % 2 ? "cyan" : "amber"}`} data-testid={`pet-game-card-${game.id}`}><div className="pet-game-art"><Icon size={42} /><span><PawPrint size={18} /></span></div><div className="pet-game-info"><div className="pet-game-meta"><span><Clock3 size={13} /> {game.duration_seconds} сек</span><span>{game.reward}</span></div><h3 className="font-display">{game.name}</h3><p>{game.description}</p><button type="button" onClick={() => start(game.id)} disabled={busy || gameHint.blocked} data-testid={`pet-game-start-${game.id}`}>{busy ? <LoaderCircle className="spin" size={17} /> : <Gamepad2 size={17} />} Грати</button></div></article>; })}</div><div className="pet-fair-play-note"><Heart size={17} /><p><strong>Без фарму Point.</strong> Майстерність у грі впливає лише на дружбу та косметичні матеріали.</p></div></div>;
 }
 
 function JournalPanel({ snapshot }) {
@@ -973,18 +917,12 @@ function JournalPanel({ snapshot }) {
   });
   const fetchedItems = journalQuery.data?.pages?.flatMap((page) => page.items || []) || [];
   const items = fetchedItems.length ? fetchedItems : snapshot.recent_journal || [];
-  const visible = filter === "all" ? items : items.filter((item) => filter === "memories" ? ["memory","story","milestone"].includes(item.kind) : filter === "rewards" ? item.kind === "reward" : ["discovery","collection","training","expedition","project","game"].includes(item.kind));
-  return <div className="pet-panel" data-testid="pet-panel-journal"><div className="pet-panel-hero pet-panel-hero--journal"><div><span>Особиста історія</span><h2 className="font-display">ЩОДЕННИК {snapshot.pet.name}</h2><p>Тут залишаються тільки важливі моменти — без запису кожного натискання.</p></div><BookOpen size={42} /></div><div className="pet-journal-stats"><div><strong>{snapshot.pet.active_days || 0}</strong><span>днів разом</span></div><div><strong>{snapshot.pet.friendship_level}</strong><span>рівень дружби</span></div><div><strong>{snapshot.pet.inventory?.materials?.photo || 0}</strong><span>фотоспогадів</span></div></div><div className="pet-filter-row" role="group" aria-label="Фільтри щоденника">{[["all","Усі"],["memories","Спогади"],["rewards","Нагороди"],["discoveries","Відкриття"]].map(([id,label]) => <button key={id} type="button" aria-pressed={filter === id} className={filter === id ? "active" : ""} onClick={() => setFilter(id)}>{label}</button>)}</div>{journalQuery.isLoading && !items.length ? <div className="pet-inline-loading"><LoaderCircle className="spin" /> Завантажуємо записи…</div> : journalQuery.isError && !items.length ? <div className="pet-empty-card" data-testid="pet-journal-error"><AlertCircle size={30} /><strong>Щоденник не завантажився</strong><p>{extractError(journalQuery.error, "Перевірте мережу й повторіть спробу")}</p><button type="button" onClick={() => journalQuery.refetch()} data-testid="pet-journal-retry"><RotateCcw size={15} /> Повторити</button></div> : visible.length ? <div className="pet-journal-list" data-testid="pet-journal-list">{visible.map((item,index) => { const Icon = item.kind === "reward" ? Gift : item.kind === "expedition" ? MapPinned : item.kind === "game" ? Gamepad2 : item.kind === "training" ? PawPrint : item.important ? Star : Heart; return <article key={item.id} className={`pet-journal-entry ${item.important ? "important" : ""}`} data-testid={`pet-journal-entry-${item.id}`}><div className="pet-timeline-dot"><Icon size={17} /></div><div className="pet-journal-copy"><time>{formatEventTime(item.occurred_at)}</time><h3>{item.title}</h3><p>{item.text}</p></div>{index < visible.length - 1 && <span className="pet-timeline-line" />}</article>; })}</div> : <div className="pet-empty-card" data-testid="pet-journal-empty"><BookOpen size={30} /><strong>У завантажених записах цього ще немає</strong><p>Перегляньте давніші записи або оберіть інший фільтр.</p></div>}{journalQuery.hasNextPage && <button type="button" className="pet-load-more" onClick={() => journalQuery.fetchNextPage()} disabled={journalQuery.isFetchingNextPage}>{journalQuery.isFetchingNextPage ? <LoaderCircle className="spin" size={17} /> : <BookOpen size={17} />} Показати давніші записи</button>}</div>;
+  const visible = filter === "all" ? items : items.filter((item) => filter === "memories" ? ["memory","story","milestone","photo"].includes(item.kind) : filter === "rewards" ? item.kind === "reward" : ["discovery","collection","training","expedition","project","game"].includes(item.kind));
+  return <div className="pet-panel" data-testid="pet-panel-journal"><div className="pet-panel-hero pet-panel-hero--journal"><div><span>Особиста історія</span><h2 className="font-display">НАШІ ПРИГОДИ</h2><p>Тут залишаються тільки важливі моменти — без запису кожного натискання.</p></div><BookOpen size={42} /></div><div className="pet-journal-stats"><div><strong>{snapshot.pet.active_days || 0}</strong><span>днів разом</span></div><div><strong>{snapshot.pet.friendship_level}</strong><span>рівень дружби</span></div><div><strong>{snapshot.pet.story?.completed_scenes?.length || snapshot.story?.completed_count || 0}</strong><span>розділів історії</span></div></div><div className="pet-filter-row" role="group" aria-label="Фільтри щоденника">{[["all","Усі"],["memories","Спогади"],["rewards","Нагороди"],["discoveries","Відкриття"]].map(([id,label]) => <button key={id} type="button" aria-pressed={filter === id} className={filter === id ? "active" : ""} onClick={() => setFilter(id)}>{label}</button>)}</div>{journalQuery.isLoading && !items.length ? <div className="pet-inline-loading"><LoaderCircle className="spin" /> Завантажуємо записи…</div> : journalQuery.isError && !items.length ? <div className="pet-empty-card" data-testid="pet-journal-error"><AlertCircle size={30} /><strong>Щоденник не завантажився</strong><p>{extractError(journalQuery.error, "Перевірте мережу й повторіть спробу")}</p><button type="button" onClick={() => journalQuery.refetch()} data-testid="pet-journal-retry"><RotateCcw size={15} /> Повторити</button></div> : visible.length ? <div className="pet-journal-list" data-testid="pet-journal-list">{visible.map((item,index) => { const Icon = item.kind === "reward" ? Gift : item.kind === "expedition" ? MapPinned : item.kind === "game" ? Gamepad2 : item.kind === "training" ? PawPrint : item.important ? Star : Heart; return <article key={item.id} className={`pet-journal-entry ${item.important ? "important" : ""}`} data-testid={`pet-journal-entry-${item.id}`}><div className="pet-timeline-dot"><Icon size={17} /></div><div className="pet-journal-copy"><time>{formatEventTime(item.occurred_at)}</time><h3>{item.title}</h3><p>{item.text}</p></div>{index < visible.length - 1 && <span className="pet-timeline-line" />}</article>; })}</div> : <div className="pet-empty-card" data-testid="pet-journal-empty"><BookOpen size={30} /><strong>У завантажених записах цього ще немає</strong><p>Перегляньте давніші записи або оберіть інший фільтр.</p></div>}{journalQuery.hasNextPage && <button type="button" className="pet-load-more" onClick={() => journalQuery.fetchNextPage()} disabled={journalQuery.isFetchingNextPage}>{journalQuery.isFetchingNextPage ? <LoaderCircle className="spin" size={17} /> : <BookOpen size={17} />} Показати давніші записи</button>}</div>;
 }
 
-function CollectionPanel({ snapshot, perform, busy }) {
-  const [filter, setFilter] = useState("all");
-  const life = derivePetLifeView(snapshot.pet, new Date(snapshot.server_time || "").getTime() || Date.now());
-  const owned = new Set(snapshot.pet.inventory?.items || []);
-  const equipped = snapshot.pet.inventory?.equipped || {};
-  const visible = (snapshot.catalog?.items || []).filter((item) => filter === "all" || (filter === "owned" ? owned.has(item.id) : !owned.has(item.id)));
-  const setEquipped = async (itemId, shouldRemove) => { const result = await perform({ url:shouldRemove ? "/pet/collection/unequip" : "/pet/collection/equip", body:{ item_id:itemId } }); if (result) toast.success(result.message || "Вибір збережено"); };
-  return <div className="pet-panel" data-testid="pet-panel-collection"><div className="pet-panel-hero pet-panel-hero--collection"><div><span>Ваша персональна кімната</span><h2 className="font-display">КОЛЕКЦІЯ</h2><p>Знахідки відкривають вигляд і реакції кота, але не підсилюють економічні нагороди.</p></div><Package size={42} /></div>{!life.alive && <div className="pet-collection-terminal-note" role="status"><Lock size={16} /><span>Колекція збережена. Облаштовувати кімнату знову можна буде після нового прихистку.</span></div>}<div className="pet-materials">{Object.entries(snapshot.pet.inventory?.materials || {}).map(([key,amount]) => { const Icon = MATERIAL_ICONS[key] || Circle; return <div key={key}><Icon size={17} /><strong>{amount}</strong><span>{snapshot.catalog?.materials?.[key] || key}</span></div>; })}</div><div className="pet-filter-row" role="group" aria-label="Фільтри колекції" data-testid="pet-collection-filters">{[["all","Усі"],["owned","Відкриті"],["locked","Закриті"]].map(([id,label]) => <button key={id} type="button" aria-pressed={filter === id} className={filter === id ? "active" : ""} onClick={() => setFilter(id)}>{label}</button>)}</div><div className="pet-collection-grid" data-testid="pet-collection-grid">{visible.map((item) => { const Icon = ITEM_ICONS[item.icon] || Package; const unlocked = owned.has(item.id); const roomSlot = item.room?.slot || item.slot; const isEquipped = equipped[roomSlot] === item.id; const canPlaceInRoom = Boolean(item.room?.asset); return <article key={item.id} className={`pet-item-card rarity-${item.rarity} ${!unlocked ? "locked" : ""}`} data-testid={`pet-collection-item-${item.id}`}><div className="pet-item-visual">{unlocked && item.room?.asset ? <img src={item.room.asset} alt="" loading="lazy" decoding="async" /> : unlocked ? <Icon size={34} /> : <Lock size={28} />}{isEquipped && <span><Check size={12} /></span>}</div><small>{item.rarity}</small><h3>{item.name}</h3><p>{item.description}</p>{unlocked && canPlaceInRoom ? <button type="button" aria-pressed={isEquipped} className={isEquipped ? "pet-item-remove" : ""} onClick={() => setEquipped(item.id, isEquipped)} disabled={busy || !life.alive}>{isEquipped ? "Забрати з кімнати" : "Поставити в кімнату"}</button> : !unlocked ? <div className="pet-unlock-label"><Lock size={12} /> {item.unlock_level >= 99 ? "Особливе завдання" : `Рівень ${item.unlock_level}`}</div> : <div className="pet-unlock-label"><Backpack size={12} /> Спорядження</div>}</article>; })}</div></div>;
+function CollectionPanel(props) {
+  return <ShopPanel {...props} />;
 }
 
 function NarrativeOutcome({ outcome, resultRef }) {
@@ -997,10 +935,12 @@ function SheetOption({ selected, icon: Icon, title, detail, impact = [], lockedR
   return <button type="button" aria-pressed={selected} aria-label={`${title}. ${lockedReason || detail || ""}${impactText ? `. Наслідки: ${impactText}` : ""}`} className={`pet-sheet-option ${selected ? "selected" : ""} ${lockedReason ? "locked" : ""}`} onClick={onClick} disabled={unavailable}><span className="pet-sheet-option-icon"><Icon size={21} /></span><div className="pet-sheet-option-copy"><strong>{title}</strong>{(lockedReason || detail) && <small>{lockedReason || detail}</small>}<ImpactChips items={impact} compact /></div>{lockedReason ? <b className="pet-sheet-option-state"><Lock size={16} /></b> : selected ? <Check size={17} /> : null}</button>;
 }
 
-function PetActionSheet({ type, snapshot, onClose, perform, busy, reward, navigate }) {
+function PetActionSheet({ type, snapshot, onClose, perform, busy, reward, navigate, compact = false }) {
   const [selected, setSelected] = useState(null);
+  const [explain, setExplain] = useState(false);
   const [outcome, setOutcome] = useState(null);
   const [narrative] = useState(() => type === "story" ? snapshot.story?.current_scene : type === "event" ? snapshot.daily_event : null);
+  const [narrativeContext] = useState(() => ({ date_key: snapshot.date_key, generation: snapshot.pet.survival?.generation }));
   const outcomeRef = useRef(null);
   const reducedMotion = useReducedMotion();
   const pet = snapshot.pet;
@@ -1013,13 +953,13 @@ function PetActionSheet({ type, snapshot, onClose, perform, busy, reward, naviga
     return () => window.cancelAnimationFrame(frame);
   }, [outcome]);
   const closeDrawer = () => onClose(outcome);
-  const closeAfter = async (promise, successMessage) => { const result = await promise; if (result) { toast.success(successMessage || result.message || "Готово"); onClose(); } };
+  const closeAfter = async (promise, successMessage) => { const result = await promise; if (result) { toast.success(result.life_note || result.message || successMessage || "Готово"); onClose(); } };
   const submitNarrative = async (kind, subject) => {
     const result = await perform({
       url: kind === "story" ? "/pet/story/choose" : "/pet/events/choose",
       body: kind === "story"
-        ? { scene_id: subject.id, choice_id: selected, date_key: snapshot.date_key, generation: pet.survival?.generation }
-        : { event_id: subject.id, choice_id: selected, date_key: snapshot.date_key, generation: pet.survival?.generation },
+        ? { scene_id: subject.id, choice_id: selected, ...narrativeContext }
+        : { event_id: subject.id, choice_id: selected, ...narrativeContext },
     });
     if (!result) { onClose(); return; }
     if (result.outcome) {
@@ -1045,7 +985,7 @@ function PetActionSheet({ type, snapshot, onClose, perform, busy, reward, naviga
     primary = <button type="button" className="pet-primary-button" disabled={!selected || busy} onClick={() => closeAfter(perform({ url:"/pet/care", body:{ action:"play", option:selected }, idempotent:true }), "Чудова гра!")}><Gamepad2 size={18} /> Гратися</button>;
   } else if (type === "expedition") {
     const [locationId, loadoutId] = (selected || "park:backpack").split(":"); title = "Нова експедиція"; description = "Оберіть локацію та спорядження. Результат зарахується, навіть якщо PWA закрита.";
-    content = <><span className="pet-sheet-label">Локація</span>{(snapshot.catalog?.expeditions || []).map((item) => <SheetOption key={item.id} icon={MapPinned} title={item.name} detail={`${Math.round(item.duration_minutes/60)} год · −${item.energy_cost} енергії`} selected={locationId === item.id} onClick={() => setSelected(`${item.id}:${loadoutId}`)} disabled={busy} />)}<span className="pet-sheet-label">Спорядження</span><div className="pet-loadout-grid">{(snapshot.catalog?.loadout || []).map((item) => { const Icon = LOADOUT_ICONS[item.id] || Backpack; const locked = item.required_item && !pet.inventory?.items?.includes(item.required_item); return <button key={item.id} type="button" aria-pressed={loadoutId === item.id} aria-label={`${item.name}. ${locked ? "Потрібен 5 рівень дружби" : item.description}`} className={loadoutId === item.id ? "selected" : ""} onClick={() => setSelected(`${locationId}:${item.id}`)} disabled={busy || locked}>{locked ? <Lock size={20} /> : <Icon size={20} />}<span>{item.name}</span></button>; })}</div></>;
+    content = <><span className="pet-sheet-label">Локація</span>{(snapshot.catalog?.expeditions || []).map((item) => <SheetOption key={item.id} icon={MapPinned} title={item.name} detail={`${Math.round(item.duration_minutes/60)} год · −${item.energy_cost} енергії`} selected={locationId === item.id} onClick={() => setSelected(`${item.id}:${loadoutId}`)} disabled={busy} />)}<span className="pet-sheet-label">Спорядження</span><div className="pet-loadout-grid">{(snapshot.catalog?.loadout || []).map((item) => { const Icon = LOADOUT_ICONS[item.id] || Backpack; const locked = item.required_item && !pet.inventory?.items?.includes(item.required_item); return <button key={item.id} type="button" aria-pressed={loadoutId === item.id} aria-label={`${item.name}. ${locked ? "Придбайте фотоапарат у магазині" : item.description}`} className={loadoutId === item.id ? "selected" : ""} onClick={() => setSelected(`${locationId}:${item.id}`)} disabled={busy || locked}>{locked ? <Lock size={20} /> : <Icon size={20} />}<span>{item.name}</span></button>; })}</div></>;
     primary = <button type="button" className="pet-primary-button" disabled={busy} onClick={() => closeAfter(perform({ url:"/pet/expeditions", body:{ location_id:locationId, loadout_id:loadoutId } }))}><MapPinned size={18} /> Відправити {pet.name}</button>;
   } else if (type === "training") {
     const trickId = selected || "paw"; title = "Тренування трюку"; description = "Кожна сесія гарантовано додає майстерність. Помилки не відкидають прогрес.";
@@ -1064,16 +1004,16 @@ function PetActionSheet({ type, snapshot, onClose, perform, busy, reward, naviga
     content = <><div className="pet-choice-list" role="group" aria-label="Варіанти випадкової події">{event.choices.map((choice) => <SheetOption key={choice.id} icon={Sparkles} title={choice.label} detail={choice.hint} impact={choice.impact || []} lockedReason={choice.locked_reason} selected={selected === choice.id} onClick={() => setSelected(choice.id)} disabled={busy} />)}</div><p className="pet-choice-warning"><AlertCircle size={15} /> Тут немає автоматично правильного варіанта: користь може мати свою ціну.</p></>;
     primary = <button type="button" className="pet-primary-button" disabled={!selected || busy} onClick={() => submitNarrative("event", event)}>{busy ? <LoaderCircle className="spin" size={18} /> : <Sparkles size={18} />} {busy ? "Зберігаємо…" : "Підтвердити вибір"}</button>;
   } else if (type === "rename") {
-    title = "Ім'я улюбленця"; description = "Це ваш особистий кіт — ім'я бачите тільки ви у власній грі."; content = <label className="pet-name-input"><span>Нове ім'я</span><input value={selected ?? pet.name} onChange={(e) => setSelected(e.target.value)} maxLength={20} autoFocus /></label>;
+    title = "Ім'я улюбленця"; description = "Це ваш особистий кіт — ім’я також побачать гості, якщо ви відкриєте їм кімнату."; content = <label className="pet-name-input"><span>Нове ім'я</span><input value={selected ?? pet.name} onChange={(e) => setSelected(e.target.value)} maxLength={20} autoFocus /></label>;
     primary = <button type="button" className="pet-primary-button" disabled={busy || String(selected ?? pet.name).trim().length < 2} onClick={() => closeAfter(perform({ method:"patch", url:"/pet", body:{ name:String(selected ?? pet.name).trim() } }))}><Check size={18} /> Зберегти ім'я</button>;
   } else if (type === "collection-shortcut") {
-    title = "Полиця знахідок"; description = "У колекції можна переглянути матеріали, відкрити декор і змінити кімнату."; content = <div className="pet-sheet-preview"><Package size={36} /><strong>{pet.inventory?.items?.length || 0} предметів відкрито</strong><span>Матеріали з експедицій залишаються у вашому інвентарі.</span></div>;
-    primary = <button type="button" className="pet-primary-button" onClick={() => { onClose(); navigate("/pet/collection"); }}><Package size={18} /> Відкрити колекцію</button>;
+    title = "Полиця знахідок"; description = "У магазині можна придбати декор за матеріали на будь-якому рівні та змінити кімнату."; content = <div className="pet-sheet-preview"><Package size={36} /><strong>{pet.inventory?.items?.length || 0} предметів відкрито</strong><span>Матеріали з експедицій залишаються у вашому інвентарі.</span></div>;
+    primary = <button type="button" className="pet-primary-button" onClick={() => { onClose(); navigate("/pet/collection"); }}><Package size={18} /> Відкрити магазин</button>;
   } else if (type === "reward") {
     title = "Подарунок від кота"; description = `${pet.name} інколи приносить Point, матеріали або рідкісний декор.`; content = <motion.div className="pet-reward-reveal" initial={reducedMotion ? false : { scale:.72, rotate:-4 }} animate={{ scale:1, rotate:0 }}><div><Gift size={48} /></div><span>Сьогодні всередині</span><strong>{reward?.title || snapshot.gift?.reward?.title || "Сюрприз"}</strong></motion.div>;
     primary = <button type="button" className="pet-primary-button" onClick={onClose}><Check size={18} /> Чудово!</button>;
   }
-  return <Drawer open={Boolean(type)} dismissible={!busy} onOpenChange={(open) => !open && !busy && closeDrawer()} shouldScaleBackground={false}><DrawerContent className="pet-drawer" data-testid={type === "reward" ? "pet-reward-dialog" : "pet-action-drawer"}><DrawerHeader className="pet-drawer-header"><div className="pet-drawer-icon">{type === "story" ? <BookOpen size={20} /> : <PawPrint size={20} />}</div><DrawerTitle className="font-display">{title}</DrawerTitle><DrawerDescription>{description}</DrawerDescription></DrawerHeader><div className="pet-drawer-body">{content}</div><DrawerFooter className="pet-drawer-footer">{primary}<DrawerClose asChild><button type="button" className="pet-secondary-button" disabled={busy}>{secondaryLabel}</button></DrawerClose></DrawerFooter></DrawerContent></Drawer>;
+  return <Drawer open={Boolean(type)} dismissible={!busy} onOpenChange={(open) => !open && !busy && closeDrawer()} shouldScaleBackground={false}><DrawerContent className={`pet-drawer ${compact && !explain ? "pet-drawer--compact" : ""}`} data-testid={type === "reward" ? "pet-reward-dialog" : "pet-action-drawer"}><DrawerHeader className="pet-drawer-header"><div className="pet-drawer-icon">{type === "story" ? <BookOpen size={20} /> : <PawPrint size={20} />}</div><DrawerTitle className="font-display">{title}</DrawerTitle><DrawerDescription>{description}</DrawerDescription></DrawerHeader><div className="pet-drawer-body">{compact && ["story", "event"].includes(type) && <button className="play-explain-choices" onClick={() => setExplain(!explain)} aria-expanded={explain}>{explain ? "Сховати подробиці" : "Пояснити наслідки вибору"}</button>}{content}</div><DrawerFooter className="pet-drawer-footer">{primary}<DrawerClose asChild><button type="button" className="pet-secondary-button" disabled={busy}>{secondaryLabel}</button></DrawerClose></DrawerFooter></DrawerContent></Drawer>;
 }
 
 export default function Pet() {
@@ -1121,13 +1061,31 @@ export default function Pet() {
   const petStatus = petQuery.data?.pet?.survival?.status || "alive";
   useEffect(() => { if (petStatus !== "alive") setSheet(null); }, [petStatus]);
   if (petQuery.isLoading) return <PetLoading />;
-  if (petQuery.isError || !petQuery.data?.pet) return <PetError error={petQuery.error} onRetry={() => petQuery.refetch()} />;
+  if (!petQuery.data?.pet) return <PetError error={petQuery.error} onRetry={() => petQuery.refetch()} />;
   const snapshot = petQuery.data;
   const life = derivePetLifeView(snapshot.pet, new Date(snapshot.server_time || "").getTime() || Date.now());
-  const busy = actionMutation.isPending || !online;
+  const busy = actionMutation.isPending || !online || petQuery.isError;
   const closeSheet = (resolvedOutcome) => {
     if (resolvedOutcome?.reaction_text) setNarrativeReplay({ ...resolvedOutcome, replay_started_at: Date.now() });
     setSheet(null);
   };
-  return <MotionConfig reducedMotion="user"><section className="pet-page" data-testid="pet-page"><PetHeader pet={snapshot.pet} life={life} onRename={() => setSheet("rename")} />{!online && <div className="pet-offline-banner" role="status" data-testid="pet-offline"><WifiOff size={16} /> Офлайн: кімнату можна переглядати, дії призупинено</div>}<PetTabs activeTab={activeTab} petStatus={life.status} onChange={(tab) => navigate(`/pet/${tab}`)} /><AnimatePresence mode="wait" initial={false}><motion.div id="pet-active-panel" role="tabpanel" aria-labelledby={`pet-tab-${activeTab}`} tabIndex={0} key={activeTab} initial={reducedMotion ? false : {opacity:0,x:14}} animate={{opacity:1,x:0}} exit={reducedMotion ? undefined : {opacity:0,x:-10}} transition={{duration:.18}}>{activeTab === "room" && <RoomPanel snapshot={snapshot} perform={perform} busy={busy} setSheet={setSheet} setReward={setReward} reducedMotion={reducedMotion} narrativeReplay={narrativeReplay} />}{activeTab === "games" && <GamesPanel snapshot={snapshot} perform={perform} busy={busy} onGoRoom={() => navigate("/pet/room")} />}{activeTab === "journal" && <JournalPanel snapshot={snapshot} />}{activeTab === "collection" && <CollectionPanel snapshot={snapshot} perform={perform} busy={busy} />}</motion.div></AnimatePresence>{sheet && <PetActionSheet key={sheet} type={sheet} snapshot={snapshot} onClose={closeSheet} perform={perform} busy={busy} reward={reward} navigate={navigate} />}<div className="pet-sr-status" role="status" aria-live="polite">{actionMutation.isPending ? "Дію виконуємо" : ""}</div></section></MotionConfig>;
+  const claimGift = async () => {
+    const result = await perform({ url: "/pet/gift/claim", body: {}, idempotent: true });
+    if (result) { setReward(result.reward || result.gift?.reward); setSheet("reward"); }
+  };
+  const care = async (action, option) => {
+    const result = await perform({ url: "/pet/care", body: { action, option, date_key: snapshot.date_key, generation: snapshot.pet.survival?.generation }, idempotent: true });
+    if (result) toast.success(result.life_note || result.message || "Турботу зараховано");
+  };
+  const renderPlayPanel = (panel, close) => {
+    const openAction = (type) => { close(); setSheet(type); };
+    if (panel === "editor") return <RoomPanel snapshot={snapshot} perform={perform} busy={busy} setSheet={openAction} setReward={setReward} reducedMotion={reducedMotion} editorOnly />;
+    if (panel === "settings") return <RoomLivingSettings snapshot={snapshot} perform={perform} busy={busy} />;
+    if (panel === "friends") return <PetNeighborhood snapshot={snapshot} perform={perform} busy={busy} />;
+    if (panel === "ritual") return <RitualCard snapshot={snapshot} onClaim={() => { close(); void claimGift(); }} busy={busy} />;
+    if (panel === "adventures") return <div className="play-drawer-stack"><FocusCard snapshot={snapshot} onIntent={(intent) => perform({ url: "/pet/intent", body: { intent } })} onOpenActivity={openAction} onClaimExpedition={() => snapshot.pet.expedition?.id && perform({ url: `/pet/expeditions/${snapshot.pet.expedition.id}/claim`, body: {} })} busy={busy} /><StoryArcCard story={snapshot.story} onOpen={() => openAction("story")} busy={busy} /><DailyEventCard event={snapshot.daily_event} onOpen={() => openAction("event")} /><LivingActivities snapshot={snapshot} perform={perform} busy={busy} /></div>;
+    return <div className="play-drawer-stack"><div className="pet-stats"><StatCard label="Ситість" value={snapshot.pet.stats?.satiety} color="#FFB800" icon={Utensils} /><StatCard label="Настрій" value={snapshot.pet.stats?.mood} color="#39FF14" icon={Heart} /><StatCard label="Енергія" value={snapshot.pet.stats?.energy} color="#00F0FF" icon={Sparkles} /></div><p className="play-number-note">Дружба: {snapshot.pet.friendship_level} рівень · Довіра: {snapshot.pet.trust}/20. Щоденна турбота дає звичний прогрес. Повторні взаємодії не дають досвіду, довіри або призів; потреби відновлюються потроху, з паузами та денним лімітом.</p><SurvivalCard pet={snapshot.pet} serverTime={snapshot.server_time} onCare={care} busy={busy} /><LifeSummary snapshot={snapshot} />{!life.alive && <PetLifeEndedCard life={life} onAdopt={async () => { const result = await perform({ url: "/pet/adopt", body: {}, idempotent: true }); if (result) close(); }} busy={busy} />}</div>;
+  };
+  if (activeTab === "room") return <MotionConfig reducedMotion="user"><section className="pet-page pet-page--play" data-testid="pet-page"><PetPlayRoom key={snapshot.pet.survival?.generation || 1} snapshot={snapshot} perform={perform} busy={busy} online={online} reducedMotion={reducedMotion} navigate={navigate} setSheet={setSheet} claimGift={claimGift} renderPanel={renderPlayPanel} narrativeReplay={narrativeReplay} modalOpen={Boolean(sheet)} syncError={petQuery.isError} retrySync={() => petQuery.refetch()} />{sheet && <PetActionSheet key={sheet} type={sheet} snapshot={snapshot} onClose={closeSheet} perform={perform} busy={busy} reward={reward} navigate={navigate} compact />}</section></MotionConfig>;
+  return <MotionConfig reducedMotion="user"><section className="pet-page pet-game-pages" data-testid="pet-page"><header className="play-header"><button aria-label="До кімнати" onClick={() => navigate("/pet/room")}><Home /></button><div className="play-name"><span>СВІТ КОТИКА · {snapshot.pet.name}</span><strong>{TAB_ITEMS.find((tab) => tab.id === activeTab)?.label}</strong></div></header>{(!online || petQuery.isError) && <div className="pet-offline-banner" role="status" data-testid="pet-offline"><WifiOff size={16} /> Для гри потрібен інтернет. Дії призупинено</div>}<PetTabs activeTab={activeTab} petStatus={life.status} onChange={(tab) => navigate(`/pet/${tab}`)} /><AnimatePresence mode="wait" initial={false}><motion.div id="pet-active-panel" role="tabpanel" aria-labelledby={`pet-tab-${activeTab}`} tabIndex={0} key={activeTab} initial={reducedMotion ? false : {opacity:0,x:14}} animate={{opacity:1,x:0}} exit={reducedMotion ? undefined : {opacity:0,x:-10}} transition={{duration:.18}}>{activeTab === "room" && <RoomPanel snapshot={snapshot} perform={perform} busy={busy} setSheet={setSheet} setReward={setReward} reducedMotion={reducedMotion} narrativeReplay={narrativeReplay} />}{activeTab === "games" && <GamesPanel snapshot={snapshot} perform={perform} busy={busy} onGoRoom={() => navigate("/pet/room")} />}{activeTab === "journal" && <JournalPanel snapshot={snapshot} />}{activeTab === "collection" && <CollectionPanel snapshot={snapshot} perform={perform} busy={busy} />}</motion.div></AnimatePresence>{sheet && <PetActionSheet key={sheet} type={sheet} snapshot={snapshot} onClose={closeSheet} perform={perform} busy={busy} reward={reward} navigate={navigate} />}<div className="pet-sr-status" role="status" aria-live="polite">{actionMutation.isPending ? "Дію виконуємо" : ""}</div></section></MotionConfig>;
 }

@@ -103,4 +103,16 @@ describe("SceneViewport panoramic interaction", () => {
 
     expect(onFind).toHaveBeenCalledWith({ x: 0.25, y: 0.6 });
   });
+
+  test("brings an off-screen hint into view without recording a find", () => {
+    const onFind = jest.fn();
+    const scene = session();
+    const { svg } = render(scene, onFind);
+    act(() => root.render(
+      <SceneViewport session={scene} hintMarker={{ x: 0.94, y: 0.5 }} missMarker={null} disabled={false} onFind={onFind} />,
+    ));
+    expect(svg.style.transform).toContain("-300px");
+    expect(container.querySelector(".hidden-hint-marker")).not.toBeNull();
+    expect(onFind).not.toHaveBeenCalled();
+  });
 });

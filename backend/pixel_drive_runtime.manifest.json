@@ -1,0 +1,16 @@
+{
+  "version": 3,
+  "engine": "Planck 1.5.0",
+  "sources": {
+    "config.json": "2be90f12364f0ddd093e83a240084fb5fef5486f61ce4d88b2e32b61d1edfd50",
+    "engine.js": "fa18cf3fc9fed462c91f7ef9c48b426d94a93fb7001e51447a4836232830a673",
+    "physicsConfig.js": "d4d3357b1645a44fdb6aabdb5c16653cb80c0b27ac93c981683e4a2982b54dfe",
+    "progression.js": "9b528bbe6c52b9a6ecdd67134f2739222eda1733057ef281123ec6dfeb79786b",
+    "runtime_entry": "12b02882027ad56c24ac27925b39ea4e1fc1658d9bc0050c523e95a2b7ee2857",
+    "testCourse.js": "a5f5e15a46df4c46f584db39bcdc4360daab426eb24f1b2d57f5986a39550697",
+    "vendor/PLANCK-LICENSE.txt": "49fd3df949edd5f294edafb22e8905263dd7560b514bee6df2f17538069aafca",
+    "vendor/planck.js": "101de54cf67c6e29d7d7be7261c53d388ba37b82b029fa67a4d4ea67ccb1b3ea"
+  },
+  "config_sha256": "2be90f12364f0ddd093e83a240084fb5fef5486f61ce4d88b2e32b61d1edfd50",
+  "runtime_sha256": "1b456890d50218637611e812895c1cd586c03bfff59dd539c06b2f02cfe39eb5"
+}

@@ -34,6 +34,8 @@ const PAGE_LABELS = {
   "/fun": "Щедрий куб",
   "/games/bonus-match": "Bonus Match",
   "/games/hidden-objects": "VPDK Детектив",
+  "/games/flappy-pixel": "Flappy Піксель",
+  "/games/pixel-drive": "Піксель: Повний газ",
   "/history": "Історія Point",
   "/schedule": "Мій графік",
   "/feed": "Стрічка активності",
@@ -122,13 +124,16 @@ export default function AppLayout() {
   const isAdminRoute = loc.pathname.startsWith("/admin");
   const isBonusMatchRoute = loc.pathname === "/games/bonus-match";
   const isHiddenObjectRoute = loc.pathname === "/games/hidden-objects";
-  const isGameRoute = isBonusMatchRoute || isHiddenObjectRoute;
+  const isFlappyRoute = loc.pathname === "/games/flappy-pixel";
+  const isPixelDriveRoute = /^\/games\/pixel-drive\/?$/.test(loc.pathname);
+  const isPetRoomRoute = /^\/pet(?:\/(?:room|games|journal|collection))?\/?$/.test(loc.pathname);
+  const isGameRoute = isBonusMatchRoute || isHiddenObjectRoute || isPetRoomRoute || isFlappyRoute || isPixelDriveRoute;
 
   return (
     <div className={`${isGameRoute ? "h-[100dvh] overflow-hidden" : "min-h-screen"} w-full flex justify-center`}>
       <div
         className={`app-theme-shell relative w-full flex flex-col ${isGameRoute ? "h-[100dvh] min-h-0 overflow-hidden border-0 game-only-app-shell" : "min-h-screen border-x"} ${isBonusMatchRoute ? "bonus-match-app-shell" : ""} ${isHiddenObjectRoute ? "hidden-objects-app-shell" : ""} ${isAdminRoute ? "app-shell app-shell-admin" : "app-shell"}`}
-        style={{ maxWidth: isAdminRoute ? "1500px" : isGameRoute ? "none" : "480px" }}
+        style={{ maxWidth: isAdminRoute ? "1500px" : isPetRoomRoute ? "606px" : isGameRoute ? "none" : "480px" }}
       >
         {!isGameRoute && <header
           className="app-theme-header sticky top-0 z-30 backdrop-blur-sm px-3 min-[390px]:px-5 pb-4 flex items-center justify-between"
@@ -171,7 +176,7 @@ export default function AppLayout() {
         </header>}
 
         <main
-          className={isGameRoute
+          className={isPetRoomRoute ? "flex-1 min-h-0 overflow-hidden" : isGameRoute
             ? "flex-1 min-h-0 overflow-y-auto overscroll-contain page-enter"
             : "flex-1 pb-28 page-enter"}
           data-testid="main-content"

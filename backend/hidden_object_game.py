@@ -8,6 +8,7 @@ they can be tested without importing the whole FastAPI application.
 from __future__ import annotations
 
 import json
+import hashlib
 from pathlib import Path
 from typing import Any
 
@@ -131,6 +132,7 @@ def hidden_object_public_level(level: dict, scene: dict) -> dict:
         "difficulty": level.get("difficulty", "medium"),
         "scene_id": scene["id"],
         "image": scene["image"],
+        "cover": scene.get("cover", scene["image"]),
         "image_width": int(scene["width"]),
         "image_height": int(scene["height"]),
         "target_count": len(level.get("target_ids") or []),
@@ -140,13 +142,23 @@ def hidden_object_public_level(level: dict, scene: dict) -> dict:
     }
 
 
-def hidden_object_targets(level: dict, scene: dict) -> list[dict]:
+def hidden_object_targets(level: dict, scene: dict, order_seed: str = "") -> list[dict]:
+    """Picture clues in a stable per-attempt order, without revealing hit geometry.
+
+    Session UUIDs make retries different; hashing keeps resume/action payloads
+    identical without a second persisted copy of the target list.
+    """
     objects = scene["objects_by_id"]
+    target_ids = sorted(
+        level.get("target_ids") or [],
+        key=lambda value: hashlib.sha256(f"{order_seed}:{value}".encode()).digest(),
+    )
     return [
         {
             "id": object_id,
             "label": objects[object_id]["label"],
             "icon": objects[object_id].get("icon", "search"),
+            "image": objects[object_id].get("thumbnail"),
         }
-        for object_id in level.get("target_ids") or []
+        for object_id in target_ids
     ]

@@ -1,0 +1,19 @@
+/* v176 skeletal cat: isolated from retired v3 frame and whole-body animations. */
+.play-cat.pixel-rig { aspect-ratio: 4 / 5; transition: none; animation: none; pointer-events: none; }
+.pixel-rig-art { display: block; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+.pixel-rig-art image, .pixel-rig-art g { pointer-events: none; }
+.pixel-rig .pixel-touch { position: absolute; inset: auto; border-radius: 45%; z-index: 4; pointer-events: auto; }
+.pixel-rig .pixel-touch[hidden] { display: none; }
+.pixel-rig .pixel-touch:focus-visible { outline: 2px solid #ffdea0; background: #ffdfaa12; }
+.pixel-rig .pixel-rig-fallback { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; object-position: bottom; animation: none; }
+.pixel-rig .play-cat-placeholder { position: absolute; inset: 0; }
+.pixel-rig.quiet .play-cat-love, .pixel-rig.quiet .play-zzz { animation: none; }
+@media (prefers-reduced-motion: reduce) { .pixel-rig * { animation: none !important; transition: none !important; } }
+
+/* v5 approved 2D artwork, registered to one foot plane. */
+.play-cat.pixel-cat-v5 { aspect-ratio: 1600 / 1450; }
+.pixel-cat-v5 .pixel-rig-art { overflow: visible; }
+.pixel-cat-v5 .pixel-rig-fallback { inset: 13.517% 10.8125% 0; width: 78.375%; height: 86.483%; }
+.pixel-cat-v5 .play-zzz { left: 28%; bottom: 46%; }
+.pixel-cat-v5[data-animation-paused="true"] .play-cat-love,
+.pixel-cat-v5[data-animation-paused="true"] .play-zzz { animation-play-state: paused; }

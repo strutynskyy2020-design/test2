@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { PixelGameLink, usePixelOrigin } from "@/components/PixelGameBridge";
 import {
   ArrowLeft, ChevronRight, Clock3, Flag, Lightbulb, Lock, Pause,
   Play, RotateCcw, Search, Sparkles, Star, Trophy,
@@ -59,6 +60,7 @@ export const preloadHiddenObjectArtwork = (levels = []) => {
 };
 
 export default function HiddenObjects() {
+  const fromPixel = usePixelOrigin();
   const nav = useNavigate();
   const { refreshMe } = useApp();
   const [loading, setLoading] = useState(true);
@@ -162,6 +164,7 @@ export default function HiddenObjects() {
       setStatus(data.status || status);
       await refreshMe().catch(() => {});
       setResult({
+        session_id: completedSession.id,
         level: Number(completedSession.level_id),
         title: completedSession.title,
         elapsed: Number(completedSession.elapsed || 0),
@@ -313,7 +316,7 @@ export default function HiddenObjects() {
             <div><Pause size={38} /><span className="hidden-eyebrow">ПАУЗА</span><h2>Справу призупинено</h2><p>Сцена прихована, а активний час зупинено.</p><button type="button" className="hidden-primary-button" onClick={() => runAction("resume")} disabled={busy}><Play size={19} /> Продовжити</button></div>
           </div>
         )}
-        <ResultModal result={result} maxLevel={status.max_level || 9} onNext={nextAfterResult} onReplay={replay} onClose={exitGame} />
+        <ResultModal result={result} maxLevel={status.max_level || status.levels?.length || 0} onNext={nextAfterResult} onReplay={replay} onClose={exitGame} fromPixel={fromPixel} onReturnToPixel={() => nav("/pet/room")} />
         <FailureModal session={session} open={sessionFailed && !result} busy={busy} onReplay={replay} onClose={exitGame} />
       </div>
     );
@@ -322,10 +325,11 @@ export default function HiddenObjects() {
   const chapters = [...new Set((status.levels || []).map((level) => level.chapter))];
   return (
     <div className="hidden-page hidden-catalog" data-testid="hidden-objects-page">
+      <PixelGameLink enabled={fromPixel} onReturn={() => nav("/pet/room")} disabled={busy} />
       <section className="hidden-hero">
-        <button type="button" className="hidden-back-button" onClick={() => nav("/")} aria-label="На головну"><ArrowLeft size={20} /></button>
+        <button type="button" className="hidden-back-button" onClick={() => nav(fromPixel ? "/pet/room" : "/")} aria-label={fromPixel ? "До кімнати Пікселя" : "На головну"}><ArrowLeft size={20} /></button>
         <div className="hidden-hero-copy">
-          <span className="hidden-eyebrow">ГРА НА УВАЖНІСТЬ · {status.max_level || 9} СПРАВ</span>
+          <span className="hidden-eyebrow">ГРА НА УВАЖНІСТЬ · {status.max_level || status.levels?.length || 0} СПРАВ</span>
           <h1>VPDK <b>ДЕТЕКТИВ</b></h1>
           <p>Шукай загублені предмети, відкривай нові сцени та отримуй зірки за уважність.</p>
         </div>
@@ -333,7 +337,7 @@ export default function HiddenObjects() {
       </section>
 
       <section className="hidden-progress-card">
-        <div className="hidden-progress-ring" style={{ "--progress": `${status.max_level ? Math.round(completedCount / status.max_level * 360) : 0}deg` }}><strong>{completedCount}/{status.max_level || 9}</strong><span>справ</span></div>
+        <div className="hidden-progress-ring" style={{ "--progress": `${status.max_level ? Math.round(completedCount / status.max_level * 360) : 0}deg` }}><strong>{completedCount}/{status.max_level || status.levels?.length || 0}</strong><span>справ</span></div>
         <div className="hidden-progress-stats">
           <div><Trophy size={18} /><span>Розкрито</span><strong>{completedCount}</strong></div>
           <div><Star size={18} /><span>Зірки</span><strong>{totalStars}</strong></div>
@@ -359,9 +363,9 @@ export default function HiddenObjects() {
                 const levelMistakeLimit = getMistakeLimit(level);
                 return (
                   <button type="button" key={level.id} className={`hidden-level-card ${locked ? "is-locked" : ""} ${completion ? "is-complete" : ""}`} disabled={locked || busy} onClick={() => startLevel(level)} data-testid={`hidden-object-level-${level.id}`}>
-                    <img src={level.image} alt="" loading={Number(level.id) > 2 ? "lazy" : "eager"} />
+                    <img src={level.cover || level.image} alt="" loading={Number(level.id) > 2 ? "lazy" : "eager"} />
                     <span className="hidden-level-shade" />
-                    <div className="hidden-level-number">{locked ? <Lock size={15} /> : `0${level.id}`}</div>
+                    <div className="hidden-level-number">{locked ? <Lock size={15} /> : String(level.id).padStart(2, "0")}</div>
                     {completion && <div className="hidden-level-stars">{[1, 2, 3].map((value) => <Star key={value} size={13} fill={value <= completion.stars ? "currentColor" : "none"} />)}</div>}
                     <div className="hidden-level-copy"><strong>{level.title}</strong><small>{level.target_count} предметів · {difficultyLabels[level.difficulty]}{levelMistakeLimit === null ? "" : ` · ${levelMistakeLimit} промахів`}</small></div>
                   </button>

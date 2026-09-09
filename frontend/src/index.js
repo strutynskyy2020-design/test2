@@ -15,6 +15,10 @@ const queryClient = new QueryClient({
 });
 
 const root = ReactDOM.createRoot(document.getElementById("root"));
+// Isolated local animation bench: no account, care commands or production route.
+if (process.env.NODE_ENV === "development" && window.location.pathname === "/__dev/pet-rig") {
+  import("@/pages/PetRigPreview").then(({ default: Preview }) => root.render(<Preview />));
+} else {
 root.render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
@@ -24,3 +28,4 @@ root.render(
 );
 
 registerServiceWorker();
+}

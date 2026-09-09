@@ -12,6 +12,8 @@ import PalmOnSandIcon from "@/components/PalmOnSandIcon";
 import { addIsoDays, formatShiftTime, getScheduleStatus, kyivTodayIso } from "@/lib/workSchedule";
 import depositProjection from "@/lib/depositProjection";
 import { normalizeReportProfile } from "@/lib/activationReports";
+import FlappyHomeCard from "@/games/flappy/FlappyHomeCard";
+import DriveHomeCard from "@/games/pixel-drive/DriveHomeCard";
 
 const { resolveDepositProjectionCurrent } = depositProjection;
 
@@ -255,29 +257,25 @@ export default function Home() {
     {/* 6. Cube */}
     <button onClick={() => nav("/fun")} className="arcade-btn flex w-full items-center gap-4 border-[#7a1c00] bg-gradient-to-r from-[#FFB800] to-[#FF5C00] p-4 text-left text-[#0A0A0A]"><div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-black/25"><Dice5 size={28}/></div><div className="min-w-0 flex-1"><div className="text-[10px] font-black uppercase tracking-widest opacity-70">Щоденний бонус</div><div className="mt-1 font-display text-xl">ЩЕДРИЙ КУБ</div><div className="mt-1 text-xs font-black opacity-90">До 500 балів</div></div><ChevronRight /></button>
 
+    <FlappyHomeCard onClick={() => nav("/games/flappy-pixel?from=pixel")} />
+
     {/* 7. Streak */}
     <section className="flex items-center gap-3 rounded-3xl border border-[#FF5C00]/30 bg-gradient-to-r from-[#FF5C00]/15 to-transparent p-4"><div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#FF5C00]"><Flame size={24} color="#0A0A0A" /></div><div className="flex-1"><div className="font-black text-white">{user.streak} днів поспіль</div><div className="text-xs text-zinc-400">Не втрачай серію</div></div></section>
 
     {/* 8. Feed */}
     <section><div className="mb-3 flex items-center justify-between px-1"><div className="flex items-center gap-2 font-display text-lg text-white"><Newspaper size={19} color="#39FF14"/>Стрічка активності</div><button type="button" onClick={() => nav("/feed")} className="rounded-full border border-white/10 bg-[#1A1A1E] px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-zinc-300 active:scale-95">Переглянути все</button></div>{feed.length ? <ul className="space-y-3">{feed.slice(0,4).map(ev => <FeedItem key={ev.id} ev={ev}/>)}</ul> : <div className="rounded-3xl border border-white/10 bg-[#1A1A1E] p-5 text-center text-xs text-zinc-500">Поки що немає нової активності</div>}</section>
 
-    {/* 9. Bonus Match */}
-    <button type="button" onPointerEnter={warmBonusMatch} onFocus={warmBonusMatch} onTouchStart={warmBonusMatch} onClick={() => nav("/games/bonus-match")} className="group relative flex w-full items-center gap-4 overflow-hidden rounded-3xl border border-[#7C3AED]/55 bg-gradient-to-r from-[#25103F] via-[#18121F] to-[#101014] p-5 text-left shadow-[0_16px_36px_rgba(124,58,237,.16)] active:scale-[.99]">
-      <div className="absolute -right-8 -top-10 h-28 w-28 rounded-full bg-[#7C3AED]/20 blur-2xl" />
-      <div className="relative flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-[#B78CFF]/45 bg-[#7C3AED]/25 text-[#C9A7FF] shadow-[0_0_24px_rgba(124,58,237,.22)]"><Gamepad2 size={27} strokeWidth={2.8} /></div>
-      <div className="relative min-w-0 flex-1"><div className="flex items-center gap-2"><div className="font-display text-xl text-white">BONUS MATCH</div><Zap size={16} color="#FFB800" fill="#FFB800" /></div><div className="mt-1 text-xs font-bold text-zinc-400">Збирай 3+ фішки та вигравай Point</div></div>
-      <ChevronRight className="relative shrink-0 text-[#B78CFF] transition-transform group-active:translate-x-1" />
-    </button>
-
-    {/* 10. VPDK Detective */}
-    <button type="button" onPointerEnter={warmHiddenObjects} onFocus={warmHiddenObjects} onTouchStart={warmHiddenObjects} onClick={() => nav("/games/hidden-objects")} className="home-hidden-object-card group relative flex w-full items-center gap-3 min-[390px]:gap-4 overflow-hidden rounded-3xl p-4 min-[390px]:p-5 text-left active:scale-[.99]" data-testid="home-hidden-objects">
-      <div className="home-hidden-object-glow absolute -right-8 -top-10 h-28 w-28 rounded-full blur-2xl" />
-      <div className="home-hidden-object-icon relative flex h-12 w-12 min-[390px]:h-14 min-[390px]:w-14 shrink-0 items-center justify-center rounded-2xl"><Search size={27} strokeWidth={2.9} /></div>
-      <div className="relative min-w-0 flex-1"><div className="flex items-center gap-2"><div className="home-hidden-object-title font-display text-[clamp(0.92rem,4.6vw,1.25rem)] leading-tight">VPDK ДЕТЕКТИВ</div><Sparkles size={16} color="#FFB800" /></div><div className="home-hidden-object-description mt-1 text-[11px] min-[390px]:text-xs font-bold leading-snug">Шукай приховані предмети та розкривай справи</div></div>
-      <ChevronRight className="home-hidden-object-chevron relative shrink-0 transition-transform group-active:translate-x-1" />
+    {/* Pixel is the shared entrance to both existing games. */}
+    <button type="button" onPointerEnter={() => { warmBonusMatch(); warmHiddenObjects(); }} onFocus={() => { warmBonusMatch(); warmHiddenObjects(); }} onClick={() => nav("/pet/room")} className="group relative flex w-full items-center gap-4 overflow-hidden rounded-3xl border border-[#D3AF72]/50 bg-gradient-to-r from-[#24312E] via-[#1D2827] to-[#182323] p-5 text-left shadow-lg active:scale-[.99]" data-testid="home-pixel-story">
+      <img src="/pet/room/v6/rig/sit-poster.webp" alt="" className="h-20 w-20 shrink-0 object-contain" />
+      <div className="relative min-w-0 flex-1"><div className="font-display text-xl text-[#F0DFC1]">ПІКСЕЛЬ</div><div className="mt-1 text-sm text-[#D8BD8B]">Кімната з історією</div><div className="mt-2 text-[11px] leading-relaxed text-[#B7C2B5]">Bonus Match · Детектив · Flappy · Повний газ<br />24 розділи, ваші рішення й спільний дім</div></div>
+      <ChevronRight className="relative shrink-0 text-[#D9B67C]" />
     </button>
 
     {/* 11. Work schedule */}
+    <DriveHomeCard onClick={() => nav("/games/pixel-drive?from=pixel")} />
+
+    {/* Work schedule */}
     <button
       type="button"
       onClick={() => nav("/schedule")}

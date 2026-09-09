@@ -1,9 +1,10 @@
 import { useEffect, useRef } from "react";
+import { PixelGameReward } from "@/components/PixelGameBridge";
 import { ChevronRight, RotateCcw, Sparkles, Star, Trophy, X } from "lucide-react";
 
 const formatTime = (seconds = 0) => `${Math.floor(Math.max(0, seconds) / 60)}:${String(Math.max(0, seconds) % 60).padStart(2, "0")}`;
 
-export default function ResultModal({ result, maxLevel, onNext, onReplay, onClose }) {
+export default function ResultModal({ result, maxLevel, onNext, onReplay, onClose, fromPixel = false, onReturnToPixel }) {
   const closeButtonRef = useRef(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
@@ -39,6 +40,7 @@ export default function ResultModal({ result, maxLevel, onNext, onReplay, onClos
           <div><span>Підказки</span><strong>{result.hints_used}</strong></div>
         </div>
         <div className="hidden-result-reward"><Sparkles size={18} /><span>+{result.points_awarded} Point · +{result.xp_awarded} XP</span></div>
+        <PixelGameReward enabled={fromPixel} game="hidden_objects" sessionId={result.session_id} onReturn={onReturnToPixel} />
         <div className="hidden-result-actions">
           <button type="button" className="hidden-secondary-button" onClick={onReplay}><RotateCcw size={18} /> Ще раз</button>
           <button type="button" className="hidden-primary-button" onClick={onNext}>{result.level >= maxLevel ? "До справ" : "Наступна справа"}<ChevronRight size={19} /></button>

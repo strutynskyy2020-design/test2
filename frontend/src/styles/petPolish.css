@@ -1,0 +1,90 @@
+/* v175: one portrait game world, with lightweight continuous sprite motion. */
+.play-canvas { width: 100cqw; height: 100cqh; aspect-ratio: auto; }
+.play-room-background { object-fit: fill; mask-image: none; }
+.play-backdrop { display: none; }
+.play-cat { transition: none; }
+.play-cat-animation { position: relative; width: 100%; aspect-ratio: 256 / 342; transform-origin: 50% 96%; }
+.play-cat-frame { position: absolute; inset: 0; width: 100%; height: 100%; aspect-ratio: auto; object-fit: contain; object-position: bottom; }
+.play-cat-frame.sleep-frame { top: auto; bottom: 0; height: 62%; aspect-ratio: auto; }
+.play-cat-frame.outgoing { animation: pet-frame-dissolve .22s linear forwards !important; pointer-events: none; }
+.play-cat-v3[data-sequence^="walk"] .play-cat-animation { animation: pet-walk-weight .8s ease-in-out infinite; }
+.play-cat-v3[data-sequence="eat"] .play-cat-animation { animation: pet-chew .65s ease-in-out infinite; }
+.play-cat-v3[data-sequence="clean"] .play-cat-animation { animation: pet-groom 1.9s ease-in-out infinite; }
+.play-cat-v3[data-sequence="pounce"] .play-cat-animation { animation: pet-play-hop 1.7s ease-in-out infinite; }
+.play-cat-v3[data-sequence="sleep"] .play-cat-breathe { animation: pet-sleep-breathe 4.5s ease-in-out infinite; }
+.play-cat-v3[data-reaction="pounce"] .play-cat-breathe, .play-cat-v3[data-reaction="eat"] .play-cat-breathe { animation: play-breathe 3.5s ease-in-out infinite; }
+.play-cat-v3[data-touching="true"] *, .play-cat-v3.quiet * { animation: none !important; }
+.play-cat-touch { z-index: 3; }
+.play-thought { top: 4%; left: 10%; width: 80%; max-width: 440px; }
+.play-thought > span:last-child { font-size: 13px; }
+.play-small-hint, .play-tray-heading { font-size: 12px; min-height: 38px; line-height: 1.4; }
+.play-tray small, .play-needs button { font-size: 11px; }
+.play-tray button:disabled { opacity: .5; }
+.play-tray-heading button { min-width: 44px; min-height: 44px; }
+.play-state-peek { font-size: 12px; bottom: 7px; }
+.play-network button { text-decoration: underline; min-height: 32px; padding-inline: 8px; }
+.play-object-placeholder { display: flex; min-height: 44px; flex-direction: column; align-items: center; justify-content: center; gap: 4px; color: #ffe0a1; padding: 6px; border: 1px dashed #ffe0a180; border-radius: 12px; background: #211a2dd9; }
+.play-object-placeholder small { font-size: 10px; }
+.play-detail-drawer { background: #201a2d !important; color: #fff1dc !important; border-color: #ffffff20 !important; }
+.play-detail-drawer .pet-secondary-button { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; }
+.play-detail-drawer .pet-panel { --pet-amber: #ffc45f; --pet-card: #292233; }
+.play-detail-drawer .pet-scene { aspect-ratio: 2 / 3; border-color: #ffc45f50; }
+.play-detail-drawer .pet-scene-background { object-fit: fill; }
+.play-detail-drawer .pet-room-drag-handle { position: absolute; inset: 0; width: 100%; height: 100%; min-height: 44px; pointer-events: auto; touch-action: none; border: 2px dashed transparent; border-radius: 12px; background: transparent; }
+.play-detail-drawer .pet-room-drag-handle > span { display: none; }
+.play-detail-drawer .pet-room-layer--selected .pet-room-drag-handle { border-color: #ffc45f; background: #ffc45f14; }
+.play-detail-drawer .pet-scene-art .play-cat { opacity: 1; }
+.living-sleep-note { padding: 12px; border-radius: 14px; background: #9f9dff20; color: #d9d3ff; font-size: 13px; }
+.pet-game-pages { height: 100%; min-height: 0; padding: 0 !important; display: flex; flex-direction: column; background: #171322; color: #fff1dc; --pet-amber: #ffc45f; --pet-cyan: #85dfe3; --pet-green: #94dcb0; --pet-card: #292233; --pet-card-2: #352b42; --living-bg: #292233; --living-soft: #352b42; --living-text: #fff1dc; --living-muted: #c8b8d1; --living-accent: #ffc45f; }
+.pet-game-pages .pet-tabs { position: static; margin: 0; padding: 0 12px 10px; flex: none; }
+.pet-game-pages .pet-tabs-list { background: #211a2d !important; }
+.pet-game-pages .pet-tab { color: #c8b8d1 !important; font-size: 10px !important; min-height: 52px; }
+.pet-game-pages .pet-tab[aria-selected="true"] { color: #342334 !important; background: #ffc45f !important; box-shadow: none !important; }
+.pet-game-pages #pet-active-panel { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 4px 12px calc(20px + env(safe-area-inset-bottom, 0px)); }
+.pet-game-pages .pet-panel { gap: 12px; }
+.pet-game-pages .living-shop-hero { padding: 0 2px 4px; border: 0; background: none; }
+.pet-game-pages .living-shop-hero .living-eyebrow, .pet-game-pages .living-shop-hero h2 { display: none; }
+.pet-game-pages .living-shop-hero p { font-size: 12px; line-height: 1.4; }
+.pet-game-pages .living-wallet { display: flex; gap: 6px; overflow-x: auto; padding: 0 0 5px; }
+.pet-game-pages .living-wallet > div { flex: 1 0 48px; min-width: 0; padding: 8px 4px; border-radius: 12px; background: #302638; }
+.pet-game-pages .living-wallet span { font-size: 9px; letter-spacing: 0; }
+.pet-game-pages .living-wallet > div > span { grid-column: 1 / -1; width: 100%; max-width: none; white-space: normal; overflow: visible; text-overflow: clip; text-align: center; }
+.pet-game-pages .living-shop-controls { gap: 7px; }
+.pet-game-pages .living-shop-controls .living-select { justify-content: space-between; }
+.pet-game-pages .living-shop-controls select { min-height: 36px; padding-block: 4px; }
+.pet-game-pages .pet-filter-row { gap: 5px; }
+.pet-game-pages .pet-filter-row button { min-height: 40px; font-size: 10px; padding: 7px 9px; }
+.pet-game-pages .living-product-art { height: 116px; background: radial-gradient(ellipse, #b99ad629, transparent 75%); }
+.pet-game-pages .living-product-copy p { display: none; }
+.pet-game-pages .living-product-copy h3 { font-size: 13px; }
+.pet-game-pages .living-price { gap: 4px; }
+.pet-game-pages .living-price > span { font-size: 10px; }
+.pet-game-pages .living-price small { display: none; }
+.pet-game-pages .living-product-copy small { font-size: 10px; }
+.pet-game-pages .pet-panel-hero { padding: 14px; border: 0; background: #292233; border-radius: 18px; }
+.pet-game-pages .pet-panel-hero h2 { font-size: 17px; line-height: 1.5; }
+.pet-game-pages .pet-panel-hero p { font-size: 12px; line-height: 1.5; }
+.pet-game-pages .pet-panel-hero span { display: none; }
+.pet-game-pages .pet-game-list { gap: 10px; }
+.pet-game-pages .pet-game-card { display: grid; grid-template-columns: 80px minmax(0,1fr); padding: 13px; gap: 12px; border-radius: 22px; background: #292233; border-color: #ffffff18; }
+.pet-game-pages .pet-game-art { width: 80px; height: 100%; min-height: 115px; border-radius: 16px; background: radial-gradient(circle, #8e6cbd45, #382847); }
+.pet-game-pages .pet-game-info h3 { font-size: 15px; }
+.pet-game-pages .pet-game-info p { font-size: 12px; }
+.pet-game-pages .pet-game-meta { font-size: 10px; }
+.pet-game-pages .pet-game-meta > span:last-child { display: none; }
+.pet-game-pages .pet-game-info button { min-height: 44px; }
+.pet-game-pages .pet-journal-stats { display: none; }
+.pet-game-pages .pet-journal-entry { padding: 14px; border-radius: 20px; background: #292233; margin-bottom: 8px; }
+.pet-game-pages .pet-journal-copy p { font-size: 13px; line-height: 1.6; }
+.pet-game-pages .pet-journal-copy h3 { font-size: 14px; }
+.pet-game-pages .pet-journal-copy time { font-size: 10px; }
+.pet-game-pages .pet-timeline-line { display: none; }
+.pet-game-pages .pet-offline-banner { margin: 0 12px 8px; }
+@keyframes pet-frame-dissolve { from { opacity: 1; } to { opacity: 0; } }
+@keyframes pet-walk-weight { 0%,50%,100% { transform: translateY(0) rotate(-.7deg); } 25%,75% { transform: translateY(-3px) rotate(.7deg); } }
+@keyframes pet-chew { 0%,100% { transform: rotate(-.4deg) scaleY(1); } 50% { transform: rotate(.6deg) scaleY(.986); } }
+@keyframes pet-groom { 0%,100% { transform: rotate(-.7deg); } 50% { transform: rotate(1.1deg) translateY(1px); } }
+@keyframes pet-play-hop { 0%,100% { transform: translateY(0) scaleY(1); } 20% { transform: translateY(2px) scaleY(.97); } 48% { transform: translateY(-9px) rotate(1deg); } 72% { transform: translateY(1px) scaleY(.99); } }
+@keyframes pet-sleep-breathe { 0%,100% { transform: scaleY(1); } 50% { transform: scaleY(1.014); } }
+@media (orientation: landscape) { .play-canvas { width: min(100cqw, 120cqh); height: 100cqh; } }
+@media (prefers-reduced-motion: reduce) { .play-cat *, .play-scene-prop { animation: none !important; transition: none !important; } }

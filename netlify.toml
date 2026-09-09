@@ -7,6 +7,14 @@
 [build.environment]
   NODE_VERSION = "20"
 
+# Local development: run the CRA/CRACO server behind Netlify Dev so both the
+# React application and /.netlify/functions/* are available from port 8888.
+[dev]
+  command = "npm --prefix frontend start"
+  targetPort = 3000
+  port = 8888
+  framework = "#custom"
+
 [[redirects]]
   from = "/*"
   to = "/index.html"

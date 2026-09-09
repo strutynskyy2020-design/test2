@@ -57,6 +57,7 @@ const Feed = lazy(() => import("@/pages/Feed"));
 const Tasks = lazy(() => import("@/pages/Tasks"));
 const Teams = lazy(() => import("@/pages/Teams"));
 const Pet = lazy(() => import("@/pages/Pet"));
+const PixelRoom = lazy(() => import("@/pages/PixelCampaign"));
 const Goals = lazy(() => import("@/pages/Goals"));
 const CreditGoals = lazy(() => import("@/pages/CreditGoals"));
 const CreditLeaderboard = lazy(() => import("@/pages/CreditLeaderboard"));
@@ -69,6 +70,9 @@ const ActivationPumbGoals = lazy(() => import("@/pages/ActivationPumbGoals"));
 const ActivationCardsGoals = lazy(() => import("@/pages/ActivationCardsGoals"));
 const BonusMatch = lazy(() => import("@/pages/BonusMatch"));
 const HiddenObjects = lazy(() => import("@/pages/HiddenObjects"));
+const FlappyPixel = lazy(() => import("@/pages/FlappyPixel"));
+const PixelDrive = lazy(() => import("@/pages/PixelDrive"));
+const PixelDrivePreview = process.env.NODE_ENV === "development" ? lazy(() => import("@/games/pixel-drive/PixelDrivePreview")) : null;
 const Schedule = lazy(() => import("@/pages/Schedule"));
 const ManagerAnalytics = lazy(() => import("@/pages/ManagerAnalytics"));
 const Profile = lazy(() => import("@/pages/Profile"));
@@ -159,6 +163,7 @@ function App() {
           <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login />} />
+          {process.env.NODE_ENV === "development" && <Route path="/__dev/pixel-drive" element={<LazyPage><PixelDrivePreview /></LazyPage>} />}
           <Route path="/register" element={<Register />} />
           <Route
             element={
@@ -173,6 +178,8 @@ function App() {
             <Route path="/tasks" element={<LazyPage><Tasks /></LazyPage>} />
             <Route path="/teams" element={<LazyPage><Teams /></LazyPage>} />
             <Route path="/analytics" element={<RequireManager><LazyPage><ManagerAnalytics /></LazyPage></RequireManager>} />
+            <Route path="/pet" element={<LazyPage><PixelRoom /></LazyPage>} />
+            <Route path="/pet/room" element={<LazyPage><PixelRoom /></LazyPage>} />
             <Route path="/pet/*" element={<LazyPage><Pet /></LazyPage>} />
             <Route path="/ai-trainer" element={<Navigate to="/pet/room" replace />} />
             <Route path="/goals" element={<LazyPage><Goals /></LazyPage>} />
@@ -190,6 +197,8 @@ function App() {
             <Route path="/fun" element={<LazyPage><Fun /></LazyPage>} />
             <Route path="/games/bonus-match" element={<LazyPage><BonusMatch /></LazyPage>} />
             <Route path="/games/hidden-objects" element={<LazyPage><HiddenObjects /></LazyPage>} />
+            <Route path="/games/flappy-pixel" element={<LazyPage><FlappyPixel /></LazyPage>} />
+            <Route path="/games/pixel-drive" element={<LazyPage><PixelDrive /></LazyPage>} />
             <Route path="/history" element={<LazyPage><History /></LazyPage>} />
             <Route path="/schedule" element={<LazyPage><Schedule /></LazyPage>} />
             <Route path="/feed" element={<LazyPage><Feed /></LazyPage>} />

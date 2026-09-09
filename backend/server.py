@@ -61,6 +61,20 @@ except ModuleNotFoundError as exc:  # ``uvicorn server:app`` when cwd is backend
     from pet_feature import register_pet_routes, seed_pet_v1
 
 try:
+    from backend.flappy_feature import register_flappy_routes, seed_flappy
+except ModuleNotFoundError as exc:
+    if exc.name != "backend":
+        raise
+    from flappy_feature import register_flappy_routes, seed_flappy
+
+try:
+    from backend.pixel_drive_feature import register_pixel_drive_routes, seed_pixel_drive
+except ModuleNotFoundError as exc:
+    if exc.name != "backend":
+        raise
+    from pixel_drive_feature import register_pixel_drive_routes, seed_pixel_drive
+
+try:
     from pywebpush import webpush, WebPushException
 except Exception:  # Push remains optional until VAPID is configured.
     webpush = None
@@ -6152,54 +6166,60 @@ async def prediction_reveal(user: dict = Depends(get_current_user)):
 # ────────────────────────────────────────────────────────────────────────
 # Bonus Match — server-authoritative match-3 mini game
 # ────────────────────────────────────────────────────────────────────────
-BONUS_MATCH_ROWS = 7
-BONUS_MATCH_COLS = 7
+BONUS_MATCH_CAMPAIGN = "pixel-room-2026-09"
+BONUS_MATCH_ROWS = 8
+BONUS_MATCH_COLS = 8
 BONUS_MATCH_BOARD_SHAPES = {
     "full": [
-        "1111111",
-        "1111111",
-        "1111111",
-        "1111111",
-        "1111111",
-        "1111111",
-        "1111111",
+        "11111111",
+        "11111111",
+        "11111111",
+        "11111111",
+        "11111111",
+        "11111111",
+        "11111111",
+        "11111111"
     ],
     "rounded": [
-        "0111110",
-        "1111111",
-        "1111111",
-        "1111111",
-        "1111111",
-        "1111111",
-        "0111110",
+        "01111110",
+        "11111111",
+        "11111111",
+        "11111111",
+        "11111111",
+        "11111111",
+        "11111111",
+        "01111110"
     ],
     "diamond": [
-        "0011100",
-        "0111110",
-        "1111111",
-        "1111111",
-        "1111111",
-        "0111110",
-        "0011100",
+        "00111100",
+        "01111110",
+        "11111111",
+        "11111111",
+        "11111111",
+        "11111111",
+        "01111110",
+        "00111100"
     ],
     "cross": [
-        "0011100",
-        "0011100",
-        "1111111",
-        "1111111",
-        "1111111",
-        "0011100",
-        "0011100",
+        "00111100",
+        "00111100",
+        "11111111",
+        "11111111",
+        "11111111",
+        "11111111",
+        "00111100",
+        "00111100"
     ],
     "staircase": [
-        "1111100",
-        "1111110",
-        "1111111",
-        "1111111",
-        "1111111",
-        "0111111",
-        "0011111",
-    ],
+        "11111000",
+        "11111100",
+        "11111110",
+        "11111111",
+        "11111111",
+        "01111111",
+        "00111111",
+        "00011111"
+    ]
 }
 BONUS_MATCH_BOARD_SHAPE_ORDER = ["full", "rounded", "diamond", "cross", "staircase"]
 BONUS_MATCH_DEFAULT_LEVEL_COUNT = 150
@@ -6347,7 +6367,14 @@ class BonusMatchBoosterUseBody(BaseModel):
     col: Optional[int] = None
 
 
+class BonusMatchObjective(BaseModel):
+    kind: Literal["clear_obstacles"] = "clear_obstacles"
+    obstacle: Literal["ice", "chain", "crate", "stone", "crystal", "web", "shield", "slime", "metal", "core"]
+    count: int = Field(default=1, ge=1, le=35)
+
+
 class BonusMatchLevelAdminBody(BaseModel):
+    objective: Optional[BonusMatchObjective] = None
     level: Optional[int] = None
     title: str = ""
     board_shape: str = "full"
@@ -6541,6 +6568,9 @@ def _bonus_match_level_config(level: int) -> dict:
         return {
             "level": level,
             "title": str(authored.get("title") or f"Рівень {level}"),
+            "campaign": BONUS_MATCH_CAMPAIGN,
+            "chapter_title": authored.get("chapter_title", "Кімната Пікселя"),
+            "objective": authored.get("objective"),
             "board_shape": board_shape,
             "board_mask": _bonus_match_board_mask(board_shape),
             "moves": max(5, min(80, int(authored.get("moves", 28)))),
@@ -6584,6 +6614,15 @@ def _bonus_match_level_config(level: int) -> dict:
         "obstacle_count": min(10, 2 + stage), "obstacle_layout": [],
         "active": True, "custom": False,
     }
+
+
+def _bonus_match_objective_met(board, config, score: int, coins: int) -> bool:
+    """Pixel levels clear a named obstacle; score only determines their stars."""
+    objective = config.get("objective") or {}
+    if objective.get("kind") == "clear_obstacles":
+        return not any(cell and cell.get("obstacle") == objective.get("obstacle")
+                       for row in board for cell in row)
+    return score >= int(config["target_score"]) and coins >= int(config["target_coins"])
 
 
 def _bonus_match_normalize_obstacle_layout(layout) -> list[dict]:
@@ -6643,6 +6682,7 @@ def _bonus_match_merge_level_doc(level: int, doc: Optional[dict]) -> dict:
     return {
         **base,
         "title": str(doc.get("title") or base["title"]).strip()[:80],
+        "objective": doc.get("objective", base.get("objective")),
         "board_shape": board_shape,
         "board_mask": _bonus_match_board_mask(board_shape),
         "moves": max(5, min(80, int(doc.get("moves", base["moves"])))),
@@ -7023,7 +7063,13 @@ def _bonus_match_ensure_playable_board(
     ):
         return shuffled, True, "shuffle"
 
-    regenerated = _bonus_match_make_board(level, config)
+    remaining_config = {**(config or _bonus_match_level_config(level)), "obstacle_layout": [
+        {"row": r, "col": c, "obstacle": cell["obstacle"], "hits": cell["obstacle_hits"]}
+        for r, row in enumerate(source) for c, cell in enumerate(row)
+        if cell and cell.get("obstacle")
+    ]}
+    remaining_config["obstacle_count"] = len(remaining_config["obstacle_layout"])
+    regenerated = _bonus_match_make_board(level, remaining_config)
     return regenerated, True, "regenerate"
 
 
@@ -7631,6 +7677,7 @@ async def _bonus_match_profile(user_id: str) -> dict:
             "total_stars": 0,
             "lives": BONUS_MATCH_MAX_LIVES,
             "boosters": {key: 0 for key in BONUS_MATCH_BOOSTERS},
+            "campaign": BONUS_MATCH_CAMPAIGN,
             "lives_updated_at": now.isoformat(),
             "created_at": now.isoformat(),
             "updated_at": now.isoformat(),
@@ -7810,6 +7857,7 @@ async def _bonus_match_reward_win(
         {
             "$set": {
                 "stars": best_stars,
+                "campaign": BONUS_MATCH_CAMPAIGN,
                 "best_score": max(
                     int(existing.get("best_score", 0)) if existing else 0,
                     int(session.get("score", 0)),
@@ -7844,7 +7892,7 @@ async def _bonus_match_reward_win(
 
     points_awarded = BONUS_MATCH_FIRST_CLEAR_POINTS if first_completion else 0
     date_key = kyiv_today_key()
-    xp_event_key = f"bonus-match:first:{level}" if first_completion else f"bonus-match:replay:{date_key}"
+    xp_event_key = f"bonus-match:{BONUS_MATCH_CAMPAIGN}:first:{level}" if first_completion else f"bonus-match:replay:{date_key}"
     xp_result = await _award_xp(
         user["id"],
         BONUS_MATCH_FIRST_CLEAR_XP if first_completion else BONUS_MATCH_REPLAY_XP,
@@ -7943,6 +7991,8 @@ def _bonus_match_admin_level_doc(level: int, body: BonusMatchLevelAdminBody) -> 
     return {
         "level": level,
         "title": str(payload.get("title") or f"Рівень {level}").strip()[:80],
+        "campaign": BONUS_MATCH_CAMPAIGN,
+        "objective": payload.get("objective"),
         "board_shape": _bonus_match_normalize_board_shape(payload.get("board_shape"), level),
         "moves": max(5, min(80, int(payload.get("moves") or 20))),
         "target_score": target_score,
@@ -7971,7 +8021,7 @@ async def admin_bonus_match_levels(admin: dict = Depends(get_current_admin)):
         "cols": BONUS_MATCH_COLS,
         "board_shapes": [
             {"id": key, "mask": _bonus_match_board_mask(key), "label": {
-                "full": "Повне 7×7",
+                "full": "Повне 8×8",
                 "rounded": "Зрізані кути",
                 "diamond": "Діамант",
                 "cross": "Хрест",
@@ -8513,7 +8563,7 @@ async def bonus_match_use_booster(
 
     score = int(session.get("score", 0)) + score_gain
     coins_collected = int(session.get("coins_collected", 0)) + coins_gain
-    won = score >= int(config["target_score"]) and coins_collected >= int(config["target_coins"])
+    won = _bonus_match_objective_met(board, config, score, coins_collected)
     status_value = "won" if won else "active"
     updates = {
         "board": board,
@@ -8750,6 +8800,7 @@ async def bonus_match_start(
         "id": str(uuid.uuid4()),
         "user_id": user["id"],
         "level": requested_level,
+        "campaign": BONUS_MATCH_CAMPAIGN,
         "board": _bonus_match_make_board(requested_level, config),
         "moves_left": config["moves"],
         "score": 0,
@@ -9210,11 +9261,7 @@ async def bonus_match_move(
             session["level"]
         )
     )
-    won = (
-        score >= int(config["target_score"])
-        and coins_collected
-        >= int(config["target_coins"])
-    )
+    won = _bonus_match_objective_met(board, config, score, coins_collected)
     status_value = (
         "won"
         if won
@@ -9842,6 +9889,8 @@ async def admin_delete_user(user_id: str, admin: dict = Depends(get_current_admi
         db.pet_minigame_sessions,
         db.pet_reward_claims,
         db.pet_commands,
+        db.flappy_profiles,
+        db.flappy_sessions,
     )
     for collection in user_collections:
         await collection.delete_many({"user_id": user_id})
@@ -10565,6 +10614,29 @@ async def migrate_bonus_match_v93_reset() -> None:
         session_result.deleted_count,
         daily_result.deleted_count,
     )
+
+
+async def migrate_bonus_match_pixel_campaign() -> None:
+    """Retire the previous catalog once. Version filters make retries non-destructive.
+
+    Only Bonus Match progress is restarted; earned currency, XP, purchased
+    boosters and Pixel's story/room are retained.
+    """
+    migration_id = "bonus_match_pixel_room_2026_09"
+    if await db.system_migrations.find_one({"id": migration_id}):
+        return
+    old = {"campaign": {"$ne": BONUS_MATCH_CAMPAIGN}}
+    await db.bonus_match_levels.delete_many(old)
+    await db.bonus_match_completions.delete_many(old)
+    await db.bonus_match_sessions.delete_many(old)
+    await db.bonus_match_profiles.update_many(old, {"$set": {
+        "campaign": BONUS_MATCH_CAMPAIGN, "current_level": 1, "total_stars": 0,
+        "lives": BONUS_MATCH_MAX_LIVES, "lives_updated_at": now_iso(),
+        "next_life_at": None, "updated_at": now_iso(),
+    }})
+    await db.system_migrations.update_one({"id": migration_id}, {"$setOnInsert": {
+        "id": migration_id, "applied_at": now_iso(), "campaign": BONUS_MATCH_CAMPAIGN,
+    }}, upsert=True)
 
 
 async def seed_all():
@@ -12502,7 +12574,7 @@ def _hidden_object_session_payload(session: Optional[dict]) -> Optional[dict]:
         "image": scene.get("image"),
         "image_width": int(scene.get("width", 1122)),
         "image_height": int(scene.get("height", 1402)),
-        "targets": hidden_object_targets(level, scene),
+        "targets": hidden_object_targets(level, scene, str(session.get("id") or "")),
         "found_ids": found_ids,
         "found_markers": markers,
         "mistakes": mistakes,
@@ -12553,12 +12625,10 @@ async def _hidden_object_migrate_campaign_progress(user_id: str, profile: dict) 
 
     catalog_version = _hidden_object_catalog_version()
     profile_version = str(profile.get("content_version") or "")
-    if catalog_version == "v5" and profile.get("v5_progress_migrated") is True:
-        return profile
-    if catalog_version != "v5" and profile_version == catalog_version:
+    if profile.get("v5_progress_migrated") is True and profile_version == catalog_version:
         return profile
 
-    if catalog_version == "v5":
+    if profile.get("v5_progress_migrated") is not True:
         legacy_levels = sorted(HIDDEN_OBJECT_V5_LEGACY_LEVEL_MAP)
         legacy_filter = {
             "user_id": user_id,
@@ -12566,7 +12636,7 @@ async def _hidden_object_migrate_campaign_progress(user_id: str, profile: dict) 
             # A current-version completion at 4–6 is one of the new medium
             # cases.  Never move or delete it, even if a stale profile causes
             # this migration to be retried.
-            "content_version": {"$ne": catalog_version},
+            "content_version": {"$in": [None, "", "v1", "v2", "v3", "v4"]},
         }
         completions = await db.hidden_object_completions.find(
             legacy_filter,
@@ -12600,7 +12670,7 @@ async def _hidden_object_migrate_campaign_progress(user_id: str, profile: dict) 
 
     now = now_iso()
     profile_fields = {"content_version": catalog_version, "updated_at": now}
-    if catalog_version == "v5":
+    if profile.get("v5_progress_migrated") is not True:
         profile_fields.update({"v5_progress_migrated": True, "v5_progress_migrated_at": now})
     await db.hidden_object_profiles.update_one(
         {"user_id": user_id},
@@ -13294,7 +13364,17 @@ async def seed_phase2():
         logger.info("Seeded %d tasks", len(SEED_TASKS))
 
 
+try:
+    from backend.pixel_campaign import register_pixel_campaign_routes
+except ModuleNotFoundError as exc:
+    if exc.name != "backend":
+        raise
+    from pixel_campaign import register_pixel_campaign_routes
+
+register_pixel_campaign_routes(api, db, get_current_user)
 register_pet_routes(api, db, get_current_user, _notify_points_awarded)
+register_flappy_routes(api, db, get_current_user)
+register_pixel_drive_routes(api, db, get_current_user)
 
 
 
@@ -13304,8 +13384,12 @@ async def on_startup():
     await seed_all()
     await migrate_remove_legacy_demo_teams_v105()
     await migrate_bonus_match_v93_reset()
+    await migrate_bonus_match_pixel_campaign()
     await seed_phase2()
     await seed_pet_v1(db)
+    await db.pixel_campaign_runs.create_index([("user_id", 1), ("game", 1), ("completed_at", 1)])
+    await seed_flappy(db)
+    await seed_pixel_drive(db)
     await seed_hidden_objects_v157()
     await _cleanup_expired_diamond_avatars_once()
     backfilled = await _backfill_active_diamond_feed_events_v136()

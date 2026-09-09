@@ -1,0 +1,259 @@
+{
+  "version": 6,
+  "space": [
+    1600,
+    1450
+  ],
+  "ground": 1390,
+  "anchorSha256": "cfd77f139886e4c541611d5684dd63cb74c7dcbbb8f4db15ce019fa5f54afc72",
+  "parts": {
+    "sit-body": {
+      "src": "sit-body.webp",
+      "rect": [
+        448,
+        617,
+        578,
+        802
+      ],
+      "pixels": [
+        295,
+        409
+      ],
+      "bytes": 24570
+    },
+    "sit-tail": {
+      "src": "sit-tail.webp",
+      "rect": [
+        970,
+        1073,
+        275,
+        285
+      ],
+      "pixels": [
+        140,
+        145
+      ],
+      "bytes": 6630
+    },
+    "sit-head": {
+      "src": "sit-head.webp",
+      "rect": [
+        421,
+        218,
+        707,
+        645
+      ],
+      "pixels": [
+        361,
+        329
+      ],
+      "bytes": 27438
+    },
+    "sit-head-closed": {
+      "src": "sit-head-closed.webp",
+      "rect": [
+        421,
+        218,
+        707,
+        645
+      ],
+      "pixels": [
+        361,
+        329
+      ],
+      "bytes": 26416
+    },
+    "sit-poster": {
+      "src": "sit-poster.webp",
+      "rect": [
+        173,
+        196,
+        1254,
+        1254
+      ],
+      "pixels": [
+        640,
+        640
+      ],
+      "bytes": 51466
+    },
+    "sleep": {
+      "src": "sleep.webp",
+      "rect": [
+        249.24,
+        837.24,
+        1100.74,
+        557.42
+      ],
+      "pixels": [
+        440,
+        223
+      ],
+      "bytes": 25052
+    },
+    "eat": {
+      "src": "eat.webp",
+      "rect": [
+        166.44,
+        519.52,
+        1279.8000000000002,
+        876.96
+      ],
+      "pixels": [
+        512,
+        351
+      ],
+      "bytes": 36482
+    },
+    "walk-fore-far": {
+      "src": "walk-fore-far.webp",
+      "rect": [
+        388.10999999999996,
+        1025.1599999999999,
+        201.23999999999998,
+        343.97999999999996
+      ],
+      "pixels": [
+        80,
+        138
+      ],
+      "bytes": 4238
+    },
+    "walk-hind-far": {
+      "src": "walk-hind-far.webp",
+      "rect": [
+        812.8199999999999,
+        1033.35,
+        209.42999999999998,
+        314.72999999999996
+      ],
+      "pixels": [
+        84,
+        126
+      ],
+      "bytes": 4436
+    },
+    "walk-fore-near": {
+      "src": "walk-fore-near.webp",
+      "rect": [
+        510.96,
+        943.26,
+        236.33999999999997,
+        452.78999999999996
+      ],
+      "pixels": [
+        95,
+        181
+      ],
+      "bytes": 5904
+    },
+    "walk-hind-near": {
+      "src": "walk-hind-near.webp",
+      "rect": [
+        943.8599999999999,
+        937.41,
+        311.21999999999997,
+        437.58
+      ],
+      "pixels": [
+        124,
+        175
+      ],
+      "bytes": 6192
+    },
+    "walk-body": {
+      "src": "walk-body.webp",
+      "rect": [
+        109.65,
+        325.5,
+        1374.75,
+        841.2299999999999
+      ],
+      "pixels": [
+        550,
+        336
+      ],
+      "bytes": 33448
+    },
+    "rise": {
+      "src": "rise.webp",
+      "rect": [
+        287.52,
+        332.2,
+        1144.675,
+        1065.47
+      ],
+      "pixels": [
+        458,
+        426
+      ],
+      "bytes": 40046
+    },
+    "groom-body": {
+      "src": "groom-body.webp",
+      "rect": [
+        405,
+        212,
+        844,
+        1202
+      ],
+      "pixels": [
+        338,
+        481
+      ],
+      "bytes": 37426
+    },
+    "groom-paw": {
+      "src": "groom-paw.webp",
+      "rect": [
+        580,
+        750,
+        333,
+        406
+      ],
+      "pixels": [
+        133,
+        162
+      ],
+      "bytes": 5802
+    },
+    "yawn-mouth": {
+      "src": "yawn-mouth.webp",
+      "rect": [
+        709,
+        655,
+        221,
+        193
+      ],
+      "pixels": [
+        88,
+        77
+      ],
+      "bytes": 3384
+    }
+  },
+  "placements": {
+    "sleep": {
+      "x": 206,
+      "y": 512,
+      "s": 0.94
+    },
+    "eat": {
+      "x": 120,
+      "y": 283,
+      "s": 1.08
+    },
+    "walk": {
+      "x": 57,
+      "y": 150,
+      "s": 1.17
+    },
+    "rise": {
+      "x": 166,
+      "y": 202,
+      "s": 1.085
+    }
+  },
+  "totalBytes": 338930,
+  "decodedTextureBytes": 6789008
+}
