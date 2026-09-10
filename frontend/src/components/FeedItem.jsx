@@ -1,8 +1,9 @@
-import { Swords, Gift, TrendingUp, Dice5, PackageCheck, Gem, Sparkles } from "lucide-react";
+import { Swords, Gift, TrendingUp, Dice5, PackageCheck, Gem, Sparkles, Gamepad2, Plane, Car } from "lucide-react";
 import FeedSocial from "@/components/FeedSocial";
 import AvatarFrame from "@/components/AvatarFrame";
 
 const KIND_META = {
+  game: { label: "гра", color: "#39FF14", Icon: Gamepad2, tone: "text-[#39FF14]", ring: "border-[#39FF14]/40", bg: "bg-[#39FF14]/10" },
   quest: { label: "квест", color: "#6D3DF5", Icon: Swords, tone: "text-[#6D3DF5]", ring: "border-[#6D3DF5]/40", bg: "bg-[#6D3DF5]/10" },
   purchase: { label: "покупка", color: "#00F0FF", Icon: Gift, tone: "text-[#00F0FF]", ring: "border-[#00F0FF]/40", bg: "bg-[#00F0FF]/10" },
   cube: { label: "куб", color: "#FFB800", Icon: Dice5, tone: "text-[#FFB800]", ring: "border-[#FFB800]/40", bg: "bg-[#FFB800]/10" },
@@ -25,7 +26,8 @@ const relativeTime = (iso) => {
 
 export default function FeedItem({ ev }) {
   const meta = KIND_META[ev.kind] || KIND_META.quest;
-  const { Icon } = meta;
+  const Icon = ev.kind === "game" && ev.game === "flappy" ? Plane
+    : ev.kind === "game" && ev.game === "pixel_drive" ? Car : meta.Icon;
   const sign = ev.amount ? (ev.amount > 0 ? "+" : "") : "";
   const isDiamond = ev.kind === "diamond_avatar";
   return (

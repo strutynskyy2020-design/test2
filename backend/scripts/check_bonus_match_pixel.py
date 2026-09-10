@@ -97,7 +97,7 @@ async def integration():
     await game.db.bonus_match_sessions.update_one({'id':session['id']},{'$set':{'board':final,'status':'active','moves_left':2,'score':1000}})
     response=await game.bonus_match_use_booster(game.BonusMatchBoosterUseBody(session_id=session['id'],booster='hammer',row=7,col=7),user)
     assert response['session']['status']=='won'
-    assert response['result']['points_awarded']==2 or response['result']['points_awarded']==0
+    assert response['result']['points_awarded'] in (0, 1)
     print('PASS: booster destroys row 8 / column 8 objective and completes the level.')
     (artifacts/'booster-win.json').write_text(json.dumps(response,ensure_ascii=False),encoding='utf-8')
     # Leave only the isolated QA record for the review server; no production data is used.

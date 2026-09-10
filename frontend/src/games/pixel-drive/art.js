@@ -1,5 +1,5 @@
 export const ART_ROOT="/games/pixel-drive/v1/";
-export const ART_URLS={landscape:ART_ROOT+"landscape.webp",garage:ART_ROOT+"garage.webp",cat:"/pet/room/v6/rig/sit-poster.webp"};
+export const ART_URLS={landscape:ART_ROOT+"landscape.webp",garage:ART_ROOT+"garage.webp",cat:"/games/pixel-drive/v2/pixel-driver.webp"};
 let promise;
 export function loadDriveArt(){
   if(!promise) promise=Promise.all(Object.entries(ART_URLS).map(([key,url])=>new Promise((resolve,reject)=>{
@@ -27,17 +27,22 @@ export function drawSpring(c,x1,y1,x2,y2,level=0){
   c.strokeStyle=level>2?"#c6dee0":"#e7ad4e";c.lineWidth=2;c.beginPath();
   for(let n=0;n<=10;n++){const t=n/10;const x=x1+(x2-x1)*t+(n===0||n===10?0:n%2?3:-3);const y=y1+(y2-y1)*t;n?c.lineTo(x,y):c.moveTo(x,y);}c.stroke();
 }
-export function drawBody(c,cat,upgrades={engine:0,suspension:0,tires:0,tank:0}){
-  // The chassis is authored in code; Pixel's approved transparent illustration stays intact.
+export function drawBody(c,cat,upgrades={engine:0,suspension:0,tires:0,tank:0},{driverScaleX=1}={}){
+  // The chassis stays code-authored; Pixel has a dedicated reference-matched driving pose.
   c.save();c.lineJoin="round";c.lineCap="round";
-  round(c,-56,-24,19,49,6,"#293337");round(c,-53,-21,12,40,4,"#535750");
+  round(c,-33,-8,24,38,7,"#293337");round(c,-30,-5,16,34,5,"#535750");
   shape(c,[[-55,24],[-37,-40],[27,-42],[62,20]],"#172a2d18","#14272a",6);
   c.strokeStyle="#d6c5a0";c.lineWidth=1.2;c.beginPath();c.moveTo(-55,24);c.lineTo(-37,-40);c.lineTo(27,-42);c.lineTo(62,20);c.stroke();
-  if(cat?.naturalWidth)c.drawImage(cat,0,0,cat.naturalWidth,cat.naturalHeight*.74,-19,-32,59,59*cat.naturalHeight*.74/cat.naturalWidth);
-  c.strokeStyle="#10292b";c.lineWidth=3;c.beginPath();c.ellipse(33,8,3,10,.45,0,Math.PI*2);c.stroke();
-  // Two little forepaws reach the wheel.
-  c.strokeStyle="#bf7937";c.lineWidth=6;c.beginPath();c.moveTo(8,14);c.lineTo(29,7);c.stroke();
-  c.strokeStyle="#f5d5a0";c.lineWidth=4;c.beginPath();c.moveTo(9,13);c.lineTo(31,6);c.stroke();
+  // Racing stretches the chassis to its physical wheelbase; undo that only for
+  // the illustrated driver and wheel, anchored at the head rather than the door.
+  c.save();c.translate(9,0);c.scale(driverScaleX,1);c.translate(-9,0);
+  c.strokeStyle="#17282a";c.lineWidth=5;c.beginPath();c.moveTo(34,18);c.lineTo(44,31);c.stroke();
+  c.beginPath();c.ellipse(34,15,8,15,.52,0,Math.PI*2);c.lineWidth=4.5;c.stroke();
+  c.strokeStyle="#b99759";c.lineWidth=1.3;c.beginPath();c.ellipse(34,15,8,15,.52,Math.PI,Math.PI*2);c.stroke();
+  c.strokeStyle="#17282a";c.lineWidth=2.5;c.beginPath();c.moveTo(27,9);c.lineTo(39,23);c.stroke();
+  // Full sprite includes the seated torso and real paws, with ears/whiskers intact.
+  if(cat?.naturalWidth)c.drawImage(cat,-29,-40,72,72*cat.naturalHeight/cat.naturalWidth);
+  c.restore();
   const paint=c.createLinearGradient(0,10,0,48);paint.addColorStop(0,"#71c6b8");paint.addColorStop(.3,"#368b86");paint.addColorStop(1,"#195354");
   const outline=[[-73,18],[-40,17],[-25,28],[14,28],[26,12],[70,12],[77,21],[80,46],[65,48],[-63,48],[-75,37]];
   c.beginPath();outline.forEach(([x,y],i)=>i?c.lineTo(x,y):c.moveTo(x,y));c.closePath();

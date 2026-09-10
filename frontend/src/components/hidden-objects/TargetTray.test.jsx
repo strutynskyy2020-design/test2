@@ -38,6 +38,23 @@ describe("picture clues", () => {
     expect(clue.querySelector("svg")).not.toBeNull();
     expect(clue.textContent).toContain("Латунний ключ");
   });
+  test("uses the generated WebP atlas and stable slots after targets are shuffled", () => {
+    const targets = [
+      { id: "large-brass-key", label: "Латунний ключ", icon: "key", image: "/old-key.webp" },
+      { id: "blue-umbrella", label: "Синя парасоля", icon: "umbrella", image: "/old-umbrella.webp" },
+    ];
+    act(() => root.render(<TargetTray session={{ ...session, level_id: 1, targets, found_ids: [] }} onHint={() => {}} />));
+    const pictures = [...container.querySelectorAll("img")];
+    expect(pictures).toHaveLength(2);
+    expect(pictures[0].getAttribute("src")).toMatch(/^\/hidden-objects\/icons-v7\/level-01\..+\.webp$/);
+    expect(pictures[1].src).toBe(pictures[0].src);
+    expect(pictures[0].style.top).toBe("-100%");
+    expect(pictures[1].style.top).toBe("0%");
+    expect(pictures[0].style.width).toBe("400%");
+    expect(container.querySelectorAll(".hidden-target-sprite")).toHaveLength(2);
+    act(() => pictures[0].dispatchEvent(new Event("error")));
+    expect(container.querySelector('[data-testid="hidden-object-target-large-brass-key"] svg')).not.toBeNull();
+  });
   test("does not permit hints after all targets are found", () => {
     act(() => root.render(<TargetTray session={{ ...session, found_ids: ["bird", "key"] }} onHint={() => {}} />));
     expect(container.querySelector("button").disabled).toBe(true);

@@ -11,9 +11,11 @@ import { useApp } from "@/context/AppContext";
 import { BONUS_MATCH_OBSTACLE_SPRITES } from "@/lib/bonusMatchAssets";
 import AvatarFrame from "@/components/AvatarFrame";
 import { DIAMOND_AVATARS, DIAMOND_AVATAR_BENEFITS } from "@/data/diamondAvatars";
+import PixelAdminAnalytics from "@/components/PixelAdminAnalytics";
 
 const TABS = [
   { id: "analytics", label: "Огляд", icon: BarChart3 },
+  { id: "pixel-analytics", label: "Піксель та ігри", icon: Gamepad2 },
   { id: "ai-team", label: "AI команда", icon: BrainCircuit },
   { id: "daily-tasks", label: "Завдання дня", icon: CalendarDays },
   { id: "schedule-settings", label: "Календар", icon: CalendarDays },
@@ -3616,7 +3618,11 @@ export default function Admin() {
     { id: "points", label: "Бали та баланс", icon: Coins },
   ];
   const availableTabs = isEditor ? editorTabs : TABS;
-  const [tab, setTab] = useState(user?.role === "editor" ? "daily-tasks" : "analytics");
+  const [tab, setTab] = useState(() => {
+    if (user?.role === "editor") return "daily-tasks";
+    const requested = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("tab") : null;
+    return TABS.some(item => item.id === requested) ? requested : "analytics";
+  });
   const [adminTeams, setAdminTeams] = useState([]);
   const [teamFilter, setTeamFilter] = useState(() => {
     if (typeof window === "undefined") return "";
@@ -3663,6 +3669,7 @@ export default function Admin() {
   }
 
   const views = { analytics: AnalyticsView, "ai-team": AITeamDashboard, "daily-tasks": DailyTasksManager, "schedule-settings": ScheduleSettingsView, points: PointsManager, "xp-journal": XPJournalView, goals: GoalsManager, moderation: ModerationView, applications: ApplicationsView, users: UsersView, teams: TeamsView, achievements: AchievementsView, "bonus-match": BonusMatchLevelsView, "cube-settings": CubeSettingsView, announcements: AnnouncementsView, prizes: PrizesView, "team-banks": TeamBanksAdminView, orders: OrdersView };
+  views["pixel-analytics"] = PixelAdminAnalytics;
   const V = views[tab] || views[availableTabs[0]?.id] || AnalyticsView;
 
   return (

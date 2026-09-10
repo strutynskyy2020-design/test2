@@ -1,16 +1,21 @@
 {
-  "version": 3,
+  "version": 4,
   "engine": "Planck 1.5.0",
   "sources": {
-    "config.json": "2be90f12364f0ddd093e83a240084fb5fef5486f61ce4d88b2e32b61d1edfd50",
-    "engine.js": "fa18cf3fc9fed462c91f7ef9c48b426d94a93fb7001e51447a4836232830a673",
-    "physicsConfig.js": "d4d3357b1645a44fdb6aabdb5c16653cb80c0b27ac93c981683e4a2982b54dfe",
-    "progression.js": "9b528bbe6c52b9a6ecdd67134f2739222eda1733057ef281123ec6dfeb79786b",
-    "runtime_entry": "12b02882027ad56c24ac27925b39ea4e1fc1658d9bc0050c523e95a2b7ee2857",
-    "testCourse.js": "a5f5e15a46df4c46f584db39bcdc4360daab426eb24f1b2d57f5986a39550697",
+    "config.json": "5d7f785c3980bdf12b5e19b0a6f58cb2f488fa7ea8ef4ee14f38707f803ccb39",
+    "endlessGenerator.js": "8e819db2a90e6a44c8e1e38b6ece3cdc6e5a9544aac737c96493efdedc48e514",
+    "engine.js": "39a3e74eb68a5a4d7287dd8d361d04efaf3d4b89629b396386fbf0d5dc01a785",
+    "fleetConfig.js": "1e12ced974362ca82e40b79f4691654bdc3c850f1c4a92a245b76a9c7e0559f1",
+    "physicsConfig.js": "0fbfe76efe79249a6a4c6f7bf78ee06e3594b380cb4778b157c0e4e85d01a528",
+    "physicsControllers.js": "3d3841fa7a2c01da88f264567e55666244b59c133968aece666a4a512cd8c490",
+    "progression.js": "d83fabdef520e19ae3b755b7197707221ffc36afee683ab96ed671e1a44ea9e3",
+    "runtime_entry": "a54de5b8a9e0bee6cd0a374223de92f36876c196f8cb2432e8299e8b812671c5",
+    "terrainPhysics.js": "3d1fec99cdeceec6ecb7fbaa19a1b6f809a53b9e7f35c113b7b54b27551a6e26",
+    "testCourse.js": "af13cbf3516745f962423f2569e0774f01f5bc8583c1a2839d12268b87cc212a",
+    "vehiclePhysics.js": "2021af5490a6001c85b75f25f36a5268c55d8c728cdc3465ed0d83e30478a690",
     "vendor/PLANCK-LICENSE.txt": "49fd3df949edd5f294edafb22e8905263dd7560b514bee6df2f17538069aafca",
     "vendor/planck.js": "101de54cf67c6e29d7d7be7261c53d388ba37b82b029fa67a4d4ea67ccb1b3ea"
   },
-  "config_sha256": "2be90f12364f0ddd093e83a240084fb5fef5486f61ce4d88b2e32b61d1edfd50",
-  "runtime_sha256": "1b456890d50218637611e812895c1cd586c03bfff59dd539c06b2f02cfe39eb5"
+  "config_sha256": "5d7f785c3980bdf12b5e19b0a6f58cb2f488fa7ea8ef4ee14f38707f803ccb39",
+  "runtime_sha256": "7edd20a91d6e68859b3b90087e4a2d369d47b30e789f9ff99590dd3b4625eec3"
 }

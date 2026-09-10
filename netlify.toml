@@ -6,6 +6,7 @@
 
 [build.environment]
   NODE_VERSION = "20"
+  GENERATE_SOURCEMAP = "false"
 
 # Local development: run the CRA/CRACO server behind Netlify Dev so both the
 # React application and /.netlify/functions/* are available from port 8888.

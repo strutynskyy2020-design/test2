@@ -1,8 +1,8 @@
 import {createLocalDriveService, LOCAL_DRIVE_KEY} from './localProgress';
-import {CONFIG, createDrive, getLevel, stepDrive} from './engine';
-import {freshProgress} from './progression';
+import {CONFIG, createDrive, getLevel, stepDrive, summarize} from './engine';
+import {SCHEMA, freshProgress} from './progression';
 const memory = initial => {const data = new Map(initial ? [[LOCAL_DRIVE_KEY,JSON.stringify(initial)]] : []); return {getItem:key=>data.get(key)||null,setItem:(key,value)=>data.set(key,value)};};
-const seed = () => ({schema:3,version:CONFIG.version,progress:{...freshProgress(),balance:1000},sessions:[]});
+const seed = () => ({schema:SCHEMA,version:CONFIG.version,progress:{...freshProgress(),balance:1000},sessions:[]});
 
 test('local purchases and retries survive reload with ranks starting at zero', async () => {
   const storage=memory(seed()), service=createLocalDriveService({storage}), purchase={part:'engine',level:0,request_id:'buy-one'};
@@ -37,10 +37,10 @@ test('unavailable storage remains playable and discloses memory mode', async () 
   expect((await service.get()).data.storage_mode).toBe('memory');
   expect((await service.post('/start',{level:1,request_id:'a'})).data.version).toBe(CONFIG.version);
 });
-test('real replay awards survive reload and a new run restores ordinary coins only', async () => {
+test('browser outcome awards survive reload and a new run restores ordinary coins only', async () => {
   const storage=memory(), service=createLocalDriveService({storage}), level=getLevel(1), state=createDrive(level);
   while(state.status==='playing'&&state.tick<1800)stepDrive(level,state,1);
-  const payload={events:[[0,1]],ticks:state.tick,abandon:state.status==='playing'};
+  const payload={outcome:summarize(level,state),ticks:state.tick,abandon:state.status==='playing'};
   await service.post('/start',{level:1,request_id:'first'});
   const first=(await service.post('/sessions/first/finish',payload)).data;
   const restored=createLocalDriveService({storage});
@@ -52,6 +52,28 @@ test('real replay awards survive reload and a new run restores ordinary coins on
   await expect(restored.post('/sessions/first/finish',{...payload,ticks:1})).rejects.toThrow('завершено');
   await expect(restored.post('/start',{level:0,request_id:'dev'})).rejects.toThrow('Невідома');
 },30000);
+
+test('a reported finish saves without replay and derives currency from configured pickups', async () => {
+  const service=createLocalDriveService({storage:memory()}), level=getLevel(1);
+  const status=(await service.get()).data;
+  expect(status.result_mode).toBe('client');expect(status.save_scope).toBe('local');
+  await service.post('/start',{level:1,request_id:'client-finish'});
+  // A one-tick finish is deliberately trusted now; its invented coin amount is not.
+  const payload={ticks:1,abandon:false,outcome:{status:'completed',gears:[0,0,99999],coinValue:999999,fuelSeconds:0}};
+  const result=(await service.post('/sessions/client-finish/finish',payload)).data;
+  expect(result.outcome.status).toBe('completed');expect(result.outcome.distance).toBe(level.meters);
+  expect(result.receipt.coin_parts).toBe(level.coinValues[0]);
+  expect(result.receipt.finish_parts).toBe(level.finishReward);
+  expect(result.progress.unlocked_level).toBe(2);
+});
+
+test('legacy event-only payload asks for reload instead of replaying a run', async () => {
+  const service=createLocalDriveService({storage:memory()});
+  await service.post('/start',{level:1,request_id:'legacy'});
+  await expect(service.post('/sessions/legacy/finish',{ticks:1,events:[[0,1]],abandon:true}))
+    .rejects.toMatchObject({message:expect.stringContaining('Оновіть сторінку'),response:{status:409}});
+  expect((await service.get()).data.balance).toBe(0);
+});
 test('local session storage remains bounded across repeated starts', async () => {
   const storage=memory(), service=createLocalDriveService({storage});
   for(let i=0;i<110;i++)await service.post('/start',{level:1,request_id:`run-${i}`});

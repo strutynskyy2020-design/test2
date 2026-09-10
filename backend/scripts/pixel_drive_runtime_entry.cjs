@@ -1,4 +1,4 @@
-/* Build-time entry only. Production executes the committed standalone bundle. */
+/* Build-time entry for optional developer replay. Production APIs never execute it. */
 "use strict";
 const engine = require("../../frontend/src/games/pixel-drive/engine");
 const progression = require("../../frontend/src/games/pixel-drive/progression");
@@ -39,7 +39,8 @@ process.stdin.on("end", () => {
     if (!Number.isInteger(data.level) || data.level < 1 || data.level > engine.CONFIG.levels.length
         || !Array.isArray(data.events) || typeof data.abandon !== "boolean")
       return reply({ok:false, kind:"invalid_replay", error:"Некоректний заїзд"});
-    const outcome = engine.replay(engine.getLevel(data.level), data.upgrades, data.events, data.ticks, data.abandon);
+    const outcome = engine.replay(engine.getLevel(data.level), data.upgrades, data.events, data.ticks, data.abandon,
+      {vehicleId:data.vehicle_id || 'wanderer'});
     reply({ok:true, outcome});
   } catch (error) {
     if (error.code === "INVALID_REPLAY" || error.name === "ReplayValidationError")

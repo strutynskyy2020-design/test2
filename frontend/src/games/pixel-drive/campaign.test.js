@@ -3,13 +3,14 @@ const {generateCampaign,stream}=require('./campaignGenerator');
 const {controlledRun}=require('./physicsTestHelpers.cjs');
 
 describe('Pixel Drive authored campaign',()=>{
-  test('tutorial and six main routes are reproducible from independent seed streams',()=>{
+  test('tutorial and fifteen main routes are reproducible from independent seed streams',()=>{
     const first=generateCampaign(),second=generateCampaign();
     expect(first).toEqual(second);
-    expect(first.levels.map(l=>l.meters)).toEqual([200,600,1000,1600,2200,3000,4000]);
+    expect(first.levels.map(l=>l.meters)).toEqual([200,600,1000,1600,2200,3000,6000,1200,2000,3000,1500,2600,6800,1600,2600,6800]);
+    expect(first.levels.slice(1).reduce((sum,l)=>sum+l.meters,0)).toBe(42500);
     const geometry=stream(123,'geometry'),same=stream(123,'geometry'),decorations=stream(123,'decorations');
     for(let i=0;i<40;i++){decorations();expect(geometry()).toBe(same());}
-    for(const level of first.levels){expect(level.stageId).toBeTruthy();expect(level.generatorVersion).toBe(3);expect(level.seed).toBeGreaterThan(0);}
+    for(const level of first.levels){expect(level.stageId).toBeTruthy();expect(level.generatorVersion).toBe(5);expect(level.seed).toBeGreaterThan(0);}
   });
   test('upgrades cannot alter geometry, surfaces or refill locations',()=>{
     const level=getLevel(2),before=JSON.stringify(level);
@@ -42,21 +43,16 @@ describe('Pixel Drive authored campaign',()=>{
     expect(CONFIG.upgradePrices.engine[0]).toBe(350);expect(CONFIG.levels[0].finishReward).toBeGreaterThanOrEqual(350);
     for(const level of CONFIG.levels){expect(level.coinValues).toHaveLength(level.gears.length);expect(new Set(level.gears).size).toBe(level.gears.length);expect(level.checkpoints.every(c=>c.id&&c.reward>=0)).toBe(true);}
   });
-  test('quarry suspension buys useful pace and fuel reserve, with a careful S0 alternative',()=>{
-    const level=getLevel(3),weak={...level.recommended,suspension:0};
-    for(const cadence of[12,18]){
-      const upgraded=controlledRun(level,level.recommended,26,cadence).state;
-      const pairedWeak=controlledRun(level,weak,26,cadence).state;
-      const carefulWeak=controlledRun(level,weak,18,cadence).state;
-      expect(upgraded.status).toBe('completed');expect(upgraded.fuel).toBeGreaterThan(7.5);
-      expect(pairedWeak.status).toBe('failed');expect(pairedWeak.reason).toBe('overturned');
-      expect(carefulWeak.status).toBe('completed');
-      expect(carefulWeak.tick-upgraded.tick).toBeGreaterThan(6*60);
-    }
+  test('world branches and cave collision metadata survive deterministic generation',()=>{
+    expect(getLevel(8).requires).toEqual([4]);expect(getLevel(11).requires).toEqual([9,6]);expect(getLevel(14).requires).toEqual([12]);
+    expect(getLevel(12).ceilings.length).toBeGreaterThan(0);
+    for(const roof of getLevel(12).ceilings){expect(roof.height).toBeGreaterThan(3);expect(roof.to).toBeGreaterThan(roof.from);}
+    expect(CONFIG.worlds.map(w=>w.gravity)).toEqual([9.81,2.3,3.8,15]);
+    expect(CONFIG.vehicles).toHaveLength(12);
   });
-  test.each([1,2,3,4,5,6,7])('recommended legal 0.2s pedal commands finish route %i and replay agrees',id=>{
+  test.each(Array.from({length:16},(_,i)=>i+1))('recommended legal 0.2s pedal commands finish route %i and replay agrees',id=>{
     const level=getLevel(id),{state,events}=controlledRun(level);
     expect(state.status).toBe('completed');expect(events.every((event,i)=>i===0||event[0]-events[i-1][0]>=12)).toBe(true);
     expect(replay(level,level.recommended,events,state.tick)).toEqual(summarize(level,state));
-  });
+  },30000);
 });

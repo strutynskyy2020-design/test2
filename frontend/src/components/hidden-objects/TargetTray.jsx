@@ -1,13 +1,22 @@
 import { useState } from "react";
 import { Lightbulb, Search } from "lucide-react";
 import ObjectIcon from "@/components/hidden-objects/ObjectIcon";
+import { getTargetArtwork } from "./targetArtwork";
 
-function TargetPicture({ target }) {
+function TargetPicture({ target, artwork }) {
   const [failed, setFailed] = useState(false);
+  const isAtlas = Number.isInteger(artwork.slot);
+  const spriteStyle = isAtlas ? {
+    width: `${artwork.columns * 100}%`, height: `${artwork.rows * 100}%`,
+    left: `${-(artwork.slot % artwork.columns) * 100}%`,
+    top: `${-Math.floor(artwork.slot / artwork.columns) * 100}%`,
+  } : undefined;
   return (
     <div className="hidden-target-picture">
-      {target.image && !failed ? (
-        <img src={target.image} alt={target.label} width="76" height="68" draggable="false" onError={() => setFailed(true)} />
+      {artwork.image && !failed ? (
+        <div className={isAtlas ? "hidden-target-sprite" : "hidden-target-legacy-picture"}>
+          <img src={artwork.image} alt={target.label} width="76" height="68" style={spriteStyle} draggable="false" decoding="async" onError={() => setFailed(true)} />
+        </div>
       ) : <ObjectIcon name={target.icon} size={36} />}
     </div>
   );
@@ -35,9 +44,10 @@ export default function TargetTray({ session, busy, onHint }) {
       <div className="hidden-target-list" role="list">
         {session.targets?.map((target) => {
           const isFound = found.has(target.id);
+          const artwork = getTargetArtwork(session.level_id, target);
           return (
             <div key={target.id} role="listitem" title={target.label} className={`hidden-target-chip ${isFound ? "is-found" : ""}`} data-testid={`hidden-object-target-${target.id}`}>
-              <TargetPicture key={target.image || target.id} target={target} />
+              <TargetPicture key={`${artwork.image || target.id}:${artwork.slot ?? "single"}`} target={target} artwork={artwork} />
               <span>{target.label}</span>
               {isFound && <b aria-label="Знайдено">✓</b>}
             </div>

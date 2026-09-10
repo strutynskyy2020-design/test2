@@ -10,19 +10,19 @@ jest.mock("@/lib/api",()=>({__esModule:true,default:{get:()=>Promise.resolve({da
 jest.mock("@/components/AvatarFrame",()=>()=>null);
 jest.mock("@/components/FeedItem",()=>()=>null);
 jest.mock("@/components/ThemeToggle",()=>()=>null);
-jest.mock("./art",()=>({ART_URLS:{cat:"/cat.webp"},drawParkedBuggy:()=>{}}));
-test("the actual home page places Pixel Drive immediately before the work schedule and opens its game route",async()=>{
+test("home hides the standalone Flappy and Pixel Drive cards while keeping access to Pixel's room",async()=>{
   global.IS_REACT_ACT_ENVIRONMENT=true;
-  window.requestIdleCallback=()=>1;window.cancelIdleCallback=()=>{};
-  HTMLCanvasElement.prototype.getContext=()=>({clearRect(){}});
   const host=document.createElement("div");document.body.append(host);const root=createRoot(host);
   try{
     await act(async()=>root.render(<Home/>));
-    const card=host.querySelector('[data-testid="home-pixel-drive"]');
-    expect(card).not.toBeNull();expect(card.nextElementSibling.textContent).toContain("МІЙ ГРАФІК");
+    expect(host.querySelector('[data-testid="home-pixel-drive"]')).toBeNull();
+    expect(host.querySelector('[data-testid="home-flappy-pixel"]')).toBeNull();
+    expect(host.textContent).not.toMatch(/Flappy|Повний газ/);
+    expect(host.textContent).toContain("МІЙ ГРАФІК");
+    const card=host.querySelector('[data-testid="home-pixel-story"]');
+    expect(card).not.toBeNull();
     await act(async()=>card.click());
     const destination=new URL(mockNavigate.mock.calls.at(-1)[0],"http://localhost");
-    expect(destination.pathname).toBe("/games/pixel-drive");
-    expect(destination.searchParams.get("from")).toBe("pixel");
+    expect(destination.pathname).toBe("/pet/room");
   }finally{await act(async()=>root.unmount());host.remove();}
 });

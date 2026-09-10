@@ -1,0 +1,862 @@
+{
+  "1": {
+    "image": "/hidden-objects/icons-v7/level-01.716691ad316a.webp",
+    "slots": {
+      "blue-umbrella": 0,
+      "golden-trophy": 1,
+      "green-coffee-mug": 2,
+      "red-fountain-pen": 3,
+      "large-brass-key": 4,
+      "purple-eyeglasses": 5
+    }
+  },
+  "2": {
+    "image": "/hidden-objects/icons-v7/level-02.a7998be9bf8f.webp",
+    "slots": {
+      "red-headphones": 0,
+      "blue-lunchbox": 1,
+      "yellow-lemon": 2,
+      "silver-spoon": 3,
+      "purple-wall-clock": 4,
+      "green-cactus": 5
+    }
+  },
+  "3": {
+    "image": "/hidden-objects/icons-v7/level-03.304c5071df4b.webp",
+    "slots": {
+      "black-camera-left": 0,
+      "large-golden-magnifier": 1,
+      "white-sealed-envelope": 2,
+      "red-scissors": 3,
+      "orange-toy-rocket": 4,
+      "large-blue-compass": 5
+    }
+  },
+  "4": {
+    "image": "/hidden-objects/icons-v7/level-04.d0e6efdbfbd0.webp",
+    "slots": {
+      "red-travel-ticket": 0,
+      "pocket-watch": 1,
+      "left-blue-umbrella": 2,
+      "large-green-suitcase": 3,
+      "black-camera": 4,
+      "yellow-sealed-envelope": 5,
+      "purple-travel-guide": 6,
+      "brass-baggage-key": 7,
+      "white-hat-feather": 8
+    }
+  },
+  "5": {
+    "image": "/hidden-objects/icons-v7/level-05.9eed348bae31.webp",
+    "slots": {
+      "turquoise-origami": 0,
+      "red-flashlight": 1,
+      "striped-sock": 2,
+      "gold-trophy": 3,
+      "green-die": 4,
+      "pink-feather": 5,
+      "black-headphones": 6,
+      "crescent-balloon": 7,
+      "silver-scissors": 8,
+      "orange-rocket": 9
+    }
+  },
+  "6": {
+    "image": "/hidden-objects/icons-v7/level-06.a8f09aeae7b4.webp",
+    "slots": {
+      "small-golden-crown": 0,
+      "red-costume-feather": 1,
+      "folded-blue-umbrella": 2,
+      "blue-white-striped-sock": 3,
+      "silver-tailor-scissors": 4,
+      "green-script-book": 5,
+      "black-opera-glasses": 6,
+      "purple-admission-ticket": 7,
+      "orange-flashlight": 8,
+      "brass-dressing-room-key": 9,
+      "white-bird-marionette": 10
+    }
+  },
+  "7": {
+    "image": "/hidden-objects/icons-v7/level-07.dc3933b61911.webp",
+    "slots": {
+      "blue-origami": 0,
+      "silver-wristwatch": 1,
+      "green-binder-clips": 2,
+      "brass-key": 3,
+      "red-usb": 4,
+      "red-mug-laptop": 5,
+      "purple-access-card": 6,
+      "white-earbud-case": 7,
+      "black-flashlight": 8,
+      "striped-sock": 9,
+      "yellow-star": 10,
+      "brown-backpack": 11
+    }
+  },
+  "8": {
+    "image": "/hidden-objects/icons-v7/level-08.f435e8766fc8.webp",
+    "slots": {
+      "blue-feather": 0,
+      "chess-knight": 1,
+      "orange-rocket": 2,
+      "green-die": 3,
+      "cabinet-padlock": 4,
+      "red-wire-spool": 5,
+      "yellow-tape-measure": 6,
+      "mounted-magnifier": 7,
+      "blue-drill": 8,
+      "red-spray-can": 9,
+      "gray-tape-roll": 10,
+      "yellow-rubber-duck": 11,
+      "gold-windup-key": 12,
+      "purple-gear": 13
+    }
+  },
+  "9": {
+    "image": "/hidden-objects/icons-v7/level-09.d5021a2177f5.webp",
+    "slots": {
+      "ship-under-dome": 0,
+      "butterfly-display-frame": 1,
+      "ornate-key-suitcase": 2,
+      "tall-red-lighthouse": 3,
+      "pocket-watch": 4,
+      "camera-in-hands": 5,
+      "candle-in-hand": 6,
+      "hourglass": 7,
+      "blue-butterfly-window": 8,
+      "upper-sealed-envelope": 9,
+      "white-quill": 10,
+      "brass-compass": 11,
+      "framed-animal-skull": 12,
+      "globe": 13,
+      "green-bottle-cabinet": 14,
+      "owl-in-cage": 15
+    }
+  },
+  "10": {
+    "image": "/hidden-objects/icons-v7/level-10.14b0bf45d41a.webp",
+    "slots": {
+      "item-1": 0,
+      "item-2": 1,
+      "item-3": 2,
+      "item-4": 3,
+      "item-5": 4,
+      "item-6": 5,
+      "item-7": 6,
+      "item-8": 7,
+      "item-9": 8,
+      "item-10": 9
+    }
+  },
+  "11": {
+    "image": "/hidden-objects/icons-v7/level-11.c7d04a9ade9f.webp",
+    "slots": {
+      "item-1": 0,
+      "item-2": 1,
+      "item-3": 2,
+      "item-4": 3,
+      "item-5": 4,
+      "item-6": 5,
+      "item-7": 6,
+      "item-8": 7,
+      "item-9": 8,
+      "item-10": 9
+    }
+  },
+  "12": {
+    "image": "/hidden-objects/icons-v7/level-12.9de5b09eb978.webp",
+    "slots": {
+      "item-1": 0,
+      "item-2": 1,
+      "item-3": 2,
+      "item-4": 3,
+      "item-5": 4,
+      "item-6": 5,
+      "item-7": 6,
+      "item-8": 7,
+      "item-9": 8,
+      "item-10": 9
+    }
+  },
+  "13": {
+    "image": "/hidden-objects/icons-v7/level-13.d47b0fba28b8.webp",
+    "slots": {
+      "item-1": 0,
+      "item-2": 1,
+      "item-3": 2,
+      "item-4": 3,
+      "item-5": 4,
+      "item-6": 5,
+      "item-7": 6,
+      "item-8": 7,
+      "item-9": 8,
+      "item-10": 9
+    }
+  },
+  "14": {
+    "image": "/hidden-objects/icons-v7/level-14.f77720debbdf.webp",
+    "slots": {
+      "item-1": 0,
+      "item-2": 1,
+      "item-3": 2,
+      "item-4": 3,
+      "item-5": 4,
+      "item-6": 5,
+      "item-7": 6,
+      "item-8": 7,
+      "item-9": 8,
+      "item-10": 9
+    }
+  },
+  "15": {
+    "image": "/hidden-objects/icons-v7/level-15.352bf9da3692.webp",
+    "slots": {
+      "item-1": 0,
+      "item-2": 1,
+      "item-3": 2,
+      "item-4": 3,
+      "item-5": 4,
+      "item-6": 5,
+      "item-7": 6,
+      "item-8": 7,
+      "item-9": 8,
+      "item-10": 9
+    }
+  },
+  "16": {
+    "image": "/hidden-objects/icons-v7/level-16.97d45f649b60.webp",
+    "slots": {
+      "item-1": 0,
+      "item-2": 1,
+      "item-3": 2,
+      "item-4": 3,
+      "item-5": 4,
+      "item-6": 5,
+      "item-7": 6,
+      "item-8": 7,
+      "item-9": 8,
+      "item-10": 9
+    }
+  },
+  "17": {
+    "image": "/hidden-objects/icons-v7/level-17.859e8f9bdda3.webp",
+    "slots": {
+      "item-1": 0,
+      "item-2": 1,
+      "item-3": 2,
+      "item-4": 3,
+      "item-5": 4,
+      "item-6": 5,
+      "item-7": 6,
+      "item-8": 7,
+      "item-9": 8,
+      "item-10": 9
+    }
+  },
+  "18": {
+    "image": "/hidden-objects/icons-v7/level-18.7c2ed20db128.webp",
+    "slots": {
+      "item-1": 0,
+      "item-2": 1,
+      "item-3": 2,
+      "item-4": 3,
+      "item-5": 4,
+      "item-6": 5,
+      "item-7": 6,
+      "item-8": 7,
+      "item-9": 8,
+      "item-10": 9
+    }
+  },
+  "19": {
+    "image": "/hidden-objects/icons-v7/level-19.dac420e8ec73.webp",
+    "slots": {
+      "item-1": 0,
+      "item-2": 1,
+      "item-3": 2,
+      "item-4": 3,
+      "item-5": 4,
+      "item-6": 5,
+      "item-7": 6,
+      "item-8": 7,
+      "item-9": 8,
+      "item-10": 9
+    }
+  },
+  "20": {
+    "image": "/hidden-objects/icons-v7/level-20.b16e181049e5.webp",
+    "slots": {
+      "item-1": 0,
+      "item-2": 1,
+      "item-3": 2,
+      "item-4": 3,
+      "item-5": 4,
+      "item-6": 5,
+      "item-7": 6,
+      "item-8": 7,
+      "item-9": 8,
+      "item-10": 9
+    }
+  },
+  "21": {
+    "image": "/hidden-objects/icons-v7/level-21.d63239072018.webp",
+    "slots": {
+      "item-1": 0,
+      "item-2": 1,
+      "item-3": 2,
+      "item-4": 3,
+      "item-5": 4,
+      "item-6": 5,
+      "item-7": 6,
+      "item-8": 7,
+      "item-9": 8,
+      "item-10": 9
+    }
+  },
+  "22": {
+    "image": "/hidden-objects/icons-v7/level-22.ce57a4c283cd.webp",
+    "slots": {
+      "item-1": 0,
+      "item-2": 1,
+      "item-3": 2,
+      "item-4": 3,
+      "item-5": 4,
+      "item-6": 5,
+      "item-7": 6,
+      "item-8": 7,
+      "item-9": 8,
+      "item-10": 9
+    }
+  },
+  "23": {
+    "image": "/hidden-objects/icons-v7/level-23.94e3157a19c1.webp",
+    "slots": {
+      "item-1": 0,
+      "item-2": 1,
+      "item-3": 2,
+      "item-4": 3,
+      "item-5": 4,
+      "item-6": 5,
+      "item-7": 6,
+      "item-8": 7,
+      "item-9": 8,
+      "item-10": 9
+    }
+  },
+  "24": {
+    "image": "/hidden-objects/icons-v7/level-24.6fc17037ed17.webp",
+    "slots": {
+      "item-1": 0,
+      "item-2": 1,
+      "item-3": 2,
+      "item-4": 3,
+      "item-5": 4,
+      "item-6": 5,
+      "item-7": 6,
+      "item-8": 7,
+      "item-9": 8,
+      "item-10": 9
+    }
+  },
+  "25": {
+    "image": "/hidden-objects/icons-v7/level-25.1a7f8e538e54.webp",
+    "slots": {
+      "item-1": 0,
+      "item-2": 1,
+      "item-3": 2,
+      "item-4": 3,
+      "item-5": 4,
+      "item-6": 5,
+      "item-7": 6,
+      "item-8": 7,
+      "item-9": 8,
+      "item-10": 9
+    }
+  },
+  "26": {
+    "image": "/hidden-objects/icons-v7/level-26.2dc70e2a9496.webp",
+    "slots": {
+      "item-1": 0,
+      "item-2": 1,
+      "item-3": 2,
+      "item-4": 3,
+      "item-5": 4,
+      "item-6": 5,
+      "item-7": 6,
+      "item-8": 7,
+      "item-9": 8,
+      "item-10": 9
+    }
+  },
+  "27": {
+    "image": "/hidden-objects/icons-v7/level-27.8d316f81a5e5.webp",
+    "slots": {
+      "item-1": 0,
+      "item-2": 1,
+      "item-3": 2,
+      "item-4": 3,
+      "item-5": 4,
+      "item-6": 5,
+      "item-7": 6,
+      "item-8": 7,
+      "item-9": 8,
+      "item-10": 9
+    }
+  },
+  "28": {
+    "image": "/hidden-objects/icons-v7/level-28.272fe817fb18.webp",
+    "slots": {
+      "item-1": 0,
+      "item-2": 1,
+      "item-3": 2,
+      "item-4": 3,
+      "item-5": 4,
+      "item-6": 5,
+      "item-7": 6,
+      "item-8": 7,
+      "item-9": 8,
+      "item-10": 9
+    }
+  },
+  "29": {
+    "image": "/hidden-objects/icons-v7/level-29.728c36ee7dc4.webp",
+    "slots": {
+      "item-1": 0,
+      "item-2": 1,
+      "item-3": 2,
+      "item-4": 3,
+      "item-5": 4,
+      "item-6": 5,
+      "item-7": 6,
+      "item-8": 7,
+      "item-9": 8,
+      "item-10": 9
+    }
+  },
+  "30": {
+    "image": "/hidden-objects/icons-v7/level-30.8b1ea1e850c4.webp",
+    "slots": {
+      "item-1": 0,
+      "item-2": 1,
+      "item-3": 2,
+      "item-4": 3,
+      "item-5": 4,
+      "item-6": 5,
+      "item-7": 6,
+      "item-8": 7,
+      "item-9": 8,
+      "item-10": 9,
+      "item-11": 10,
+      "item-12": 11
+    }
+  },
+  "31": {
+    "image": "/hidden-objects/icons-v7/level-31.b851c4f855b3.webp",
+    "slots": {
+      "item-1": 0,
+      "item-2": 1,
+      "item-3": 2,
+      "item-4": 3,
+      "item-5": 4,
+      "item-6": 5,
+      "item-7": 6,
+      "item-8": 7,
+      "item-9": 8,
+      "item-10": 9,
+      "item-11": 10,
+      "item-12": 11
+    }
+  },
+  "32": {
+    "image": "/hidden-objects/icons-v7/level-32.d0bb01fd5fe8.webp",
+    "slots": {
+      "item-1": 0,
+      "item-2": 1,
+      "item-3": 2,
+      "item-4": 3,
+      "item-5": 4,
+      "item-6": 5,
+      "item-7": 6,
+      "item-8": 7,
+      "item-9": 8,
+      "item-10": 9,
+      "item-11": 10,
+      "item-12": 11
+    }
+  },
+  "33": {
+    "image": "/hidden-objects/icons-v7/level-33.6074c492d279.webp",
+    "slots": {
+      "item-1": 0,
+      "item-2": 1,
+      "item-3": 2,
+      "item-4": 3,
+      "item-5": 4,
+      "item-6": 5,
+      "item-7": 6,
+      "item-8": 7,
+      "item-9": 8,
+      "item-10": 9,
+      "item-11": 10,
+      "item-12": 11
+    }
+  },
+  "34": {
+    "image": "/hidden-objects/icons-v7/level-34.454cfe2dd8a6.webp",
+    "slots": {
+      "item-1": 0,
+      "item-2": 1,
+      "item-3": 2,
+      "item-4": 3,
+      "item-5": 4,
+      "item-6": 5,
+      "item-7": 6,
+      "item-8": 7,
+      "item-9": 8,
+      "item-10": 9,
+      "item-11": 10,
+      "item-12": 11
+    }
+  },
+  "35": {
+    "image": "/hidden-objects/icons-v7/level-35.c14e3080a97b.webp",
+    "slots": {
+      "item-1": 0,
+      "item-2": 1,
+      "item-3": 2,
+      "item-4": 3,
+      "item-5": 4,
+      "item-6": 5,
+      "item-7": 6,
+      "item-8": 7,
+      "item-9": 8,
+      "item-10": 9,
+      "item-11": 10,
+      "item-12": 11
+    }
+  },
+  "36": {
+    "image": "/hidden-objects/icons-v7/level-36.38cad88eaa41.webp",
+    "slots": {
+      "item-1": 0,
+      "item-2": 1,
+      "item-3": 2,
+      "item-4": 3,
+      "item-5": 4,
+      "item-6": 5,
+      "item-7": 6,
+      "item-8": 7,
+      "item-9": 8,
+      "item-10": 9,
+      "item-11": 10,
+      "item-12": 11
+    }
+  },
+  "37": {
+    "image": "/hidden-objects/icons-v7/level-37.c5967ef093c1.webp",
+    "slots": {
+      "item-1": 0,
+      "item-2": 1,
+      "item-3": 2,
+      "item-4": 3,
+      "item-5": 4,
+      "item-6": 5,
+      "item-7": 6,
+      "item-8": 7,
+      "item-9": 8,
+      "item-10": 9,
+      "item-11": 10,
+      "item-12": 11
+    }
+  },
+  "38": {
+    "image": "/hidden-objects/icons-v7/level-38.2bf3435bdd0e.webp",
+    "slots": {
+      "item-1": 0,
+      "item-2": 1,
+      "item-3": 2,
+      "item-4": 3,
+      "item-5": 4,
+      "item-6": 5,
+      "item-7": 6,
+      "item-8": 7,
+      "item-9": 8,
+      "item-10": 9,
+      "item-11": 10,
+      "item-12": 11
+    }
+  },
+  "39": {
+    "image": "/hidden-objects/icons-v7/level-39.1f8a629cf9b7.webp",
+    "slots": {
+      "item-1": 0,
+      "item-2": 1,
+      "item-3": 2,
+      "item-4": 3,
+      "item-5": 4,
+      "item-6": 5,
+      "item-7": 6,
+      "item-8": 7,
+      "item-9": 8,
+      "item-10": 9,
+      "item-11": 10,
+      "item-12": 11
+    }
+  },
+  "40": {
+    "image": "/hidden-objects/icons-v7/level-40.fda90f9e3ccb.webp",
+    "slots": {
+      "item-1": 0,
+      "item-2": 1,
+      "item-3": 2,
+      "item-4": 3,
+      "item-5": 4,
+      "item-6": 5,
+      "item-7": 6,
+      "item-8": 7,
+      "item-9": 8,
+      "item-10": 9,
+      "item-11": 10,
+      "item-12": 11
+    }
+  },
+  "41": {
+    "image": "/hidden-objects/icons-v7/level-41.6977a7093ea0.webp",
+    "slots": {
+      "item-1": 0,
+      "item-2": 1,
+      "item-3": 2,
+      "item-4": 3,
+      "item-5": 4,
+      "item-6": 5,
+      "item-7": 6,
+      "item-8": 7,
+      "item-9": 8,
+      "item-10": 9,
+      "item-11": 10,
+      "item-12": 11
+    }
+  },
+  "42": {
+    "image": "/hidden-objects/icons-v7/level-42.f2c5dfdf3708.webp",
+    "slots": {
+      "item-1": 0,
+      "item-2": 1,
+      "item-3": 2,
+      "item-4": 3,
+      "item-5": 4,
+      "item-6": 5,
+      "item-7": 6,
+      "item-8": 7,
+      "item-9": 8,
+      "item-10": 9,
+      "item-11": 10,
+      "item-12": 11
+    }
+  },
+  "43": {
+    "image": "/hidden-objects/icons-v7/level-43.c4ce45917145.webp",
+    "slots": {
+      "item-1": 0,
+      "item-2": 1,
+      "item-3": 2,
+      "item-4": 3,
+      "item-5": 4,
+      "item-6": 5,
+      "item-7": 6,
+      "item-8": 7,
+      "item-9": 8,
+      "item-10": 9,
+      "item-11": 10,
+      "item-12": 11
+    }
+  },
+  "44": {
+    "image": "/hidden-objects/icons-v7/level-44.92b1bcfbb69f.webp",
+    "slots": {
+      "item-1": 0,
+      "item-2": 1,
+      "item-3": 2,
+      "item-4": 3,
+      "item-5": 4,
+      "item-6": 5,
+      "item-7": 6,
+      "item-8": 7,
+      "item-9": 8,
+      "item-10": 9,
+      "item-11": 10,
+      "item-12": 11
+    }
+  },
+  "45": {
+    "image": "/hidden-objects/icons-v7/level-45.fdbf5df93875.webp",
+    "slots": {
+      "item-1": 0,
+      "item-2": 1,
+      "item-3": 2,
+      "item-4": 3,
+      "item-5": 4,
+      "item-6": 5,
+      "item-7": 6,
+      "item-8": 7,
+      "item-9": 8,
+      "item-10": 9,
+      "item-11": 10,
+      "item-12": 11
+    }
+  },
+  "46": {
+    "image": "/hidden-objects/icons-v7/level-46.e5c7b859be03.webp",
+    "slots": {
+      "item-1": 0,
+      "item-2": 1,
+      "item-3": 2,
+      "item-4": 3,
+      "item-5": 4,
+      "item-6": 5,
+      "item-7": 6,
+      "item-8": 7,
+      "item-9": 8,
+      "item-10": 9,
+      "item-11": 10,
+      "item-12": 11
+    }
+  },
+  "47": {
+    "image": "/hidden-objects/icons-v7/level-47.be8cc7183b12.webp",
+    "slots": {
+      "item-1": 0,
+      "item-2": 1,
+      "item-3": 2,
+      "item-4": 3,
+      "item-5": 4,
+      "item-6": 5,
+      "item-7": 6,
+      "item-8": 7,
+      "item-9": 8,
+      "item-10": 9,
+      "item-11": 10,
+      "item-12": 11
+    }
+  },
+  "48": {
+    "image": "/hidden-objects/icons-v7/level-48.f609a34ef572.webp",
+    "slots": {
+      "item-1": 0,
+      "item-2": 1,
+      "item-3": 2,
+      "item-4": 3,
+      "item-5": 4,
+      "item-6": 5,
+      "item-7": 6,
+      "item-8": 7,
+      "item-9": 8,
+      "item-10": 9,
+      "item-11": 10,
+      "item-12": 11
+    }
+  },
+  "49": {
+    "image": "/hidden-objects/icons-v7/level-49.dd1406468436.webp",
+    "slots": {
+      "item-1": 0,
+      "item-2": 1,
+      "item-3": 2,
+      "item-4": 3,
+      "item-5": 4,
+      "item-6": 5,
+      "item-7": 6,
+      "item-8": 7,
+      "item-9": 8,
+      "item-10": 9,
+      "item-11": 10,
+      "item-12": 11
+    }
+  },
+  "50": {
+    "image": "/hidden-objects/icons-v7/level-50.fda29092f6e4.webp",
+    "slots": {
+      "item-1": 0,
+      "item-2": 1,
+      "item-3": 2,
+      "item-4": 3,
+      "item-5": 4,
+      "item-6": 5,
+      "item-7": 6,
+      "item-8": 7,
+      "item-9": 8,
+      "item-10": 9,
+      "item-11": 10,
+      "item-12": 11
+    }
+  },
+  "51": {
+    "image": "/hidden-objects/icons-v7/level-51.fc9813e8f3cf.webp",
+    "slots": {
+      "item-1": 0,
+      "item-2": 1,
+      "item-3": 2,
+      "item-4": 3,
+      "item-5": 4,
+      "item-6": 5,
+      "item-7": 6,
+      "item-8": 7,
+      "item-9": 8,
+      "item-10": 9,
+      "item-11": 10,
+      "item-12": 11
+    }
+  },
+  "52": {
+    "image": "/hidden-objects/icons-v7/level-52.6a8b755a5e61.webp",
+    "slots": {
+      "item-1": 0,
+      "item-2": 1,
+      "item-3": 2,
+      "item-4": 3,
+      "item-5": 4,
+      "item-6": 5,
+      "item-7": 6,
+      "item-8": 7,
+      "item-9": 8,
+      "item-10": 9,
+      "item-11": 10,
+      "item-12": 11
+    }
+  },
+  "53": {
+    "image": "/hidden-objects/icons-v7/level-53.2b63c4fe3684.webp",
+    "slots": {
+      "item-1": 0,
+      "item-2": 1,
+      "item-3": 2,
+      "item-4": 3,
+      "item-5": 4,
+      "item-6": 5,
+      "item-7": 6,
+      "item-8": 7,
+      "item-9": 8,
+      "item-10": 9,
+      "item-11": 10,
+      "item-12": 11
+    }
+  },
+  "54": {
+    "image": "/hidden-objects/icons-v7/level-54.4a692a9ad5ba.webp",
+    "slots": {
+      "item-1": 0,
+      "item-2": 1,
+      "item-3": 2,
+      "item-4": 3,
+      "item-5": 4,
+      "item-6": 5,
+      "item-7": 6,
+      "item-8": 7,
+      "item-9": 8,
+      "item-10": 9,
+      "item-11": 10,
+      "item-12": 11
+    }
+  }
+}

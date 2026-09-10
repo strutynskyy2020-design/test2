@@ -31,6 +31,7 @@ export default function Feed() {
     { key: "all", label: "Все", color: "#E1E4EC", foreground: "#20242E" },
     { key: "quest", label: "Квести", color: "#6D3DF5", foreground: "#FFFFFF" },
     { key: "level_up", label: "Рівні", color: "#FF5C00", foreground: "#0A0A0A" },
+    { key: "game", label: "Ігри", color: "#39FF14", foreground: "#0A0A0A" },
     { key: "purchase", label: "Покупки", color: "#00F0FF", foreground: "#0A0A0A" },
     { key: "cube", label: "Куб", color: "#FFB800", foreground: "#0A0A0A" },
     { key: "diamond_avatar", label: "Алмазні", color: "#7DD3FC", foreground: "#07111C" },

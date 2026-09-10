@@ -6106,6 +6106,7 @@ async def cube_spin(user: dict = Depends(get_current_user)):
             "kind": "purchase",
             "amount": -cost,
             "description": "Платний кидок Щедрого Куба",
+            "meta": {"source": "cube_spin"},
             "created_at": now_iso(),
         })
     await db.transactions.insert_one({
@@ -6231,7 +6232,7 @@ BONUS_MATCH_LIFE_PRICE = 10
 BONUS_MATCH_DAILY_POINT_CAP = None  # No daily Point cap for Bonus Match
 BONUS_MATCH_SYMBOLS = ["coin", "star", "gift", "cube", "zap", "trophy"]
 BONUS_MATCH_SPECIALS = {"rocket_row", "rocket_col", "bomb", "color_bomb"}
-BONUS_MATCH_FIRST_CLEAR_POINTS = 2
+BONUS_MATCH_FIRST_CLEAR_POINTS = 1
 BONUS_MATCH_FIRST_CLEAR_XP = 15
 BONUS_MATCH_REPLAY_XP = 5
 BONUS_MATCH_BOSS_LEVELS = {25: 2, 40: 2, 50: 3, 60: 2, 70: 2, 80: 2, 90: 2, 100: 3, 110: 3, 120: 3, 130: 3, 140: 3, 150: 4}
@@ -7838,7 +7839,7 @@ async def _bonus_match_reward_win(
 ) -> dict:
     """Award deterministic Bonus Match rewards.
 
-    First clear of a level: +2 Point and +15 XP.
+    First clear of a level: +1 Point and +15 XP.
     Replays: +0 Point and at most +5 XP once per day.
     """
     level = int(session["level"])
@@ -7940,7 +7941,7 @@ async def _bonus_match_reward_win(
             "stars": stars,
             "xp": xp_awarded,
             "first_completion": first_completion,
-            "reward_policy": "v164_first_2_points_15_xp_replay_5_xp_daily_cap",
+            "reward_policy": "first_1_point_15_xp_replay_5_xp_daily_cap",
         },
     })
     if points_awarded:
@@ -9386,9 +9387,12 @@ async def bonus_match_move(
 # ────────────────────────────────────────────────────────────────────────
 # Motivational feed (activity stream)
 # ────────────────────────────────────────────────────────────────────────
+FEED_PIXEL_GAMES = {"flappy": "Flappy Піксель", "pixel_drive": "Повний газ"}
+
+
 class FeedEvent(BaseModel):
     id: str
-    kind: Literal["quest", "purchase", "level_up", "cube", "prize_delivered", "goal", "diamond_avatar"]
+    kind: Literal["quest", "purchase", "level_up", "cube", "prize_delivered", "goal", "diamond_avatar", "game"]
     user_id: str
     user_name: str
     avatar_initials: str
@@ -9400,6 +9404,7 @@ class FeedEvent(BaseModel):
     subtitle: str = ""
     amount: Optional[int] = None
     level: Optional[int] = None
+    game: Optional[Literal["flappy", "pixel_drive"]] = None
     created_at: str
     reactions: dict = {}
     my_reaction: Optional[str] = None
@@ -9441,18 +9446,28 @@ def _classify_transaction(tx: dict, level_at_time: Optional[int] = None):
 
 @api.get("/feed", response_model=FeedResponse)
 async def get_feed(limit: int = 40, user: dict = Depends(get_current_user)):
-    """Aggregated activity feed: quest completions, purchases, cube spins, level-ups, delivered orders.
+    """Aggregated activity feed: quests, purchases, cube spins, game wins, level-ups, delivered orders.
     Sorted by created_at desc. Level-ups derived from cumulative XP crossings.
     """
     # 1) Load recent transactions and explicit showcase events across all employees.
-    # Personal pet rewards stay private in the owner's journal. They do not
-    # turn an individual companion into a team competition.
+    # Personal pet rewards stay private. Paid cube spins retain their financial
+    # transaction but only the roll result belongs in the public activity feed.
+    # Match old untagged debits as well as newly tagged ones before limiting.
     txs = await db.transactions.find(
-        {"kind": {"$ne": "pet_gift"}, "meta.source": {"$ne": "pet"}},
+        {"kind": {"$ne": "pet_gift"}, "meta.source": {"$ne": "pet"}, "$nor": [
+            {"kind": "purchase", "meta.source": "cube_spin"},
+            {"kind": "purchase", "description": "Платний кидок Щедрого Куба"},
+        ]},
         {"_id": 0},
     ).sort("created_at", -1).to_list(limit * 3)
     showcase_events = await db.feed_events.find({}, {"_id": 0}).sort("created_at", -1).to_list(limit * 2)
     level_docs = await db.level_up_events.find({}, {"_id": 0}).sort("created_at", -1).to_list(limit * 2)
+    # Durable completion receipts survive session expiry and are idempotent on
+    # finish retries. Reading them also includes already saved game victories.
+    game_runs = await db.pixel_campaign_runs.find(
+        {"game": {"$in": list(FEED_PIXEL_GAMES)}},
+        {"_id": 1, "user_id": 1, "game": 1, "level": 1, "completed_at": 1},
+    ).sort("completed_at", -1).to_list(limit)
 
     # Fetch user info for participants. Explicit showcase events carry a frozen
     # avatar snapshot, but their owners are included for department/name fallback.
@@ -9460,6 +9475,7 @@ async def get_feed(limit: int = 40, user: dict = Depends(get_current_user)):
         {t["user_id"] for t in txs}
         | {e["user_id"] for e in showcase_events if e.get("user_id")}
         | {e["user_id"] for e in level_docs if e.get("user_id")}
+        | {e["user_id"] for e in game_runs}
     )
     users_map = {}
     async for u in db.users.find(
@@ -9514,6 +9530,28 @@ async def get_feed(limit: int = 40, user: dict = Depends(get_current_user)):
             subtitle=subtitle,
             amount=t.get("amount"),
             created_at=t["created_at"],
+        ))
+
+    for item in game_runs:
+        u = users_map.get(item["user_id"])
+        if not u:
+            continue
+        game = item["game"]
+        events.append(FeedEvent(
+            id=f"game-{item['_id']}",
+            kind="game",
+            game=game,
+            level=item["level"],
+            user_id=item["user_id"],
+            user_name=u["name"],
+            avatar_initials=u.get("avatar_initials", "?"),
+            avatar_color=u.get("avatar_color", "#FFB800"),
+            avatar_url=u.get("avatar_url"),
+            avatar_rarity=u.get("avatar_rarity", "basic"),
+            department=u.get("department", ""),
+            title=f"пройшов рівень у «{FEED_PIXEL_GAMES[game]}»",
+            subtitle=f"Рівень {item['level']}",
+            created_at=item["completed_at"],
         ))
 
     # 4) Explicit showcase events. These use a frozen avatar snapshot so the
@@ -9628,6 +9666,12 @@ async def _attach_social(events: list, current_id: str):
 
 async def _feed_event_owner(event_id: str) -> Optional[str]:
     """Resolve the owner user_id of a feed event by its derived id."""
+    if event_id.startswith("game-"):
+        run = await db.pixel_campaign_runs.find_one(
+            {"_id": event_id[len("game-"):], "game": {"$in": list(FEED_PIXEL_GAMES)}},
+            {"_id": 0, "user_id": 1},
+        )
+        return run["user_id"] if run else None
     if event_id.startswith("lvlup-"):
         parts = event_id.split("-")
         return parts[1] if len(parts) > 1 else None
@@ -12468,7 +12512,7 @@ async def admin_approve_user(user_id: str, admin: dict = Depends(get_current_adm
 # VPDK Detective — Hidden Objects campaign
 # ────────────────────────────────────────────────────────────────────────
 HIDDEN_OBJECT_LEVELS_PATH = ROOT_DIR / "hidden_object_levels.json"
-HIDDEN_OBJECT_FIRST_CLEAR_POINTS = 2
+HIDDEN_OBJECT_FIRST_CLEAR_POINTS = 1
 HIDDEN_OBJECT_FIRST_CLEAR_XP = 15
 HIDDEN_OBJECT_REPLAY_XP = 5
 HIDDEN_OBJECT_REPLAY_REWARDS_PER_DAY = 1
@@ -13175,7 +13219,7 @@ async def hidden_object_complete(body: HiddenObjectCompleteBody, user: dict = De
                 "first_completion": first_completion,
                 "reward_day": reward_day,
                 "xp": xp_awarded,
-                "reward_policy": "v164_first_2_points_15_xp_one_replay_5_xp_per_day",
+                "reward_policy": "first_1_point_15_xp_one_replay_5_xp_per_day",
             },
         }
         await db.transactions.update_one(
@@ -13366,12 +13410,15 @@ async def seed_phase2():
 
 try:
     from backend.pixel_campaign import register_pixel_campaign_routes
+    from backend.pixel_admin_analytics import register_pixel_analytics_routes
 except ModuleNotFoundError as exc:
     if exc.name != "backend":
         raise
     from pixel_campaign import register_pixel_campaign_routes
+    from pixel_admin_analytics import register_pixel_analytics_routes
 
 register_pixel_campaign_routes(api, db, get_current_user)
+register_pixel_analytics_routes(api, db, get_current_admin, _bonus_match_level_catalog, PLAYER_ROLES)
 register_pet_routes(api, db, get_current_user, _notify_points_awarded)
 register_flappy_routes(api, db, get_current_user)
 register_pixel_drive_routes(api, db, get_current_user)
@@ -13388,6 +13435,7 @@ async def on_startup():
     await seed_phase2()
     await seed_pet_v1(db)
     await db.pixel_campaign_runs.create_index([("user_id", 1), ("game", 1), ("completed_at", 1)])
+    await db.pixel_campaign_runs.create_index([("game", 1), ("completed_at", -1)])
     await seed_flappy(db)
     await seed_pixel_drive(db)
     await seed_hidden_objects_v157()

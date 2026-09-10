@@ -559,7 +559,7 @@ const runMockMove = (game, from, to) => {
     animation: { swapped_board: swapped, steps, reshuffled, reason: reshuffled ? "no_moves" : null },
     result: status === "active" ? null : {
       stars,
-      points_awarded: won ? 2 : 0,
+      points_awarded: won ? 1 : 0,
       xp_awarded: won ? 15 : 0,
       first_win_bonus: 0,
       lives: won ? 5 : 4,
@@ -2676,7 +2676,7 @@ function BonusMatchScreen() {
         setAnimatedScore(nextScore);
         patchBoosterProfile({ ...boosterInventory, [booster]: Math.max(0, Number(boosterInventory[booster] || 0) - 1) });
         if (won) {
-          setResult({ stars: 1, points_awarded: 2, xp_awarded: 15, first_completion: true });
+          setResult({ stars: 1, points_awarded: 1, xp_awarded: 15, first_completion: true });
           setStatus(current => ({ ...current, profile: { ...current.profile, current_level: Math.min(150, game.level + 1) } }));
           await playWinCelebration();
         }

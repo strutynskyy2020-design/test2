@@ -1,0 +1,318 @@
+{
+  "measuredAt": "2026-09-10T09:39:20.524Z",
+  "method": "Земна рівна дорога: 30 с, тестовий водій дозує педалі від перекидання, без реактивної тяги. Контрольний маршрут: 420 м.",
+  "vehicles": {
+    "wanderer": {
+      "0": {
+        "speedKmh": 53.9843,
+        "to20Seconds": 2.1167,
+        "climb20": false,
+        "routeKmh": 40.5618,
+        "routeStatus": "completed",
+        "fuelSeconds": 40
+      },
+      "5": {
+        "speedKmh": 72.9858,
+        "to20Seconds": 0.9833,
+        "climb20": true,
+        "routeKmh": 54.5614,
+        "routeStatus": "completed",
+        "fuelSeconds": 60
+      },
+      "10": {
+        "speedKmh": 91.5231,
+        "to20Seconds": 0.7667,
+        "climb20": true,
+        "routeKmh": 61.2977,
+        "routeStatus": "completed",
+        "fuelSeconds": 80
+      }
+    },
+    "swift": {
+      "0": {
+        "speedKmh": 64.8556,
+        "to20Seconds": 1.1667,
+        "climb20": true,
+        "routeKmh": 48.9911,
+        "routeStatus": "completed",
+        "fuelSeconds": 32
+      },
+      "5": {
+        "speedKmh": 87.1449,
+        "to20Seconds": 1,
+        "climb20": false,
+        "routeKmh": 59.5002,
+        "routeStatus": "completed",
+        "fuelSeconds": 48
+      },
+      "10": {
+        "speedKmh": 108.9399,
+        "to20Seconds": 0.9333,
+        "climb20": false,
+        "routeKmh": 62.817,
+        "routeStatus": "completed",
+        "fuelSeconds": 64
+      }
+    },
+    "dune_buggy": {
+      "0": {
+        "speedKmh": 61.2703,
+        "to20Seconds": 1.45,
+        "climb20": true,
+        "routeKmh": 46.8765,
+        "routeStatus": "completed",
+        "fuelSeconds": 40
+      },
+      "5": {
+        "speedKmh": 83.4399,
+        "to20Seconds": 0.8833,
+        "climb20": true,
+        "routeKmh": 58.4586,
+        "routeStatus": "completed",
+        "fuelSeconds": 58
+      },
+      "10": {
+        "speedKmh": 105.3084,
+        "to20Seconds": 0.8333,
+        "climb20": true,
+        "routeKmh": 63.0957,
+        "routeStatus": "completed",
+        "fuelSeconds": 76
+      }
+    },
+    "hauler": {
+      "0": {
+        "speedKmh": 58.2685,
+        "to20Seconds": 1.7667,
+        "climb20": true,
+        "routeKmh": 44.1903,
+        "routeStatus": "completed",
+        "fuelSeconds": 48
+      },
+      "5": {
+        "speedKmh": 78.3635,
+        "to20Seconds": 1.05,
+        "climb20": true,
+        "routeKmh": 56.1834,
+        "routeStatus": "completed",
+        "fuelSeconds": 72
+      },
+      "10": {
+        "speedKmh": 98.2264,
+        "to20Seconds": 0.8667,
+        "climb20": true,
+        "routeKmh": 60.8056,
+        "routeStatus": "completed",
+        "fuelSeconds": 96
+      }
+    },
+    "boar": {
+      "0": {
+        "speedKmh": 54.3911,
+        "to20Seconds": 1.8,
+        "climb20": false,
+        "routeKmh": 41.8757,
+        "routeStatus": "completed",
+        "fuelSeconds": 44
+      },
+      "5": {
+        "speedKmh": 72.9708,
+        "to20Seconds": 1.1667,
+        "climb20": true,
+        "routeKmh": 53.0908,
+        "routeStatus": "completed",
+        "fuelSeconds": 64
+      },
+      "10": {
+        "speedKmh": 91.3579,
+        "to20Seconds": 1.0167,
+        "climb20": true,
+        "routeKmh": 58.8274,
+        "routeStatus": "completed",
+        "fuelSeconds": 84
+      }
+    },
+    "rally": {
+      "0": {
+        "speedKmh": 79.6556,
+        "to20Seconds": 1.2,
+        "climb20": true,
+        "routeKmh": 54.5688,
+        "routeStatus": "completed",
+        "fuelSeconds": 40
+      },
+      "5": {
+        "speedKmh": 109.5053,
+        "to20Seconds": 0.7833,
+        "climb20": true,
+        "routeKmh": 62.3996,
+        "routeStatus": "completed",
+        "fuelSeconds": 58
+      },
+      "10": {
+        "speedKmh": 139.0196,
+        "to20Seconds": 0.65,
+        "climb20": true,
+        "routeKmh": 66.6193,
+        "routeStatus": "completed",
+        "fuelSeconds": 76
+      }
+    },
+    "arrow": {
+      "0": {
+        "speedKmh": 97.8605,
+        "to20Seconds": 0.9167,
+        "climb20": true,
+        "routeKmh": 60.4595,
+        "routeStatus": "completed",
+        "fuelSeconds": 36
+      },
+      "5": {
+        "speedKmh": 133.2203,
+        "to20Seconds": 0.55,
+        "climb20": true,
+        "routeKmh": 67.43,
+        "routeStatus": "completed",
+        "fuelSeconds": 52
+      },
+      "10": {
+        "speedKmh": 168.206,
+        "to20Seconds": 0.45,
+        "climb20": true,
+        "routeKmh": 69.0687,
+        "routeStatus": "completed",
+        "fuelSeconds": 68
+      }
+    },
+    "bastion": {
+      "0": {
+        "speedKmh": 36.4019,
+        "to20Seconds": 1.15,
+        "climb20": true,
+        "routeKmh": 33.6134,
+        "routeStatus": "completed",
+        "fuelSeconds": 60
+      },
+      "5": {
+        "speedKmh": 52.9893,
+        "to20Seconds": 0.7667,
+        "climb20": true,
+        "routeKmh": 46.3552,
+        "routeStatus": "completed",
+        "fuelSeconds": 85
+      },
+      "10": {
+        "speedKmh": 69.5452,
+        "to20Seconds": 0.6167,
+        "climb20": true,
+        "routeKmh": 56.667,
+        "routeStatus": "completed",
+        "fuelSeconds": 110
+      }
+    },
+    "polar": {
+      "0": {
+        "speedKmh": 58.3786,
+        "to20Seconds": 1.7167,
+        "climb20": true,
+        "routeKmh": 47.2985,
+        "routeStatus": "completed",
+        "fuelSeconds": 44
+      },
+      "5": {
+        "speedKmh": 81.2617,
+        "to20Seconds": 1.8,
+        "climb20": false,
+        "routeKmh": 57.884,
+        "routeStatus": "completed",
+        "fuelSeconds": 64
+      },
+      "10": {
+        "speedKmh": 103.3403,
+        "to20Seconds": 1.9333,
+        "climb20": false,
+        "routeKmh": 63.2091,
+        "routeStatus": "completed",
+        "fuelSeconds": 84
+      }
+    },
+    "sprinter": {
+      "0": {
+        "speedKmh": 79.4808,
+        "to20Seconds": 0.9833,
+        "climb20": true,
+        "routeKmh": 57.3121,
+        "routeStatus": "completed",
+        "fuelSeconds": 44
+      },
+      "5": {
+        "speedKmh": 107.6406,
+        "to20Seconds": 0.6833,
+        "climb20": true,
+        "routeKmh": 63.5588,
+        "routeStatus": "completed",
+        "fuelSeconds": 63
+      },
+      "10": {
+        "speedKmh": 135.3698,
+        "to20Seconds": 0.6167,
+        "climb20": true,
+        "routeKmh": 67.0176,
+        "routeStatus": "completed",
+        "fuelSeconds": 82
+      }
+    },
+    "glider": {
+      "0": {
+        "speedKmh": 63.04,
+        "to20Seconds": 0.8333,
+        "climb20": true,
+        "routeKmh": 52.7799,
+        "routeStatus": "completed",
+        "fuelSeconds": 36
+      },
+      "5": {
+        "speedKmh": 87.2595,
+        "to20Seconds": 0.6667,
+        "climb20": true,
+        "routeKmh": 60.6801,
+        "routeStatus": "completed",
+        "fuelSeconds": 51
+      },
+      "10": {
+        "speedKmh": 111.4065,
+        "to20Seconds": 0.5667,
+        "climb20": true,
+        "routeKmh": 62.1354,
+        "routeStatus": "completed",
+        "fuelSeconds": 66
+      }
+    },
+    "orbiter": {
+      "0": {
+        "speedKmh": 43.1525,
+        "to20Seconds": 1.95,
+        "climb20": false,
+        "routeKmh": 35.6016,
+        "routeStatus": "completed",
+        "fuelSeconds": 50
+      },
+      "5": {
+        "speedKmh": 63.7931,
+        "to20Seconds": 0.95,
+        "climb20": true,
+        "routeKmh": 51.2891,
+        "routeStatus": "completed",
+        "fuelSeconds": 70
+      },
+      "10": {
+        "speedKmh": 84.1471,
+        "to20Seconds": 0.8,
+        "climb20": true,
+        "routeKmh": 60.6229,
+        "routeStatus": "completed",
+        "fuelSeconds": 90
+      }
+    }
+  }
+}

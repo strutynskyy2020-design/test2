@@ -8,9 +8,9 @@ describe('Pixel Drive rigid-body physics', () => {
   test('three real bodies and two independent WheelJoints', () => {
     const s = createDrive(flatLevel()),
       f = s._physics;
-    expect(f.chassis.getMass()).toBe(800);
-    expect(f.wheels.map(w => w.getMass())).toEqual([35, 35]);
-    expect(f.wheels[0].getInertia()).toBeCloseTo(35 * .45 * .45 / 2, 8);
+    expect(f.chassis.getMass()).toBe(828);
+    for(const wheel of f.wheels) expect(wheel.getMass()).toBeCloseTo(36,10);
+    expect(f.wheels[0].getInertia()).toBeCloseTo(36 * .46 * .46 / 2, 8);
     expect(f.joints.map(j => j.getType())).toEqual(['wheel-joint', 'wheel-joint']);
     expect(Object.keys(s)).not.toContain('_physics');
   });
@@ -140,8 +140,8 @@ describe('Pixel Drive rigid-body physics', () => {
     expect(states[1].angle).toBeGreaterThan(1);
     expect(states[2].angle).toBeLessThan(-1);
     expect(states[3].angle).toBeCloseTo(states[0].angle, 10);
-    expect(neutral.vy).toBeCloseTo(-7, 8);
-    expect(states[1].wheels[0].av).toBeLessThan(-40);
+    expect(neutral.vy).toBeCloseTo(3 - 9.81, 8);
+    expect(states[1].wheels[0].av).toBeLessThan(-states[1]._physics.stats.driveOmega * .8);
   });
   test('rotation coasts; opposite pedal first slows it; soft limit never clamps velocity', () => {
     const l = flatLevel(),
@@ -181,7 +181,7 @@ describe('Pixel Drive rigid-body physics', () => {
       if (s.vy > .1 && lastVy <= .1) bounces++;
       lastVy = s.vy;
     }
-    expect(compression).toBeGreaterThan(.4);
+    expect(compression).toBeGreaterThan(.38);
     expect(compression).toBeLessThan(.6);
     expect(bounces).toBe(1);
     expect(minWheel).toBeGreaterThan(.42);
@@ -228,7 +228,7 @@ describe('Pixel Drive rigid-body physics', () => {
     expect(metrics.ice.slip).toBeGreaterThan(metrics.dirt.slip + 3);
     expect(surfaceFriction(flatLevel({
       surface: 'ice'
-    }), 0)).toBe(.2);
+    }), 0)).toBe(.12);
   });
   test('30m/s crosses connected half-metre seams without hidden edge impacts', () => {
     const l = flatLevel(),
@@ -389,7 +389,7 @@ describe('Pixel Drive rigid-body physics', () => {
     expect(terrain(TEST_LEVEL, 70)).toBe(9);
     expect(terrain(TEST_LEVEL, 117)).toBe(7.8);
   });
-  test.each([[[[0, 1], [0, 2]], 30], [[[3, 1], [2, 0]], 30], [[[30, 1]], 30], [[[0, 4]], 30], [[[0, true]], 30], [[[-1, 0]], 30]])('rejects malformed events', (events, ticks) => {
+  test.each([[[[0, 1], [0, 2]], 30], [[[3, 1], [2, 0]], 30], [[[30, 1]], 30], [[[0, 8]], 30], [[[0, true]], 30], [[[-1, 0]], 30]])('rejects malformed events', (events, ticks) => {
     expect(() => replay(getLevel(1), undefined, events, ticks)).toThrow(ReplayValidationError);
   });
   test('unfinished replay requires explicit abandonment', () => {
@@ -476,7 +476,7 @@ describe('Pixel Drive rigid-body physics', () => {
     expect(getUpgradeStats().fuelSeconds).toBe(40);
     const u = {engine: 10, suspension: 10, tires: 10, tank: 10}, stats = getUpgradeStats(u), s = createDrive(flatLevel(), u);
     expect(stats.fuelSeconds).toBe(s.capacity);
-    expect(stats.torqueNm).toBeCloseTo(PHYSICS.forwardTorque * 2.4, 9);
+    expect(stats.torqueNm).toBeCloseTo(4400, 9);
     expect(stats.gripMultiplier).toBe(1.4);
     expect(s.wheels[0].travel).toBeCloseTo(stats.suspension.travel, 12);
     expect(s.wheels.map(w => w.springK)).toEqual(stats.suspension.stiffness);

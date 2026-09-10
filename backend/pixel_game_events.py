@@ -1,4 +1,7 @@
-"""Compact, durable proof of server-validated wins (game sessions expire)."""
+"""Durable campaign completion events after the game's own acceptance policy.
+
+Pixel Drive outcomes are client-reported; these events do not certify physics.
+"""
 from datetime import timezone
 from hashlib import sha256
 

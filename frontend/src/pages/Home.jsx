@@ -12,8 +12,6 @@ import PalmOnSandIcon from "@/components/PalmOnSandIcon";
 import { addIsoDays, formatShiftTime, getScheduleStatus, kyivTodayIso } from "@/lib/workSchedule";
 import depositProjection from "@/lib/depositProjection";
 import { normalizeReportProfile } from "@/lib/activationReports";
-import FlappyHomeCard from "@/games/flappy/FlappyHomeCard";
-import DriveHomeCard from "@/games/pixel-drive/DriveHomeCard";
 
 const { resolveDepositProjectionCurrent } = depositProjection;
 
@@ -92,29 +90,6 @@ const defaultGoals = {
   cards: { current: 0, target: 100, complete: false },
 };
 
-let bonusMatchWarmup = null;
-const warmBonusMatch = () => {
-  if (!bonusMatchWarmup) {
-    bonusMatchWarmup = Promise.all([
-      import("@/pages/BonusMatch"),
-      import("@/lib/bonusMatchAssets").then(({ preloadBonusMatchArtwork }) => preloadBonusMatchArtwork()),
-    ]).catch(() => null);
-  }
-  return bonusMatchWarmup;
-};
-
-let hiddenObjectsWarmup = null;
-const warmHiddenObjects = () => {
-  if (!hiddenObjectsWarmup) {
-    hiddenObjectsWarmup = import("@/pages/HiddenObjects")
-      .then(({ preloadHiddenObjectArtwork }) => preloadHiddenObjectArtwork([
-        { image: "/hidden-objects/v5/scenes/illustrated-easy-office-panorama-v5.png" },
-      ]))
-      .catch(() => null);
-  }
-  return hiddenObjectsWarmup;
-};
-
 export default function Home() {
   const { user, mode } = useApp();
   const nav = useNavigate();
@@ -126,16 +101,6 @@ export default function Home() {
     ? localStorage.getItem("tm6_schedule_admin_login_v1") || ""
     : "";
   const { data: googleReports } = useDailyGoogleReports({ scheduleLogin: selectedScheduleLogin });
-
-  useEffect(() => {
-    const schedule = window.requestIdleCallback
-      ? window.requestIdleCallback(() => { warmBonusMatch(); warmHiddenObjects(); }, { timeout: 2200 })
-      : window.setTimeout(() => { warmBonusMatch(); warmHiddenObjects(); }, 1500);
-    return () => {
-      if (window.cancelIdleCallback && typeof schedule === "number") window.cancelIdleCallback(schedule);
-      else window.clearTimeout(schedule);
-    };
-  }, []);
 
   useEffect(() => {
     if (!user) return;
@@ -257,7 +222,6 @@ export default function Home() {
     {/* 6. Cube */}
     <button onClick={() => nav("/fun")} className="arcade-btn flex w-full items-center gap-4 border-[#7a1c00] bg-gradient-to-r from-[#FFB800] to-[#FF5C00] p-4 text-left text-[#0A0A0A]"><div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-black/25"><Dice5 size={28}/></div><div className="min-w-0 flex-1"><div className="text-[10px] font-black uppercase tracking-widest opacity-70">Щоденний бонус</div><div className="mt-1 font-display text-xl">ЩЕДРИЙ КУБ</div><div className="mt-1 text-xs font-black opacity-90">До 500 балів</div></div><ChevronRight /></button>
 
-    <FlappyHomeCard onClick={() => nav("/games/flappy-pixel?from=pixel")} />
 
     {/* 7. Streak */}
     <section className="flex items-center gap-3 rounded-3xl border border-[#FF5C00]/30 bg-gradient-to-r from-[#FF5C00]/15 to-transparent p-4"><div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#FF5C00]"><Flame size={24} color="#0A0A0A" /></div><div className="flex-1"><div className="font-black text-white">{user.streak} днів поспіль</div><div className="text-xs text-zinc-400">Не втрачай серію</div></div></section>
@@ -266,14 +230,13 @@ export default function Home() {
     <section><div className="mb-3 flex items-center justify-between px-1"><div className="flex items-center gap-2 font-display text-lg text-white"><Newspaper size={19} color="#39FF14"/>Стрічка активності</div><button type="button" onClick={() => nav("/feed")} className="rounded-full border border-white/10 bg-[#1A1A1E] px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-zinc-300 active:scale-95">Переглянути все</button></div>{feed.length ? <ul className="space-y-3">{feed.slice(0,4).map(ev => <FeedItem key={ev.id} ev={ev}/>)}</ul> : <div className="rounded-3xl border border-white/10 bg-[#1A1A1E] p-5 text-center text-xs text-zinc-500">Поки що немає нової активності</div>}</section>
 
     {/* Pixel is the shared entrance to both existing games. */}
-    <button type="button" onPointerEnter={() => { warmBonusMatch(); warmHiddenObjects(); }} onFocus={() => { warmBonusMatch(); warmHiddenObjects(); }} onClick={() => nav("/pet/room")} className="group relative flex w-full items-center gap-4 overflow-hidden rounded-3xl border border-[#D3AF72]/50 bg-gradient-to-r from-[#24312E] via-[#1D2827] to-[#182323] p-5 text-left shadow-lg active:scale-[.99]" data-testid="home-pixel-story">
+    <button type="button" onClick={() => nav("/pet/room")} className="group relative flex w-full items-center gap-4 overflow-hidden rounded-3xl border border-[#D3AF72]/50 bg-gradient-to-r from-[#24312E] via-[#1D2827] to-[#182323] p-5 text-left shadow-lg active:scale-[.99]" data-testid="home-pixel-story">
       <img src="/pet/room/v6/rig/sit-poster.webp" alt="" className="h-20 w-20 shrink-0 object-contain" />
-      <div className="relative min-w-0 flex-1"><div className="font-display text-xl text-[#F0DFC1]">ПІКСЕЛЬ</div><div className="mt-1 text-sm text-[#D8BD8B]">Кімната з історією</div><div className="mt-2 text-[11px] leading-relaxed text-[#B7C2B5]">Bonus Match · Детектив · Flappy · Повний газ<br />24 розділи, ваші рішення й спільний дім</div></div>
+      <div className="relative min-w-0 flex-1"><div className="font-display text-xl text-[#F0DFC1]">ПІКСЕЛЬ</div><div className="mt-1 text-sm text-[#D8BD8B]">Кімната з історією</div><div className="mt-2 text-[11px] leading-relaxed text-[#B7C2B5]">Bonus Match · Детектив<br />24 розділи, ваші рішення й спільний дім</div></div>
       <ChevronRight className="relative shrink-0 text-[#D9B67C]" />
     </button>
 
     {/* 11. Work schedule */}
-    <DriveHomeCard onClick={() => nav("/games/pixel-drive?from=pixel")} />
 
     {/* Work schedule */}
     <button

@@ -1,4 +1,6 @@
 /* VPDK Bonus — Service Worker
+ * v178 removes standalone game cards from the home page.
+ * v177 caches compressed, content-addressed artwork across app updates.
  * v176 adds the Flappy Pixel campaign on the home screen.
  * v175 bounds runtime assets and protects network responses from quota failures.
  * v174 adds real pet frames, physical toys and persistent server sleep.
@@ -46,15 +48,26 @@
  * never be cached as index.html, otherwise browsers can render a giant broken
  * image element over the board.
  */
-const VERSION = "vpdk-v176";
+const VERSION = "vpdk-v178";
 const STATIC_CACHE = `${VERSION}-static`;
 const RUNTIME_CACHE = `${VERSION}-runtime`;
+// Only files whose URL contains their content hash may survive app updates.
+const ARTWORK_CACHE = "vpdk-artwork-v1";
+const isImmutableArtwork = (url) => url.origin === self.location.origin
+  && /^\/hidden-objects\/optimized\/.+\.[a-f0-9]{12}\.webp$/.test(url.pathname);
+const isHashedBundle = (url) => /^\/static\/(?:js|css)\/.+\.[a-f0-9]{8,}\.(?:chunk\.)?(?:js|css)$/.test(url.pathname);
+const hasBundleContentType = (response, url) => Boolean(response?.ok)
+  && (url.pathname.endsWith(".css")
+    ? /text\/css/i.test(response.headers.get("content-type") || "")
+    : /(?:java|ecma)script/i.test(response.headers.get("content-type") || ""));
 
 // Asset optimisation, not offline pet gameplay. Never let quota failures
 // replace a successful network response. Serial writes keep eviction bounded.
 const RUNTIME_MAX_ENTRIES = 96;
 const RUNTIME_MAX_BYTES = 12 * 1024 * 1024;
 const RUNTIME_MAX_ENTRY_BYTES = 2 * 1024 * 1024;
+const ARTWORK_MAX_ENTRIES = 256;
+const ARTWORK_MAX_BYTES = 48 * 1024 * 1024;
 let cacheWrites = Promise.resolve();
 function cacheRuntime(request, response) {
   cacheWrites = cacheWrites.then(async () => {
@@ -64,13 +77,17 @@ function cacheRuntime(request, response) {
     headers.set("x-vpdk-cache-bytes", String(body.size));
     headers.delete("content-encoding");
     headers.delete("content-length");
-    const cache = await caches.open(RUNTIME_CACHE);
+    const url = new URL(typeof request === "string" ? request : request.url, self.location.origin);
+    const artwork = isImmutableArtwork(url);
+    const cache = await caches.open(artwork ? ARTWORK_CACHE : RUNTIME_CACHE);
     await cache.delete(request);
     await cache.put(request, new Response(body, { status: response.status, statusText: response.statusText, headers }));
     const keys = await cache.keys();
     const sizes = await Promise.all(keys.map(async (key) => Number((await cache.match(key))?.headers.get("x-vpdk-cache-bytes")) || RUNTIME_MAX_ENTRY_BYTES));
     let bytes = sizes.reduce((sum, size) => sum + size, 0), count = keys.length;
-    for (let i = 0; i < keys.length && (count > RUNTIME_MAX_ENTRIES || bytes > RUNTIME_MAX_BYTES); i++) {
+    const maxEntries = artwork ? ARTWORK_MAX_ENTRIES : RUNTIME_MAX_ENTRIES;
+    const maxBytes = artwork ? ARTWORK_MAX_BYTES : RUNTIME_MAX_BYTES;
+    for (let i = 0; i < keys.length && (count > maxEntries || bytes > maxBytes); i++) {
       await cache.delete(keys[i]); bytes -= sizes[i]; count--;
     }
   }).catch(() => {});
@@ -83,22 +100,6 @@ const PRECACHE_URLS = [
   "/icon-192.png",
   "/icon-512.png",
   "/apple-touch-icon.png",
-  "/bonus-match/v90/cell.png?v=90",
-  "/bonus-match/v90/board-frame.png?v=90",
-  "/bonus-match/v90/coin.png?v=90",
-  "/bonus-match/v90/trophy.png?v=90",
-  "/bonus-match/v90/star.png?v=90",
-  "/bonus-match/v90/cube.png?v=90",
-  "/bonus-match/v90/zap.png?v=90",
-  "/bonus-match/v90/gift.png?v=90",
-  "/bonus-match/v90/stone.png?v=90",
-  "/bonus-match/v90/crate.png?v=90",
-  "/bonus-match/v90/chain.png?v=90",
-  "/bonus-match/v90/web-overlay.png?v=90",
-  "/bonus-match/v90/hit-1.png?v=90",
-  "/bonus-match/v90/hit-2.png?v=90",
-  "/bonus-match/atlas/obstacles-v85.webp?v=85",
-  "/hidden-objects/v1/scenes/office-dusk-v1.png",
 ];
 
 const isImageRequest = (request, url) => (
@@ -145,7 +146,7 @@ self.addEventListener("activate", (event) => {
       .keys()
       .then((keys) => Promise.all(
         keys
-          .filter((key) => key.startsWith("vpdk-") && key !== STATIC_CACHE && key !== RUNTIME_CACHE)
+          .filter((key) => key.startsWith("vpdk-") && key !== STATIC_CACHE && key !== RUNTIME_CACHE && key !== ARTWORK_CACHE)
           .map((key) => caches.delete(key)),
       ))
       .then(() => self.clients.claim())
@@ -232,17 +233,20 @@ self.addEventListener("fetch", (event) => {
   }
 
   if (isSameOrigin && (url.pathname.endsWith(".js") || url.pathname.endsWith(".css"))) {
-    event.respondWith(
-      fetch(request, { cache: "no-cache" })
-        .then((response) => {
-          if (response.ok) {
-            const copy = response.clone();
-            event.waitUntil(cacheRuntime(request, copy));
-          }
-          return response;
-        })
-        .catch(() => caches.match(request))
-    );
+    event.respondWith((async () => {
+      const immutable = isHashedBundle(url);
+      if (immutable) {
+        const cached = await caches.match(request).catch(() => undefined);
+        if (hasBundleContentType(cached, url)) return cached;
+      }
+      try {
+        const response = await fetch(request, { cache: immutable ? "default" : "no-cache" });
+        if (hasBundleContentType(response, url)) event.waitUntil(cacheRuntime(request, response.clone()));
+        return response;
+      } catch (_) {
+        return caches.match(request);
+      }
+    })());
     return;
   }
 
@@ -254,7 +258,7 @@ self.addEventListener("fetch", (event) => {
         await caches.open(RUNTIME_CACHE).then((cache) => cache.delete(request)).catch(() => {});
       }
       try {
-        const response = await fetch(request, { cache: "no-cache" });
+        const response = await fetch(request, { cache: isImmutableArtwork(url) ? "default" : "no-cache" });
         if (!hasImageContentType(response)) return transparentImage();
         if (isSameOrigin) {
           try {
